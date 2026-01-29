@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:Ensemble.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:Packages/EnsembleAPI">
+   </FileRef>
+   <FileRef
+      location = "group:Packages/EnsembleCore">
+   </FileRef>
+   <FileRef
+      location = "group:Packages/EnsembleUI">
+   </FileRef>
+   <FileRef
+      location = "group:Packages/EnsemblePersistence">
+   </FileRef>
+</Workspace>

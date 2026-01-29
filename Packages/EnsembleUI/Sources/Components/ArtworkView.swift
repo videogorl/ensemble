@@ -1,0 +1,77 @@
+import EnsembleCore
+import NukeUI
+import SwiftUI
+
+public struct ArtworkView: View {
+    let path: String?
+    let size: ArtworkSize
+    let cornerRadius: CGFloat
+
+    @Environment(\.dependencies) private var dependencies
+
+    public init(
+        path: String?,
+        size: ArtworkSize = .medium,
+        cornerRadius: CGFloat = 8
+    ) {
+        self.path = path
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    public var body: some View {
+        Group {
+            if let url = dependencies.artworkLoader.artworkURL(for: path, size: size.rawValue) {
+                LazyImage(url: url) { state in
+                    if let image = state.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else if state.error != nil {
+                        placeholderView
+                    } else {
+                        placeholderView
+                            .overlay {
+                                ProgressView()
+                                    .tint(.secondary)
+                            }
+                    }
+                }
+            } else {
+                placeholderView
+            }
+        }
+        .frame(width: size.cgSize.width, height: size.cgSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    private var placeholderView: some View {
+        Rectangle()
+            .fill(Color.gray.opacity(0.2))
+            .overlay {
+                Image(systemName: "music.note")
+                    .font(.system(size: size.cgSize.width * 0.3))
+                    .foregroundColor(.gray.opacity(0.5))
+            }
+    }
+}
+
+// MARK: - Convenience Initializers
+
+public extension ArtworkView {
+    init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+        self.init(path: track.thumbPath, size: size, cornerRadius: cornerRadius)
+    }
+
+    init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+        self.init(path: album.thumbPath, size: size, cornerRadius: cornerRadius)
+    }
+
+    init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+        self.init(path: artist.thumbPath, size: size, cornerRadius: cornerRadius)
+    }
+
+    init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
+        self.init(path: playlist.compositePath, size: size, cornerRadius: cornerRadius)
+    }
+}
