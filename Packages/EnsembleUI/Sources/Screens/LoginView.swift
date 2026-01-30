@@ -62,6 +62,9 @@ public struct LoginView: View {
         case .selectingServer:
             serverSelectionView
 
+        case .selectingLibrary:
+            librarySelectionView
+
         case .authenticated:
             // This state means we're transitioning
             ProgressView()
@@ -171,6 +174,48 @@ public struct LoginView: View {
             .foregroundColor(.secondary)
         }
     }
+
+    private var librarySelectionView: some View {
+        VStack(spacing: 16) {
+            Text("Select a Music Library")
+                .font(.headline)
+
+            if viewModel.isLoading {
+                ProgressView()
+            } else if viewModel.libraries.isEmpty {
+                Text("No music libraries found")
+                    .foregroundColor(.secondary)
+
+                Button("Refresh") {
+                    Task {
+                        await viewModel.loadLibraries()
+                    }
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(viewModel.libraries) { library in
+                            LibraryRow(library: library) {
+                                Task {
+                                    await viewModel.selectLibrary(library)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .frame(maxHeight: 300)
+            }
+
+            Button("Sign Out") {
+                Task {
+                    await viewModel.signOut()
+                }
+            }
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        }
+    }
 }
 
 // MARK: - Server Row
@@ -201,6 +246,37 @@ struct ServerRow: View {
                     }
                     .foregroundColor(.secondary)
                 }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Library Row
+
+struct LibraryRow: View {
+    let library: Library
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: "music.note.house")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 44)
+
+                Text(library.title)
+                    .font(.headline)
 
                 Spacer()
 

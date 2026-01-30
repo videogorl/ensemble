@@ -152,6 +152,17 @@ public extension Server {
     }
 }
 
+public extension Library {
+    init(from plex: PlexLibrarySection) {
+        self.init(
+            id: plex.key,
+            key: plex.key,
+            title: plex.title,
+            type: plex.type
+        )
+    }
+}
+
 public extension Download {
     init(from cd: CDDownload) {
         let track = cd.track.map { Track(from: $0) } ?? Track(

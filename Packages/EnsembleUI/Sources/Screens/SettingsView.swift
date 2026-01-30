@@ -31,6 +31,37 @@ public struct SettingsView: View {
                     }
                 }
 
+                if let library = authViewModel.selectedLibrary {
+                    Button {
+                        Task {
+                            await authViewModel.changeLibrary()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "music.note.house")
+                                .font(.title2)
+                                .foregroundColor(.accentColor)
+                                .frame(width: 44)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(library.title)
+                                    .font(.body)
+
+                                Text("Tap to change library")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 Button(role: .destructive) {
                     showingSignOutAlert = true
                 } label: {

@@ -22,8 +22,8 @@ public struct DownloadsView: View {
         }
         .navigationTitle("Downloads")
         .toolbar {
-            if !viewModel.downloads.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !viewModel.downloads.isEmpty {
                     Text(viewModel.totalSize)
                         .font(.caption)
                         .foregroundColor(.secondary)

@@ -43,12 +43,23 @@ public struct PlexServerConnection: Sendable {
     }
 }
 
+public struct PlexLibrarySelection: Sendable {
+    public let key: String
+    public let title: String
+
+    public init(key: String, title: String) {
+        self.key = key
+        self.title = title
+    }
+}
+
 public actor PlexAPIClient {
     private let session: URLSession
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
 
     private var serverConnection: PlexServerConnection?
+    private var selectedLibrary: PlexLibrarySelection?
 
     private static let plexTVBaseURL = "https://plex.tv"
 
@@ -79,6 +90,12 @@ public actor PlexAPIClient {
                 name: "Saved Server"
             )
         }
+
+        // Restore saved library selection
+        if let key = try? keychain.get(KeychainKey.selectedLibraryKey),
+           let title = try? keychain.get(KeychainKey.selectedLibraryTitle) {
+            self.selectedLibrary = PlexLibrarySelection(key: key, title: title)
+        }
     }
 
     // MARK: - Server Connection
@@ -99,6 +116,32 @@ public actor PlexAPIClient {
         try keychain.delete(KeychainKey.selectedServerURL)
         try keychain.delete(KeychainKey.selectedServerToken)
         try keychain.delete(KeychainKey.selectedServerIdentifier)
+        // Also clear library selection when server changes
+        try clearLibrarySelection()
+    }
+
+    // MARK: - Library Selection
+
+    public func setLibrarySelection(_ selection: PlexLibrarySelection) throws {
+        self.selectedLibrary = selection
+        try keychain.save(selection.key, forKey: KeychainKey.selectedLibraryKey)
+        try keychain.save(selection.title, forKey: KeychainKey.selectedLibraryTitle)
+    }
+
+    public func getLibrarySelection() -> PlexLibrarySelection? {
+        selectedLibrary
+    }
+
+    public func clearLibrarySelection() throws {
+        selectedLibrary = nil
+        try keychain.delete(KeychainKey.selectedLibraryKey)
+        try keychain.delete(KeychainKey.selectedLibraryTitle)
+    }
+
+    /// Get all music library sections
+    public func getMusicLibrarySections() async throws -> [PlexLibrarySection] {
+        let sections = try await getLibrarySections()
+        return sections.filter { $0.isMusicLibrary }
     }
 
     // MARK: - Plex.tv API
@@ -144,10 +187,20 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
-    /// Get music library section (convenience method)
+    /// Get music library section - uses selected library if available, otherwise first music library
     public func getMusicLibrarySection() async throws -> PlexLibrarySection? {
         let sections = try await getLibrarySections()
-        return sections.first { $0.isMusicLibrary }
+        let musicSections = sections.filter { $0.isMusicLibrary }
+
+        // If we have a selected library, try to find it
+        if let selected = selectedLibrary {
+            if let match = musicSections.first(where: { $0.key == selected.key }) {
+                return match
+            }
+        }
+
+        // Fallback to first music library
+        return musicSections.first
     }
 
     /// Get all artists in a library section

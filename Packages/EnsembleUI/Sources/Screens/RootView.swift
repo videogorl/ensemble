@@ -2,6 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 /// Root view that handles authentication state and platform-adaptive navigation
+@available(iOS 16.0, macOS 13.0, *)
 public struct RootView: View {
     @StateObject private var authViewModel: AuthViewModel
 
@@ -19,6 +20,9 @@ public struct RootView: View {
                 LoginView(viewModel: authViewModel)
 
             case .selectingServer:
+                LoginView(viewModel: authViewModel)
+
+            case .selectingLibrary:
                 LoginView(viewModel: authViewModel)
 
             case .authenticated:

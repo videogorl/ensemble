@@ -198,6 +198,27 @@ public struct Server: Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Library
+
+public struct Library: Identifiable, Hashable, Sendable {
+    public let id: String  // key
+    public let key: String
+    public let title: String
+    public let type: String
+
+    public init(
+        id: String,
+        key: String,
+        title: String,
+        type: String
+    ) {
+        self.id = id
+        self.key = key
+        self.title = title
+        self.type = type
+    }
+}
+
 // MARK: - Download
 
 public struct Download: Identifiable, Sendable {

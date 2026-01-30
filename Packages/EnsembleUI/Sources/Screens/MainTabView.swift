@@ -10,11 +10,6 @@ public struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showingNowPlaying = false
 
-    // Navigation state
-    @State private var artistNavigationPath = NavigationPath()
-    @State private var albumNavigationPath = NavigationPath()
-    @State private var playlistNavigationPath = NavigationPath()
-
     public init(authViewModel: AuthViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
@@ -35,41 +30,28 @@ public struct MainTabView: View {
                 .tag(0)
 
                 // Artists
-                NavigationStack(path: $artistNavigationPath) {
+                NavigationView {
                     ArtistsView(
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
                         onArtistTap: { artist in
-                            artistNavigationPath.append(artist)
+                            // Navigation handled by ArtistsView
                         }
                     )
-                    .navigationDestination(for: Artist.self) { artist in
-                        ArtistDetailView(
-                            artist: artist,
-                            nowPlayingVM: nowPlayingVM,
-                            onAlbumTap: { album in
-                                artistNavigationPath.append(album)
-                            }
-                        )
-                    }
-                    .navigationDestination(for: Album.self) { album in
-                        AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                    }
                 }
+                .navigationViewStyle(.stack)
                 .tabItem {
                     Label("Artists", systemImage: "music.mic")
                 }
                 .tag(1)
 
                 // Playlists
-                NavigationStack(path: $playlistNavigationPath) {
+                NavigationView {
                     PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
-                        playlistNavigationPath.append(playlist)
-                    }
-                    .navigationDestination(for: Playlist.self) { playlist in
-                        PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                        // Navigation handled by PlaylistsView
                     }
                 }
+                .navigationViewStyle(.stack)
                 .tabItem {
                     Label("Playlists", systemImage: "music.note.list")
                 }
@@ -126,6 +108,7 @@ public struct MainTabView: View {
 
 // MARK: - iPad Sidebar View
 
+@available(iOS 16.0, *)
 public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel

@@ -11,7 +11,7 @@ struct WatchRootView: View {
             case .unknown:
                 ProgressView()
 
-            case .unauthenticated, .authenticating, .selectingServer:
+            case .unauthenticated, .authenticating, .selectingServer, .selectingLibrary:
                 WatchLoginView(viewModel: authViewModel)
 
             case .authenticated:
@@ -38,7 +38,8 @@ struct WatchLoginView: View {
             Text("Ensemble")
                 .font(.headline)
 
-            if case .authenticating(let code, _) = viewModel.authState {
+            switch viewModel.authState {
+            case .authenticating(let code, _):
                 VStack(spacing: 8) {
                     Text("Enter code at")
                         .font(.caption2)
@@ -50,7 +51,48 @@ struct WatchLoginView: View {
                         .fontWeight(.bold)
                         .monospacedDigit()
                 }
-            } else {
+
+            case .selectingServer:
+                VStack(spacing: 8) {
+                    Text("Select Server")
+                        .font(.caption)
+                    if viewModel.isLoading {
+                        ProgressView()
+                    } else {
+                        ScrollView {
+                            ForEach(viewModel.servers) { server in
+                                Button(server.name) {
+                                    Task {
+                                        await viewModel.selectServer(server)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                }
+
+            case .selectingLibrary:
+                VStack(spacing: 8) {
+                    Text("Select Library")
+                        .font(.caption)
+                    if viewModel.isLoading {
+                        ProgressView()
+                    } else {
+                        ScrollView {
+                            ForEach(viewModel.libraries) { library in
+                                Button(library.title) {
+                                    Task {
+                                        await viewModel.selectLibrary(library)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                }
+
+            default:
                 Button("Sign In") {
                     Task {
                         await viewModel.startAuth()

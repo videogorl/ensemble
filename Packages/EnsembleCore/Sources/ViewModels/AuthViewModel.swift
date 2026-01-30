@@ -7,6 +7,7 @@ public enum AuthState: Equatable {
     case unauthenticated
     case authenticating(code: String, linkURL: URL)
     case selectingServer
+    case selectingLibrary
     case authenticated
 }
 
@@ -15,6 +16,8 @@ public final class AuthViewModel: ObservableObject {
     @Published public private(set) var authState: AuthState = .unknown
     @Published public private(set) var servers: [Server] = []
     @Published public private(set) var selectedServer: Server?
+    @Published public private(set) var libraries: [Library] = []
+    @Published public private(set) var selectedLibrary: Library?
     @Published public private(set) var error: String?
     @Published public private(set) var isLoading = false
 
@@ -38,7 +41,14 @@ public final class AuthViewModel: ObservableObject {
             // Check if we have a selected server
             let connection = await apiClient.getServerConnection()
             if connection != nil {
-                authState = .authenticated
+                // Check if we have a selected library
+                let librarySelection = await apiClient.getLibrarySelection()
+                if librarySelection != nil {
+                    authState = .authenticated
+                } else {
+                    authState = .selectingLibrary
+                    await loadLibraries()
+                }
             } else {
                 authState = .selectingServer
                 await loadServers()
@@ -118,6 +128,41 @@ public final class AuthViewModel: ObservableObject {
             )
             try await apiClient.setServerConnection(connection)
             selectedServer = server
+            authState = .selectingLibrary
+            await loadLibraries()
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    public func loadLibraries() async {
+        isLoading = true
+        error = nil
+
+        do {
+            let sections = try await apiClient.getMusicLibrarySections()
+            libraries = sections.map { Library(from: $0) }
+
+            // Auto-select if only one library
+            if libraries.count == 1, let library = libraries.first {
+                await selectLibrary(library)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    public func selectLibrary(_ library: Library) async {
+        isLoading = true
+
+        do {
+            let selection = PlexLibrarySelection(key: library.key, title: library.title)
+            try await apiClient.setLibrarySelection(selection)
+            selectedLibrary = library
             authState = .authenticated
         } catch {
             self.error = error.localizedDescription
@@ -132,14 +177,22 @@ public final class AuthViewModel: ObservableObject {
         do {
             try await authService.signOut()
             try await apiClient.clearServerConnection()
+            try await apiClient.clearLibrarySelection()
         } catch {
             print("Sign out error: \(error)")
         }
 
         servers = []
         selectedServer = nil
+        libraries = []
+        selectedLibrary = nil
         authState = .unauthenticated
         isLoading = false
+    }
+
+    public func changeLibrary() async {
+        authState = .selectingLibrary
+        await loadLibraries()
     }
 
     public func cancelAuth() {
