@@ -73,7 +73,18 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Sync tracks
         progressHandler(0.5)
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
-        for track in tracks {
+        print("📀 Syncing \(tracks.count) tracks")
+        for (index, track) in tracks.enumerated() {
+            if index == 0 {
+                print("📀 First track streamURL: \(track.streamURL ?? "nil")")
+                print("📀 First track media count: \(track.media?.count ?? 0)")
+                if let media = track.media?.first {
+                    print("📀 First track parts count: \(media.part?.count ?? 0)")
+                    if let part = media.part?.first {
+                        print("📀 First track part key: \(part.key ?? "nil")")
+                    }
+                }
+            }
             _ = try await repository.upsertTrack(
                 ratingKey: track.ratingKey,
                 key: track.key,
@@ -126,8 +137,23 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
     }
 
-    public func getStreamURL(for trackStreamKey: String?) async throws -> URL {
-        try await apiClient.getStreamURL(trackKey: trackStreamKey)
+    public func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL {
+        // If we have a direct stream key (the media part path), use it
+        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+            print("🔍 PlexProvider: Using cached stream key: \(streamKey)")
+            return try await apiClient.getStreamURL(trackKey: streamKey)
+        }
+        
+        // Fallback: Fetch the full track metadata which should include Media array
+        print("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
+        if let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+           let streamKey = track.streamURL {
+            print("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
+            return try await apiClient.getStreamURL(trackKey: streamKey)
+        }
+        
+        print("❌ PlexProvider: Could not get stream URL for track")
+        throw PlexAPIError.invalidURL
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {

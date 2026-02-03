@@ -183,7 +183,15 @@ public actor PlexAPIClient {
 
     /// Get all tracks in a library section
     public func getTracks(sectionKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: ["type": "10"])
+        // Try different parameters that might include Media array
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all", 
+            query: [
+                "type": "10",
+                "includeMedia": "1",
+                "includeElements": "Media"
+            ]
+        )
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
@@ -203,12 +211,34 @@ public actor PlexAPIClient {
 
     /// Get a single track
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
-        let data = try await serverRequest(path: "/library/metadata/\(trackKey)")
+        // Fetch without extra parameters - single track fetches typically include Media
+        let data = try await serverRequest(
+            path: "/library/metadata/\(trackKey)"
+        )
+        
+        // Debug: Print raw JSON to see what Plex is returning
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("🔍 Raw JSON response (first 500 chars): \(String(jsonString.prefix(500)))")
+        }
+        
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
-        return container.mediaContainer.items.first
+        let track = container.mediaContainer.items.first
+        
+        if let track = track {
+            print("🔍 getTrack - media count: \(track.media?.count ?? 0)")
+            if let media = track.media?.first {
+                print("🔍 getTrack - part count: \(media.part?.count ?? 0)")
+                if let part = media.part?.first {
+                    print("🔍 getTrack - part key: \(part.key ?? "nil")")
+                    print("🔍 getTrack - part file: \(part.file ?? "nil")")
+                }
+            }
+        }
+        
+        return track
     }
 
     /// Get genres in a library section
@@ -271,11 +301,19 @@ public actor PlexAPIClient {
 
     /// Generate streaming URL for a track using its stream key
     public func getStreamURL(trackKey: String?) throws -> URL {
-        guard let partKey = trackKey else {
+        guard let partKey = trackKey, !partKey.isEmpty else {
+            print("❌ PlexAPIClient: trackKey is nil or empty")
             throw PlexAPIError.invalidURL
         }
 
-        var components = URLComponents(string: serverConnection.url)!
+        print("🔍 PlexAPIClient: Building stream URL with partKey: \(partKey)")
+        print("🔍 PlexAPIClient: Server URL: \(serverConnection.url)")
+        
+        guard var components = URLComponents(string: serverConnection.url) else {
+            print("❌ PlexAPIClient: Failed to create URLComponents from server URL")
+            throw PlexAPIError.invalidURL
+        }
+        
         components.path = partKey
         components.queryItems = [
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
@@ -283,19 +321,43 @@ public actor PlexAPIClient {
         ]
 
         guard let url = components.url else {
+            print("❌ PlexAPIClient: Failed to construct final URL")
+            print("❌ PlexAPIClient: Components - path: \(components.path ?? "nil"), host: \(components.host ?? "nil")")
             throw PlexAPIError.invalidURL
         }
 
+        print("✅ PlexAPIClient: Successfully created stream URL: \(url)")
         return url
     }
 
     /// Generate streaming URL for a track
     public func getStreamURL(for track: PlexTrack) throws -> URL {
+        print("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
+        print("🔍 Track ratingKey: \(track.ratingKey)")
+        print("🔍 Track media count: \(track.media?.count ?? 0)")
+        
+        if let media = track.media?.first {
+            print("🔍 First media - parts count: \(media.part?.count ?? 0)")
+            if let part = media.part?.first {
+                print("🔍 First part key: \(part.key ?? "nil")")
+            } else {
+                print("❌ No parts in media")
+            }
+        } else {
+            print("❌ No media array in track")
+        }
+        
         guard let partKey = track.media?.first?.part?.first?.key else {
+            print("❌ Cannot extract part key from track")
             throw PlexAPIError.invalidURL
         }
 
-        var components = URLComponents(string: serverConnection.url)!
+        print("🔍 Building URL with partKey: \(partKey)")
+        guard var components = URLComponents(string: serverConnection.url) else {
+            print("❌ Failed to create URLComponents from server URL")
+            throw PlexAPIError.invalidURL
+        }
+        
         components.path = partKey
         components.queryItems = [
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
@@ -303,9 +365,11 @@ public actor PlexAPIClient {
         ]
 
         guard let url = components.url else {
+            print("❌ Failed to construct final URL")
             throw PlexAPIError.invalidURL
         }
 
+        print("✅ Successfully created stream URL: \(url)")
         return url
     }
 

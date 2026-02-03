@@ -13,7 +13,7 @@ public protocol MusicSourceSyncProvider: Sendable {
     ) async throws
 
     /// Get a streaming URL for a track
-    func getStreamURL(for trackStreamKey: String?) async throws -> URL
+    func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?

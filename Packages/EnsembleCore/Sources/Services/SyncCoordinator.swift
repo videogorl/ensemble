@@ -118,13 +118,13 @@ public final class SyncCoordinator: ObservableObject {
         if let sourceKey = track.sourceCompositeKey,
            let provider = syncProviders[sourceKey] {
             print("🔍 Using provider for sourceKey: \(sourceKey)")
-            return try await provider.getStreamURL(for: track.streamKey)
+            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
         }
 
         // Fallback: try any available provider
         if let provider = syncProviders.values.first {
             print("⚠️ Using fallback provider")
-            return try await provider.getStreamURL(for: track.streamKey)
+            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
         }
 
         print("❌ No providers available")

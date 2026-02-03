@@ -195,6 +195,29 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let lastViewedAt: Int?
     public let media: [PlexMedia]?
 
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+        case key
+        case parentRatingKey
+        case grandparentRatingKey
+        case title
+        case parentTitle
+        case grandparentTitle
+        case summary
+        case index
+        case parentIndex
+        case duration
+        case thumb
+        case art
+        case parentThumb
+        case grandparentThumb
+        case addedAt
+        case updatedAt
+        case viewCount
+        case lastViewedAt
+        case media = "Media"
+    }
+
     public var id: String { ratingKey }
 
     public var durationSeconds: TimeInterval {
