@@ -1,11 +1,12 @@
 import EnsembleCore
 import SwiftUI
 
-public struct LoginView: View {
-    @ObservedObject var viewModel: AuthViewModel
+public struct AddPlexAccountView: View {
+    @StateObject private var viewModel: AddPlexAccountViewModel
+    @Environment(\.dismiss) private var dismiss
 
-    public init(viewModel: AuthViewModel) {
-        self.viewModel = viewModel
+    public init() {
+        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAddPlexAccountViewModel())
     }
 
     public var body: some View {
@@ -13,19 +14,15 @@ public struct LoginView: View {
             VStack(spacing: 32) {
                 Spacer()
 
-                // App icon/logo
+                // App icon
                 VStack(spacing: 16) {
                     Image(systemName: "music.note.house.fill")
-                        .font(.system(size: 80))
+                        .font(.system(size: 60))
                         .foregroundColor(.accentColor)
 
-                    Text("Ensemble")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-
-                    Text("Music player for Plex")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                    Text("Add Plex Account")
+                        .font(.title2)
+                        .fontWeight(.semibold)
                 }
 
                 Spacer()
@@ -45,15 +42,26 @@ public struct LoginView: View {
                 }
             }
             .padding()
-            .navigationBarHidden(true)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: viewModel.state) { newState in
+                if newState == .complete {
+                    dismiss()
+                }
+            }
         }
-        .navigationViewStyle(.stack)
     }
 
     @ViewBuilder
     private var authContent: some View {
-        switch viewModel.authState {
-        case .unknown, .unauthenticated:
+        switch viewModel.state {
+        case .ready:
             signInButton
 
         case .authenticating(let code, let linkURL):
@@ -62,11 +70,10 @@ public struct LoginView: View {
         case .selectingServer:
             serverSelectionView
 
-        case .selectingLibrary:
+        case .selectingLibraries:
             librarySelectionView
 
-        case .authenticated:
-            // This state means we're transitioning
+        case .complete:
             ProgressView()
         }
     }
@@ -103,7 +110,6 @@ public struct LoginView: View {
             Text("Enter this code at plex.tv/link")
                 .font(.headline)
 
-            // PIN code display
             Text(code)
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
                 .tracking(8)
@@ -164,20 +170,12 @@ public struct LoginView: View {
                 }
                 .frame(maxHeight: 300)
             }
-
-            Button("Sign Out") {
-                Task {
-                    await viewModel.signOut()
-                }
-            }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
         }
     }
 
     private var librarySelectionView: some View {
         VStack(spacing: 16) {
-            Text("Select a Music Library")
+            Text("Select Libraries")
                 .font(.headline)
 
             if viewModel.isLoading {
@@ -195,94 +193,55 @@ public struct LoginView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(viewModel.libraries) { library in
-                            LibraryRow(library: library) {
-                                Task {
-                                    await viewModel.selectLibrary(library)
-                                }
+                            LibrarySelectionRow(
+                                library: library,
+                                isSelected: viewModel.selectedLibraryKeys.contains(library.key)
+                            ) {
+                                viewModel.toggleLibrary(library)
                             }
                         }
                     }
                     .padding(.horizontal)
                 }
                 .frame(maxHeight: 300)
-            }
 
-            Button("Sign Out") {
-                Task {
-                    await viewModel.signOut()
-                }
-            }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - Server Row
-
-struct ServerRow: View {
-    let server: Server
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: "server.rack")
-                    .font(.title2)
-                    .foregroundColor(.accentColor)
-                    .frame(width: 44)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(server.name)
+                Button {
+                    viewModel.confirmLibraries()
+                } label: {
+                    Text("Add Account")
                         .font(.headline)
-
-                    HStack(spacing: 4) {
-                        if server.isLocal {
-                            Image(systemName: "wifi")
-                                .font(.caption2)
-                        }
-                        Text(server.platform ?? "Server")
-                            .font(.caption)
-                    }
-                    .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
                 }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                .padding(.horizontal, 32)
+                .disabled(viewModel.selectedLibraryKeys.isEmpty)
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(12)
         }
-        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Library Row
+// MARK: - Library Selection Row
 
-struct LibraryRow: View {
+struct LibrarySelectionRow: View {
     let library: Library
+    let isSelected: Bool
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                Image(systemName: "music.note.house")
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(isSelected ? .accentColor : .gray)
                     .frame(width: 44)
 
                 Text(library.title)
                     .font(.headline)
 
                 Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             .padding()
             .background(Color.gray.opacity(0.1))
@@ -291,3 +250,5 @@ struct LibraryRow: View {
         .buttonStyle(.plain)
     }
 }
+
+// Note: ServerRow is already defined in LoginView.swift, reuse it

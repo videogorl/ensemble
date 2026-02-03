@@ -129,7 +129,6 @@ public actor PlexAuthService {
             let updatedPIN = try JSONDecoder().decode(PlexPIN.self, from: data)
 
             if let token = updatedPIN.authToken, !token.isEmpty {
-                try keychain.save(token, forKey: KeychainKey.plexAuthToken)
                 return token
             }
 
@@ -158,24 +157,6 @@ public actor PlexAuthService {
         }
 
         throw PlexAuthError.pinExpired
-    }
-
-    /// Get stored auth token
-    public func getStoredToken() -> String? {
-        try? keychain.get(KeychainKey.plexAuthToken)
-    }
-
-    /// Check if user is authenticated
-    public func isAuthenticated() -> Bool {
-        getStoredToken() != nil
-    }
-
-    /// Sign out
-    public func signOut() throws {
-        try keychain.delete(KeychainKey.plexAuthToken)
-        try keychain.delete(KeychainKey.selectedServerIdentifier)
-        try keychain.delete(KeychainKey.selectedServerToken)
-        try keychain.delete(KeychainKey.selectedServerURL)
     }
 
     // MARK: - Private Methods

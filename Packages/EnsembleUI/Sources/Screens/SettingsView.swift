@@ -2,74 +2,43 @@ import EnsembleCore
 import SwiftUI
 
 public struct SettingsView: View {
-    @ObservedObject var authViewModel: AuthViewModel
-    @State private var showingSignOutAlert = false
+    @State private var showingAddAccount = false
+    @State private var showingDeleteAlert = false
+    @State private var sourceToDelete: MusicSource?
 
-    public init(authViewModel: AuthViewModel) {
-        self.authViewModel = authViewModel
-    }
+    private let accountManager = DependencyContainer.shared.accountManager
+
+    public init() {}
 
     public var body: some View {
         List {
-            // Account section
-            Section("Account") {
-                if let server = authViewModel.selectedServer {
-                    HStack {
-                        Image(systemName: "server.rack")
-                            .font(.title2)
-                            .foregroundColor(.accentColor)
-                            .frame(width: 44)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(server.name)
-                                .font(.body)
-
-                            Text(server.platform ?? "Plex Server")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+            // Music Sources section
+            Section {
+                ForEach(accountManager.enabledMusicSources()) { source in
+                    MusicSourceRow(source: source)
+                }
+                .onDelete { indexSet in
+                    guard let index = indexSet.first else { return }
+                    let sources = accountManager.enabledMusicSources()
+                    sourceToDelete = sources[index]
+                    showingDeleteAlert = true
                 }
 
-                if let library = authViewModel.selectedLibrary {
-                    Button {
-                        Task {
-                            await authViewModel.changeLibrary()
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "music.note.house")
-                                .font(.title2)
-                                .foregroundColor(.accentColor)
-                                .frame(width: 44)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(library.title)
-                                    .font(.body)
-
-                                Text("Tap to change library")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Button(role: .destructive) {
-                    showingSignOutAlert = true
+                Button {
+                    showingAddAccount = true
                 } label: {
                     HStack {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.accentColor)
                             .frame(width: 44)
-                        Text("Sign Out")
+                        Text("Add Plex Account")
                     }
+                }
+            } header: {
+                Text("Music Sources")
+            } footer: {
+                if accountManager.enabledMusicSources().isEmpty {
+                    Text("Add a Plex server to access your music library.")
                 }
             }
 
@@ -125,15 +94,47 @@ public struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Settings")
-        .alert("Sign Out", isPresented: $showingSignOutAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Sign Out", role: .destructive) {
-                Task {
-                    await authViewModel.signOut()
+        .sheet(isPresented: $showingAddAccount) {
+            AddPlexAccountView()
+        }
+        .alert("Remove Music Source", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) {
+                sourceToDelete = nil
+            }
+            Button("Remove", role: .destructive) {
+                if let source = sourceToDelete {
+                    accountManager.removeMusicSource(source.id)
+                    sourceToDelete = nil
                 }
             }
         } message: {
-            Text("Are you sure you want to sign out? Your downloaded music will be preserved.")
+            if let source = sourceToDelete {
+                Text("Remove \(source.displayName)? Your music will remain in the library until the next sync.")
+            }
+        }
+    }
+}
+
+// MARK: - Music Source Row
+
+struct MusicSourceRow: View {
+    let source: MusicSource
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "server.rack")
+                .font(.title2)
+                .foregroundColor(.accentColor)
+                .frame(width: 44)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(source.displayName)
+                    .font(.body)
+
+                Text(source.accountName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }

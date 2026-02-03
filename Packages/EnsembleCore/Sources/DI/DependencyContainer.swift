@@ -8,12 +8,15 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public static let shared = DependencyContainer()
 
-    // MARK: - Core Services (Singletons)
+    // MARK: - Core Services
 
     public let keychain: KeychainServiceProtocol
     public let coreDataStack: CoreDataStack
-    public let apiClient: PlexAPIClient
-    public let authService: PlexAuthService
+
+    // MARK: - Multi-Source
+
+    public let accountManager: AccountManager
+    public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
 
@@ -24,8 +27,11 @@ public final class DependencyContainer: @unchecked Sendable {
     // MARK: - Services
 
     public let playbackService: PlaybackService
-    public let syncService: LibrarySyncServiceProtocol
     public let artworkLoader: ArtworkLoaderProtocol
+
+    // MARK: - Legacy (kept for add-account flow)
+
+    public let authService: PlexAuthService
 
     // MARK: - Initialization
 
@@ -33,7 +39,6 @@ public final class DependencyContainer: @unchecked Sendable {
         // Core infrastructure
         keychain = KeychainService.shared
         coreDataStack = CoreDataStack.shared
-        apiClient = PlexAPIClient(keychain: keychain)
         authService = PlexAuthService(keychain: keychain)
 
         // Repositories
@@ -41,28 +46,27 @@ public final class DependencyContainer: @unchecked Sendable {
         playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
 
-        // Services
-        playbackService = PlaybackService(apiClient: apiClient)
-        syncService = LibrarySyncService(
-            apiClient: apiClient,
+        // Multi-source management
+        accountManager = AccountManager(keychain: keychain)
+        syncCoordinator = SyncCoordinator(
+            accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository
         )
-        artworkLoader = ArtworkLoader(apiClient: apiClient)
+
+        // Services using sync coordinator
+        playbackService = PlaybackService(syncCoordinator: syncCoordinator)
+        artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
     }
 
     // MARK: - View Model Factories
 
     @MainActor
-    public func makeAuthViewModel() -> AuthViewModel {
-        AuthViewModel(authService: authService, apiClient: apiClient)
-    }
-
-    @MainActor
     public func makeLibraryViewModel() -> LibraryViewModel {
         LibraryViewModel(
             libraryRepository: libraryRepository,
-            syncService: syncService
+            syncCoordinator: syncCoordinator,
+            accountManager: accountManager
         )
     }
 
@@ -75,7 +79,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeArtistDetailViewModel(artist: Artist) -> ArtistDetailViewModel {
         ArtistDetailViewModel(
             artist: artist,
-            apiClient: apiClient,
             libraryRepository: libraryRepository
         )
     }
@@ -84,7 +87,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeAlbumDetailViewModel(album: Album) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
             album: album,
-            apiClient: apiClient,
             libraryRepository: libraryRepository
         )
     }
@@ -92,7 +94,6 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makePlaylistViewModel() -> PlaylistViewModel {
         PlaylistViewModel(
-            apiClient: apiClient,
             playlistRepository: playlistRepository
         )
     }
@@ -101,7 +102,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makePlaylistDetailViewModel(playlist: Playlist) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
-            apiClient: apiClient,
             playlistRepository: playlistRepository,
             libraryRepository: libraryRepository
         )
@@ -110,7 +110,6 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makeSearchViewModel() -> SearchViewModel {
         SearchViewModel(
-            apiClient: apiClient,
             libraryRepository: libraryRepository
         )
     }
@@ -118,6 +117,23 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makeDownloadsViewModel() -> DownloadsViewModel {
         DownloadsViewModel(downloadManager: downloadManager)
+    }
+
+    @MainActor
+    public func makeAddPlexAccountViewModel() -> AddPlexAccountViewModel {
+        AddPlexAccountViewModel(
+            authService: authService,
+            accountManager: accountManager,
+            keychain: keychain
+        )
+    }
+
+    @MainActor
+    public func makeSyncPanelViewModel() -> SyncPanelViewModel {
+        SyncPanelViewModel(
+            syncCoordinator: syncCoordinator,
+            accountManager: accountManager
+        )
     }
 }
 

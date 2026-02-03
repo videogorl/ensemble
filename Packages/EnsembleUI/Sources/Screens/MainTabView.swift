@@ -5,15 +5,14 @@ import SwiftUI
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
-    @ObservedObject var authViewModel: AuthViewModel
 
     @State private var selectedTab = 0
     @State private var showingNowPlaying = false
+    @State private var showingSyncPanel = false
 
-    public init(authViewModel: AuthViewModel) {
+    public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
-        self.authViewModel = authViewModel
     }
 
     public var body: some View {
@@ -22,6 +21,11 @@ public struct MainTabView: View {
                 // Songs
                 NavigationView {
                     SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                syncButton
+                            }
+                        }
                 }
                 .navigationViewStyle(.stack)
                 .tabItem {
@@ -71,8 +75,7 @@ public struct MainTabView: View {
                 NavigationView {
                     MoreView(
                         libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM,
-                        authViewModel: authViewModel
+                        nowPlayingVM: nowPlayingVM
                     )
                 }
                 .navigationViewStyle(.stack)
@@ -100,8 +103,19 @@ public struct MainTabView: View {
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
         }
+        .sheet(isPresented: $showingSyncPanel) {
+            SyncPanelView()
+        }
         .task {
             await libraryVM.refresh()
+        }
+    }
+
+    private var syncButton: some View {
+        Button {
+            showingSyncPanel = true
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
         }
     }
 }
@@ -112,15 +126,14 @@ public struct MainTabView: View {
 public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
-    @ObservedObject var authViewModel: AuthViewModel
 
     @State private var selection: SidebarSection? = .songs
     @State private var showingNowPlaying = false
+    @State private var showingSyncPanel = false
 
-    public init(authViewModel: AuthViewModel) {
+    public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
-        self.authViewModel = authViewModel
     }
 
     public var body: some View {
@@ -156,11 +169,23 @@ public struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .navigationTitle("Ensemble")
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        showingSyncPanel = true
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                }
+            }
         } detail: {
             detailView
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
+        }
+        .sheet(isPresented: $showingSyncPanel) {
+            SyncPanelView()
         }
         .task {
             await libraryVM.refresh()
@@ -208,7 +233,7 @@ public struct SidebarView: View {
             }
         case .settings:
             NavigationStack {
-                SettingsView(authViewModel: authViewModel)
+                SettingsView()
             }
         case .none:
             Text("Select a section")

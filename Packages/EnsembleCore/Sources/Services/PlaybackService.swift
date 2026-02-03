@@ -112,13 +112,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var statusObservation: NSKeyValueObservation?
     private var itemEndObserver: NSObjectProtocol?
 
-    private let apiClient: PlexAPIClient
+    private let syncCoordinator: SyncCoordinator
     private var originalQueue: [QueueItem] = []  // For shuffle restore
 
     // MARK: - Initialization
 
-    public init(apiClient: PlexAPIClient) {
-        self.apiClient = apiClient
+    public init(syncCoordinator: SyncCoordinator) {
+        self.syncCoordinator = syncCoordinator
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -394,9 +394,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // Stream from server
+        // Stream from server via sync coordinator
         do {
-            let url = try await apiClient.getStreamURL(trackKey: track.streamKey)
+            let url = try await syncCoordinator.getStreamURL(for: track)
             await loadAndPlay(url: url)
         } catch {
             playbackState = .failed(error.localizedDescription)

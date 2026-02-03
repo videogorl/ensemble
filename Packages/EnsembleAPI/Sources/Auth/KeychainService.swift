@@ -33,11 +33,9 @@ public final class KeychainService: KeychainServiceProtocol, Sendable {
 // MARK: - Keychain Keys
 
 public enum KeychainKey {
-    public static let plexAuthToken = "plex_auth_token"
+    // Multi-account storage (JSON blob)
+    public static let plexAccounts = "plex_accounts"
+
+    // Shared client identifier
     public static let plexClientIdentifier = "plex_client_identifier"
-    public static let selectedServerIdentifier = "selected_server_identifier"
-    public static let selectedServerToken = "selected_server_token"
-    public static let selectedServerURL = "selected_server_url"
-    public static let selectedLibraryKey = "selected_library_key"
-    public static let selectedLibraryTitle = "selected_library_title"
 }

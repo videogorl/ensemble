@@ -1,5 +1,4 @@
 import Combine
-import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -12,27 +11,32 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
     @Published public private(set) var isSyncing = false
-    @Published public private(set) var syncProgress: Double = 0
+    @Published public private(set) var hasAnySources = false
 
     private let libraryRepository: LibraryRepositoryProtocol
-    private let syncService: LibrarySyncServiceProtocol
+    private let syncCoordinator: SyncCoordinator
+    private let accountManager: AccountManager
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
-        syncService: LibrarySyncServiceProtocol
+        syncCoordinator: SyncCoordinator,
+        accountManager: AccountManager
     ) {
         self.libraryRepository = libraryRepository
-        self.syncService = syncService
+        self.syncCoordinator = syncCoordinator
+        self.accountManager = accountManager
 
         // Observe sync state
-        syncService.isSyncingPublisher
+        syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .assign(to: &$isSyncing)
 
-        syncService.syncProgressPublisher
+        // Observe account state
+        accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)
-            .assign(to: &$syncProgress)
+            .map { !$0.isEmpty }
+            .assign(to: &$hasAnySources)
     }
 
     public func loadLibrary() async {
@@ -67,7 +71,7 @@ public final class LibraryViewModel: ObservableObject {
         error = nil
 
         do {
-            try await syncService.syncLibrary()
+            try await syncCoordinator.syncAll()
             await loadLibrary()
         } catch {
             self.error = error.localizedDescription

@@ -12,9 +12,10 @@ public protocol PlaylistRepositoryProtocol: Sendable {
         compositePath: String?,
         isSmart: Bool,
         duration: Int?,
-        trackCount: Int?
+        trackCount: Int?,
+        sourceCompositeKey: String?
     ) async throws -> CDPlaylist
-    func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String) async throws
+    func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
 }
 
@@ -65,12 +66,17 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         compositePath: String?,
         isSmart: Bool,
         duration: Int?,
-        trackCount: Int?
+        trackCount: Int?,
+        sourceCompositeKey: String? = nil
     ) async throws -> CDPlaylist {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in
                 let request = CDPlaylist.fetchRequest()
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                if let sourceKey = sourceCompositeKey {
+                    request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
+                } else {
+                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                }
 
                 do {
                     let existing = try context.fetch(request).first
@@ -85,13 +91,24 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.duration = Int64(duration ?? 0)
                     playlist.trackCount = Int32(trackCount ?? 0)
                     playlist.updatedAt = Date()
+                    playlist.sourceCompositeKey = sourceCompositeKey
+
+                    if let sourceKey = sourceCompositeKey {
+                        let sourceRequest = CDMusicSource.fetchRequest()
+                        sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceKey)
+                        playlist.source = try context.fetch(sourceRequest).first
+                    }
 
                     try context.save()
 
                     let mainContext = self.coreDataStack.viewContext
                     mainContext.perform {
                         let mainRequest = CDPlaylist.fetchRequest()
-                        mainRequest.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                        if let sourceKey = sourceCompositeKey {
+                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
+                        } else {
+                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                        }
                         if let mainPlaylist = try? mainContext.fetch(mainRequest).first {
                             continuation.resume(returning: mainPlaylist)
                         } else {
@@ -105,13 +122,16 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
 
-    public func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String) async throws {
+    public func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String? = nil) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Find playlist
                     let playlistRequest = CDPlaylist.fetchRequest()
-                    playlistRequest.predicate = NSPredicate(format: "ratingKey == %@", playlistRatingKey)
+                    if let sourceKey = sourceCompositeKey {
+                        playlistRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", playlistRatingKey, sourceKey)
+                    } else {
+                        playlistRequest.predicate = NSPredicate(format: "ratingKey == %@", playlistRatingKey)
+                    }
                     guard let playlist = try context.fetch(playlistRequest).first else {
                         continuation.resume(throwing: NSError(domain: "PlaylistRepository", code: 2, userInfo: [NSLocalizedDescriptionKey: "Playlist not found"]))
                         return
@@ -127,7 +147,11 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     // Add new playlist tracks
                     for (index, trackKey) in trackRatingKeys.enumerated() {
                         let trackRequest = CDTrack.fetchRequest()
-                        trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
+                        if let sourceKey = sourceCompositeKey {
+                            trackRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", trackKey, sourceKey)
+                        } else {
+                            trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
+                        }
                         if let track = try context.fetch(trackRequest).first {
                             let playlistTrack = CDPlaylistTrack(context: context)
                             playlistTrack.order = Int32(index)

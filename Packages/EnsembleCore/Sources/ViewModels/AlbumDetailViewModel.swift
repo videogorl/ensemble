@@ -1,5 +1,4 @@
 import Combine
-import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -10,16 +9,13 @@ public final class AlbumDetailViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
 
-    private let apiClient: PlexAPIClient
     private let libraryRepository: LibraryRepositoryProtocol
 
     public init(
         album: Album,
-        apiClient: PlexAPIClient,
         libraryRepository: LibraryRepositoryProtocol
     ) {
         self.album = album
-        self.apiClient = apiClient
         self.libraryRepository = libraryRepository
     }
 
@@ -28,33 +24,8 @@ public final class AlbumDetailViewModel: ObservableObject {
         error = nil
 
         do {
-            // Try to load from cache first
             let cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
-
-            if !cachedTracks.isEmpty {
-                tracks = cachedTracks.map { Track(from: $0) }
-            }
-
-            // Fetch from API
-            let plexTracks = try await apiClient.getAlbumTracks(albumKey: album.id)
-            tracks = plexTracks.map { Track(from: $0) }
-
-            // Update cache
-            for track in plexTracks {
-                _ = try await libraryRepository.upsertTrack(
-                    ratingKey: track.ratingKey,
-                    key: track.key,
-                    title: track.title,
-                    artistName: track.grandparentTitle,
-                    albumName: track.parentTitle,
-                    albumRatingKey: album.id,
-                    trackNumber: track.index,
-                    discNumber: track.parentIndex,
-                    duration: track.duration,
-                    thumbPath: track.thumb ?? track.parentThumb,
-                    streamKey: track.streamURL
-                )
-            }
+            tracks = cachedTracks.map { Track(from: $0) }
         } catch {
             self.error = error.localizedDescription
         }

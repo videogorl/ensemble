@@ -1,6 +1,31 @@
 import CoreData
 import Foundation
 
+// MARK: - CDMusicSource
+
+@objc(CDMusicSource)
+public class CDMusicSource: NSManagedObject {
+    @NSManaged public var compositeKey: String
+    @NSManaged public var type: String
+    @NSManaged public var accountId: String
+    @NSManaged public var serverId: String
+    @NSManaged public var libraryId: String
+    @NSManaged public var displayName: String?
+    @NSManaged public var accountName: String?
+    @NSManaged public var lastSyncedAt: Date?
+    @NSManaged public var artists: NSSet?
+    @NSManaged public var albums: NSSet?
+    @NSManaged public var tracks: NSSet?
+    @NSManaged public var genres: NSSet?
+    @NSManaged public var playlists: NSSet?
+}
+
+extension CDMusicSource {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDMusicSource> {
+        return NSFetchRequest<CDMusicSource>(entityName: "CDMusicSource")
+    }
+}
+
 // MARK: - CDServer
 
 @objc(CDServer)
@@ -30,7 +55,9 @@ public class CDArtist: NSManagedObject {
     @NSManaged public var thumbPath: String?
     @NSManaged public var artPath: String?
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var server: CDServer?
+    @NSManaged public var source: CDMusicSource?
     @NSManaged public var albums: NSSet?
 }
 
@@ -59,7 +86,9 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var year: Int32
     @NSManaged public var trackCount: Int32
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var artist: CDArtist?
+    @NSManaged public var source: CDMusicSource?
     @NSManaged public var tracks: NSSet?
 }
 
@@ -95,7 +124,9 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var streamKey: String?
     @NSManaged public var localFilePath: String?
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var album: CDAlbum?
+    @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?
     @NSManaged public var playlistTracks: NSSet?
 }
@@ -127,6 +158,8 @@ public class CDPlaylist: NSManagedObject {
     @NSManaged public var duration: Int64
     @NSManaged public var trackCount: Int32
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var source: CDMusicSource?
     @NSManaged public var playlistTracks: NSSet?
 }
 
@@ -196,6 +229,8 @@ public class CDGenre: NSManagedObject {
     @NSManaged public var ratingKey: String?
     @NSManaged public var key: String
     @NSManaged public var title: String
+    @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var source: CDMusicSource?
 }
 
 extension CDGenre {

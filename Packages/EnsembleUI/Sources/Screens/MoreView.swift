@@ -5,16 +5,13 @@ import SwiftUI
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @ObservedObject var authViewModel: AuthViewModel
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        authViewModel: AuthViewModel
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self.authViewModel = authViewModel
     }
 
     public var body: some View {
@@ -50,7 +47,7 @@ public struct MoreView: View {
 
             // Settings
             NavigationLink {
-                SettingsView(authViewModel: authViewModel)
+                SettingsView()
             } label: {
                 Label("Settings", systemImage: "gear")
             }

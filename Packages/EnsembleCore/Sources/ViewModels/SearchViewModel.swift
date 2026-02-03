@@ -1,5 +1,4 @@
 import Combine
-import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -10,16 +9,13 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var isSearching = false
     @Published public private(set) var error: String?
 
-    private let apiClient: PlexAPIClient
     private let libraryRepository: LibraryRepositoryProtocol
     private var searchTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        apiClient: PlexAPIClient,
         libraryRepository: LibraryRepositoryProtocol
     ) {
-        self.apiClient = apiClient
         self.libraryRepository = libraryRepository
 
         // Debounced search
@@ -52,17 +48,8 @@ public final class SearchViewModel: ObservableObject {
         error = nil
 
         do {
-            // Search local cache first for quick results
             let localResults = try await libraryRepository.searchTracks(query: query)
-            if !localResults.isEmpty {
-                results = localResults.map { Track(from: $0) }
-            }
-
-            // Search server
-            if let musicSection = try await apiClient.getMusicLibrarySection() {
-                let serverResults = try await apiClient.search(query: query, sectionKey: musicSection.key)
-                results = serverResults.map { Track(from: $0) }
-            }
+            results = localResults.map { Track(from: $0) }
         } catch {
             if !Task.isCancelled {
                 self.error = error.localizedDescription

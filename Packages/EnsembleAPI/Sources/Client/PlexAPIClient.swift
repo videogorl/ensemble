@@ -58,15 +58,17 @@ public actor PlexAPIClient {
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
 
-    private var serverConnection: PlexServerConnection?
-    private var selectedLibrary: PlexLibrarySelection?
+    private let serverConnection: PlexServerConnection
+    private let selectedLibrary: PlexLibrarySelection?
 
     private static let plexTVBaseURL = "https://plex.tv"
 
-    public init(keychain: KeychainServiceProtocol = KeychainService.shared) {
+    /// Initialize with a direct server connection
+    public init(connection: PlexServerConnection, librarySelection: PlexLibrarySelection? = nil, keychain: KeychainServiceProtocol = KeychainService.shared) {
         self.keychain = keychain
+        self.serverConnection = connection
+        self.selectedLibrary = librarySelection
 
-        // Get or create client identifier
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
             self.clientIdentifier = existingId
         } else {
@@ -78,64 +80,18 @@ public actor PlexAPIClient {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
-
-        // Restore saved server connection
-        if let url = try? keychain.get(KeychainKey.selectedServerURL),
-           let token = try? keychain.get(KeychainKey.selectedServerToken),
-           let identifier = try? keychain.get(KeychainKey.selectedServerIdentifier) {
-            self.serverConnection = PlexServerConnection(
-                url: url,
-                token: token,
-                identifier: identifier,
-                name: "Saved Server"
-            )
-        }
-
-        // Restore saved library selection
-        if let key = try? keychain.get(KeychainKey.selectedLibraryKey),
-           let title = try? keychain.get(KeychainKey.selectedLibraryTitle) {
-            self.selectedLibrary = PlexLibrarySelection(key: key, title: title)
-        }
     }
 
     // MARK: - Server Connection
 
-    public func setServerConnection(_ connection: PlexServerConnection) throws {
-        self.serverConnection = connection
-        try keychain.save(connection.url, forKey: KeychainKey.selectedServerURL)
-        try keychain.save(connection.token, forKey: KeychainKey.selectedServerToken)
-        try keychain.save(connection.identifier, forKey: KeychainKey.selectedServerIdentifier)
-    }
-
-    public func getServerConnection() -> PlexServerConnection? {
+    public func getServerConnection() -> PlexServerConnection {
         serverConnection
-    }
-
-    public func clearServerConnection() throws {
-        serverConnection = nil
-        try keychain.delete(KeychainKey.selectedServerURL)
-        try keychain.delete(KeychainKey.selectedServerToken)
-        try keychain.delete(KeychainKey.selectedServerIdentifier)
-        // Also clear library selection when server changes
-        try clearLibrarySelection()
     }
 
     // MARK: - Library Selection
 
-    public func setLibrarySelection(_ selection: PlexLibrarySelection) throws {
-        self.selectedLibrary = selection
-        try keychain.save(selection.key, forKey: KeychainKey.selectedLibraryKey)
-        try keychain.save(selection.title, forKey: KeychainKey.selectedLibraryTitle)
-    }
-
     public func getLibrarySelection() -> PlexLibrarySelection? {
         selectedLibrary
-    }
-
-    public func clearLibrarySelection() throws {
-        selectedLibrary = nil
-        try keychain.delete(KeychainKey.selectedLibraryKey)
-        try keychain.delete(KeychainKey.selectedLibraryTitle)
     }
 
     /// Get all music library sections
@@ -144,14 +100,10 @@ public actor PlexAPIClient {
         return sections.filter { $0.isMusicLibrary }
     }
 
-    // MARK: - Plex.tv API
+    // MARK: - Plex.tv API (for auth flow - takes token as parameter)
 
     /// Get user's servers/resources
-    public func getResources() async throws -> [PlexDevice] {
-        guard let token = try? keychain.get(KeychainKey.plexAuthToken) else {
-            throw PlexAPIError.notAuthenticated
-        }
-
+    public func getResources(token: String) async throws -> [PlexDevice] {
         var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/resources?includeHttps=1&includeRelay=1")!)
         request.httpMethod = "GET"
         addPlexHeaders(to: &request, token: token)
@@ -162,11 +114,7 @@ public actor PlexAPIClient {
     }
 
     /// Get user info
-    public func getUserInfo() async throws -> PlexUser {
-        guard let token = try? keychain.get(KeychainKey.plexAuthToken) else {
-            throw PlexAPIError.notAuthenticated
-        }
-
+    public func getUserInfo(token: String) async throws -> PlexUser {
         var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/user")!)
         request.httpMethod = "GET"
         addPlexHeaders(to: &request, token: token)
@@ -323,18 +271,14 @@ public actor PlexAPIClient {
 
     /// Generate streaming URL for a track using its stream key
     public func getStreamURL(trackKey: String?) throws -> URL {
-        guard let connection = serverConnection else {
-            throw PlexAPIError.noServerSelected
-        }
-
         guard let partKey = trackKey else {
             throw PlexAPIError.invalidURL
         }
 
-        var components = URLComponents(string: connection.url)!
+        var components = URLComponents(string: serverConnection.url)!
         components.path = partKey
         components.queryItems = [
-            URLQueryItem(name: "X-Plex-Token", value: connection.token),
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
 
@@ -347,18 +291,14 @@ public actor PlexAPIClient {
 
     /// Generate streaming URL for a track
     public func getStreamURL(for track: PlexTrack) throws -> URL {
-        guard let connection = serverConnection else {
-            throw PlexAPIError.noServerSelected
-        }
-
         guard let partKey = track.media?.first?.part?.first?.key else {
             throw PlexAPIError.invalidURL
         }
 
-        var components = URLComponents(string: connection.url)!
+        var components = URLComponents(string: serverConnection.url)!
         components.path = partKey
         components.queryItems = [
-            URLQueryItem(name: "X-Plex-Token", value: connection.token),
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
 
@@ -372,18 +312,15 @@ public actor PlexAPIClient {
     /// Generate artwork URL
     public func getArtworkURL(path: String?, size: Int = 300) throws -> URL? {
         guard let path = path else { return nil }
-        guard let connection = serverConnection else {
-            throw PlexAPIError.noServerSelected
-        }
 
-        var components = URLComponents(string: connection.url)!
+        var components = URLComponents(string: serverConnection.url)!
         components.path = "/photo/:/transcode"
         components.queryItems = [
             URLQueryItem(name: "url", value: path),
             URLQueryItem(name: "width", value: String(size)),
             URLQueryItem(name: "height", value: String(size)),
             URLQueryItem(name: "minSize", value: "1"),
-            URLQueryItem(name: "X-Plex-Token", value: connection.token)
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token)
         ]
 
         return components.url
@@ -392,14 +329,10 @@ public actor PlexAPIClient {
     // MARK: - Private Methods
 
     private func serverRequest(path: String, query: [String: String] = [:]) async throws -> Data {
-        guard let connection = serverConnection else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        var components = URLComponents(string: connection.url)!
+        var components = URLComponents(string: serverConnection.url)!
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        queryItems.append(URLQueryItem(name: "X-Plex-Token", value: connection.token))
+        queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
         components.queryItems = queryItems
 
         guard let url = components.url else {

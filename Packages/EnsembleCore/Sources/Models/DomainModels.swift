@@ -15,6 +15,7 @@ public struct Track: Identifiable, Hashable, Sendable {
     public let thumbPath: String?
     public let streamKey: String?
     public let localFilePath: String?
+    public let sourceCompositeKey: String?
 
     public init(
         id: String,
@@ -28,7 +29,8 @@ public struct Track: Identifiable, Hashable, Sendable {
         duration: TimeInterval = 0,
         thumbPath: String? = nil,
         streamKey: String? = nil,
-        localFilePath: String? = nil
+        localFilePath: String? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.id = id
         self.key = key
@@ -42,6 +44,7 @@ public struct Track: Identifiable, Hashable, Sendable {
         self.thumbPath = thumbPath
         self.streamKey = streamKey
         self.localFilePath = localFilePath
+        self.sourceCompositeKey = sourceCompositeKey
     }
 
     public var isDownloaded: Bool {
@@ -67,6 +70,7 @@ public struct Album: Identifiable, Hashable, Sendable {
     public let trackCount: Int
     public let thumbPath: String?
     public let artPath: String?
+    public let sourceCompositeKey: String?
 
     public init(
         id: String,
@@ -77,7 +81,8 @@ public struct Album: Identifiable, Hashable, Sendable {
         year: Int? = nil,
         trackCount: Int = 0,
         thumbPath: String? = nil,
-        artPath: String? = nil
+        artPath: String? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.id = id
         self.key = key
@@ -88,6 +93,7 @@ public struct Album: Identifiable, Hashable, Sendable {
         self.trackCount = trackCount
         self.thumbPath = thumbPath
         self.artPath = artPath
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -99,19 +105,22 @@ public struct Artist: Identifiable, Hashable, Sendable {
     public let name: String
     public let thumbPath: String?
     public let artPath: String?
+    public let sourceCompositeKey: String?
 
     public init(
         id: String,
         key: String,
         name: String,
         thumbPath: String? = nil,
-        artPath: String? = nil
+        artPath: String? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.id = id
         self.key = key
         self.name = name
         self.thumbPath = thumbPath
         self.artPath = artPath
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -121,11 +130,13 @@ public struct Genre: Identifiable, Hashable, Sendable {
     public let id: String
     public let key: String
     public let title: String
+    public let sourceCompositeKey: String?
 
-    public init(id: String, key: String, title: String) {
+    public init(id: String, key: String, title: String, sourceCompositeKey: String? = nil) {
         self.id = id
         self.key = key
         self.title = title
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -140,6 +151,7 @@ public struct Playlist: Identifiable, Hashable, Sendable {
     public let trackCount: Int
     public let duration: TimeInterval
     public let compositePath: String?
+    public let sourceCompositeKey: String?
 
     public init(
         id: String,
@@ -149,7 +161,8 @@ public struct Playlist: Identifiable, Hashable, Sendable {
         isSmart: Bool = false,
         trackCount: Int = 0,
         duration: TimeInterval = 0,
-        compositePath: String? = nil
+        compositePath: String? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.id = id
         self.key = key
@@ -159,6 +172,7 @@ public struct Playlist: Identifiable, Hashable, Sendable {
         self.trackCount = trackCount
         self.duration = duration
         self.compositePath = compositePath
+        self.sourceCompositeKey = sourceCompositeKey
     }
 
     public var formattedDuration: String {

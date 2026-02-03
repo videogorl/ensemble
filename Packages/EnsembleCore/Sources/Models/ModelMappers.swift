@@ -35,7 +35,8 @@ public extension Track {
             duration: cd.durationSeconds,
             thumbPath: cd.thumbPath,
             streamKey: cd.streamKey,
-            localFilePath: cd.localFilePath
+            localFilePath: cd.localFilePath,
+            sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
@@ -65,7 +66,8 @@ public extension Album {
             year: cd.year > 0 ? Int(cd.year) : nil,
             trackCount: Int(cd.trackCount),
             thumbPath: cd.thumbPath,
-            artPath: cd.artPath
+            artPath: cd.artPath,
+            sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
@@ -87,7 +89,8 @@ public extension Artist {
             key: cd.key,
             name: cd.name,
             thumbPath: cd.thumbPath,
-            artPath: cd.artPath
+            artPath: cd.artPath,
+            sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
@@ -105,7 +108,8 @@ public extension Genre {
         self.init(
             id: cd.ratingKey ?? cd.key,
             key: cd.key,
-            title: cd.title
+            title: cd.title,
+            sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
@@ -133,7 +137,8 @@ public extension Playlist {
             isSmart: cd.isSmart,
             trackCount: Int(cd.trackCount),
             duration: TimeInterval(cd.duration) / 1000.0,
-            compositePath: cd.compositePath
+            compositePath: cd.compositePath,
+            sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
