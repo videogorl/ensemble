@@ -15,8 +15,8 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Multi-Source
 
-    public let accountManager: AccountManager
-    public let syncCoordinator: SyncCoordinator
+    nonisolated(unsafe) public let accountManager: AccountManager
+    nonisolated(unsafe) public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
 
@@ -46,13 +46,23 @@ public final class DependencyContainer: @unchecked Sendable {
         playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
 
-        // Multi-source management
-        accountManager = AccountManager(keychain: keychain)
-        syncCoordinator = SyncCoordinator(
-            accountManager: accountManager,
-            libraryRepository: libraryRepository,
-            playlistRepository: playlistRepository
-        )
+        // Multi-source management - initialize on main actor
+        let keychainRef = keychain
+        let libraryRef = libraryRepository
+        let playlistRef = playlistRepository
+        
+        let am = MainActor.assumeIsolated {
+            AccountManager(keychain: keychainRef)
+        }
+        accountManager = am
+        
+        syncCoordinator = MainActor.assumeIsolated {
+            SyncCoordinator(
+                accountManager: am,
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef
+            )
+        }
 
         // Services using sync coordinator
         playbackService = PlaybackService(syncCoordinator: syncCoordinator)
@@ -124,6 +134,7 @@ public final class DependencyContainer: @unchecked Sendable {
         AddPlexAccountViewModel(
             authService: authService,
             accountManager: accountManager,
+            syncCoordinator: syncCoordinator,
             keychain: keychain
         )
     }

@@ -251,4 +251,40 @@ struct LibrarySelectionRow: View {
     }
 }
 
-// Note: ServerRow is already defined in LoginView.swift, reuse it
+// MARK: - Server Row
+
+struct ServerRow: View {
+    let server: Server
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: "server.rack")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 44)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(server.name)
+                        .font(.headline)
+                    
+                    if let platform = server.platform {
+                        Text(platform)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}

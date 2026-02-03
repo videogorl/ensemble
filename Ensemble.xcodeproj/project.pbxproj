@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC62F32A1FC00491C42 /* CLAUDE.md */; };
+		992E2BC92F32A1FC00491C42 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC72F32A1FC00491C42 /* README.md */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
@@ -18,6 +20,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		992E2BC62F32A1FC00491C42 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
+		992E2BC72F32A1FC00491C42 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		E0000001 /* Ensemble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ensemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0000002 /* Ensemble Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ensemble Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0001000 /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
@@ -57,6 +61,8 @@
 		E0100000 = {
 			isa = PBXGroup;
 			children = (
+				992E2BC62F32A1FC00491C42 /* CLAUDE.md */,
+				992E2BC72F32A1FC00491C42 /* README.md */,
 				E0100001 /* Ensemble */,
 				E0100002 /* EnsembleWatch */,
 				E0100003 /* Packages */,
@@ -235,6 +241,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */,
+				992E2BC92F32A1FC00491C42 /* README.md in Resources */,
 				E0001005 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

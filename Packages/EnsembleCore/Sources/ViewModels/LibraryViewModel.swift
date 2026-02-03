@@ -69,20 +69,17 @@ public final class LibraryViewModel: ObservableObject {
 
     public func syncLibrary() async {
         error = nil
-
-        do {
-            try await syncCoordinator.syncAll()
-            await loadLibrary()
-        } catch {
-            self.error = error.localizedDescription
-        }
+        await syncCoordinator.syncAll()
+        await loadLibrary()
     }
 
     public func refresh() async {
-        if artists.isEmpty && albums.isEmpty && tracks.isEmpty {
+        // Always load from CoreData first
+        await loadLibrary()
+        
+        // If still empty and we have sources configured, sync
+        if artists.isEmpty && albums.isEmpty && tracks.isEmpty && hasAnySources {
             await syncLibrary()
-        } else {
-            await loadLibrary()
         }
     }
 }

@@ -22,6 +22,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
 
     private let authService: PlexAuthService
     private let accountManager: AccountManager
+    private let syncCoordinator: SyncCoordinator
     private let keychain: KeychainServiceProtocol
     private var pollTask: Task<Void, Never>?
     private var authToken: String?
@@ -29,10 +30,12 @@ public final class AddPlexAccountViewModel: ObservableObject {
     public init(
         authService: PlexAuthService,
         accountManager: AccountManager,
+        syncCoordinator: SyncCoordinator,
         keychain: KeychainServiceProtocol
     ) {
         self.authService = authService
         self.accountManager = accountManager
+        self.syncCoordinator = syncCoordinator
         self.keychain = keychain
     }
 
@@ -173,6 +176,15 @@ public final class AddPlexAccountViewModel: ObservableObject {
         )
 
         accountManager.addPlexAccount(account)
+        
+        // Refresh sync providers to include the new account
+        syncCoordinator.refreshProviders()
+        
+        // Trigger initial sync in the background
+        Task {
+            await syncCoordinator.syncAll()
+        }
+        
         state = .complete
     }
 

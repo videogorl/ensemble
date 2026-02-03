@@ -397,8 +397,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Stream from server via sync coordinator
         do {
             let url = try await syncCoordinator.getStreamURL(for: track)
+            print("🎵 Stream URL: \(url)")
             await loadAndPlay(url: url)
         } catch {
+            print("❌ Failed to get stream URL: \(error)")
             playbackState = .failed(error.localizedDescription)
         }
     }
@@ -407,11 +409,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func loadAndPlay(url: URL) {
         cleanup()
 
+        print("🎵 Loading asset from URL: \(url)")
         let asset = AVURLAsset(url: url)
         playerItem = AVPlayerItem(asset: asset)
         player = AVPlayer(playerItem: playerItem)
 
         setupObservers()
+        print("🎵 Starting playback")
         player?.play()
     }
 
@@ -421,9 +425,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 switch item.status {
                 case .readyToPlay:
+                    print("✅ Player ready to play")
                     self?.playbackState = .playing
                     self?.updateNowPlayingInfo()
                 case .failed:
+                    print("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
+                    if let error = item.error {
+                        print("❌ Error details: \(error)")
+                    }
                     self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
                 default:
                     break

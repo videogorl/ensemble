@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 public final class SyncPanelViewModel: ObservableObject {
     @Published public private(set) var sources: [MusicSource] = []
-    @Published public private(set) var sourceStatuses: [String: MusicSourceStatus] = [:]
+    @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
 
     private let syncCoordinator: SyncCoordinator
@@ -35,22 +35,14 @@ public final class SyncPanelViewModel: ObservableObject {
     }
 
     public func syncAll() async {
-        do {
-            try await syncCoordinator.syncAll()
-        } catch {
-            // Individual source errors are tracked in sourceStatuses
-        }
+        await syncCoordinator.syncAll()
     }
 
     public func syncSource(_ source: MusicSource) async {
-        do {
-            try await syncCoordinator.sync(source: source.id)
-        } catch {
-            // Error tracked in sourceStatuses
-        }
+        await syncCoordinator.sync(source: source.id)
     }
 
     public func statusFor(_ source: MusicSource) -> MusicSourceStatus {
-        sourceStatuses[source.id.compositeKey] ?? .idle
+        sourceStatuses[source.id] ?? .idle
     }
 }

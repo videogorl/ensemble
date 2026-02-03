@@ -52,6 +52,47 @@ public final class AccountManager: ObservableObject {
         }
     }
 
+    public func removeMusicSource(_ sourceId: MusicSourceIdentifier) {
+        guard let accountIndex = plexAccounts.firstIndex(where: { $0.id == sourceId.accountId }),
+              let serverIndex = plexAccounts[accountIndex].servers.firstIndex(where: { $0.id == sourceId.serverId }),
+              let libraryIndex = plexAccounts[accountIndex].servers[serverIndex].libraries.firstIndex(where: { $0.key == sourceId.libraryId }) else {
+            return
+        }
+        
+        let account = plexAccounts[accountIndex]
+        let server = account.servers[serverIndex]
+        
+        // Create new library with isEnabled = false
+        var updatedLibraries = server.libraries
+        updatedLibraries[libraryIndex] = PlexLibraryConfig(
+            id: updatedLibraries[libraryIndex].id,
+            key: updatedLibraries[libraryIndex].key,
+            title: updatedLibraries[libraryIndex].title,
+            isEnabled: false
+        )
+        
+        // Create new server with updated libraries
+        var updatedServers = account.servers
+        updatedServers[serverIndex] = PlexServerConfig(
+            id: server.id,
+            name: server.name,
+            url: server.url,
+            token: server.token,
+            platform: server.platform,
+            libraries: updatedLibraries
+        )
+        
+        // Create new account with updated servers
+        plexAccounts[accountIndex] = PlexAccountConfig(
+            id: account.id,
+            username: account.username,
+            authToken: account.authToken,
+            servers: updatedServers
+        )
+        
+        saveAccounts()
+    }
+
     // MARK: - Source Enumeration
 
     /// Returns all enabled MusicSourceIdentifiers across all accounts

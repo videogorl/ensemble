@@ -11,8 +11,7 @@ public struct RootView: View {
             .task {
                 let deps = DependencyContainer.shared
                 deps.accountManager.loadAccounts()
-                await deps.syncCoordinator.refreshProviders()
-                try? await deps.syncCoordinator.syncAll()
+                deps.syncCoordinator.refreshProviders()
             }
     }
 

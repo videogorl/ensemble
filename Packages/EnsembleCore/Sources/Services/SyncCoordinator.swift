@@ -110,16 +110,24 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Get the stream URL for a track, routing to the correct provider
     public func getStreamURL(for track: Track) async throws -> URL {
+        print("🔍 Getting stream URL for track: \(track.title)")
+        print("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
+        print("🔍 Track streamKey: \(track.streamKey ?? "nil")")
+        print("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
+        
         if let sourceKey = track.sourceCompositeKey,
            let provider = syncProviders[sourceKey] {
+            print("🔍 Using provider for sourceKey: \(sourceKey)")
             return try await provider.getStreamURL(for: track.streamKey)
         }
 
         // Fallback: try any available provider
         if let provider = syncProviders.values.first {
+            print("⚠️ Using fallback provider")
             return try await provider.getStreamURL(for: track.streamKey)
         }
 
+        print("❌ No providers available")
         throw PlexAPIError.noServerSelected
     }
 

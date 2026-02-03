@@ -4,6 +4,7 @@ import SwiftUI
 
 public struct ArtworkView: View {
     let path: String?
+    let sourceKey: String?
     let size: ArtworkSize
     let cornerRadius: CGFloat
 
@@ -11,17 +12,19 @@ public struct ArtworkView: View {
 
     public init(
         path: String?,
+        sourceKey: String? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat = 8
     ) {
         self.path = path
+        self.sourceKey = sourceKey
         self.size = size
         self.cornerRadius = cornerRadius
     }
 
     public var body: some View {
         Group {
-            if let url = dependencies.artworkLoader.artworkURL(for: path, size: size.rawValue) {
+            if let url = dependencies.artworkLoader.artworkURL(for: path, sourceKey: sourceKey, size: size.rawValue) {
                 LazyImage(url: url) { state in
                     if let image = state.image {
                         image
@@ -60,18 +63,18 @@ public struct ArtworkView: View {
 
 public extension ArtworkView {
     init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: track.thumbPath, size: size, cornerRadius: cornerRadius)
+        self.init(path: track.thumbPath, sourceKey: track.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: album.thumbPath, size: size, cornerRadius: cornerRadius)
+        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: artist.thumbPath, size: size, cornerRadius: cornerRadius)
+        self.init(path: artist.thumbPath, sourceKey: artist.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
     }
 
     init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: playlist.compositePath, size: size, cornerRadius: cornerRadius)
+        self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
     }
 }
