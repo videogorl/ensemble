@@ -134,6 +134,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             try await playlistRepository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: sourceKey)
         }
 
+        // Update last sync timestamp
+        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+
         progressHandler(1.0)
     }
 

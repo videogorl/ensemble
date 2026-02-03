@@ -37,6 +37,20 @@ public final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .map { !$0.isEmpty }
             .assign(to: &$hasAnySources)
+
+        // Auto-reload when sync completes
+        syncCoordinator.$isSyncing
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] syncing in
+                if !syncing {
+                    // Sync just completed, reload library
+                    Task { @MainActor in
+                        await self?.loadLibrary()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     public func loadLibrary() async {
@@ -74,12 +88,7 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     public func refresh() async {
-        // Always load from CoreData first
+        // Always load from CoreData cache
         await loadLibrary()
-        
-        // If still empty and we have sources configured, sync
-        if artists.isEmpty && albums.isEmpty && tracks.isEmpty && hasAnySources {
-            await syncLibrary()
-        }
     }
 }

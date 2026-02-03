@@ -9,6 +9,7 @@ public struct ArtworkView: View {
     let cornerRadius: CGFloat
 
     @Environment(\.dependencies) private var dependencies
+    @State private var artworkURL: URL?
 
     public init(
         path: String?,
@@ -24,7 +25,7 @@ public struct ArtworkView: View {
 
     public var body: some View {
         Group {
-            if let url = dependencies.artworkLoader.artworkURL(for: path, sourceKey: sourceKey, size: size.rawValue) {
+            if let url = artworkURL {
                 LazyImage(url: url) { state in
                     if let image = state.image {
                         image
@@ -46,6 +47,10 @@ public struct ArtworkView: View {
         }
         .frame(width: size.cgSize.width, height: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .task(id: path) {
+            // Load artwork URL asynchronously
+            artworkURL = await dependencies.artworkLoader.artworkURLAsync(for: path, sourceKey: sourceKey, size: size.rawValue)
+        }
     }
 
     private var placeholderView: some View {

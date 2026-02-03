@@ -21,9 +21,6 @@ public struct GenresView: View {
             }
         }
         .navigationTitle("Genres")
-        .refreshable {
-            await libraryVM.syncLibrary()
-        }
     }
 
     private var loadingView: some View {
@@ -43,7 +40,7 @@ public struct GenresView: View {
             Text("No Genres")
                 .font(.title2)
 
-            Text("Pull to refresh or sync your library")
+            Text("Tap the sync button to sync your library")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }

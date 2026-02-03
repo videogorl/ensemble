@@ -51,11 +51,29 @@ public final class SyncCoordinator: ObservableObject {
 
                     syncProviders[sourceId.compositeKey] = provider
 
+                    // Initialize status with last sync timestamp if available
                     if sourceStatuses[sourceId] == nil {
-                        sourceStatuses[sourceId] = .idle
+                        Task {
+                            if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
+                                sourceStatuses[sourceId] = .lastSynced(lastSyncDate)
+                            } else {
+                                sourceStatuses[sourceId] = .idle
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// Load the last sync date from CoreData
+    private func loadLastSyncDate(for sourceId: MusicSourceIdentifier) async -> Date? {
+        // Fetch from CoreData
+        do {
+            let sources = try await libraryRepository.fetchMusicSources()
+            return sources.first(where: { $0.compositeKey == sourceId.compositeKey })?.lastSyncedAt
+        } catch {
+            return nil
         }
     }
 

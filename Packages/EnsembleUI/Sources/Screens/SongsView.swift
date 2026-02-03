@@ -4,6 +4,7 @@ import SwiftUI
 public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @State private var trackIndexMap: [String: Int] = [:]
 
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
@@ -42,9 +43,6 @@ public struct SongsView: View {
                 }
             }
         }
-        .refreshable {
-            await libraryVM.syncLibrary()
-        }
     }
 
     private var loadingView: some View {
@@ -64,52 +62,58 @@ public struct SongsView: View {
             Text("No Songs")
                 .font(.title2)
 
-            Text("Pull to refresh or sync your library")
+            Text("Tap the sync button to sync your library")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-
-            Button("Sync Library") {
-                Task {
-                    await libraryVM.syncLibrary()
-                }
-            }
-            .buttonStyle(.bordered)
         }
     }
 
     private var trackListView: some View {
         ScrollView {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                // Group by first letter
-                let grouped = Dictionary(grouping: libraryVM.tracks) { track in
-                    String(track.title.prefix(1)).uppercased()
-                }
-                let sortedKeys = grouped.keys.sorted()
-
-                ForEach(sortedKeys, id: \.self) { key in
+                let tracksByLetter = groupedTracks
+                
+                ForEach(tracksByLetter, id: \.letter) { group in
                     Section {
-                        if let tracks = grouped[key] {
-                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(
-                                    track: track,
-                                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                                ) {
-                                    nowPlayingVM.play(tracks: libraryVM.tracks, startingAt: libraryVM.tracks.firstIndex(where: { $0.id == track.id }) ?? 0)
-                                }
-                                .padding(.horizontal)
-                                .padding(.vertical, 8)
+                        ForEach(Array(group.tracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                            ) {
+                                // Use cached index map
+                                let globalIndex = trackIndexMap[track.id] ?? 0
+                                nowPlayingVM.play(tracks: libraryVM.tracks, startingAt: globalIndex)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
 
-                                if index < tracks.count - 1 {
-                                    Divider()
-                                        .padding(.leading, 68)
-                                }
+                            if index < group.tracks.count - 1 {
+                                Divider()
+                                    .padding(.leading, 68)
                             }
                         }
                     } header: {
-                        SectionHeader(title: key)
+                        SectionHeader(title: group.letter)
                     }
                 }
             }
+        }
+        .onChange(of: libraryVM.tracks) { tracks in
+            // Rebuild index map when tracks change
+            trackIndexMap = Dictionary(uniqueKeysWithValues: tracks.enumerated().map { ($1.id, $0) })
+        }
+        .onAppear {
+            // Build initial index map
+            trackIndexMap = Dictionary(uniqueKeysWithValues: libraryVM.tracks.enumerated().map { ($1.id, $0) })
+        }
+    }
+    
+    private var groupedTracks: [(letter: String, tracks: [Track])] {
+        let grouped = Dictionary(grouping: libraryVM.tracks) { track in
+            String(track.title.prefix(1)).uppercased()
+        }
+        return grouped.keys.sorted().map { key in
+            (letter: key, tracks: grouped[key] ?? [])
         }
     }
 }

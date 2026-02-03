@@ -4,10 +4,13 @@ import Nuke
 
 public protocol ArtworkLoaderProtocol {
     func artworkURL(for path: String?, sourceKey: String?, size: Int) -> URL?
+    func artworkURLAsync(for path: String?, sourceKey: String?, size: Int) async -> URL?
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
+    private var urlCache: [String: URL] = [:]
+    private let cacheLock = NSLock()
 
     public init(syncCoordinator: SyncCoordinator) {
         self.syncCoordinator = syncCoordinator
@@ -25,16 +28,27 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
         guard let path = path else { return nil }
 
-        var resultURL: URL?
-        let semaphore = DispatchSemaphore(value: 0)
+        let cacheKey = "\(sourceKey ?? ""):\(path):\(size)"
+        
+        // Check cache first
+        cacheLock.lock()
+        if let cachedURL = urlCache[cacheKey] {
+            cacheLock.unlock()
+            return cachedURL
+        }
+        cacheLock.unlock()
 
+        // Fetch asynchronously and cache
         Task {
-            resultURL = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size)
-            semaphore.signal()
+            if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size) {
+                cacheLock.lock()
+                urlCache[cacheKey] = url
+                cacheLock.unlock()
+            }
         }
 
-        _ = semaphore.wait(timeout: .now() + 1.0)
-        return resultURL
+        // Return nil for first render, will update once loaded
+        return nil
     }
 
     /// Async version for modern Swift concurrency

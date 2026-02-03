@@ -27,9 +27,6 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .refreshable {
-            await libraryVM.syncLibrary()
-        }
     }
 
     private var loadingView: some View {
@@ -49,7 +46,7 @@ public struct ArtistsView: View {
             Text("No Artists")
                 .font(.title2)
 
-            Text("Pull to refresh or sync your library")
+            Text("Tap the sync button to sync your library")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }

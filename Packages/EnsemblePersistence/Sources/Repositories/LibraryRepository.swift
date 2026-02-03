@@ -58,6 +58,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func searchTracks(query: String) async throws -> [CDTrack]
 
     // Source management
+    func fetchMusicSources() async throws -> [CDMusicSource]
+
     func upsertMusicSource(
         compositeKey: String,
         type: String,
@@ -67,6 +69,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
         displayName: String?,
         accountName: String?
     ) async throws -> CDMusicSource
+
+    func updateMusicSourceSyncTimestamp(compositeKey: String) async throws
 
     func deleteAllData(forSourceCompositeKey: String) async throws
 }
@@ -496,6 +500,21 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
     // MARK: - Music Source
 
+    public func fetchMusicSources() async throws -> [CDMusicSource] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDMusicSource.fetchRequest()
+                do {
+                    let sources = try context.fetch(request)
+                    continuation.resume(returning: sources)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func upsertMusicSource(
         compositeKey: String,
         type: String,
@@ -534,6 +553,25 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                             continuation.resume(throwing: NSError(domain: "LibraryRepository", code: 1, userInfo: nil))
                         }
                     }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func updateMusicSourceSyncTimestamp(compositeKey: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                let request = CDMusicSource.fetchRequest()
+                request.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
+
+                do {
+                    if let source = try context.fetch(request).first {
+                        source.lastSyncedAt = Date()
+                        try context.save()
+                    }
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
