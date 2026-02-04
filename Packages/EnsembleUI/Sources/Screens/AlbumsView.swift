@@ -118,11 +118,79 @@ public struct AlbumsView: View {
         }
     }
 
-    private var albumGridView: some View {
-        ScrollView {
-            AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
-                .padding(.vertical)
+    private struct AlbumSection: Identifiable {
+        let letter: String
+        let albums: [Album]
+        var id: String { letter }
+    }
+
+    private var albumSections: [AlbumSection] {
+        let groupingKey: (Album) -> String = { album in
+            switch libraryVM.albumSortOption {
+            case .title: return album.title.indexingLetter
+            case .artist: return (album.artistName ?? "").indexingLetter
+            case .albumArtist: return (album.albumArtist ?? "").indexingLetter
+            default: return ""
+            }
         }
+        
+        let grouped = Dictionary(grouping: libraryVM.filteredAlbums, by: groupingKey)
+        return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private var isSortIndexed: Bool {
+        switch libraryVM.albumSortOption {
+        case .title, .artist, .albumArtist:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var albumGridView: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    if isSortIndexed {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            ForEach(albumSections) { section in
+                                Section(header: sectionHeader(section.letter)) {
+                                    AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+                                        .id(section.letter)
+                                }
+                            }
+                        }
+                        .padding(.vertical)
+                    } else {
+                        AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+                            .padding(.vertical)
+                    }
+                }
+                
+                if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
+                    ScrollIndex(
+                        letters: albumSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            withAnimation {
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ letter: String) -> some View {
+        Text(letter)
+            .font(.headline)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
     }
 }
 

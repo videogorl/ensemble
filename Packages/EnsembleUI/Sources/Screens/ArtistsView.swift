@@ -109,15 +109,69 @@ public struct ArtistsView: View {
         }
     }
 
+    private struct ArtistSection: Identifiable {
+        let letter: String
+        let artists: [Artist]
+        var id: String { letter }
+    }
+
+    private var artistSections: [ArtistSection] {
+        let grouped = Dictionary(grouping: libraryVM.filteredArtists) { $0.name.indexingLetter }
+        return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
     private var artistListView: some View {
-        ScrollView {
-            ArtistGrid(
-                artists: libraryVM.filteredArtists,
-                nowPlayingVM: nowPlayingVM,
-                onArtistTap: onArtistTap
-            )
-            .padding(.vertical)
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    if libraryVM.artistSortOption == .name {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            ForEach(artistSections) { section in
+                                Section(header: sectionHeader(section.letter)) {
+                                    ArtistGrid(
+                                        artists: section.artists,
+                                        nowPlayingVM: nowPlayingVM,
+                                        onArtistTap: onArtistTap
+                                    )
+                                    .id(section.letter)
+                                }
+                            }
+                        }
+                        .padding(.vertical)
+                    } else {
+                        ArtistGrid(
+                            artists: libraryVM.filteredArtists,
+                            nowPlayingVM: nowPlayingVM,
+                            onArtistTap: onArtistTap
+                        )
+                        .padding(.vertical)
+                    }
+                }
+                
+                if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
+                    ScrollIndex(
+                        letters: artistSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            withAnimation {
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        }
+                    )
+                }
+            }
         }
+    }
+
+    private func sectionHeader(_ letter: String) -> some View {
+        Text(letter)
+            .font(.headline)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
     }
 }
 
