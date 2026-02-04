@@ -23,11 +23,13 @@ public final class DependencyContainer: @unchecked Sendable {
     public let libraryRepository: LibraryRepositoryProtocol
     public let playlistRepository: PlaylistRepositoryProtocol
     public let downloadManager: DownloadManagerProtocol
+    public let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
     // MARK: - Services
 
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
+    nonisolated(unsafe) public let cacheManager: CacheManager
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -45,28 +47,41 @@ public final class DependencyContainer: @unchecked Sendable {
         libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
         playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
+        artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
 
         // Multi-source management - initialize on main actor
         let keychainRef = keychain
         let libraryRef = libraryRepository
         let playlistRef = playlistRepository
-        
+        let artworkDownloadRef = artworkDownloadManager
+
         let am = MainActor.assumeIsolated {
             AccountManager(keychain: keychainRef)
         }
         accountManager = am
-        
+
         syncCoordinator = MainActor.assumeIsolated {
             SyncCoordinator(
                 accountManager: am,
                 libraryRepository: libraryRef,
-                playlistRepository: playlistRef
+                playlistRepository: playlistRef,
+                artworkDownloadManager: artworkDownloadRef
             )
         }
 
         // Services using sync coordinator
         playbackService = PlaybackService(syncCoordinator: syncCoordinator)
         artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
+
+        // Cache manager - must be initialized after downloadManager
+        let downloadRef = downloadManager
+        cacheManager = MainActor.assumeIsolated {
+            CacheManager(
+                libraryRepository: libraryRef,
+                artworkDownloadManager: artworkDownloadRef,
+                downloadManager: downloadRef
+            )
+        }
     }
 
     // MARK: - View Model Factories

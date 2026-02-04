@@ -4,18 +4,20 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 ## Features
 
-### ✨ Current Features
-- 🎵 **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
-- 🎨 **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS, simplified controls on watchOS
-- 🔐 **Secure Authentication** — PIN-based OAuth with keychain token storage
-- 📱 **Full Playback Controls** — Queue management, shuffle, repeat, background audio
-- 💾 **Offline Caching** — CoreData-backed library caching for fast browsing
-- 🎭 **Rich Metadata** — Artists, albums, genres, playlists with artwork
-- 🔍 **Search** — Fast search across your entire library
-- 🎧 **Now Playing** — Full-screen player with mini player overlay
-- ⚙️ **Settings & Sync** — Manual library sync with progress tracking
+### Current Features
+- **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
+- **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS, simplified controls on watchOS
+- **Secure Authentication** — PIN-based OAuth with keychain token storage
+- **Full Playback Controls** — Queue management, shuffle, repeat, background audio
+- **Offline Caching** — CoreData-backed library caching for fast browsing
+- **Persistent Artwork Caching** — Artwork downloads persist across app restarts for faster loading and offline viewing
+- **Rich Metadata** — Artists, albums, genres, playlists with artwork
+- **Search** — Fast search across your entire library
+- **Now Playing** — Full-screen player with mini player overlay
+- **Settings & Sync** — Manual library sync with progress tracking
+- **Cache Management** — View storage usage and clear caches by type
 
-### 🚧 Planned Features
+### Planned Features
 - Offline playback (download management infrastructure exists)
 - Apple Music integration
 - Advanced queue management (reordering, history)
@@ -76,9 +78,9 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 | Package | Purpose | Key Components |
 |---------|---------|----------------|
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient`, `PlexAuthService`, `KeychainService` |
-| **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `DownloadManager` |
-| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService`, ViewModels |
-| **EnsembleUI** | User interface | Screens, components, `RootView`, `MiniPlayer` |
+| **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `DownloadManager`, `ArtworkDownloadManager` |
+| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService`, `ArtworkLoader`, `CacheManager`, ViewModels |
+| **EnsembleUI** | User interface | Screens, components, `RootView`, `MiniPlayer`, `ArtworkView` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
@@ -86,13 +88,14 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 - **Repository Pattern** for CoreData access
 - **Actor-based networking** for thread safety
 - **Multi-source architecture** — Designed to support multiple services (Plex, future Apple Music, etc.)
+- **Persistent artwork caching** — Local-first loading with automatic network fallback
 
 ## Development
 
 ### Project Structure
 ```
 ensemble/
-├── Ensemble.xcworkspace          # ⭐ Always open this
+├── Ensemble.xcworkspace          # Always open this
 ├── Ensemble/                     # Main app (iOS/iPadOS/macOS)
 ├── EnsembleWatch/                # watchOS app
 └── Packages/                     # Swift Package modules
@@ -176,7 +179,12 @@ See `CLAUDE.md` for detailed development guidelines, including:
 ### Phase 4: Offline & Advanced (In Progress)
 - [x] Download manager infrastructure
 - [x] Downloads view
-- [ ] Offline playback
+- [x] **Persistent Artwork Caching** — Artwork persists across app launches with local-first loading
+- [x] **Cache Management** — View storage usage and clear caches by type
+- [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
+- [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
+- [ ] **Network Reachability Indicator** — Show online/offline status to users
+- [ ] **Background Sync** — Use iOS background refresh to keep library updated
 - [ ] Queue reordering
 - [ ] Playback history
 

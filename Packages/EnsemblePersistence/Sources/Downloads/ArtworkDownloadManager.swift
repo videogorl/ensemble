@@ -60,33 +60,12 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
     // MARK: - Album Artwork
     
+    /// Pre-download artwork for albums
+    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
+    /// which requires resolved URLs from the sync coordinator
     public func predownloadArtwork(for albums: [CDAlbum], size: Int = 500) async throws -> Int {
-        var downloadedCount = 0
-        
-        for album in albums {
-            guard let thumbPath = album.thumbPath else { continue }
-            
-            // Skip if already cached
-            if let localPath = try? await getLocalArtworkPath(for: album),
-               FileManager.default.fileExists(atPath: localPath) {
-                continue
-            }
-            
-            do {
-                try await downloadAndCacheArtwork(
-                    path: thumbPath,
-                    ratingKey: album.ratingKey,
-                    type: .album,
-                    size: size
-                )
-                downloadedCount += 1
-            } catch {
-                // Continue with next album on error
-                print("Failed to download artwork for album \(album.title ?? "unknown"): \(error)")
-            }
-        }
-        
-        return downloadedCount
+        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
+        return 0
     }
     
     public func getLocalArtworkPath(for album: CDAlbum) async throws -> String? {
@@ -99,33 +78,12 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
     // MARK: - Artist Artwork
     
+    /// Pre-download artwork for artists
+    /// Note: This is a placeholder - actual downloading should be done via downloadAndCacheArtwork(from:ratingKey:type:)
+    /// which requires resolved URLs from the sync coordinator
     public func predownloadArtwork(for artists: [CDArtist], size: Int = 500) async throws -> Int {
-        var downloadedCount = 0
-        
-        for artist in artists {
-            guard let thumbPath = artist.thumbPath else { continue }
-            
-            // Skip if already cached
-            if let localPath = try? await getLocalArtworkPath(for: artist),
-               FileManager.default.fileExists(atPath: localPath) {
-                continue
-            }
-            
-            do {
-                try await downloadAndCacheArtwork(
-                    path: thumbPath,
-                    ratingKey: artist.ratingKey,
-                    type: .artist,
-                    size: size
-                )
-                downloadedCount += 1
-            } catch {
-                // Continue with next artist on error
-                print("Failed to download artwork for artist \(artist.name ?? "unknown"): \(error)")
-            }
-        }
-        
-        return downloadedCount
+        // Deprecated - use downloadAndCacheArtwork(from:ratingKey:type:) directly from SyncCoordinator
+        return 0
     }
     
     public func getLocalArtworkPath(for artist: CDArtist) async throws -> String? {
@@ -177,28 +135,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         }
     }
     
-    private func downloadAndCacheArtwork(
-        path: String,
-        ratingKey: String,
-        type: ArtworkType,
-        size: Int
-    ) async throws {
-        // This is called internally but doesn't have server connection details
-        // It's a placeholder that will be replaced by actual implementation
-        // through the public downloadAndCacheArtwork method
-        let typeString: String
-        switch type {
-        case .album: typeString = "album"
-        case .artist: typeString = "artist"
-        case .track: typeString = "track"
-        }
-        
-        let filename = "\(ratingKey)_\(typeString).jpg"
-        let localURL = Self.artworkDirectory.appendingPathComponent(filename)
-        
-        // Create empty marker - actual implementation will come through ArtworkLoader
-        try Data().write(to: localURL)
-    }
+
     
     // MARK: - Cache Management
     

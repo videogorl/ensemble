@@ -149,7 +149,8 @@ Tests/
 - `CoreDataStack` (singleton) — Main/background contexts, saves on background queue
 - `CD*` models — `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`
 - `LibraryRepository` / `PlaylistRepository` — Protocol-based repository pattern
-- `DownloadManager` — Offline file management
+- `DownloadManager` — Offline track file management
+- `ArtworkDownloadManager` — Persistent artwork caching to local filesystem
 
 #### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`
@@ -172,7 +173,8 @@ Sources/
 │   ├── MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 │   ├── PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 │   ├── PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
-│   └── ArtworkLoader.swift            # Nuke-based image loading
+│   ├── ArtworkLoader.swift            # Persistent artwork caching & loading
+│   └── CacheManager.swift             # Cache size tracking & management (MainActor)
 ├── ViewModels/
 │   ├── AddPlexAccountViewModel.swift
 │   ├── AlbumDetailViewModel.swift
@@ -194,7 +196,8 @@ Tests/
 - `AccountManager` (@MainActor) — Manages multiple Plex accounts, servers, and libraries
 - `SyncCoordinator` (@MainActor) — Orchestrates library syncing across all enabled sources
 - `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls
-- `ArtworkLoader` — Nuke-based async image loading with caching
+- `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
+- `CacheManager` (@MainActor) — Tracks cache sizes and provides cache clearing functionality
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist` (UI-facing, protocol-conforming)
@@ -244,7 +247,7 @@ Tests/
 - `RootView` — Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS
 - `MiniPlayer` — Persistent compact player overlay across all screens
 - `MediaDetailView` — Unified artist/album detail view
-- `ArtworkView` — Nuke-based lazy image loading with placeholder
+- `ArtworkView` — Local-first artwork loading with automatic fallback to network
 
 ### Key Architectural Patterns
 
@@ -260,6 +263,61 @@ Tests/
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
   - Provider pattern allows pluggable sync implementations
+- **Persistent artwork caching** — Two-tier caching system for optimal performance
+  - Local filesystem cache via `ArtworkDownloadManager` (survives app restarts)
+  - In-memory cache via Nuke's `ImagePipeline` (fast access during session)
+  - Local-first loading strategy: check filesystem → fetch from network if needed
+
+### Artwork Caching System
+
+The app implements a persistent artwork caching system that survives app restarts:
+
+**Architecture:**
+1. **ArtworkDownloadManager** (`EnsemblePersistence`) — Downloads and stores artwork files locally
+   - Stores artwork in `Library/Application Support/Ensemble/Artwork/`
+   - Filename format: `{ratingKey}_album.jpg` or `{ratingKey}_artist.jpg`
+   - Provides methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`
+
+2. **ArtworkLoader** (`EnsembleCore`) — Coordinates artwork loading with local-first strategy
+   - `artworkURLAsync()` checks local cache first using `ratingKey`
+   - Falls back to network fetch via `SyncCoordinator` if not cached
+   - `predownloadArtwork()` methods for batch downloading during sync
+   - Configures Nuke's `ImagePipeline` with 100MB disk cache for additional performance layer
+
+3. **ArtworkView** (`EnsembleUI`) — SwiftUI component that displays artwork
+   - Passes `ratingKey` to enable local cache lookups
+   - Shows placeholder while loading
+   - Automatically falls back to network if local cache misses
+   - Convenience initializers for `Track`, `Album`, `Artist`, `Playlist` domain models
+
+4. **CacheManager** (`EnsembleCore`) — Provides cache visibility and management
+   - Tracks cache sizes across all cache types (metadata, artwork, downloads, Nuke)
+   - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+   - Used by Settings UI to show users storage usage
+
+**Usage Flow:**
+```swift
+// During library sync - pre-download artwork for offline use
+let albums = try await libraryRepository.fetchAlbums()
+let count = try await artworkLoader.predownloadArtwork(
+    for: albums.map { /* convert to CDAlbum */ },
+    sourceKey: sourceCompositeKey,
+    size: 500
+)
+
+// In UI - artwork loads from cache automatically
+ArtworkView(album: album, size: .medium)
+// → Checks local cache using album.id (ratingKey)
+// → Falls back to network if not found
+// → Caches for next time
+```
+
+**Benefits:**
+- Artwork persists across app launches
+- Reduced network traffic after initial sync
+- Faster loading on subsequent views
+- Supports offline viewing (when track files are also downloaded)
+- Memory efficient (iOS 15+ / 2GB RAM compatible)
 
 ### App Targets
 

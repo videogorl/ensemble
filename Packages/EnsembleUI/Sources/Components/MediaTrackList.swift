@@ -145,6 +145,7 @@ public class TrackTableViewCell: UITableViewCell {
                 guard let url = await artworkLoader.artworkURLAsync(
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
+                    ratingKey: track.id,
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
                     return

@@ -12,17 +12,20 @@ public final class SyncCoordinator: ObservableObject {
     private let accountManager: AccountManager
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        artworkDownloadManager: ArtworkDownloadManagerProtocol
     ) {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.artworkDownloadManager = artworkDownloadManager
     }
 
     /// Rebuild sync providers from current account configuration
@@ -99,11 +102,14 @@ public final class SyncCoordinator: ObservableObject {
                     to: libraryRepository,
                     progressHandler: { [weak self] progress in
                         Task { @MainActor in
-                            // Library sync takes up 80% of the progress
-                            self?.sourceStatuses[sourceId] = .syncing(progress: progress * 0.8)
+                            // Library sync takes up 70% of the progress
+                            self?.sourceStatuses[sourceId] = .syncing(progress: progress * 0.7)
                         }
                     }
                 )
+                
+                // Pre-cache artwork for albums
+                await cacheArtworkForSource(sourceId: sourceId, provider: provider)
                 
                 // Sync playlists once per server
                 let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
@@ -200,5 +206,54 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         return nil
+    }
+    
+    // MARK: - Artwork Pre-Caching
+    
+    /// Cache artwork for all albums in a source
+    private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+        do {
+            // Fetch all albums for this source
+            let allAlbums = try await libraryRepository.fetchAlbums()
+            let sourceAlbums = allAlbums.filter { $0.sourceCompositeKey == sourceId.compositeKey }
+            
+            print("📸 Pre-caching artwork for \(sourceAlbums.count) albums from source \(sourceId.compositeKey)")
+            
+            var cachedCount = 0
+            for (index, album) in sourceAlbums.enumerated() {
+                // Update progress (artwork caching is 10% of total, happens at 70-80%)
+                let artworkProgress = 0.7 + (0.1 * Double(index) / Double(max(sourceAlbums.count, 1)))
+                sourceStatuses[sourceId] = .syncing(progress: artworkProgress)
+                
+                // Skip if already cached
+                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
+                   FileManager.default.fileExists(atPath: localPath) {
+                    continue
+                }
+                
+                // Get artwork URL from provider
+                guard let thumbPath = album.thumbPath,
+                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                    continue
+                }
+                
+                // Download and cache
+                do {
+                    try await artworkDownloadManager.downloadAndCacheArtwork(
+                        from: artworkURL,
+                        ratingKey: album.ratingKey,
+                        type: .album
+                    )
+                    cachedCount += 1
+                } catch {
+                    // Continue with next album on error
+                    print("Failed to cache artwork for album \(album.title ?? "unknown"): \(error)")
+                }
+            }
+            
+            print("✅ Cached \(cachedCount) album artworks")
+        } catch {
+            print("❌ Failed to cache artwork: \(error)")
+        }
     }
 }

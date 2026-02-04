@@ -5,7 +5,7 @@ import Nuke
 
 public protocol ArtworkLoaderProtocol {
     func artworkURL(for path: String?, sourceKey: String?, size: Int) -> URL?
-    func artworkURLAsync(for path: String?, sourceKey: String?, size: Int) async -> URL?
+    func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, size: Int) async -> URL?
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
 }
@@ -60,8 +60,28 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     }
 
     /// Async version for modern Swift concurrency
-    public func artworkURLAsync(for path: String?, sourceKey: String? = nil, size: Int = 300) async -> URL? {
+    /// Checks local cache first if ratingKey is provided, otherwise fetches from network
+    public func artworkURLAsync(for path: String?, sourceKey: String? = nil, ratingKey: String? = nil, size: Int = 300) async -> URL? {
         guard let path = path else { return nil }
+        
+        // Check local cache first if we have a ratingKey
+        if let key = ratingKey {
+            // Try album artwork cache
+            let albumFilename = "\(key)_album.jpg"
+            let albumPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
+            if FileManager.default.fileExists(atPath: albumPath) {
+                return URL(fileURLWithPath: albumPath)
+            }
+            
+            // Try artist artwork cache
+            let artistFilename = "\(key)_artist.jpg"
+            let artistPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
+            if FileManager.default.fileExists(atPath: artistPath) {
+                return URL(fileURLWithPath: artistPath)
+            }
+        }
+        
+        // Fall back to network
         return try? await syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size)
     }
     

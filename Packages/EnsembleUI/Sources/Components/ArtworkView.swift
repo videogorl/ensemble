@@ -5,6 +5,7 @@ import Nuke
 public struct ArtworkView: View {
     let path: String?
     let sourceKey: String?
+    let ratingKey: String?
     let size: ArtworkSize
     let cornerRadius: CGFloat
 
@@ -15,11 +16,13 @@ public struct ArtworkView: View {
     public init(
         path: String?,
         sourceKey: String? = nil,
+        ratingKey: String? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat = 8
     ) {
         self.path = path
         self.sourceKey = sourceKey
+        self.ratingKey = ratingKey
         self.size = size
         self.cornerRadius = cornerRadius
     }
@@ -55,6 +58,7 @@ public struct ArtworkView: View {
         guard let url = await dependencies.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
+            ratingKey: ratingKey,
             size: size.rawValue
         ) else {
             return
@@ -84,18 +88,18 @@ public struct ArtworkView: View {
 
 public extension ArtworkView {
     init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: track.thumbPath, sourceKey: track.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
+        self.init(path: track.thumbPath, sourceKey: track.sourceCompositeKey, ratingKey: track.id, size: size, cornerRadius: cornerRadius)
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
+        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, size: size, cornerRadius: cornerRadius)
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: artist.thumbPath, sourceKey: artist.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
+        self.init(path: artist.thumbPath, sourceKey: artist.sourceCompositeKey, ratingKey: artist.id, size: size, cornerRadius: cornerRadius)
     }
 
     init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, size: size, cornerRadius: cornerRadius)
+        self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, ratingKey: playlist.id, size: size, cornerRadius: cornerRadius)
     }
 }
