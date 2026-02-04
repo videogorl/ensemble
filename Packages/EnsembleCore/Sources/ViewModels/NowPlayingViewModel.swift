@@ -230,10 +230,18 @@ public final class NowPlayingViewModel: ObservableObject {
     // MARK: - Navigation
 
     public func navigateToArtist() {
-        guard let track = currentTrack, let artistId = track.artistRatingKey else { return }
+        guard let track = currentTrack else { return }
         Task {
-            // Fetch the full artist object
-            if let cdArtist = try? await libraryRepository.fetchArtist(ratingKey: artistId) {
+            // Get the album artist by fetching the album first
+            if let albumId = track.albumRatingKey,
+               let cdAlbum = try? await libraryRepository.fetchAlbum(ratingKey: albumId),
+               let cdArtist = cdAlbum.artist {
+                let artist = Artist(from: cdArtist)
+                navigationCoordinator.navigateToArtist(artist)
+            }
+            // Fallback to track artist if album artist is not available
+            else if let artistId = track.artistRatingKey,
+                    let cdArtist = try? await libraryRepository.fetchArtist(ratingKey: artistId) {
                 let artist = Artist(from: cdArtist)
                 navigationCoordinator.navigateToArtist(artist)
             }
