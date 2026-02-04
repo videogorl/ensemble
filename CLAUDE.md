@@ -7,6 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
 Right now, this app is not released to the public, and isn't in beta. As a result, we don't need to account for edge cases as we're developing the CoreData model.
 
+The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
+
+Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does.
+
+As you make big architectural changes, please be sure to update this document and the README.md file to describe the app structure in a way that helps both you and me.
+
 ## Build & Test Commands
 
 **Build the full app (iOS simulator):**
