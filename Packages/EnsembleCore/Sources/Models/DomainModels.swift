@@ -423,3 +423,57 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
     case trackCount = "Track Count"
     case duration = "Duration"
 }
+
+// MARK: - Hub (Home Screen Content)
+
+/// Represents a section on the home screen
+public struct Hub: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let type: String
+    public let items: [HubItem]
+    
+    public init(id: String, title: String, type: String, items: [HubItem]) {
+        self.id = id
+        self.title = title
+        self.type = type
+        self.items = items
+    }
+}
+
+/// Item within a hub (can be album, track, or playlist)
+public struct HubItem: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let type: String  // "album", "track", "playlist"
+    public let title: String
+    public let subtitle: String?  // Artist name
+    public let thumbPath: String?
+    public let year: Int?
+    public let sourceCompositeKey: String
+    
+    // Reference to actual domain object
+    public let album: Album?
+    public let track: Track?
+    
+    public init(
+        id: String,
+        type: String,
+        title: String,
+        subtitle: String?,
+        thumbPath: String?,
+        year: Int?,
+        sourceCompositeKey: String,
+        album: Album? = nil,
+        track: Track? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.subtitle = subtitle
+        self.thumbPath = thumbPath
+        self.year = year
+        self.sourceCompositeKey = sourceCompositeKey
+        self.album = album
+        self.track = track
+    }
+}

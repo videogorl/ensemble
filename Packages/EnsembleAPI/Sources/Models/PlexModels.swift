@@ -304,3 +304,60 @@ public struct PlexUser: Codable, Sendable {
     public let thumb: String?
     public let authToken: String?
 }
+
+// MARK: - Hubs (Home Screen Content)
+
+/// Represents a hub on the Plex home screen (Recently Added, Recently Played, etc.)
+public struct PlexHub: Codable, Sendable, Identifiable {
+    public let hubKey: String
+    public let key: String
+    public let title: String
+    public let type: String
+    public let hubIdentifier: String
+    public let context: String?
+    public let size: Int
+    public let more: Bool
+    public let style: String?
+    public let promoted: Bool?
+    public let metadata: [PlexHubMetadata]?
+    
+    public var id: String { hubIdentifier }
+    
+    enum CodingKeys: String, CodingKey {
+        case hubKey
+        case key
+        case title
+        case type
+        case hubIdentifier
+        case context
+        case size
+        case more
+        case style
+        case promoted
+        case metadata = "Metadata"
+    }
+}
+
+/// Metadata items within a hub (can be albums, tracks, or playlists)
+public struct PlexHubMetadata: Codable, Sendable, Identifiable {
+    public let ratingKey: String
+    public let key: String
+    public let type: String  // "album", "track", "playlist"
+    public let title: String
+    public let parentTitle: String?  // Artist name for albums/tracks
+    public let grandparentTitle: String?  // Artist name for tracks
+    public let summary: String?
+    public let thumb: String?
+    public let art: String?
+    public let parentThumb: String?
+    public let grandparentThumb: String?
+    public let year: Int?
+    public let addedAt: Int?
+    public let updatedAt: Int?
+    public let lastViewedAt: Int?
+    public let viewCount: Int?
+    public let duration: Int?
+    public let leafCount: Int?  // Track count for albums
+    
+    public var id: String { ratingKey }
+}

@@ -239,3 +239,66 @@ public extension Download {
         )
     }
 }
+
+// MARK: - Hub Mappers
+
+public extension HubItem {
+    /// Create a HubItem from PlexHubMetadata
+    init(from plex: PlexHubMetadata, sourceKey: String) {
+        // Determine subtitle based on type
+        let subtitle: String?
+        if plex.type == "track" {
+            subtitle = plex.grandparentTitle ?? plex.parentTitle
+        } else {
+            subtitle = plex.parentTitle
+        }
+        
+        // Determine best thumb path
+        let thumbPath: String?
+        if plex.type == "track" {
+            thumbPath = plex.parentThumb ?? plex.grandparentThumb ?? plex.thumb
+        } else {
+            thumbPath = plex.thumb ?? plex.art
+        }
+        
+        // Create album or track reference if applicable
+        var album: Album? = nil
+        var track: Track? = nil
+        
+        if plex.type == "album" {
+            album = Album(
+                id: plex.ratingKey,
+                key: plex.key,
+                title: plex.title,
+                artistName: plex.parentTitle,
+                year: plex.year,
+                thumbPath: plex.thumb,
+                artPath: plex.art,
+                sourceCompositeKey: sourceKey
+            )
+        } else if plex.type == "track" {
+            track = Track(
+                id: plex.ratingKey,
+                key: plex.key,
+                title: plex.title,
+                artistName: plex.grandparentTitle,
+                albumName: plex.parentTitle,
+                duration: plex.duration.map { TimeInterval($0) / 1000.0 } ?? 0,
+                thumbPath: plex.parentThumb ?? plex.grandparentThumb,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        
+        self.init(
+            id: plex.ratingKey,
+            type: plex.type,
+            title: plex.title,
+            subtitle: subtitle,
+            thumbPath: thumbPath,
+            year: plex.year,
+            sourceCompositeKey: sourceKey,
+            album: album,
+            track: track
+        )
+    }
+}

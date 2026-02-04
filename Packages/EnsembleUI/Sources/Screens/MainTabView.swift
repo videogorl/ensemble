@@ -33,14 +33,18 @@ public struct MainTabView: View {
             ZStack(alignment: .bottom) {
                 // Main content layer (TabView)
                 TabView(selection: $selectedTab) {
-                    // Songs
+                    // Home
                     NavigationView {
-                        SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                            .toolbar {
-                                ToolbarItem(placement: .navigationBarTrailing) {
-                                    syncButton
-                                }
+                        HomeView(
+                            nowPlayingVM: nowPlayingVM,
+                            onAlbumTap: { _ in },
+                            onArtistTap: { _ in }
+                        )
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                syncButton
                             }
+                        }
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
@@ -161,7 +165,7 @@ public struct MainTabView: View {
     
     private func customTabBar(safeAreaBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
-            tabItem(title: "Songs", icon: "music.note", tag: 0)
+            tabItem(title: "Home", icon: "house", tag: 0)
             tabItem(title: "Artists", icon: "music.mic", tag: 1)
             tabItem(title: "Playlists", icon: "music.note.list", tag: 2)
             tabItem(title: "Search", icon: "magnifyingglass", tag: 3)
@@ -239,7 +243,7 @@ public struct SidebarView: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
 
-    @State private var selection: SidebarSection? = .songs
+    @State private var selection: SidebarSection? = .home
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
@@ -266,6 +270,9 @@ public struct SidebarView: View {
             NavigationSplitView {
                 List(selection: $selection) {
                     Section("Library") {
+                        Label("Home", systemImage: "house")
+                            .tag(SidebarSection.home)
+                        
                         Label("Songs", systemImage: "music.note")
                             .tag(SidebarSection.songs)
 
@@ -280,6 +287,9 @@ public struct SidebarView: View {
 
                         Label("Playlists", systemImage: "music.note.list")
                             .tag(SidebarSection.playlists)
+                        
+                        Label("Favorites", systemImage: "heart.fill")
+                            .tag(SidebarSection.favorites)
                     }
 
                     Section("Other") {
@@ -394,6 +404,14 @@ public struct SidebarView: View {
     @ViewBuilder
     private var detailView: some View {
         switch selection {
+        case .home:
+            NavigationStack {
+                HomeView(
+                    nowPlayingVM: nowPlayingVM,
+                    onAlbumTap: { _ in },
+                    onArtistTap: { _ in }
+                )
+            }
         case .songs:
             NavigationStack {
                 SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
@@ -428,6 +446,10 @@ public struct SidebarView: View {
                     // Handle navigation
                 }
             }
+        case .favorites:
+            NavigationStack {
+                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            }
         case .search:
             NavigationStack {
                 SearchView(nowPlayingVM: nowPlayingVM)
@@ -448,11 +470,13 @@ public struct SidebarView: View {
 }
 
 enum SidebarSection: Hashable {
+    case home
     case songs
     case artists
     case albums
     case genres
     case playlists
+    case favorites
     case search
     case downloads
     case settings

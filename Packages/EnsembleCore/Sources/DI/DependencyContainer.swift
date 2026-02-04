@@ -172,6 +172,14 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager
         )
     }
+    
+    @MainActor
+    public func makeHomeViewModel() -> HomeViewModel {
+        HomeViewModel(
+            accountManager: accountManager,
+            syncCoordinator: syncCoordinator
+        )
+    }
 }
 
 // MARK: - Environment Key

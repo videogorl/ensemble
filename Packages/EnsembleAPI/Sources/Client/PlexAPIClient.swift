@@ -315,6 +315,30 @@ public actor PlexAPIClient {
         )
         return container.mediaContainer.items
     }
+    
+    // MARK: - Hubs (Home Screen Content)
+    
+    /// Get all hubs for a library section (Recently Added, Recently Played, etc.)
+    public func getHubs(sectionKey: String) async throws -> [PlexHub] {
+        let data = try await serverRequest(path: "/hubs/sections/\(sectionKey)")
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexHub>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get items for a specific hub
+    public func getHubItems(hubKey: String) async throws -> [PlexHubMetadata] {
+        let data = try await serverRequest(path: hubKey)
+        
+        // Hub items are returned as metadata
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexHubMetadata>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
 
     /// Search library
     public func search(query: String, sectionKey: String) async throws -> [PlexTrack] {

@@ -16,40 +16,58 @@ public struct MoreView: View {
 
     public var body: some View {
         List {
-            // Albums
-            NavigationLink(
-                destination: AlbumsView(
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    onAlbumTap: { album in
-                        // Navigate to album detail
-                    }
-                )
-            ) {
-                Label("Albums", systemImage: "square.stack")
-            }
-
-            // Genres
-            NavigationLink {
-                GenresView(libraryVM: libraryVM) { genre in
-                    // Navigate to genre detail
+            Section("Library") {
+                // Songs
+                NavigationLink {
+                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    Label("Songs", systemImage: "music.note")
                 }
-            } label: {
-                Label("Genres", systemImage: "guitars")
+                
+                // Albums
+                NavigationLink(
+                    destination: AlbumsView(
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { album in
+                            // Navigate to album detail
+                        }
+                    )
+                ) {
+                    Label("Albums", systemImage: "square.stack")
+                }
+                
+                // Genres
+                NavigationLink {
+                    GenresView(libraryVM: libraryVM) { genre in
+                        // Navigate to genre detail
+                    }
+                } label: {
+                    Label("Genres", systemImage: "guitars")
+                }
+                
+                // Favorites
+                NavigationLink {
+                    FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    Label("Favorites", systemImage: "heart.fill")
+                }
             }
+            
+            Section("Other") {
+                // Downloads
+                NavigationLink {
+                    DownloadsView(nowPlayingVM: nowPlayingVM)
+                } label: {
+                    Label("Downloads", systemImage: "arrow.down.circle")
+                }
 
-            // Downloads
-            NavigationLink {
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            } label: {
-                Label("Downloads", systemImage: "arrow.down.circle")
-            }
-
-            // Settings
-            NavigationLink {
-                SettingsView()
-            } label: {
-                Label("Settings", systemImage: "gear")
+                // Settings
+                NavigationLink {
+                    SettingsView()
+                } label: {
+                    Label("Settings", systemImage: "gear")
+                }
             }
         }
         .listStyle(.insetGrouped)
