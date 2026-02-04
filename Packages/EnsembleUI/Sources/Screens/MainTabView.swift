@@ -18,114 +18,148 @@ public struct MainTabView: View {
     }
 
     public var body: some View {
-        ZStack {
-            // Main tab view
+        GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-            TabView(selection: $selectedTab) {
-                // Songs
-                NavigationView {
-                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                syncButton
+                // Main content layer (TabView)
+                TabView(selection: $selectedTab) {
+                    // Songs
+                    NavigationView {
+                        SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                            .toolbar {
+                                ToolbarItem(placement: .navigationBarTrailing) {
+                                    syncButton
+                                }
                             }
-                        }
-                }
-                .navigationViewStyle(.stack)
-                .tabItem {
-                    Label("Songs", systemImage: "music.note")
-                }
-                .tag(0)
-
-                // Artists
-                NavigationView {
-                    ArtistsView(
-                        libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM,
-                        onArtistTap: { artist in
-                            // Navigation handled by ArtistsView
-                        }
-                    )
-                }
-                .navigationViewStyle(.stack)
-                .tabItem {
-                    Label("Artists", systemImage: "music.mic")
-                }
-                .tag(1)
-
-                // Playlists
-                NavigationView {
-                    PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
-                        // Navigation handled by PlaylistsView
                     }
-                }
-                .navigationViewStyle(.stack)
-                .tabItem {
-                    Label("Playlists", systemImage: "music.note.list")
-                }
-                .tag(2)
+                    .navigationViewStyle(.stack)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                    }
+                    .tag(0)
 
-                // Search
-                NavigationView {
-                    SearchView(nowPlayingVM: nowPlayingVM)
-                }
-                .navigationViewStyle(.stack)
-                .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .tag(3)
+                    // Artists
+                    NavigationView {
+                        ArtistsView(
+                            libraryVM: libraryVM,
+                            nowPlayingVM: nowPlayingVM,
+                            onArtistTap: { artist in
+                                // Navigation handled by ArtistsView
+                            }
+                        )
+                    }
+                    .navigationViewStyle(.stack)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                    }
+                    .tag(1)
 
-                // More
-                NavigationView {
-                    MoreView(
-                        libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                }
-                .navigationViewStyle(.stack)
-                .tabItem {
-                    Label("More", systemImage: "ellipsis")
-                }
-                .tag(4)
-            }
+                    // Playlists
+                    NavigationView {
+                        PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
+                            // Navigation handled by PlaylistsView
+                        }
+                    }
+                    .navigationViewStyle(.stack)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                    }
+                    .tag(2)
 
-            // Mini player overlay
-            if nowPlayingVM.hasCurrentTrack {
+                    // Search
+                    NavigationView {
+                        SearchView(nowPlayingVM: nowPlayingVM)
+                    }
+                    .navigationViewStyle(.stack)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                    }
+                    .tag(3)
+
+                    // More
+                    NavigationView {
+                        MoreView(
+                            libraryVM: libraryVM,
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    }
+                    .navigationViewStyle(.stack)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                    }
+                    .tag(4)
+                }
+                // Hide the standard tab bar since we're using a custom one for layering
+                .onAppear {
+                    let appearance = UITabBarAppearance()
+                    appearance.configureWithTransparentBackground()
+                    UITabBar.appearance().standardAppearance = appearance
+                    UITabBar.appearance().scrollEdgeAppearance = appearance
+                }
+
+                // Sliding detail view overlay
+                if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
+                    detailViewForDestination(destination: destination)
+                        .transition(.move(edge: .trailing))
+                        .zIndex(1)
+                }
+
+                // Persistent UI Layer (MiniPlayer + Custom TabBar)
                 VStack(spacing: 0) {
-                    Spacer()
-
-                    MiniPlayer(viewModel: nowPlayingVM) {
-                        showingNowPlaying = true
+                    if nowPlayingVM.hasCurrentTrack {
+                        MiniPlayer(viewModel: nowPlayingVM) {
+                            showingNowPlaying = true
+                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
-                    // Tab bar spacer
-                    Color.clear
-                        .frame(height: 49)
+                    customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
                 }
+                .background(.ultraThinMaterial)
+                .zIndex(2)
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
+        }
+        .sheet(isPresented: $showingNowPlaying) {
+            NowPlayingView(viewModel: nowPlayingVM)
+        }
+        .sheet(isPresented: $showingSyncPanel) {
+            SyncPanelView()
+        }
+        .task {
+            await libraryVM.refresh()
+        }
+        .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
+            // Show detail view when navigation is requested
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showingDetailView = destination != nil
             }
         }
-            .sheet(isPresented: $showingNowPlaying) {
-                NowPlayingView(viewModel: nowPlayingVM)
+    }
+    
+    private func customTabBar(safeAreaBottom: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            tabItem(title: "Songs", icon: "music.note", tag: 0)
+            tabItem(title: "Artists", icon: "music.mic", tag: 1)
+            tabItem(title: "Playlists", icon: "music.note.list", tag: 2)
+            tabItem(title: "Search", icon: "magnifyingglass", tag: 3)
+            tabItem(title: "More", icon: "ellipsis", tag: 4)
+        }
+        .frame(height: 49)
+        .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 8)
+    }
+    
+    private func tabItem(title: String, icon: String, tag: Int) -> some View {
+        Button {
+            selectedTab = tag
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                Text(title)
+                    .font(.system(size: 10))
             }
-            .sheet(isPresented: $showingSyncPanel) {
-                SyncPanelView()
-            }
-            .task {
-                await libraryVM.refresh()
-            }
-            .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
-                // Show detail view when navigation is requested
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showingDetailView = destination != nil
-                }
-            }
-            
-            // Sliding detail view overlay
-            if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
-                detailViewForDestination(destination: destination)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(1)
-            }
+            .frame(maxWidth: .infinity)
+            .foregroundColor(selectedTab == tag ? .accentColor : .secondary)
         }
     }
     
@@ -148,6 +182,10 @@ public struct MainTabView: View {
                     )
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -160,7 +198,6 @@ public struct MainTabView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.left")
-                        Text("Back")
                     }
                 }
             }
@@ -196,73 +233,82 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             // Main split view
             NavigationSplitView {
-            List(selection: $selection) {
-                Section("Library") {
-                    Label("Songs", systemImage: "music.note")
-                        .tag(SidebarSection.songs)
+                List(selection: $selection) {
+                    Section("Library") {
+                        Label("Songs", systemImage: "music.note")
+                            .tag(SidebarSection.songs)
 
-                    Label("Artists", systemImage: "music.mic")
-                        .tag(SidebarSection.artists)
+                        Label("Artists", systemImage: "music.mic")
+                            .tag(SidebarSection.artists)
 
-                    Label("Albums", systemImage: "square.stack")
-                        .tag(SidebarSection.albums)
+                        Label("Albums", systemImage: "square.stack")
+                            .tag(SidebarSection.albums)
 
-                    Label("Genres", systemImage: "guitars")
-                        .tag(SidebarSection.genres)
+                        Label("Genres", systemImage: "guitars")
+                            .tag(SidebarSection.genres)
 
-                    Label("Playlists", systemImage: "music.note.list")
-                        .tag(SidebarSection.playlists)
-                }
+                        Label("Playlists", systemImage: "music.note.list")
+                            .tag(SidebarSection.playlists)
+                    }
 
-                Section("Other") {
-                    Label("Search", systemImage: "magnifyingglass")
-                        .tag(SidebarSection.search)
+                    Section("Other") {
+                        Label("Search", systemImage: "magnifyingglass")
+                            .tag(SidebarSection.search)
 
-                    Label("Downloads", systemImage: "arrow.down.circle")
-                        .tag(SidebarSection.downloads)
+                        Label("Downloads", systemImage: "arrow.down.circle")
+                            .tag(SidebarSection.downloads)
 
-                    Label("Settings", systemImage: "gear")
-                        .tag(SidebarSection.settings)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationTitle("Ensemble")
-            .toolbar {
-                ToolbarItem {
-                    Button {
-                        showingSyncPanel = true
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Label("Settings", systemImage: "gear")
+                            .tag(SidebarSection.settings)
                     }
                 }
-            }
-        } detail: {
-            detailView
-        }
-            .sheet(isPresented: $showingNowPlaying) {
-                NowPlayingView(viewModel: nowPlayingVM)
-            }
-            .sheet(isPresented: $showingSyncPanel) {
-                SyncPanelView()
-            }
-            .task {
-                await libraryVM.refresh()
-            }
-            .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
-                // Show detail view when navigation is requested
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showingDetailView = destination != nil
+                .listStyle(.sidebar)
+                .navigationTitle("Ensemble")
+                .toolbar {
+                    ToolbarItem {
+                        Button {
+                            showingSyncPanel = true
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
                 }
+            } detail: {
+                detailView
             }
-            
+
             // Sliding detail view overlay
             if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
                 detailViewForSidebar(destination: destination)
                     .transition(.move(edge: .trailing))
                     .zIndex(1)
+            }
+
+            // Mini player overlay (always on top)
+            if nowPlayingVM.hasCurrentTrack {
+                MiniPlayer(viewModel: nowPlayingVM) {
+                    showingNowPlaying = true
+                }
+                .background(.ultraThinMaterial)
+                .zIndex(2)
+            }
+        }
+        .sheet(isPresented: $showingNowPlaying) {
+            NowPlayingView(viewModel: nowPlayingVM)
+        }
+        .sheet(isPresented: $showingSyncPanel) {
+            SyncPanelView()
+        }
+        .task {
+            await libraryVM.refresh()
+        }
+        .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
+            // Show detail view when navigation is requested
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showingDetailView = destination != nil
             }
         }
     }
@@ -286,6 +332,12 @@ public struct SidebarView: View {
                     )
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if nowPlayingVM.hasCurrentTrack {
+                    Color.clear.frame(height: 60)
+                }
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -298,7 +350,6 @@ public struct SidebarView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.left")
-                        Text("Back")
                     }
                 }
             }
