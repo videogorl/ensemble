@@ -55,13 +55,17 @@ public struct NowPlayingView: View {
     private var backgroundGradientView: some View {
         Group {
             if let colors = gradientColors {
-                LinearGradient(
-                    colors: [colors.primary, colors.secondary, colors.tertiary],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                ZStack {
+                    LinearGradient(
+                        colors: [colors.accent, colors.secondary],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    
+                    // Dimming overlay: heavier if colors are bright to maintain control visibility
+                    Color.black.opacity(colors.isLight ? 0.5 : 0.3)
+                }
                 .ignoresSafeArea()
-                .opacity(0.6)
             } else {
                 Color(.systemBackground)
                     .ignoresSafeArea()

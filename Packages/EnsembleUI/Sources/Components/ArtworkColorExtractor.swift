@@ -1,4 +1,6 @@
 import SwiftUI
+
+#if canImport(UIKit)
 import UIKit
 
 /// Utility for extracting colors from album artwork to create gradient backgrounds
@@ -25,14 +27,14 @@ public class ArtworkColorExtractor {
     
     /// Extracted colors for creating gradients
     public struct GradientColors: Sendable {
-        public let primary: Color
+        public let accent: Color
         public let secondary: Color
-        public let tertiary: Color
+        public let isLight: Bool
         
-        public init(primary: Color, secondary: Color, tertiary: Color) {
-            self.primary = primary
+        public init(accent: Color, secondary: Color, isLight: Bool) {
+            self.accent = accent
             self.secondary = secondary
-            self.tertiary = tertiary
+            self.isLight = isLight
         }
     }
     
@@ -50,16 +52,20 @@ public class ArtworkColorExtractor {
             let resizedImage = Self.resizeImage(uiImage, targetSize: CGSize(width: 100, height: 100))
             
             // Extract colors using multiple methods
-            let cornerColors = Self.extractCornerColors(from: resizedImage)
             let averageColor = Self.extractAverageColor(from: resizedImage)
-            let dominantColor = Self.extractMostCommonColor(from: resizedImage)
+            let dominantColor = Self.extractMostCommonColor(from: resizedImage, fallback: averageColor)
             
             // Boost saturation for vibrant gradients
-            let primary = Color(Self.boostSaturation(dominantColor, amount: 1.5))
-            let secondary = Color(Self.boostSaturation(averageColor, amount: 1.3))
-            let tertiary = Color(Self.boostSaturation(Self.blendColors(cornerColors), amount: 1.2))
+            let accentUIColor = Self.boostSaturation(dominantColor, amount: 1.5)
+            let secondaryUIColor = Self.boostSaturation(averageColor, amount: 1.3)
             
-            return GradientColors(primary: primary, secondary: secondary, tertiary: tertiary)
+            let accent = Color(accentUIColor)
+            let secondary = Color(secondaryUIColor)
+            
+            // Determine if the background is light based on the accent color's luminance
+            let isLight = Self.isLightColor(accentUIColor)
+            
+            return GradientColors(accent: accent, secondary: secondary, isLight: isLight)
         }.value
         
         // Cache result
@@ -69,25 +75,19 @@ public class ArtworkColorExtractor {
         
         return colors
     }
-    
-    /// Extract colors from the four corners of the image
-    private static func extractCornerColors(from image: UIImage) -> [UIColor] {
-        guard let cgImage = image.cgImage else { return [.gray] }
+
+    /// Check if a color is considered "light" (high luminance)
+    private static func isLightColor(_ color: UIColor) -> Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
         
-        let width = cgImage.width
-        let height = cgImage.height
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         
-        // Sample points at corners (with small offset to avoid edge artifacts)
-        let samplePoints = [
-            CGPoint(x: 5, y: 5),                    // Top-left
-            CGPoint(x: width - 5, y: 5),            // Top-right
-            CGPoint(x: 5, y: height - 5),           // Bottom-left
-            CGPoint(x: width - 5, y: height - 5)    // Bottom-right
-        ]
-        
-        return samplePoints.compactMap { point in
-            getPixelColor(at: point, in: cgImage)
-        }
+        // Formula for relative luminance
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance > 0.6
     }
     
     /// Calculate average color of entire image
@@ -132,11 +132,11 @@ public class ArtworkColorExtractor {
     }
     
     /// Find most common color using color bucketing, excluding grays/blacks
-    private static func extractMostCommonColor(from image: UIImage) -> UIColor {
+    private static func extractMostCommonColor(from image: UIImage, fallback: UIColor) -> UIColor {
         guard let cgImage = image.cgImage,
               let data = cgImage.dataProvider?.data,
               let bytes = CFDataGetBytePtr(data) else {
-            return .gray
+            return fallback
         }
         
         let width = cgImage.width
@@ -155,31 +155,46 @@ public class ArtworkColorExtractor {
                 let green = Int(bytes[offset + 1])
                 let blue = Int(bytes[offset + 2])
                 
-                // Skip very dark colors and grays (low saturation)
-                let max = max(red, green, blue)
-                let min = min(red, green, blue)
-                let saturation = max == 0 ? 0 : (max - min) / max
+                // Calculate basic saturation: (max - min) / max
+                let r = Double(red) / 255.0
+                let g = Double(green) / 255.0
+                let b = Double(blue) / 255.0
                 
-                // Only count colors with decent brightness and saturation
-                if max > 30 && saturation > 20 {
-                    let bucketR = red / 16  // 0-15 bucket
+                let maxVal = max(r, g, b)
+                let minVal = min(r, g, b)
+                let saturation = maxVal == 0 ? 0 : (maxVal - minVal) / maxVal
+                
+                // Filter out:
+                // 1. Very dark colors (brightness < 15%)
+                // 2. Very desaturated colors (saturation < 15%) unless they are very frequent
+                // 3. Very bright white-ish colors (brightness > 95% and saturation < 10%)
+                
+                let isTooDark = maxVal < 0.15
+                let isTooGray = saturation < 0.15
+                let isTooWhite = maxVal > 0.95 && saturation < 0.10
+                
+                if !isTooDark && !isTooWhite {
+                    // Give extra weight to saturated colors
+                    let weight = isTooGray ? 1 : 3
+                    
+                    let bucketR = red / 16
                     let bucketG = green / 16
                     let bucketB = blue / 16
                     
                     let bucketKey = "\(bucketR),\(bucketG),\(bucketB)"
                     if var existing = colorBuckets[bucketKey] {
-                        existing.count += 1
+                        existing.count += weight
                         colorBuckets[bucketKey] = existing
                     } else {
-                        colorBuckets[bucketKey] = (count: 1, r: bucketR, g: bucketG, b: bucketB)
+                        colorBuckets[bucketKey] = (count: weight, r: bucketR, g: bucketG, b: bucketB)
                     }
                 }
             }
         }
         
-        // Find most common saturated bucket
+        // Find most common bucket
         guard let mostCommon = colorBuckets.max(by: { $0.value.count < $1.value.count }) else {
-            return .red  // Fallback to red if no colors found
+            return fallback
         }
         
         let bucket = mostCommon.value
@@ -187,61 +202,6 @@ public class ArtworkColorExtractor {
             red: CGFloat(bucket.r * 16 + 8) / 255.0,
             green: CGFloat(bucket.g * 16 + 8) / 255.0,
             blue: CGFloat(bucket.b * 16 + 8) / 255.0,
-            alpha: 1.0
-        )
-    }
-    
-    /// Blend multiple colors together
-    private static func blendColors(_ colors: [UIColor]) -> UIColor {
-        guard !colors.isEmpty else { return .gray }
-        
-        var totalRed: CGFloat = 0
-        var totalGreen: CGFloat = 0
-        var totalBlue: CGFloat = 0
-        
-        for color in colors {
-            var red: CGFloat = 0
-            var green: CGFloat = 0
-            var blue: CGFloat = 0
-            var alpha: CGFloat = 0
-            
-            color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-            totalRed += red
-            totalGreen += green
-            totalBlue += blue
-        }
-        
-        let count = CGFloat(colors.count)
-        return UIColor(
-            red: totalRed / count,
-            green: totalGreen / count,
-            blue: totalBlue / count,
-            alpha: 1.0
-        )
-    }
-    
-    /// Get pixel color at specific point
-    private static func getPixelColor(at point: CGPoint, in cgImage: CGImage) -> UIColor? {
-        guard let data = cgImage.dataProvider?.data,
-              let bytes = CFDataGetBytePtr(data) else {
-            return nil
-        }
-        
-        let bytesPerPixel = 4
-        let bytesPerRow = cgImage.bytesPerRow
-        let x = Int(point.x)
-        let y = Int(point.y)
-        
-        guard x >= 0, x < cgImage.width, y >= 0, y < cgImage.height else {
-            return nil
-        }
-        
-        let offset = (y * bytesPerRow) + (x * bytesPerPixel)
-        
-        return UIColor(
-            red: CGFloat(bytes[offset]) / 255.0,
-            green: CGFloat(bytes[offset + 1]) / 255.0,
-            blue: CGFloat(bytes[offset + 2]) / 255.0,
             alpha: 1.0
         )
     }
@@ -280,3 +240,28 @@ public class ArtworkColorExtractor {
         await cacheActor.removeAll()
     }
 }
+#else
+#if canImport(AppKit)
+import AppKit
+public typealias UIImage = NSImage
+#endif
+
+public class ArtworkColorExtractor {
+    public struct GradientColors: Sendable {
+        public let accent: Color
+        public let secondary: Color
+        public let isLight: Bool
+        public init(accent: Color, secondary: Color, isLight: Bool) {
+            self.accent = accent
+            self.secondary = secondary
+            self.isLight = isLight
+        }
+    }
+    
+    public static func extractColors(from image: UIImage, cacheKey: String? = nil) async -> GradientColors {
+        return GradientColors(accent: .gray, secondary: .black, isLight: false)
+    }
+    
+    public static func clearCache() async {}
+}
+#endif
