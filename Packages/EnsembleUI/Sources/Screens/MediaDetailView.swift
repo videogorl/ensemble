@@ -86,7 +86,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
-                size: .extraLarge,
+                size: .medium,
                 cornerRadius: 12
             )
             .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
@@ -160,5 +160,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.tracks, startingAt: index)
         }
+        .frame(height: CGFloat(viewModel.tracks.count * 68 + (groupByDisc ? 100 : 0)))
     }
 }

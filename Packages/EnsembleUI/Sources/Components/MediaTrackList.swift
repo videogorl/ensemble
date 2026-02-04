@@ -12,6 +12,9 @@ public class TrackTableViewCell: UITableViewCell {
     private let playingIndicator = UIImageView()
     private let trackNumberLabel = UILabel()
     
+    private var titleLeadingConstraint: NSLayoutConstraint?
+    private var subtitleLeadingConstraint: NSLayoutConstraint?
+    
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupViews()
@@ -92,9 +95,19 @@ public class TrackTableViewCell: UITableViewCell {
     ) {
         titleLabel.text = track.title
         
+        // Remove old constraints
+        titleLeadingConstraint?.isActive = false
+        subtitleLeadingConstraint?.isActive = false
+        
         // Configure leading constraint based on what's showing
-        titleLabel.leadingAnchor.constraint(equalTo: showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor), constant: showArtwork || showTrackNumber ? 12 : 16).isActive = true
-        subtitleLabel.leadingAnchor.constraint(equalTo: showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor), constant: showArtwork || showTrackNumber ? 12 : 16).isActive = true
+        let leadingAnchor = showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor)
+        let constant: CGFloat = showArtwork || showTrackNumber ? 12 : 16
+        
+        titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
+        subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
+        
+        titleLeadingConstraint?.isActive = true
+        subtitleLeadingConstraint?.isActive = true
         
         var subtitleParts: [String] = []
         if let artist = track.artistName {
@@ -148,14 +161,8 @@ public class TrackTableViewCell: UITableViewCell {
     public override func prepareForReuse() {
         super.prepareForReuse()
         artworkImageView.image = nil
-        
-        // Remove all dynamic constraints
-        for constraint in titleLabel.constraints {
-            constraint.isActive = false
-        }
-        for constraint in subtitleLabel.constraints {
-            constraint.isActive = false
-        }
+        titleLeadingConstraint?.isActive = false
+        subtitleLeadingConstraint?.isActive = false
     }
 }
 
