@@ -14,6 +14,11 @@ public struct MainTabView: View {
     // Navigation state from Now Playing
     @State private var artistToNavigate: Artist?
     @State private var albumToNavigate: Album?
+    
+    // Coordination state
+    @State private var artistStackID = UUID()
+    @State private var moreStackID = UUID()
+    @State private var shouldNavigateToAlbums = false
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -49,6 +54,7 @@ public struct MainTabView: View {
                         }
                     )
                 }
+                .id(artistStackID)
                 .navigationViewStyle(.stack)
                 .tabItem {
                     Label("Artists", systemImage: "music.mic")
@@ -82,9 +88,11 @@ public struct MainTabView: View {
                     MoreView(
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
-                        externalAlbumToNavigate: $albumToNavigate
+                        externalAlbumToNavigate: $albumToNavigate,
+                        shouldNavigateToAlbums: $shouldNavigateToAlbums
                     )
                 }
+                .id(moreStackID)
                 .navigationViewStyle(.stack)
                 .tabItem {
                     Label("More", systemImage: "ellipsis")
@@ -131,16 +139,38 @@ public struct MainTabView: View {
                 if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
                     let artist = Artist(from: cdArtist)
                     await MainActor.run {
+                        // Clear current navigation first
+                        self.artistToNavigate = nil
+                        
+                        // Reset stack to root
+                        artistStackID = UUID()
+                        
                         self.selectedTab = 1 // Artists tab
-                        self.artistToNavigate = artist
+                        
+                        // Delay to ensure stack reset is processed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self.artistToNavigate = artist
+                        }
                     }
                 }
             case .album(let id, _):
                 if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
                     let album = Album(from: cdAlbum)
                     await MainActor.run {
-                        self.selectedTab = 4 // More tab (where Albums are)
-                        self.albumToNavigate = album
+                        // Clear current navigation first
+                        self.shouldNavigateToAlbums = false
+                        self.albumToNavigate = nil
+                        
+                        // Reset stack to root
+                        moreStackID = UUID()
+                        
+                        self.selectedTab = 4 // More tab
+                        
+                        // Delay to ensure stack reset is processed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self.albumToNavigate = album
+                            self.shouldNavigateToAlbums = true
+                        }
                     }
                 }
             }
@@ -171,6 +201,10 @@ public struct SidebarView: View {
     // Navigation state from Now Playing
     @State private var artistToNavigate: Artist?
     @State private var albumToNavigate: Album?
+
+    // Coordination state
+    @State private var artistStackID = UUID()
+    @State private var albumStackID = UUID()
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -246,16 +280,36 @@ public struct SidebarView: View {
                 if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
                     let artist = Artist(from: cdArtist)
                     await MainActor.run {
+                        // Clear current navigation first
+                        self.artistToNavigate = nil
+                        
+                        // Reset stack
+                        artistStackID = UUID()
+                        
                         self.selection = .artists
-                        self.artistToNavigate = artist
+                        
+                        // Delay to ensure stack reset is processed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self.artistToNavigate = artist
+                        }
                     }
                 }
             case .album(let id, _):
                 if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
                     let album = Album(from: cdAlbum)
                     await MainActor.run {
+                        // Clear current navigation first
+                        self.albumToNavigate = nil
+                        
+                        // Reset stack
+                        albumStackID = UUID()
+                        
                         self.selection = .albums
-                        self.albumToNavigate = album
+                        
+                        // Delay to ensure stack reset is processed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self.albumToNavigate = album
+                        }
                     }
                 }
             }
@@ -279,6 +333,7 @@ public struct SidebarView: View {
                     // Handle navigation
                 }
             }
+            .id(artistStackID)
         case .albums:
             NavigationStack {
                 AlbumsView(
@@ -289,6 +344,7 @@ public struct SidebarView: View {
                     // Handle navigation
                 }
             }
+            .id(albumStackID)
         case .genres:
             NavigationStack {
                 GenresView(libraryVM: libraryVM) { genre in

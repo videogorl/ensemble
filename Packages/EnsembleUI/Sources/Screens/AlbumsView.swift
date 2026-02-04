@@ -7,6 +7,8 @@ public struct AlbumsView: View {
     let onAlbumTap: (Album) -> Void
     @Binding var externalAlbumToNavigate: Album?
     @State private var searchText = ""
+    @State private var localAlbumToNavigate: Album?
+    @State private var isNavigatingExternally = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -42,22 +44,49 @@ public struct AlbumsView: View {
             }
             
             // Hidden navigation link for external navigation
-            if let album = externalAlbumToNavigate {
-                NavigationLink(
-                    destination: AlbumDetailView(
-                        album: album,
-                        nowPlayingVM: nowPlayingVM
-                    ),
-                    isActive: Binding(
-                        get: { externalAlbumToNavigate != nil },
-                        set: { if !$0 { externalAlbumToNavigate = nil } }
-                    )
-                ) {
-                    EmptyView()
-                }
+            NavigationLink(
+                destination: Group {
+                    if let album = localAlbumToNavigate {
+                        AlbumDetailView(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    }
+                },
+                isActive: $isNavigatingExternally
+            ) {
+                EmptyView()
             }
         }
         .navigationTitle("Albums")
+        .onChange(of: externalAlbumToNavigate) { album in
+            if let album = album {
+                // When external binding changes, update local state with a slight delay
+                // to ensure the view hierarchy is ready for the next push
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.localAlbumToNavigate = album
+                    self.isNavigatingExternally = true
+                }
+            } else {
+                self.isNavigatingExternally = false
+                self.localAlbumToNavigate = nil
+            }
+        }
+        .onAppear {
+            if let album = externalAlbumToNavigate {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.localAlbumToNavigate = album
+                    self.isNavigatingExternally = true
+                }
+            }
+        }
+        .onChange(of: isNavigatingExternally) { isActive in
+            if !isActive {
+                // If navigation ends (user hits back), clear the external binding
+                externalAlbumToNavigate = nil
+                localAlbumToNavigate = nil
+            }
+        }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()

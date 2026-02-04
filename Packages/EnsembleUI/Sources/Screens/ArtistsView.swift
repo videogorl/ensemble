@@ -7,6 +7,8 @@ public struct ArtistsView: View {
     let onArtistTap: (Artist) -> Void
     @Binding var externalArtistToNavigate: Artist?
     @State private var searchText = ""
+    @State private var localArtistToNavigate: Artist?
+    @State private var isNavigatingExternally = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -41,23 +43,47 @@ public struct ArtistsView: View {
             }
             
             // Hidden navigation link for external navigation
-            if let artist = externalArtistToNavigate {
-                NavigationLink(
-                    destination: ArtistDetailView(
-                        artist: artist,
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { _ in }
-                    ),
-                    isActive: Binding(
-                        get: { externalArtistToNavigate != nil },
-                        set: { if !$0 { externalArtistToNavigate = nil } }
-                    )
-                ) {
-                    EmptyView()
-                }
+            NavigationLink(
+                destination: Group {
+                    if let artist = localArtistToNavigate {
+                        ArtistDetailView(
+                            artist: artist,
+                            nowPlayingVM: nowPlayingVM,
+                            onAlbumTap: { _ in }
+                        )
+                    }
+                },
+                isActive: $isNavigatingExternally
+            ) {
+                EmptyView()
             }
         }
         .navigationTitle("Artists")
+        .onChange(of: externalArtistToNavigate) { artist in
+            if let artist = artist {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.localArtistToNavigate = artist
+                    self.isNavigatingExternally = true
+                }
+            } else {
+                self.isNavigatingExternally = false
+                self.localArtistToNavigate = nil
+            }
+        }
+        .onAppear {
+            if let artist = externalArtistToNavigate {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.localArtistToNavigate = artist
+                    self.isNavigatingExternally = true
+                }
+            }
+        }
+        .onChange(of: isNavigatingExternally) { isActive in
+            if !isActive {
+                externalArtistToNavigate = nil
+                localArtistToNavigate = nil
+            }
+        }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()
