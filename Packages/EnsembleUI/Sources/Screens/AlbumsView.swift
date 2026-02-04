@@ -5,7 +5,7 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
-    @State private var searchText = ""
+    @State private var showFilterSheet = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -17,13 +17,10 @@ public struct AlbumsView: View {
         self.onAlbumTap = onAlbumTap
     }
     
-    private var filteredAlbums: [Album] {
-        let sorted = libraryVM.sortedAlbums
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { album in
-            album.title.localizedCaseInsensitiveContains(searchText) ||
-            album.artistName?.localizedCaseInsensitiveContains(searchText) == true
-        }
+    // Get unique artist names for filter
+    private var availableArtists: [String] {
+        let artists = libraryVM.albums.compactMap { $0.artistName }
+        return Array(Set(artists))
     }
 
     public var body: some View {
@@ -37,11 +34,36 @@ public struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !libraryVM.albums.isEmpty {
+                    HStack(spacing: 8) {
+                        TextField("Filter", text: $libraryVM.albumsFilterOptions.searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                        
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                
+                                // Badge indicator when filters are active
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.albums.isEmpty {
                     Menu {
@@ -62,6 +84,14 @@ public struct AlbumsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(
+                filterOptions: $libraryVM.albumsFilterOptions,
+                availableArtists: availableArtists,
+                showYearFilter: true,
+                showArtistFilter: true
+            )
         }
     }
 
@@ -90,7 +120,7 @@ public struct AlbumsView: View {
 
     private var albumGridView: some View {
         ScrollView {
-            AlbumGrid(albums: filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+            AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
                 .padding(.vertical)
         }
     }

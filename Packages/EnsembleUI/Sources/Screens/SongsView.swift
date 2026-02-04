@@ -6,22 +6,11 @@ public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var trackIndexMap: [String: Int] = [:]
-    @State private var searchText = ""
-    @State private var isSearchVisible = false
+    @State private var showFilterSheet = false
 
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-    }
-    
-    private var filteredTracks: [Track] {
-        let sorted = libraryVM.sortedTracks
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { track in
-            track.title.localizedCaseInsensitiveContains(searchText) ||
-            track.artistName?.localizedCaseInsensitiveContains(searchText) == true ||
-            track.albumName?.localizedCaseInsensitiveContains(searchText) == true
-        }
     }
 
     public var body: some View {
@@ -35,11 +24,36 @@ public struct SongsView: View {
             }
         }
         .navigationTitle("Songs")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !libraryVM.tracks.isEmpty {
+                    HStack(spacing: 8) {
+                        TextField("Filter", text: $libraryVM.tracksFilterOptions.searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                        
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                
+                                // Badge indicator when filters are active
+                                if libraryVM.tracksFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.tracks.isEmpty {
                     Menu {
@@ -63,13 +77,13 @@ public struct SongsView: View {
                         Divider()
                         
                         Button {
-                            nowPlayingVM.play(tracks: filteredTracks.shuffled())
+                            nowPlayingVM.play(tracks: libraryVM.filteredTracks.shuffled())
                         } label: {
                             Label("Shuffle All", systemImage: "shuffle")
                         }
 
                         Button {
-                            nowPlayingVM.play(tracks: filteredTracks)
+                            nowPlayingVM.play(tracks: libraryVM.filteredTracks)
                         } label: {
                             Label("Play All", systemImage: "play.fill")
                         }
@@ -78,6 +92,11 @@ public struct SongsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(
+                filterOptions: $libraryVM.tracksFilterOptions
+            )
         }
     }
 
@@ -111,21 +130,21 @@ public struct SongsView: View {
             currentTrackId: nowPlayingVM.currentTrack?.id,
             onTrackTap: { track in
                 let globalIndex = trackIndexMap[track.id] ?? 0
-                nowPlayingVM.play(tracks: filteredTracks, startingAt: globalIndex)
+                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
             }
         )
-        .onChange(of: filteredTracks) { tracks in
+        .onChange(of: libraryVM.filteredTracks) { tracks in
             // Rebuild index map when tracks change
             trackIndexMap = Dictionary(uniqueKeysWithValues: tracks.enumerated().map { ($1.id, $0) })
         }
         .onAppear {
             // Build initial index map
-            trackIndexMap = Dictionary(uniqueKeysWithValues: filteredTracks.enumerated().map { ($1.id, $0) })
+            trackIndexMap = Dictionary(uniqueKeysWithValues: libraryVM.filteredTracks.enumerated().map { ($1.id, $0) })
         }
     }
     
     private var groupedTracks: [(letter: String, tracks: [Track])] {
-        let grouped = Dictionary(grouping: filteredTracks) { track in
+        let grouped = Dictionary(grouping: libraryVM.filteredTracks) { track in
             track.title.indexingLetter
         }
         

@@ -5,20 +5,11 @@ public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onPlaylistTap: (Playlist) -> Void
-    @State private var searchText = ""
 
     public init(nowPlayingVM: NowPlayingViewModel, onPlaylistTap: @escaping (Playlist) -> Void) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self.nowPlayingVM = nowPlayingVM
         self.onPlaylistTap = onPlaylistTap
-    }
-    
-    private var filteredPlaylists: [Playlist] {
-        let sorted = viewModel.sortedPlaylists
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { playlist in
-            playlist.title.localizedCaseInsensitiveContains(searchText)
-        }
     }
 
     public var body: some View {
@@ -32,7 +23,6 @@ public struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .task {
             await viewModel.loadPlaylists()
         }
@@ -40,6 +30,14 @@ public struct PlaylistsView: View {
             await viewModel.loadPlaylists()
         }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !viewModel.playlists.isEmpty {
+                    TextField("Filter", text: $viewModel.filterOptions.searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.playlists.isEmpty {
                     Menu {
@@ -90,7 +88,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(filteredPlaylists) { playlist in
+            ForEach(viewModel.filteredPlaylists) { playlist in
                 PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM) {
                     onPlaylistTap(playlist)
                 }

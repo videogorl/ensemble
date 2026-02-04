@@ -65,10 +65,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 actionButtons
 
                 // Tracks
-                if viewModel.isLoading && viewModel.tracks.isEmpty {
+                if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                     ProgressView()
                         .padding(.top, 40)
-                } else if viewModel.tracks.isEmpty {
+                } else if viewModel.filteredTracks.isEmpty {
                     Text("No tracks")
                         .foregroundColor(.secondary)
                         .padding(.top, 40)
@@ -120,7 +120,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var actionButtons: some View {
         HStack(spacing: 16) {
             Button {
-                nowPlayingVM.play(tracks: viewModel.tracks)
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "play.fill")
@@ -135,7 +135,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             Button {
-                nowPlayingVM.play(tracks: viewModel.tracks.shuffled())
+                nowPlayingVM.play(tracks: viewModel.filteredTracks.shuffled())
             } label: {
                 HStack {
                     Image(systemName: "shuffle")
@@ -151,21 +151,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
-        .disabled(viewModel.tracks.isEmpty)
+        .disabled(viewModel.filteredTracks.isEmpty)
     }
 
     private var tracksSection: some View {
-        let trackCount = viewModel.tracks.count
+        let trackCount = viewModel.filteredTracks.count
         let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
         
         return MediaTrackList(
-            tracks: viewModel.tracks,
+            tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
             currentTrackId: nowPlayingVM.currentTrack?.id
         ) { track, index in
-            nowPlayingVM.play(tracks: viewModel.tracks, startingAt: index)
+            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         .frame(height: height)
     }

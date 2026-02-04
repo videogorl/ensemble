@@ -8,13 +8,26 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
     @Published public var playlistSortOption: PlaylistSortOption = .title
+    @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
+    private var cancellables = Set<AnyCancellable>()
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol
     ) {
         self.playlistRepository = playlistRepository
+        self.filterOptions = FilterPersistence.load(for: "Playlists")
+        
+        // Save filter options when they change
+        setupFilterPersistence()
+    }
+    
+    private func setupFilterPersistence() {
+        $filterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "Playlists") }
+            .store(in: &cancellables)
     }
 
     public func loadPlaylists() async {
@@ -41,6 +54,29 @@ public final class PlaylistViewModel: ObservableObject {
             return playlists.sorted { $0.duration > $1.duration }
         }
     }
+    
+    // MARK: - Filtered Collections
+    
+    /// Filtered playlists based on current filter options
+    public var filteredPlaylists: [Playlist] {
+        applyFilters(to: sortedPlaylists, with: filterOptions)
+    }
+    
+    // MARK: - Filter Application
+    
+    private func applyFilters(to playlists: [Playlist], with options: FilterOptions) -> [Playlist] {
+        var filtered = playlists
+        
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.title.lowercased().contains(searchLower)
+            }
+        }
+        
+        return filtered
+    }
 }
 
 // MARK: - Playlist Detail ViewModel
@@ -51,9 +87,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
+    @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
+    private var cancellables = Set<AnyCancellable>()
 
     public init(
         playlist: Playlist,
@@ -63,6 +101,17 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
+        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
+        
+        // Save filter options when they change
+        setupFilterPersistence()
+    }
+    
+    private func setupFilterPersistence() {
+        $filterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "PlaylistDetail") }
+            .store(in: &cancellables)
     }
 
     public func loadTracks() async {
@@ -80,9 +129,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
         isLoading = false
     }
+    
+    // MARK: - Filtered Collections
+    
+    /// Filtered tracks based on current filter options
+    public var filteredTracks: [Track] {
+        applyFilters(to: tracks, with: filterOptions)
+    }
 
     public var totalDuration: String {
-        let total = tracks.reduce(0) { $0 + $1.duration }
+        let total = filteredTracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
         if minutes >= 60 {
             let hours = minutes / 60
@@ -90,5 +146,28 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             return "\(hours) hr \(mins) min"
         }
         return "\(minutes) min"
+    }
+    
+    // MARK: - Filter Application
+    
+    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
+        var filtered = tracks
+        
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.title.lowercased().contains(searchLower) ||
+                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
+                ($0.albumName?.lowercased().contains(searchLower) ?? false)
+            }
+        }
+        
+        // Downloaded only filter
+        if options.showDownloadedOnly {
+            filtered = filtered.filter { $0.isDownloaded }
+        }
+        
+        return filtered
     }
 }

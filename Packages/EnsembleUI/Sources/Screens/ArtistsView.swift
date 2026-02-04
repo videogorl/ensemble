@@ -5,7 +5,7 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onArtistTap: (Artist) -> Void
-    @State private var searchText = ""
+    @State private var showFilterSheet = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -15,14 +15,6 @@ public struct ArtistsView: View {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
         self.onArtistTap = onArtistTap
-    }
-    
-    private var filteredArtists: [Artist] {
-        let sorted = libraryVM.sortedArtists
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { artist in
-            artist.name.localizedCaseInsensitiveContains(searchText)
-        }
     }
 
     public var body: some View {
@@ -36,11 +28,36 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !libraryVM.artists.isEmpty {
+                    HStack(spacing: 8) {
+                        TextField("Filter", text: $libraryVM.artistsFilterOptions.searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                        
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                
+                                // Badge indicator when filters are active
+                                if libraryVM.artistsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.artists.isEmpty {
                     Menu {
@@ -61,6 +78,11 @@ public struct ArtistsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(
+                filterOptions: $libraryVM.artistsFilterOptions
+            )
         }
     }
 
@@ -90,7 +112,7 @@ public struct ArtistsView: View {
     private var artistListView: some View {
         ScrollView {
             ArtistGrid(
-                artists: filteredArtists,
+                artists: libraryVM.filteredArtists,
                 nowPlayingVM: nowPlayingVM,
                 onArtistTap: onArtistTap
             )
@@ -188,15 +210,15 @@ public struct ArtistDetailView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.white)
 
-                    if !viewModel.albums.isEmpty || !viewModel.tracks.isEmpty {
+                    if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
                         HStack(spacing: 8) {
-                            if !viewModel.albums.isEmpty {
-                                Text("\(viewModel.albums.count) album\(viewModel.albums.count == 1 ? "" : "s")")
+                            if !viewModel.filteredAlbums.isEmpty {
+                                Text("\(viewModel.filteredAlbums.count) album\(viewModel.filteredAlbums.count == 1 ? "" : "s")")
                             }
-                            if !viewModel.albums.isEmpty && !viewModel.tracks.isEmpty {
+                            if !viewModel.filteredAlbums.isEmpty && !viewModel.filteredTracks.isEmpty {
                                 Text("•")
                             }
-                            if !viewModel.tracks.isEmpty {
+                            if !viewModel.filteredTracks.isEmpty {
                                 Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
                             }
                         }
@@ -216,7 +238,7 @@ public struct ArtistDetailView: View {
     private var actionButtons: some View {
         HStack(spacing: 16) {
             Button {
-                nowPlayingVM.play(tracks: viewModel.tracks)
+                nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "play.fill")
@@ -231,7 +253,7 @@ public struct ArtistDetailView: View {
             }
 
             Button {
-                nowPlayingVM.play(tracks: viewModel.tracks.shuffled())
+                nowPlayingVM.play(tracks: viewModel.filteredTracks.shuffled())
             } label: {
                 HStack {
                     Image(systemName: "shuffle")
@@ -245,7 +267,7 @@ public struct ArtistDetailView: View {
                 .cornerRadius(10)
             }
         }
-        .disabled(viewModel.tracks.isEmpty)
+        .disabled(viewModel.filteredTracks.isEmpty)
     }
 
     // MARK: - Bio Section
@@ -289,7 +311,7 @@ public struct ArtistDetailView: View {
                 .fontWeight(.bold)
                 .padding(.horizontal)
 
-            AlbumGrid(albums: viewModel.albums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+            AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
         }
     }
 }
