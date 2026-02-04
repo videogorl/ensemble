@@ -22,6 +22,7 @@ public struct DownloadsView: View {
         }
         .navigationTitle("Downloads")
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.downloads.isEmpty {
                     Text(viewModel.totalSize)
@@ -29,6 +30,15 @@ public struct DownloadsView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !viewModel.downloads.isEmpty {
+                    Text(viewModel.totalSize)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            #endif
         }
         .task {
             await viewModel.loadDownloads()
@@ -123,8 +133,11 @@ public struct DownloadsView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
-        .padding(.bottom, 120)
+        #else
+        .listStyle(.inset)
+        #endif
     }
 }
 

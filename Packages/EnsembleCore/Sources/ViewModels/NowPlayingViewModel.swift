@@ -44,6 +44,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public private(set) var waveformHeights: [Double] = []
     @Published public var currentRating: TrackRating = .none
 
     private let playbackService: PlaybackServiceProtocol
@@ -96,6 +97,10 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.repeatModePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$repeatMode)
+        
+        playbackService.waveformPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$waveformHeights)
 
         // Update duration when track changes
         $currentTrack

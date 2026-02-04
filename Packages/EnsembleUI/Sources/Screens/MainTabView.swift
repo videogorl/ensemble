@@ -5,6 +5,7 @@ import SwiftUI
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var searchVM: SearchViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dependencies) private var deps
 
@@ -12,6 +13,9 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
+    
+    // IDs to trigger pop-to-root by resetting NavigationViews
+    @State private var tabRootIDs: [TabItem: Int] = [:]
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -32,6 +36,7 @@ public struct MainTabView: View {
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
+        self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
     public var body: some View {
@@ -44,6 +49,7 @@ public struct MainTabView: View {
                         NavigationView {
                             viewForTab(tab)
                         }
+                        .id(tabRootIDs[tab, default: 0])
                         #if os(iOS)
                         .navigationViewStyle(.stack)
                         #endif
@@ -63,6 +69,7 @@ public struct MainTabView: View {
                             }
                         )
                     }
+                    .id(tabRootIDs[.settings, default: 0])
                     #if os(iOS)
                     .navigationViewStyle(.stack)
                     #endif
@@ -149,18 +156,49 @@ public struct MainTabView: View {
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
-        Button {
-            selectedTab = tag
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 22))
-                Text(title)
-                    .font(.system(size: 10))
-            }
-            .frame(maxWidth: .infinity)
-            .foregroundColor(selectedTab == tag ? .accentColor : .secondary)
+        let isSelected = selectedTab == tag
+        
+        return VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+            Text(title)
+                .font(.system(size: 10))
         }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .foregroundColor(isSelected ? .accentColor : .secondary)
+        .onTapGesture {
+            handleTabTap(tag)
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            if tag == .search {
+                handleTabTap(.search)
+                searchVM.requestFocus()
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                #endif
+            }
+        }
+    }
+    
+    private func handleTabTap(_ tag: TabItem) {
+        if selectedTab == tag {
+            // Already on this tab
+            if showingDetailView {
+                dismissDetailView()
+            } else if tag == .search {
+                searchVM.requestFocus()
+            } else {
+                // Pop to root by incrementing ID
+                tabRootIDs[tag, default: 0] += 1
+            }
+        } else {
+            selectedTab = tag
+        }
+        
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
     
     @ViewBuilder
@@ -201,7 +239,7 @@ public struct MainTabView: View {
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:
-            SearchView(nowPlayingVM: nowPlayingVM)
+            SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
         case .downloads:
             DownloadsView(nowPlayingVM: nowPlayingVM)
         case .settings:
@@ -272,6 +310,7 @@ public struct MainTabView: View {
 public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var searchVM: SearchViewModel
     @Environment(\.dependencies) private var deps
 
     @State private var selection: SidebarSection? = .home
@@ -293,6 +332,7 @@ public struct SidebarView: View {
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
+        self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
     public var body: some View {
@@ -439,72 +479,77 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch selection {
-        case .home:
-            NavigationStack {
-                HomeView(
-                    nowPlayingVM: nowPlayingVM,
-                    onAlbumTap: { album in
-                        deps.navigationCoordinator.navigateToAlbum(album)
-                    },
-                    onArtistTap: { artist in
+        Group {
+            switch selection {
+            case .home:
+                NavigationStack {
+                    HomeView(
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { album in
+                            deps.navigationCoordinator.navigateToAlbum(album)
+                        },
+                        onArtistTap: { artist in
+                            deps.navigationCoordinator.navigateToArtist(artist)
+                        }
+                    )
+                }
+            case .songs:
+                NavigationStack {
+                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                }
+            case .artists:
+                NavigationStack {
+                    ArtistsView(
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM
+                    ) { artist in
                         deps.navigationCoordinator.navigateToArtist(artist)
                     }
-                )
-            }
-        case .songs:
-            NavigationStack {
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            }
-        case .artists:
-            NavigationStack {
-                ArtistsView(
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM
-                ) { artist in
-                    deps.navigationCoordinator.navigateToArtist(artist)
                 }
-            }
-        case .albums:
-            NavigationStack {
-                AlbumsView(
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM
-                ) { album in
-                    deps.navigationCoordinator.navigateToAlbum(album)
+            case .albums:
+                NavigationStack {
+                    AlbumsView(
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM
+                    ) { album in
+                        deps.navigationCoordinator.navigateToAlbum(album)
+                    }
                 }
-            }
-        case .genres:
-            NavigationStack {
-                GenresView(libraryVM: libraryVM) { genre in
-                    // Handle navigation if needed, or just let it be for now
+            case .genres:
+                NavigationStack {
+                    GenresView(libraryVM: libraryVM) { genre in
+                        // Handle navigation if needed, or just let it be for now
+                    }
                 }
-            }
-        case .playlists:
-            NavigationStack {
-                PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
-                    // Handle navigation
+            case .playlists:
+                NavigationStack {
+                    PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
+                        // Handle navigation
+                    }
                 }
+            case .favorites:
+                NavigationStack {
+                    FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                }
+            case .search:
+                NavigationStack {
+                    SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+                }
+            case .downloads:
+                NavigationStack {
+                    DownloadsView(nowPlayingVM: nowPlayingVM)
+                }
+            case .settings:
+                NavigationStack {
+                    SettingsView()
+                }
+            case .none:
+                Text("Select a section")
+                    .foregroundColor(.secondary)
             }
-        case .favorites:
-            NavigationStack {
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            }
-        case .search:
-            NavigationStack {
-                SearchView(nowPlayingVM: nowPlayingVM)
-            }
-        case .downloads:
-            NavigationStack {
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            }
-        case .settings:
-            NavigationStack {
-                SettingsView()
-            }
-        case .none:
-            Text("Select a section")
-                .foregroundColor(.secondary)
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 64)
         }
     }
 }

@@ -154,7 +154,10 @@ public extension Playlist {
             isSmart: plex.smart ?? false,
             trackCount: plex.leafCount ?? 0,
             duration: TimeInterval(plex.duration ?? 0) / 1000.0,
-            compositePath: plex.composite
+            compositePath: plex.composite,
+            dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
         )
     }
 
@@ -168,6 +171,9 @@ public extension Playlist {
             trackCount: Int(cd.trackCount),
             duration: TimeInterval(cd.duration) / 1000.0,
             compositePath: cd.compositePath,
+            dateAdded: cd.dateAdded,
+            dateModified: cd.dateModified,
+            lastPlayed: cd.lastPlayed,
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }

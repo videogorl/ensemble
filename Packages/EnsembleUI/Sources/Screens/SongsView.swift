@@ -146,7 +146,6 @@ public struct SongsView: View {
                 }
             }
         }
-        .padding(.bottom, 120)
         #endif
     }
     
@@ -214,8 +213,8 @@ struct IndexedTrackList: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
         tableView.backgroundColor = .systemBackground
-        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 120, right: 0)
-        tableView.scrollIndicatorInsets = tableView.contentInset
+        tableView.contentInset = .zero
+        tableView.scrollIndicatorInsets = .zero
         return tableView
     }
     

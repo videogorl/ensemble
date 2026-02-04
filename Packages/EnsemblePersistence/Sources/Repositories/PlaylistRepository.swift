@@ -13,6 +13,9 @@ public protocol PlaylistRepositoryProtocol: Sendable {
         isSmart: Bool,
         duration: Int?,
         trackCount: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
         sourceCompositeKey: String?
     ) async throws -> CDPlaylist
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
@@ -69,6 +72,9 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         isSmart: Bool,
         duration: Int?,
         trackCount: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
         sourceCompositeKey: String? = nil
     ) async throws -> CDPlaylist {
         try await withCheckedThrowingContinuation { continuation in
@@ -92,6 +98,9 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.isSmart = isSmart
                     playlist.duration = Int64(duration ?? 0)
                     playlist.trackCount = Int32(trackCount ?? 0)
+                    playlist.dateAdded = dateAdded
+                    playlist.dateModified = dateModified
+                    playlist.lastPlayed = lastPlayed
                     playlist.updatedAt = Date()
                     playlist.sourceCompositeKey = sourceCompositeKey
 

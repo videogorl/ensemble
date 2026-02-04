@@ -198,6 +198,9 @@ public struct Playlist: Identifiable, Hashable, Sendable {
     public let trackCount: Int
     public let duration: TimeInterval
     public let compositePath: String?
+    public let dateAdded: Date?
+    public let dateModified: Date?
+    public let lastPlayed: Date?
     public let sourceCompositeKey: String?
 
     public init(
@@ -209,6 +212,9 @@ public struct Playlist: Identifiable, Hashable, Sendable {
         trackCount: Int = 0,
         duration: TimeInterval = 0,
         compositePath: String? = nil,
+        dateAdded: Date? = nil,
+        dateModified: Date? = nil,
+        lastPlayed: Date? = nil,
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -219,6 +225,9 @@ public struct Playlist: Identifiable, Hashable, Sendable {
         self.trackCount = trackCount
         self.duration = duration
         self.compositePath = compositePath
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.lastPlayed = lastPlayed
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -430,6 +439,9 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
     case title = "Title"
     case trackCount = "Track Count"
     case duration = "Duration"
+    case dateAdded = "Date Added"
+    case dateModified = "Date Modified"
+    case lastPlayed = "Last Played"
 }
 
 // MARK: - Hub (Home Screen Content)

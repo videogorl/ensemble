@@ -52,6 +52,12 @@ public final class PlaylistViewModel: ObservableObject {
             return playlists.sorted { $0.trackCount > $1.trackCount }
         case .duration:
             return playlists.sorted { $0.duration > $1.duration }
+        case .dateAdded:
+            return playlists.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+        case .dateModified:
+            return playlists.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+        case .lastPlayed:
+            return playlists.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
         }
     }
     

@@ -168,6 +168,9 @@ public class CDPlaylist: NSManagedObject {
     @NSManaged public var isSmart: Bool
     @NSManaged public var duration: Int64
     @NSManaged public var trackCount: Int32
+    @NSManaged public var dateAdded: Date?
+    @NSManaged public var dateModified: Date?
+    @NSManaged public var lastPlayed: Date?
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var source: CDMusicSource?

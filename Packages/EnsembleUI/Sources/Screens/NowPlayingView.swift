@@ -27,6 +27,7 @@ public struct NowPlayingView: View {
     @State private var initialProgress: Double = 0
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
+    @State private var lastScrubRate: Double = 1.0
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -199,7 +200,8 @@ public struct NowPlayingView: View {
                     // Waveform background
                     WaveformView(
                         progress: isDraggingSlider ? localProgress : viewModel.progress,
-                        color: .white
+                        color: .white,
+                        heights: viewModel.waveformHeights
                     )
                     .frame(width: geometry.size.width)
                     .opacity(0.8)
@@ -229,6 +231,14 @@ public struct NowPlayingView: View {
                             // Calculate scrub rate based on vertical distance
                             let verticalDistance = abs(currentDragY - dragStartY)
                             let scrubRate = getScrubRate(verticalDistance: verticalDistance)
+                            
+                            // Trigger haptics if scrub rate changed
+                            if scrubRate != lastScrubRate {
+                                #if os(iOS)
+                                UISelectionFeedbackGenerator().selectionChanged()
+                                #endif
+                                lastScrubRate = scrubRate
+                            }
                             
                             // Calculate horizontal change from start position
                             let horizontalChange = value.location.x - dragStartX

@@ -107,9 +107,12 @@
     </entity>
     <entity name="CDPlaylist" representedClassName="CDPlaylist" syncable="YES">
         <attribute name="compositePath" optional="YES" attributeType="String"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="isSmart" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="key" attributeType="String"/>
+        <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="ratingKey" attributeType="String"/>
         <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
         <attribute name="summary" optional="YES" attributeType="String"/>

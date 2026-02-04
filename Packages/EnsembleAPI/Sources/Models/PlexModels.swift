@@ -287,6 +287,7 @@ public struct PlexPlaylist: Codable, Sendable, Identifiable {
     public let leafCount: Int?  // Track count
     public let addedAt: Int?
     public let updatedAt: Int?
+    public let lastViewedAt: Int?
 
     public var id: String { ratingKey }
 

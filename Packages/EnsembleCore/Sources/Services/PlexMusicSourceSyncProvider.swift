@@ -152,6 +152,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 isSmart: playlist.smart ?? false,
                 duration: playlist.duration,
                 trackCount: playlist.leafCount,
+                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: serverSourceKey
             )
 

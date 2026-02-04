@@ -85,7 +85,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         tracksSection
                     }
                 }
-                .padding(.bottom, 120) // Extra padding for miniplayer
             }
         }
         .navigationTitle(navigationTitle)

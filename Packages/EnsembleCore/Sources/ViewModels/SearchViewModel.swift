@@ -8,6 +8,8 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var results: [Track] = []
     @Published public private(set) var isSearching = false
     @Published public private(set) var error: String?
+    
+    public let focusRequested = PassthroughSubject<Void, Never>()
 
     private let libraryRepository: LibraryRepositoryProtocol
     private var searchTask: Task<Void, Never>?
@@ -62,5 +64,9 @@ public final class SearchViewModel: ObservableObject {
     public func clearSearch() {
         searchQuery = ""
         results = []
+    }
+    
+    public func requestFocus() {
+        focusRequested.send()
     }
 }

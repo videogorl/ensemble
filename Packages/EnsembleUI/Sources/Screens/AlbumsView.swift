@@ -160,7 +160,6 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                     }
                 }
-                .padding(.bottom, 120)
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(

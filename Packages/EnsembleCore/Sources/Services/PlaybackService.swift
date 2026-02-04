@@ -56,6 +56,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var currentQueueIndex: Int { get }
     var isShuffleEnabled: Bool { get }
     var repeatMode: RepeatMode { get }
+    var waveformHeights: [Double] { get }
 
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
@@ -63,6 +64,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
     var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
+    var waveformPublisher: AnyPublisher<[Double], Never> { get }
 
     func play(track: Track) async
     func play(tracks: [Track], startingAt index: Int) async
@@ -94,6 +96,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
     @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
+    @Published public private(set) var waveformHeights: [Double] = []
 
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
@@ -101,6 +104,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
+    public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
 
     public var duration: TimeInterval {
         currentTrack?.duration ?? 0
@@ -108,11 +112,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Private Properties
 
-    private var player: AVPlayer?
-    private var playerItem: AVPlayerItem?
+    private var player: AVQueuePlayer?
+    private var playerItems: [String: AVPlayerItem] = [:] // ratingKey: item
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
     private var itemEndObserver: NSObjectProtocol?
+    private var currentItemObservation: NSKeyValueObservation?
 
     private let syncCoordinator: SyncCoordinator
     private var originalQueue: [QueueItem] = []  // For shuffle restore
@@ -124,10 +129,68 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         super.init()
         setupAudioSession()
         setupRemoteCommands()
+        setupPlayer()
     }
 
     deinit {
         cleanup()
+    }
+
+    private func setupPlayer() {
+        player = AVQueuePlayer()
+        player?.actionAtItemEnd = .advance
+        
+        currentItemObservation = player?.observe(\.currentItem, options: [.new, .old]) { [weak self] _, change in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let newItem = change.newValue as? AVPlayerItem {
+                    self.handleItemChange(newItem)
+                }
+            }
+        }
+    }
+    
+    private func handleItemChange(_ item: AVPlayerItem) {
+        // Find which track this item belongs to
+        if let pair = playerItems.first(where: { $0.value === item }) {
+            let ratingKey = pair.key
+            if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
+                if currentQueueIndex != index {
+                    currentQueueIndex = index
+                    currentTrack = queue[index].track
+                    generateWaveform(for: currentTrack?.id ?? "")
+                    updateNowPlayingInfo()
+                    
+                    // Pre-fetch next item for gapless
+                    Task { await prefetchNextItem() }
+                }
+            }
+        }
+    }
+    
+    private func generateWaveform(for ratingKey: String) {
+        // Simple seeded random to make it consistent for the same track
+        var seed = UInt64(truncatingIfNeeded: Int64(ratingKey.hashValue))
+        func nextRandom() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1
+            return Double(seed >> 32) / Double(UInt32.max)
+        }
+        
+        let count = 40
+        var heights: [Double] = []
+        
+        // Generate a "realistic" shape: quiet at start/end, louder in middle
+        for i in 0..<count {
+            let progress = Double(i) / Double(count)
+            let envelope = sin(progress * .pi) // 0 at start/end, 1 in middle
+            
+            let base = 0.2 + (0.5 * envelope)
+            let variance = 0.3 * nextRandom()
+            
+            heights.append(min(1.0, base + variance))
+        }
+        
+        self.waveformHeights = heights
     }
 
     // MARK: - Audio Session
@@ -334,7 +397,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !queue.isEmpty else { return }
 
         if repeatMode == .one {
-            // Replay current track
             seek(to: 0)
             if playbackState != .playing {
                 resume()
@@ -342,18 +404,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        let nextIndex = currentQueueIndex + 1
-
-        if nextIndex >= queue.count {
-            if repeatMode == .all {
-                currentQueueIndex = 0
-                Task { await playCurrentQueueItem() }
-            } else {
-                stop()
-            }
+        // If we have items in the queue, AVQueuePlayer might already be playing it or can advance
+        if let player = player, player.items().count > 1 {
+            player.advanceToNextItem()
+            // handleItemChange will be called by observer
         } else {
-            currentQueueIndex = nextIndex
-            Task { await playCurrentQueueItem() }
+            // Manually advance
+            let nextIndex = currentQueueIndex + 1
+            if nextIndex >= queue.count {
+                if repeatMode == .all {
+                    currentQueueIndex = 0
+                    Task { await playCurrentQueueItem() }
+                } else {
+                    stop()
+                }
+            } else {
+                currentQueueIndex = nextIndex
+                Task { await playCurrentQueueItem() }
+            }
         }
     }
 
@@ -481,50 +549,98 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let track = queue[currentQueueIndex].track
         currentTrack = track
+        generateWaveform(for: track.id)
         playbackState = .loading
         currentTime = 0
 
-        // Check for local file first
-        if let localPath = track.localFilePath {
-            let url = URL(fileURLWithPath: localPath)
-            if FileManager.default.fileExists(atPath: localPath) {
-                await loadAndPlay(url: url)
-                return
-            }
-        }
-
-        // Stream from server via sync coordinator
         do {
-            let url = try await syncCoordinator.getStreamURL(for: track)
-            print("🎵 Stream URL: \(url)")
-            await loadAndPlay(url: url)
+            let item = try await createPlayerItem(for: track)
+            await loadAndPlay(item: item, track: track)
+            
+            // Prefetch next for gapless
+            Task { await prefetchNextItem() }
         } catch {
-            print("❌ Failed to get stream URL: \(error)")
+            print("❌ Failed to prepare track: \(error)")
             playbackState = .failed(error.localizedDescription)
+        }
+    }
+    
+    private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
+        if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
+            let url = URL(fileURLWithPath: localPath)
+            return AVPlayerItem(url: url)
+        }
+        
+        let url = try await syncCoordinator.getStreamURL(for: track)
+        let asset = AVURLAsset(url: url)
+        return AVPlayerItem(asset: asset)
+    }
+    
+    private func prefetchNextItem() async {
+        guard repeatMode != .one else { return }
+        
+        let nextIndex = currentQueueIndex + 1
+        if nextIndex < queue.count {
+            let nextTrack = queue[nextIndex].track
+            do {
+                let item = try await createPlayerItem(for: nextTrack)
+                playerItems[nextTrack.id] = item
+                
+                await MainActor.run {
+                    if let player = self.player, !player.items().contains(item) {
+                        player.insert(item, after: player.currentItem)
+                        print("✅ Queued next track for gapless: \(nextTrack.title)")
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to prefetch next track: \(error)")
+            }
+        } else if repeatMode == .all && !queue.isEmpty {
+            let nextTrack = queue[0].track
+            do {
+                let item = try await createPlayerItem(for: nextTrack)
+                playerItems[nextTrack.id] = item
+                
+                await MainActor.run {
+                    if let player = self.player, !player.items().contains(item) {
+                        player.insert(item, after: player.currentItem)
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to prefetch first track for repeat all: \(error)")
+            }
         }
     }
 
     @MainActor
-    private func loadAndPlay(url: URL) {
-        cleanup()
+    private func loadAndPlay(item: AVPlayerItem, track: Track) {
+        // Stop current observers but don't full cleanup
+        statusObservation?.invalidate()
+        statusObservation = nil
+        
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
 
         #if !os(macOS)
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
 
-        print("🎵 Loading asset from URL: \(url)")
-        let asset = AVURLAsset(url: url)
-        playerItem = AVPlayerItem(asset: asset)
-        player = AVPlayer(playerItem: playerItem)
+        playerItems.removeAll()
+        playerItems[track.id] = item
+        
+        player?.removeAllItems()
+        player?.insert(item, after: nil)
 
-        setupObservers()
+        setupObservers(for: item)
         print("🎵 Starting playback")
         player?.play()
     }
 
-    private func setupObservers() {
+    private func setupObservers(for item: AVPlayerItem) {
         // Status observation
-        statusObservation = playerItem?.observe(\.status, options: [.new]) { [weak self] item, _ in
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 switch item.status {
                 case .readyToPlay:
@@ -533,9 +649,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self?.updateNowPlayingInfo()
                 case .failed:
                     print("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
-                    if let error = item.error {
-                        print("❌ Error details: \(error)")
-                    }
                     self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
                 default:
                     break
@@ -550,15 +663,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] time in
             self?.currentTime = time.seconds
             self?.updateNowPlayingProgress()
-        }
-
-        // End of track observer
-        itemEndObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem,
-            queue: .main
-        ) { [weak self] _ in
-            self?.next()
         }
     }
 
@@ -575,10 +679,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         statusObservation?.invalidate()
         statusObservation = nil
+        
+        currentItemObservation?.invalidate()
+        currentItemObservation = nil
 
         player?.pause()
-        player = nil
-        playerItem = nil
+        player?.removeAllItems()
+        playerItems.removeAll()
     }
 
     // MARK: - Now Playing Info

@@ -42,13 +42,23 @@ public struct AddPlexAccountView: View {
                 }
             }
             .padding()
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
+                #else
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                #endif
             }
             .onChange(of: viewModel.state) { newState in
                 if newState == .complete {

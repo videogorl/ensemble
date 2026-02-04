@@ -139,13 +139,11 @@ public struct ArtistsView: View {
                             nowPlayingVM: nowPlayingVM,
                             onArtistTap: onArtistTap
                         )
-                        .padding(.vertical)
-                    }
-                }
-                .padding(.bottom, 120)
-                
-                if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
-                    ScrollIndex(
+                                                    .padding(.vertical)
+                                            }
+                                        }
+                                        
+                                        if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {                    ScrollIndex(
                         letters: artistSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
@@ -223,7 +221,6 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
                 }
-                .padding(.bottom, 120) // Extra padding for miniplayer
             }
         }
         .navigationTitle(viewModel.artist.name)

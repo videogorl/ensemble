@@ -40,6 +40,10 @@ public struct ScrollIndex: View {
                         if letter != dragLetter {
                             dragLetter = letter
                             onLetterTap(letter)
+                            
+                            #if os(iOS)
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            #endif
                         }
                     }
                 }

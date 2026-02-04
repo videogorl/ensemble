@@ -4,9 +4,10 @@ import SwiftUI
 public struct SearchView: View {
     @StateObject private var viewModel: SearchViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @FocusState private var isSearchFieldFocused: Bool
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+    public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
+        self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -27,6 +28,9 @@ public struct SearchView: View {
             }
         }
         .navigationTitle("Search")
+        .onReceive(viewModel.focusRequested) {
+            isSearchFieldFocused = true
+        }
     }
 
     private var searchBar: some View {
@@ -38,6 +42,7 @@ public struct SearchView: View {
                 .textFieldStyle(.plain)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
+                .focused($isSearchFieldFocused)
 
             if !viewModel.searchQuery.isEmpty {
                 Button {
@@ -131,7 +136,6 @@ public struct SearchView: View {
                     }
                 }
             }
-            .padding(.bottom, 120)
         }
     }
 }

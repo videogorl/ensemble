@@ -30,7 +30,11 @@ public struct GenresView: View {
             }
         }
         .navigationTitle("Genres")
+        #if os(iOS)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        #else
+        .searchable(text: $searchText)
+        #endif
         .refreshable {
             await libraryVM.refresh()
         }
@@ -85,6 +89,5 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
-        .padding(.bottom, 120)
     }
 }

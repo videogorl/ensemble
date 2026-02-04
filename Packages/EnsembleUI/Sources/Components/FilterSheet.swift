@@ -62,14 +62,18 @@ public struct FilterSheet: View {
                         } else {
                             HStack {
                                 TextField("Min Year", text: $minYear)
+                                    #if os(iOS)
                                     .keyboardType(.numberPad)
+                                    #endif
                                     .frame(maxWidth: .infinity)
                                 
                                 Text("to")
                                     .foregroundColor(.secondary)
                                 
                                 TextField("Max Year", text: $maxYear)
+                                    #if os(iOS)
                                     .keyboardType(.numberPad)
+                                    #endif
                                     .frame(maxWidth: .infinity)
                             }
                             
@@ -174,13 +178,23 @@ public struct FilterSheet: View {
                 }
             }
             .navigationTitle("Filters")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
                     }
                 }
+                #else
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+                #endif
             }
         }
         .onAppear {
@@ -229,7 +243,9 @@ struct ArtistSelectionView: View {
             }
         }
         .navigationTitle("Select Artists")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
@@ -260,6 +276,8 @@ struct GenreSelectionView: View {
             }
         }
         .navigationTitle("Select Genres")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
