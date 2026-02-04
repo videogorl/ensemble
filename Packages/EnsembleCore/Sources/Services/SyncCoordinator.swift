@@ -83,20 +83,43 @@ public final class SyncCoordinator: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
 
+        // Clean up any duplicate playlists from previous syncs
+        try? await playlistRepository.removeDuplicatePlaylists()
+        
+        // Track which servers have had their playlists synced
+        var syncedServerKeys = Set<String>()
+
         for (_, provider) in syncProviders {
             let sourceId = provider.sourceIdentifier
             sourceStatuses[sourceId] = .syncing(progress: 0)
 
             do {
+                // Sync library content (artists, albums, tracks, genres)
                 try await provider.syncLibrary(
                     to: libraryRepository,
-                    playlistRepository: playlistRepository,
                     progressHandler: { [weak self] progress in
                         Task { @MainActor in
-                            self?.sourceStatuses[sourceId] = .syncing(progress: progress)
+                            // Library sync takes up 80% of the progress
+                            self?.sourceStatuses[sourceId] = .syncing(progress: progress * 0.8)
                         }
                     }
                 )
+                
+                // Sync playlists once per server
+                let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+                if !syncedServerKeys.contains(serverKey) {
+                    syncedServerKeys.insert(serverKey)
+                    try await provider.syncPlaylists(
+                        to: playlistRepository,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor in
+                                // Playlist sync takes up the remaining 20%
+                                self?.sourceStatuses[sourceId] = .syncing(progress: 0.8 + (progress * 0.2))
+                            }
+                        }
+                    )
+                }
+                
                 sourceStatuses[sourceId] = .lastSynced(Date())
             } catch {
                 sourceStatuses[sourceId] = .error(error.localizedDescription)
@@ -111,15 +134,28 @@ public final class SyncCoordinator: ObservableObject {
         sourceStatuses[source] = .syncing(progress: 0)
 
         do {
+            // Sync library content
             try await provider.syncLibrary(
                 to: libraryRepository,
-                playlistRepository: playlistRepository,
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
-                        self?.sourceStatuses[source] = .syncing(progress: progress)
+                        // Library sync takes up 80% of the progress
+                        self?.sourceStatuses[source] = .syncing(progress: progress * 0.8)
                     }
                 }
             )
+            
+            // Sync playlists for this server
+            try await provider.syncPlaylists(
+                to: playlistRepository,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        // Playlist sync takes up the remaining 20%
+                        self?.sourceStatuses[source] = .syncing(progress: 0.8 + (progress * 0.2))
+                    }
+                }
+            )
+            
             sourceStatuses[source] = .lastSynced(Date())
         } catch {
             sourceStatuses[source] = .error(error.localizedDescription)

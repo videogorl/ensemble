@@ -4,10 +4,19 @@ import SwiftUI
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let onGenreTap: (Genre) -> Void
+    @State private var searchText = ""
 
     public init(libraryVM: LibraryViewModel, onGenreTap: @escaping (Genre) -> Void) {
         self.libraryVM = libraryVM
         self.onGenreTap = onGenreTap
+    }
+    
+    private var filteredGenres: [Genre] {
+        let sorted = libraryVM.sortedGenres
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { genre in
+            genre.title.localizedCaseInsensitiveContains(searchText)
+        }
     }
 
     public var body: some View {
@@ -21,6 +30,10 @@ public struct GenresView: View {
             }
         }
         .navigationTitle("Genres")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .refreshable {
+            await libraryVM.refresh()
+        }
     }
 
     private var loadingView: some View {
@@ -48,7 +61,7 @@ public struct GenresView: View {
 
     private var genreListView: some View {
         List {
-            ForEach(libraryVM.genres) { genre in
+            ForEach(filteredGenres) { genre in
                 Button {
                     onGenreTap(genre)
                 } label: {

@@ -5,10 +5,15 @@ import Foundation
 public protocol MusicSourceSyncProvider: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
 
-    /// Sync the full library to CoreData
+    /// Sync the library content (artists, albums, tracks, genres) to CoreData
     func syncLibrary(
         to repository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws
+    
+    /// Sync playlists to CoreData (should be called once per server, not per library)
+    func syncPlaylists(
+        to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws
 

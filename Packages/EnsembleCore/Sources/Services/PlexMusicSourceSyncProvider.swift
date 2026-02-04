@@ -20,7 +20,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws {
         let sourceKey = sourceIdentifier.compositeKey
@@ -37,7 +36,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
 
         // Sync artists
-        progressHandler(0.1)
+        progressHandler(0.125)
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
         for artist in artists {
             _ = try await repository.upsertArtist(
@@ -47,12 +46,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 summary: artist.summary,
                 thumbPath: artist.thumb,
                 artPath: artist.art,
+                dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: sourceKey
             )
         }
 
         // Sync albums
-        progressHandler(0.3)
+        progressHandler(0.375)
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         for album in albums {
             _ = try await repository.upsertAlbum(
@@ -60,18 +61,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 key: album.key,
                 title: album.title,
                 artistName: album.parentTitle,
+                albumArtist: album.parentTitle,
                 artistRatingKey: album.parentRatingKey,
                 summary: album.summary,
                 thumbPath: album.thumb,
                 artPath: album.art,
                 year: album.year,
                 trackCount: album.leafCount,
+                dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rating: 0,
                 sourceCompositeKey: sourceKey
             )
         }
 
         // Sync tracks
-        progressHandler(0.5)
+        progressHandler(0.625)
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         print("📀 Syncing \(tracks.count) tracks")
         for (index, track) in tracks.enumerated() {
@@ -97,12 +102,17 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 duration: track.duration,
                 thumbPath: track.thumb ?? track.parentThumb,
                 streamKey: track.streamURL,
+                dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rating: 0,
+                playCount: track.viewCount ?? 0,
                 sourceCompositeKey: sourceKey
             )
         }
 
         // Sync genres
-        progressHandler(0.7)
+        progressHandler(0.875)
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
         for genre in genres {
             _ = try await repository.upsertGenre(
@@ -113,11 +123,27 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
-        // Sync playlists
-        progressHandler(0.9)
+        // Update last sync timestamp
+        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+
+        progressHandler(1.0)
+    }
+    
+    public func syncPlaylists(
+        to repository: PlaylistRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws {
+        // Use server-level identifier for playlists (not library-specific)
+        let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
+        
+        progressHandler(0.1)
         let playlists = try await apiClient.getPlaylists()
-        for playlist in playlists {
-            _ = try await playlistRepository.upsertPlaylist(
+        
+        for (index, playlist) in playlists.enumerated() {
+            let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
+            progressHandler(playlistProgress)
+            
+            _ = try await repository.upsertPlaylist(
                 ratingKey: playlist.ratingKey,
                 key: playlist.key,
                 title: playlist.title,
@@ -126,16 +152,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 isSmart: playlist.smart ?? false,
                 duration: playlist.duration,
                 trackCount: playlist.leafCount,
-                sourceCompositeKey: sourceKey
+                sourceCompositeKey: serverSourceKey
             )
 
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
-            try await playlistRepository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: sourceKey)
+            try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
-
-        // Update last sync timestamp
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
     }

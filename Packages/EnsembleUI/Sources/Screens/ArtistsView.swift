@@ -5,6 +5,7 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onArtistTap: (Artist) -> Void
+    @State private var searchText = ""
 
     public init(
         libraryVM: LibraryViewModel,
@@ -14,6 +15,14 @@ public struct ArtistsView: View {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
         self.onArtistTap = onArtistTap
+    }
+    
+    private var filteredArtists: [Artist] {
+        let sorted = libraryVM.sortedArtists
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { artist in
+            artist.name.localizedCaseInsensitiveContains(searchText)
+        }
     }
 
     public var body: some View {
@@ -27,6 +36,32 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .refreshable {
+            await libraryVM.refresh()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.artists.isEmpty {
+                    Menu {
+                        ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                            Button {
+                                libraryVM.artistSortOption = option
+                            } label: {
+                                HStack {
+                                    Text(option.rawValue)
+                                    if libraryVM.artistSortOption == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort By", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
+        }
     }
 
     private var loadingView: some View {
@@ -54,7 +89,7 @@ public struct ArtistsView: View {
 
     private var artistListView: some View {
         ScrollView {
-            ArtistGrid(artists: libraryVM.artists, onArtistTap: onArtistTap)
+            ArtistGrid(artists: filteredArtists, onArtistTap: onArtistTap)
                 .padding(.vertical)
         }
     }

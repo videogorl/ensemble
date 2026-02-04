@@ -30,6 +30,8 @@
     </entity>
     <entity name="CDArtist" representedClassName="CDArtist" syncable="YES">
         <attribute name="artPath" optional="YES" attributeType="String"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="key" attributeType="String"/>
         <attribute name="name" attributeType="String"/>
         <attribute name="ratingKey" attributeType="String"/>
@@ -48,9 +50,13 @@
         </uniquenessConstraints>
     </entity>
     <entity name="CDAlbum" representedClassName="CDAlbum" syncable="YES">
+        <attribute name="albumArtist" optional="YES" attributeType="String"/>
         <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="artistName" optional="YES" attributeType="String"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="key" attributeType="String"/>
+        <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="ratingKey" attributeType="String"/>
         <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
         <attribute name="summary" optional="YES" attributeType="String"/>
@@ -72,10 +78,15 @@
     <entity name="CDTrack" representedClassName="CDTrack" syncable="YES">
         <attribute name="albumName" optional="YES" attributeType="String"/>
         <attribute name="artistName" optional="YES" attributeType="String"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="discNumber" optional="YES" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
         <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="key" attributeType="String"/>
+        <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="localFilePath" optional="YES" attributeType="String"/>
+        <attribute name="playCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="ratingKey" attributeType="String"/>
         <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
         <attribute name="streamKey" optional="YES" attributeType="String"/>

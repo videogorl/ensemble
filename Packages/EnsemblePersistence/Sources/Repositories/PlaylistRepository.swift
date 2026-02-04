@@ -17,6 +17,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     ) async throws -> CDPlaylist
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
+    func removeDuplicatePlaylists() async throws
 }
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
@@ -180,6 +181,46 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         context.delete(playlist)
                         try context.save()
                     }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    public func removeDuplicatePlaylists() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDPlaylist.fetchRequest()
+                    request.sortDescriptors = [
+                        NSSortDescriptor(key: "ratingKey", ascending: true),
+                        NSSortDescriptor(key: "updatedAt", ascending: false)
+                    ]
+                    
+                    let allPlaylists = try context.fetch(request)
+                    var seenRatingKeys = Set<String>()
+                    var playlistsToDelete: [CDPlaylist] = []
+                    
+                    // Keep the first (most recently updated) playlist for each ratingKey
+                    for playlist in allPlaylists {
+                        if seenRatingKeys.contains(playlist.ratingKey) {
+                            playlistsToDelete.append(playlist)
+                        } else {
+                            seenRatingKeys.insert(playlist.ratingKey)
+                        }
+                    }
+                    
+                    // Delete duplicates
+                    for playlist in playlistsToDelete {
+                        context.delete(playlist)
+                    }
+                    
+                    if !playlistsToDelete.isEmpty {
+                        try context.save()
+                    }
+                    
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)

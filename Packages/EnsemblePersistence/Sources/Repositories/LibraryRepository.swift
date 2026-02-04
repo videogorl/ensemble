@@ -11,6 +11,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
         summary: String?,
         thumbPath: String?,
         artPath: String?,
+        dateAdded: Date?,
+        dateModified: Date?,
         sourceCompositeKey: String?
     ) async throws -> CDArtist
 
@@ -22,12 +24,16 @@ public protocol LibraryRepositoryProtocol: Sendable {
         key: String,
         title: String,
         artistName: String?,
+        albumArtist: String?,
         artistRatingKey: String?,
         summary: String?,
         thumbPath: String?,
         artPath: String?,
         year: Int?,
         trackCount: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        rating: Int?,
         sourceCompositeKey: String?
     ) async throws -> CDAlbum
 
@@ -47,6 +53,11 @@ public protocol LibraryRepositoryProtocol: Sendable {
         duration: Int?,
         thumbPath: String?,
         streamKey: String?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
+        rating: Int?,
+        playCount: Int?,
         sourceCompositeKey: String?
     ) async throws -> CDTrack
 
@@ -107,6 +118,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         summary: String?,
         thumbPath: String?,
         artPath: String?,
+        dateAdded: Date?,
+        dateModified: Date?,
         sourceCompositeKey: String? = nil
     ) async throws -> CDArtist {
         try await withCheckedThrowingContinuation { continuation in
@@ -128,6 +141,13 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     artist.summary = summary
                     artist.thumbPath = thumbPath
                     artist.artPath = artPath
+                    
+                    // Only set dateAdded for new records
+                    if existing == nil, let added = dateAdded {
+                        artist.dateAdded = added
+                    }
+                    
+                    artist.dateModified = dateModified
                     artist.updatedAt = Date()
                     artist.sourceCompositeKey = sourceCompositeKey
 
@@ -203,12 +223,16 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         key: String,
         title: String,
         artistName: String?,
+        albumArtist: String?,
         artistRatingKey: String?,
         summary: String?,
         thumbPath: String?,
         artPath: String?,
         year: Int?,
         trackCount: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        rating: Int?,
         sourceCompositeKey: String? = nil
     ) async throws -> CDAlbum {
         try await withCheckedThrowingContinuation { continuation in
@@ -228,11 +252,20 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     album.key = key
                     album.title = title
                     album.artistName = artistName
+                    album.albumArtist = albumArtist
                     album.summary = summary
                     album.thumbPath = thumbPath
                     album.artPath = artPath
                     album.year = Int32(year ?? 0)
                     album.trackCount = Int32(trackCount ?? 0)
+                    
+                    // Only set dateAdded for new records
+                    if existing == nil, let added = dateAdded {
+                        album.dateAdded = added
+                    }
+                    
+                    album.dateModified = dateModified
+                    album.rating = Int16(rating ?? 0)
                     album.updatedAt = Date()
                     album.sourceCompositeKey = sourceCompositeKey
 
@@ -343,6 +376,11 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         duration: Int?,
         thumbPath: String?,
         streamKey: String?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
+        rating: Int?,
+        playCount: Int?,
         sourceCompositeKey: String? = nil
     ) async throws -> CDTrack {
         try await withCheckedThrowingContinuation { continuation in
@@ -368,6 +406,16 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     track.duration = Int64(duration ?? 0)
                     track.thumbPath = thumbPath
                     track.streamKey = streamKey
+                    
+                    // Only set dateAdded for new records
+                    if existing == nil, let added = dateAdded {
+                        track.dateAdded = added
+                    }
+                    
+                    track.dateModified = dateModified
+                    track.lastPlayed = lastPlayed
+                    track.rating = Int16(rating ?? 0)
+                    track.playCount = Int32(playCount ?? 0)
                     track.updatedAt = Date()
                     track.sourceCompositeKey = sourceCompositeKey
 

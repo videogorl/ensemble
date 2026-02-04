@@ -18,7 +18,12 @@ public extension Track {
             duration: plex.durationSeconds,
             thumbPath: plex.thumb ?? plex.parentThumb ?? plex.grandparentThumb,
             streamKey: plex.streamURL,
-            localFilePath: nil
+            localFilePath: nil,
+            dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0,
+            playCount: plex.viewCount ?? 0
         )
     }
 
@@ -36,6 +41,11 @@ public extension Track {
             thumbPath: cd.thumbPath,
             streamKey: cd.streamKey,
             localFilePath: cd.localFilePath,
+            dateAdded: cd.dateAdded,
+            dateModified: cd.dateModified,
+            lastPlayed: cd.lastPlayed,
+            rating: Int(cd.rating),
+            playCount: Int(cd.playCount),
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
@@ -48,11 +58,15 @@ public extension Album {
             key: plex.key,
             title: plex.title,
             artistName: plex.parentTitle,
+            albumArtist: plex.parentTitle,
             artistRatingKey: plex.parentRatingKey,
             year: plex.year,
             trackCount: plex.leafCount ?? 0,
             thumbPath: plex.thumb,
-            artPath: plex.art
+            artPath: plex.art,
+            dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0
         )
     }
 
@@ -62,11 +76,15 @@ public extension Album {
             key: cd.key,
             title: cd.title,
             artistName: cd.artistName ?? cd.artist?.name,
+            albumArtist: cd.albumArtist ?? cd.artistName ?? cd.artist?.name,
             artistRatingKey: cd.artist?.ratingKey,
             year: cd.year > 0 ? Int(cd.year) : nil,
             trackCount: Int(cd.trackCount),
             thumbPath: cd.thumbPath,
             artPath: cd.artPath,
+            dateAdded: cd.dateAdded,
+            dateModified: cd.dateModified,
+            rating: Int(cd.rating),
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
@@ -79,7 +97,9 @@ public extension Artist {
             key: plex.key,
             name: plex.title,
             thumbPath: plex.thumb,
-            artPath: plex.art
+            artPath: plex.art,
+            dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
         )
     }
 
@@ -90,6 +110,8 @@ public extension Artist {
             name: cd.name,
             thumbPath: cd.thumbPath,
             artPath: cd.artPath,
+            dateAdded: cd.dateAdded,
+            dateModified: cd.dateModified,
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }

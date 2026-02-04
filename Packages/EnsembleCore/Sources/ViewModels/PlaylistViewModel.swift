@@ -7,6 +7,7 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public private(set) var playlists: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
+    @Published public var playlistSortOption: PlaylistSortOption = .title
 
     private let playlistRepository: PlaylistRepositoryProtocol
 
@@ -28,6 +29,17 @@ public final class PlaylistViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+    
+    public var sortedPlaylists: [Playlist] {
+        switch playlistSortOption {
+        case .title:
+            return playlists.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+        case .trackCount:
+            return playlists.sorted { $0.trackCount > $1.trackCount }
+        case .duration:
+            return playlists.sorted { $0.duration > $1.duration }
+        }
     }
 }
 

@@ -5,6 +5,7 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
+    @State private var searchText = ""
 
     public init(
         libraryVM: LibraryViewModel,
@@ -14,6 +15,15 @@ public struct AlbumsView: View {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
         self.onAlbumTap = onAlbumTap
+    }
+    
+    private var filteredAlbums: [Album] {
+        let sorted = libraryVM.sortedAlbums
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { album in
+            album.title.localizedCaseInsensitiveContains(searchText) ||
+            album.artistName?.localizedCaseInsensitiveContains(searchText) == true
+        }
     }
 
     public var body: some View {
@@ -27,6 +37,32 @@ public struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .refreshable {
+            await libraryVM.refresh()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.albums.isEmpty {
+                    Menu {
+                        ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                            Button {
+                                libraryVM.albumSortOption = option
+                            } label: {
+                                HStack {
+                                    Text(option.rawValue)
+                                    if libraryVM.albumSortOption == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort By", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
+        }
     }
 
     private var loadingView: some View {
@@ -54,7 +90,7 @@ public struct AlbumsView: View {
 
     private var albumGridView: some View {
         ScrollView {
-            AlbumGrid(albums: libraryVM.albums, onAlbumTap: onAlbumTap)
+            AlbumGrid(albums: filteredAlbums, onAlbumTap: onAlbumTap)
                 .padding(.vertical)
         }
     }

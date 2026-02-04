@@ -54,6 +54,8 @@ public class CDArtist: NSManagedObject {
     @NSManaged public var summary: String?
     @NSManaged public var thumbPath: String?
     @NSManaged public var artPath: String?
+    @NSManaged public var dateAdded: Date?
+    @NSManaged public var dateModified: Date?
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var server: CDServer?
@@ -80,11 +82,15 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var key: String
     @NSManaged public var title: String
     @NSManaged public var artistName: String?
+    @NSManaged public var albumArtist: String?
     @NSManaged public var summary: String?
     @NSManaged public var thumbPath: String?
     @NSManaged public var artPath: String?
     @NSManaged public var year: Int32
     @NSManaged public var trackCount: Int32
+    @NSManaged public var dateAdded: Date?
+    @NSManaged public var dateModified: Date?
+    @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var artist: CDArtist?
@@ -123,6 +129,11 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var thumbPath: String?
     @NSManaged public var streamKey: String?
     @NSManaged public var localFilePath: String?
+    @NSManaged public var dateAdded: Date?
+    @NSManaged public var dateModified: Date?
+    @NSManaged public var lastPlayed: Date?
+    @NSManaged public var rating: Int16
+    @NSManaged public var playCount: Int32
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var album: CDAlbum?

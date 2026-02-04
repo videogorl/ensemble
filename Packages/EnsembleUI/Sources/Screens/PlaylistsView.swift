@@ -5,11 +5,20 @@ public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onPlaylistTap: (Playlist) -> Void
+    @State private var searchText = ""
 
     public init(nowPlayingVM: NowPlayingViewModel, onPlaylistTap: @escaping (Playlist) -> Void) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self.nowPlayingVM = nowPlayingVM
         self.onPlaylistTap = onPlaylistTap
+    }
+    
+    private var filteredPlaylists: [Playlist] {
+        let sorted = viewModel.sortedPlaylists
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { playlist in
+            playlist.title.localizedCaseInsensitiveContains(searchText)
+        }
     }
 
     public var body: some View {
@@ -23,11 +32,34 @@ public struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .task {
             await viewModel.loadPlaylists()
         }
         .refreshable {
             await viewModel.loadPlaylists()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !viewModel.playlists.isEmpty {
+                    Menu {
+                        ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                            Button {
+                                viewModel.playlistSortOption = option
+                            } label: {
+                                HStack {
+                                    Text(option.rawValue)
+                                    if viewModel.playlistSortOption == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort By", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
         }
     }
 
@@ -58,7 +90,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(viewModel.playlists) { playlist in
+            ForEach(filteredPlaylists) { playlist in
                 PlaylistRow(playlist: playlist) {
                     onPlaylistTap(playlist)
                 }
