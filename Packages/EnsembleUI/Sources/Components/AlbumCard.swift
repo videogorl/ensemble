@@ -13,7 +13,7 @@ public struct AlbumCard: View {
     public var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
-                ArtworkView(album: album, size: .medium)
+                ArtworkView(album: album, size: .thumbnail)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(album.title)
@@ -35,7 +35,7 @@ public struct AlbumCard: View {
                     }
                 }
             }
-            .frame(width: ArtworkSize.medium.cgSize.width)
+            .frame(width: ArtworkSize.thumbnail.cgSize.width)
         }
         .buttonStyle(.plain)
     }
@@ -48,7 +48,7 @@ public struct AlbumGrid: View {
     let onAlbumTap: (Album) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
     ]
 
     public init(albums: [Album], onAlbumTap: @escaping (Album) -> Void) {

@@ -13,7 +13,7 @@ public struct PlaylistCard: View {
     public var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
-                ArtworkView(playlist: playlist, size: .medium)
+                ArtworkView(playlist: playlist, size: .thumbnail)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.title)
@@ -26,7 +26,7 @@ public struct PlaylistCard: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(width: ArtworkSize.medium.cgSize.width)
+            .frame(width: ArtworkSize.thumbnail.cgSize.width)
         }
         .buttonStyle(.plain)
     }
@@ -46,8 +46,7 @@ public struct PlaylistRow: View {
     public var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                ArtworkView(playlist: playlist, size: .thumbnail, cornerRadius: 4)
-                    .frame(width: 56, height: 56)
+                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(playlist.title)
