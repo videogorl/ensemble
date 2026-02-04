@@ -105,7 +105,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: 0,
+                rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
                 sourceCompositeKey: sourceKey
             )

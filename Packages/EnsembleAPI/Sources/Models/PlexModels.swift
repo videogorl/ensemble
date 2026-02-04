@@ -193,6 +193,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let updatedAt: Int?
     public let viewCount: Int?
     public let lastViewedAt: Int?
+    public let userRating: Double?  // User's rating (0-10 scale, Plex uses even numbers: 0,2,4,6,8,10 for 0-5 stars)
     public let media: [PlexMedia]?
 
     enum CodingKeys: String, CodingKey {
@@ -215,6 +216,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case updatedAt
         case viewCount
         case lastViewedAt
+        case userRating
         case media = "Media"
     }
 
