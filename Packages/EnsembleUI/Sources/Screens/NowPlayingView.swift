@@ -38,16 +38,22 @@ public struct NowPlayingView: View {
                 }
                 
                 // Content with queue sheet overlay
-                VStack(spacing: 0) {
+                Group {
                     if let track = viewModel.currentTrack {
-                        // Now Playing content
-                        nowPlayingContent(track: track, geometry: geometry)
-                            .offset(y: showQueue ? -geometry.size.height * 0.6 : 0)
-                            .opacity(showQueue ? 0.3 : 1)
-                        
-                        // Queue overlay (slides up)
-                        queueOverlay(geometry: geometry)
-                            .offset(y: showQueue ? 0 : geometry.size.height)
+                        ZStack(alignment: .top) {
+                            // Now Playing content
+                            nowPlayingContent(track: track, geometry: geometry)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .offset(y: showQueue ? -geometry.size.height * 0.6 : 0)
+                                .opacity(showQueue ? 0.3 : 1)
+                            
+                            // Queue overlay (slides up)
+                            VStack {
+                                Spacer()
+                                queueOverlay(geometry: geometry)
+                                    .offset(y: showQueue ? 0 : geometry.size.height)
+                            }
+                        }
                     } else {
                         emptyStateView
                     }
@@ -98,33 +104,33 @@ public struct NowPlayingView: View {
             // Dismiss handle
             dismissHandle
             
+            // Artwork with generous padding above and below
+            let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
+            ArtworkView(track: track, size: .large, cornerRadius: 12)
+                .frame(width: artworkSize, height: artworkSize)
+                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
+                .padding(.top, 60)
+                .padding(.bottom, 50)
+            
+            // Playback slider
+            progressView
+                .padding(.horizontal, 40)
+            
+            // Track metadata (below slider, clickable)
+            trackMetadataView(track: track)
+                .padding(.horizontal, 32)
+                .padding(.top, 16)
+            
+            // Main playback controls
+            controlsView
+                .padding(.top, 32)
+            
+            // Push secondary controls to bottom with spacer
             Spacer()
             
-            VStack(spacing: 20) {
-                // Artwork (compact size)
-                let artworkSize: CGFloat = 160
-                ArtworkView(track: track, size: .large, cornerRadius: 10)
-                    .frame(width: artworkSize, height: artworkSize)
-                    .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
-                
-                // Playback slider (directly below artwork)
-                progressView
-                    .padding(.horizontal, 40)
-                
-                // Track metadata (below slider, clickable)
-                trackMetadataView(track: track)
-                    .padding(.horizontal, 32)
-                
-                // Main playback controls
-                controlsView
-                    .padding(.top, 12)
-                
-                // Secondary controls (shuffle, repeat, heart, airplay)
-                secondaryControlsView
-                    .padding(.top, 16)
-            }
-            
-            Spacer()
+            // Secondary controls at bottom (shuffle, repeat, heart, airplay)
+            secondaryControlsView
+                .padding(.bottom, 40)
         }
     }
     
