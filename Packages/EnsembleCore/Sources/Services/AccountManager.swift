@@ -77,6 +77,7 @@ public final class AccountManager: ObservableObject {
             id: server.id,
             name: server.name,
             url: server.url,
+            connections: server.connections,
             token: server.token,
             platform: server.platform,
             libraries: updatedLibraries
@@ -149,8 +150,14 @@ public final class AccountManager: ObservableObject {
             return nil
         }
 
+        // Get all connection URLs from server config, excluding the primary URL
+        let alternativeURLs = server.orderedConnections
+            .map { $0.uri }
+            .filter { $0 != server.url }
+
         let connection = PlexServerConnection(
             url: server.url,
+            alternativeURLs: alternativeURLs,
             token: server.token,
             identifier: server.id,
             name: server.name

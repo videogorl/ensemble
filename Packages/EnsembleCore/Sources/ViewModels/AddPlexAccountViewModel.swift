@@ -158,10 +158,23 @@ public final class AddPlexAccountViewModel: ObservableObject {
             PlexLibraryConfig(id: lib.key, key: lib.key, title: lib.title, isEnabled: true)
         }
 
+        // Convert server connections to PlexConnectionConfig
+        let connectionConfigs = server.connections.map { conn in
+            PlexConnectionConfig(
+                uri: conn.uri,
+                local: conn.local,
+                relay: conn.relay,
+                address: conn.address,
+                port: conn.port,
+                protocol: conn.protocol
+            )
+        }
+
         let serverConfig = PlexServerConfig(
             id: server.id,
             name: server.name,
             url: server.url,
+            connections: connectionConfigs,
             token: token,
             platform: server.platform,
             libraries: libraryConfigs

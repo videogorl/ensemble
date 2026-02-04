@@ -168,13 +168,28 @@ public extension Playlist {
 public extension Server {
     init(from plex: PlexDevice) {
         let connection = plex.bestConnection
+        let connections = plex.connections.map { ServerConnection(from: $0) }
         self.init(
             id: plex.clientIdentifier,
             name: plex.name,
             url: connection?.uri ?? "",
+            connections: connections,
             accessToken: plex.accessToken,
             platform: plex.platform,
             isLocal: connection?.local ?? false
+        )
+    }
+}
+
+public extension ServerConnection {
+    init(from plex: PlexConnection) {
+        self.init(
+            uri: plex.uri,
+            local: plex.local,
+            relay: plex.relay ?? false,
+            address: plex.address,
+            port: plex.port,
+            protocol: plex.protocol
         )
     }
 }

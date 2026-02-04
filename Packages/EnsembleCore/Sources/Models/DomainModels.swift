@@ -224,6 +224,7 @@ public struct Server: Identifiable, Hashable, Sendable {
     public let id: String  // clientIdentifier
     public let name: String
     public let url: String
+    public let connections: [ServerConnection]
     public let accessToken: String?
     public let platform: String?
     public let isLocal: Bool
@@ -232,6 +233,7 @@ public struct Server: Identifiable, Hashable, Sendable {
         id: String,
         name: String,
         url: String,
+        connections: [ServerConnection] = [],
         accessToken: String? = nil,
         platform: String? = nil,
         isLocal: Bool = false
@@ -239,9 +241,37 @@ public struct Server: Identifiable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.url = url
+        self.connections = connections
         self.accessToken = accessToken
         self.platform = platform
         self.isLocal = isLocal
+    }
+}
+
+public struct ServerConnection: Identifiable, Hashable, Sendable {
+    public let id: String  // uri
+    public let uri: String
+    public let local: Bool
+    public let relay: Bool
+    public let address: String?
+    public let port: Int?
+    public let `protocol`: String?
+    
+    public init(
+        uri: String,
+        local: Bool,
+        relay: Bool = false,
+        address: String? = nil,
+        port: Int? = nil,
+        protocol: String? = nil
+    ) {
+        self.id = uri
+        self.uri = uri
+        self.local = local
+        self.relay = relay
+        self.address = address
+        self.port = port
+        self.protocol = `protocol`
     }
 }
 

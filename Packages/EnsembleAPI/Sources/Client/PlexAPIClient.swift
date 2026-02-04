@@ -31,15 +31,28 @@ public enum PlexAPIError: Error, LocalizedError {
 
 public struct PlexServerConnection: Sendable {
     public let url: String
+    public let alternativeURLs: [String]  // Additional connection URLs for failover
     public let token: String
     public let identifier: String
     public let name: String
 
-    public init(url: String, token: String, identifier: String, name: String) {
+    public init(
+        url: String,
+        alternativeURLs: [String] = [],
+        token: String,
+        identifier: String,
+        name: String
+    ) {
         self.url = url
+        self.alternativeURLs = alternativeURLs
         self.token = token
         self.identifier = identifier
         self.name = name
+    }
+    
+    /// All available connection URLs (primary + alternatives)
+    public var allURLs: [String] {
+        [url] + alternativeURLs
     }
 }
 
@@ -57,17 +70,26 @@ public actor PlexAPIClient {
     private let session: URLSession
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
+    private let failoverManager: ConnectionFailoverManager
 
     private let serverConnection: PlexServerConnection
     private let selectedLibrary: PlexLibrarySelection?
+    private var currentServerURL: String  // The currently active server URL
 
     private static let plexTVBaseURL = "https://plex.tv"
 
     /// Initialize with a direct server connection
-    public init(connection: PlexServerConnection, librarySelection: PlexLibrarySelection? = nil, keychain: KeychainServiceProtocol = KeychainService.shared) {
+    public init(
+        connection: PlexServerConnection,
+        librarySelection: PlexLibrarySelection? = nil,
+        keychain: KeychainServiceProtocol = KeychainService.shared,
+        failoverManager: ConnectionFailoverManager = ConnectionFailoverManager()
+    ) {
         self.keychain = keychain
         self.serverConnection = connection
         self.selectedLibrary = librarySelection
+        self.currentServerURL = connection.url
+        self.failoverManager = failoverManager
 
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
             self.clientIdentifier = existingId
@@ -390,20 +412,63 @@ public actor PlexAPIClient {
         return components.url
     }
 
+    // MARK: - Connection Management
+    
+    /// Attempt to find a working connection if current one fails
+    private func attemptFailover() async throws {
+        print("🔄 Attempting connection failover...")
+        
+        // Try to find the fastest working connection among all available URLs
+        if let workingURL = await failoverManager.findFastestConnection(
+            urls: serverConnection.allURLs,
+            token: serverConnection.token
+        ) {
+            print("✅ Found working connection: \(workingURL)")
+            currentServerURL = workingURL
+        } else {
+            print("❌ No working connections found")
+            throw PlexAPIError.networkError(
+                NSError(domain: "PlexAPIClient", code: -1, 
+                       userInfo: [NSLocalizedDescriptionKey: "All server connections failed"])
+            )
+        }
+    }
+    
+    /// Get the current active server URL
+    public func getCurrentServerURL() -> String {
+        currentServerURL
+    }
+
     // MARK: - Private Methods
 
     private func serverRequest(path: String, query: [String: String] = [:]) async throws -> Data {
-        var components = URLComponents(string: serverConnection.url)!
+        // Try with current URL first
+        do {
+            return try await performServerRequest(url: currentServerURL, path: path, query: query)
+        } catch {
+            // If request fails and we have alternative URLs, attempt failover
+            if !serverConnection.alternativeURLs.isEmpty {
+                print("⚠️ Request failed with current URL, attempting failover...")
+                try await attemptFailover()
+                // Retry with new URL
+                return try await performServerRequest(url: currentServerURL, path: path, query: query)
+            }
+            throw error
+        }
+    }
+    
+    private func performServerRequest(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+        var components = URLComponents(string: url)!
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
         components.queryItems = queryItems
 
-        guard let url = components.url else {
+        guard let requestURL = components.url else {
             throw PlexAPIError.invalidURL
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
