@@ -89,8 +89,12 @@ public struct ArtistsView: View {
 
     private var artistListView: some View {
         ScrollView {
-            ArtistGrid(artists: filteredArtists, onArtistTap: onArtistTap)
-                .padding(.vertical)
+            ArtistGrid(
+                artists: filteredArtists,
+                nowPlayingVM: nowPlayingVM,
+                onArtistTap: onArtistTap
+            )
+            .padding(.vertical)
         }
     }
 }
@@ -103,6 +107,7 @@ public struct ArtistDetailView: View {
     let onAlbumTap: (Album) -> Void
 
     @Environment(\.dependencies) private var dependencies
+    @State private var isBioExpanded = false
 
     public init(
         artist: Artist,
@@ -116,20 +121,29 @@ public struct ArtistDetailView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                // Artist header
-                headerView
+            VStack(spacing: 0) {
+                // Hero Banner
+                heroBanner
 
-                // Albums
+                // Action Buttons
+                actionButtons
+                    .padding(.horizontal)
+                    .padding(.top, 24)
+
+                // Albums Section
                 if viewModel.isLoading && viewModel.albums.isEmpty {
                     ProgressView()
                         .padding(.top, 40)
-                } else if viewModel.albums.isEmpty {
-                    Text("No albums")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 40)
-                } else {
+                } else if !viewModel.albums.isEmpty {
                     albumsSection
+                        .padding(.top, 32)
+                }
+
+                // Artist Bio
+                if let summary = viewModel.artist.summary, !summary.isEmpty {
+                    bioSection(summary: summary)
+                        .padding(.horizontal)
+                        .padding(.top, 32)
                 }
             }
             .padding(.bottom, 100)
@@ -138,24 +152,135 @@ public struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadAlbums()
+            await viewModel.loadTracks()
         }
     }
 
-    private var headerView: some View {
-        VStack(spacing: 16) {
-            ArtworkView(artist: viewModel.artist, size: .large, cornerRadius: ArtworkSize.large.cgSize.width / 2)
-                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+    // MARK: - Hero Banner
 
-            Text(viewModel.artist.name)
-                .font(.title)
+    private var heroBanner: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                // Artist artwork with aspect fill
+                ArtworkView(
+                    artist: viewModel.artist,
+                    size: .extraLarge,
+                    cornerRadius: 0
+                )
+                .frame(width: geometry.size.width, height: 250)
+                .clipped()
+
+                // Gradient overlay
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        .clear,
+                        .black.opacity(0.7)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 250)
+
+                // Artist info overlay
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.artist.name)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+
+                    if !viewModel.albums.isEmpty || !viewModel.tracks.isEmpty {
+                        HStack(spacing: 8) {
+                            if !viewModel.albums.isEmpty {
+                                Text("\(viewModel.albums.count) album\(viewModel.albums.count == 1 ? "" : "s")")
+                            }
+                            if !viewModel.albums.isEmpty && !viewModel.tracks.isEmpty {
+                                Text("•")
+                            }
+                            if !viewModel.tracks.isEmpty {
+                                Text("\(viewModel.trackCount) song\(viewModel.trackCount == 1 ? "" : "s")")
+                            }
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+        }
+        .frame(height: 250)
+    }
+
+    // MARK: - Action Buttons
+
+    private var actionButtons: some View {
+        HStack(spacing: 16) {
+            Button {
+                nowPlayingVM.play(tracks: viewModel.tracks)
+            } label: {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Play")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+
+            Button {
+                nowPlayingVM.play(tracks: viewModel.tracks.shuffled())
+            } label: {
+                HStack {
+                    Image(systemName: "shuffle")
+                    Text("Shuffle")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.2))
+                .foregroundColor(.primary)
+                .cornerRadius(10)
+            }
+        }
+        .disabled(viewModel.tracks.isEmpty)
+    }
+
+    // MARK: - Bio Section
+
+    private func bioSection(summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("About")
+                .font(.title2)
                 .fontWeight(.bold)
 
-            Text("\(viewModel.albums.count) albums")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(summary)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .lineLimit(isBioExpanded ? nil : 3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !isBioExpanded && summary.count > 150 {
+                    Button(action: {
+                        withAnimation {
+                            isBioExpanded = true
+                        }
+                    }) {
+                        Text("Read more")
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
         }
-        .padding(.top, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    // MARK: - Albums Section
 
     private var albumsSection: some View {
         VStack(alignment: .leading, spacing: 16) {

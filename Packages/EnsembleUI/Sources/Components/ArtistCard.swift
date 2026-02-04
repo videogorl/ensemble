@@ -63,23 +63,50 @@ public struct ArtistRow: View {
 
 public struct ArtistGrid: View {
     let artists: [Artist]
-    let onArtistTap: (Artist) -> Void
+    let nowPlayingVM: NowPlayingViewModel
+    let onArtistTap: ((Artist) -> Void)?
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
     ]
 
-    public init(artists: [Artist], onArtistTap: @escaping (Artist) -> Void) {
+    public init(
+        artists: [Artist],
+        nowPlayingVM: NowPlayingViewModel,
+        onArtistTap: ((Artist) -> Void)? = nil
+    ) {
         self.artists = artists
+        self.nowPlayingVM = nowPlayingVM
         self.onArtistTap = onArtistTap
     }
 
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(artists) { artist in
-                ArtistCard(artist: artist) {
-                    onArtistTap(artist)
+                NavigationLink {
+                    ArtistDetailView(
+                        artist: artist,
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { album in
+                            // Album navigation will be handled by AlbumDetailView
+                        }
+                    )
+                } label: {
+                    VStack(spacing: 8) {
+                        ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
+
+                        Text(artist.name)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .lineLimit(1)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.primary)
+                    }
+                    .frame(width: ArtworkSize.thumbnail.cgSize.width)
                 }
+                .simultaneousGesture(TapGesture().onEnded {
+                    onArtistTap?(artist)
+                })
             }
         }
         .padding(.horizontal)

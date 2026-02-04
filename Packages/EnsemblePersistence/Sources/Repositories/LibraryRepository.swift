@@ -40,6 +40,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
+    func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
     func fetchTrack(ratingKey: String) async throws -> CDTrack?
     func upsertTrack(
         ratingKey: String,
@@ -335,6 +336,28 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 let request = CDTrack.fetchRequest()
                 request.predicate = NSPredicate(format: "album.ratingKey == %@", albumRatingKey)
                 request.sortDescriptors = [
+                    NSSortDescriptor(key: "discNumber", ascending: true),
+                    NSSortDescriptor(key: "trackNumber", ascending: true)
+                ]
+                do {
+                    let tracks = try context.fetch(request)
+                    continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                request.predicate = NSPredicate(format: "album.artist.ratingKey == %@", artistRatingKey)
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "album.year", ascending: false),
+                    NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
                 ]

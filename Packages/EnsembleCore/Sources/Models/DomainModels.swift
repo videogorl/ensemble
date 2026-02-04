@@ -130,6 +130,7 @@ public struct Artist: Identifiable, Hashable, Sendable {
     public let id: String  // ratingKey
     public let key: String
     public let name: String
+    public let summary: String?
     public let thumbPath: String?
     public let artPath: String?
     public let dateAdded: Date?
@@ -140,6 +141,7 @@ public struct Artist: Identifiable, Hashable, Sendable {
         id: String,
         key: String,
         name: String,
+        summary: String? = nil,
         thumbPath: String? = nil,
         artPath: String? = nil,
         dateAdded: Date? = nil,
@@ -149,6 +151,7 @@ public struct Artist: Identifiable, Hashable, Sendable {
         self.id = id
         self.key = key
         self.name = name
+        self.summary = summary
         self.thumbPath = thumbPath
         self.artPath = artPath
         self.dateAdded = dateAdded

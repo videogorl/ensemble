@@ -231,6 +231,16 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get all tracks by an artist
+    public func getArtistTracks(artistKey: String) async throws -> [PlexTrack] {
+        let data = try await serverRequest(path: "/library/metadata/\(artistKey)/allLeaves")
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get a single track
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
         // Fetch without extra parameters - single track fetches typically include Media
