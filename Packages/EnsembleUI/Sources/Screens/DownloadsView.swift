@@ -124,6 +124,7 @@ public struct DownloadsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .padding(.bottom, 120)
     }
 }
 

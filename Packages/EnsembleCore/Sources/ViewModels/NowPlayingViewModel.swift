@@ -156,6 +156,12 @@ public final class NowPlayingViewModel: ObservableObject {
             await playbackService.play(tracks: tracks, startingAt: index)
         }
     }
+    
+    public func shufflePlay(tracks: [Track]) {
+        Task {
+            await playbackService.shufflePlay(tracks: tracks)
+        }
+    }
 
     public func togglePlayPause() {
         if isPlaying {

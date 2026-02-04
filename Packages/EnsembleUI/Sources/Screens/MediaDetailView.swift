@@ -183,7 +183,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             Button {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks.shuffled())
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "shuffle")

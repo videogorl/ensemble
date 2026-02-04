@@ -88,6 +88,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .padding(.bottom, 120)
     }
 }
 

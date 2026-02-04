@@ -1,6 +1,9 @@
 import SwiftUI
 import AVKit
 
+#if canImport(UIKit)
+import UIKit
+
 /// SwiftUI wrapper for AVRoutePickerView to provide native AirPlay button
 public struct AirPlayButton: UIViewRepresentable {
     
@@ -26,3 +29,11 @@ public struct AirPlayButton: UIViewRepresentable {
         uiView.activeTintColor = UIColor(Color.accentColor)
     }
 }
+#else
+public struct AirPlayButton: View {
+    public init() {}
+    public var body: some View {
+        EmptyView()
+    }
+}
+#endif

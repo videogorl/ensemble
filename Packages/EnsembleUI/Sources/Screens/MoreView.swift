@@ -5,16 +5,19 @@ import SwiftUI
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let onSyncTap: () -> Void
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     
     @State private var isEditing = false
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        onSyncTap: @escaping () -> Void
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self.onSyncTap = onSyncTap
     }
     
     private var barTabs: [TabItem] {
@@ -90,6 +93,12 @@ public struct MoreView: View {
                         } label: {
                             Label(tab.rawValue, systemImage: tab.systemImage)
                         }
+                    }
+                    
+                    Button {
+                        onSyncTap()
+                    } label: {
+                        Label("Library Sync", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
             }

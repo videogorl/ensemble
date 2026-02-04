@@ -43,6 +43,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
+    func fetchFavoriteTracks() async throws -> [CDTrack]
     func fetchTrack(ratingKey: String) async throws -> CDTrack?
     func upsertTrack(
         ratingKey: String,
@@ -394,6 +395,26 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
                     NSSortDescriptor(key: "discNumber", ascending: true),
                     NSSortDescriptor(key: "trackNumber", ascending: true)
+                ]
+                do {
+                    let tracks = try context.fetch(request)
+                    continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchFavoriteTracks() async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                // Rating 8+ is 4+ stars
+                request.predicate = NSPredicate(format: "rating >= 8")
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
                 ]
                 do {
                     let tracks = try context.fetch(request)

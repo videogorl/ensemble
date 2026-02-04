@@ -57,7 +57,10 @@ public struct MainTabView: View {
                     NavigationView {
                         MoreView(
                             libraryVM: libraryVM,
-                            nowPlayingVM: nowPlayingVM
+                            nowPlayingVM: nowPlayingVM,
+                            onSyncTap: {
+                                showingSyncPanel = true
+                            }
                         )
                     }
                     #if os(iOS)
@@ -173,17 +176,6 @@ public struct MainTabView: View {
                     deps.navigationCoordinator.navigateToArtist(artist)
                 }
             )
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    syncButton
-                }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    syncButton
-                }
-                #endif
-            }
         case .songs:
             SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artists:
@@ -340,19 +332,16 @@ public struct SidebarView: View {
 
                         Label("Settings", systemImage: "gear")
                             .tag(SidebarSection.settings)
+                        
+                        Button {
+                            showingSyncPanel = true
+                        } label: {
+                            Label("Library Sync", systemImage: "arrow.triangle.2.circlepath")
+                        }
                     }
                 }
                 .listStyle(.sidebar)
                 .navigationTitle("Ensemble")
-                .toolbar {
-                    ToolbarItem {
-                        Button {
-                            showingSyncPanel = true
-                        } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                }
             } detail: {
                 detailView
             }

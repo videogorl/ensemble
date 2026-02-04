@@ -66,6 +66,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     func play(track: Track) async
     func play(tracks: [Track], startingAt index: Int) async
+    func shufflePlay(tracks: [Track]) async
     func pause()
     func resume()
     func stop()
@@ -91,8 +92,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
-    @Published public private(set) var isShuffleEnabled: Bool = false
-    @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
+    @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
 
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
@@ -273,10 +274,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
+        // Disable shuffle on regular play
+        if isShuffleEnabled {
+            isShuffleEnabled = false
+            UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
+        }
+
         queue = tracks.map { QueueItem(track: $0) }
         originalQueue = queue
         currentQueueIndex = index
 
+        await playCurrentQueueItem()
+    }
+    
+    public func shufflePlay(tracks: [Track]) async {
+        guard !tracks.isEmpty else { return }
+        
+        // Enable shuffle
+        if !isShuffleEnabled {
+            isShuffleEnabled = true
+            UserDefaults.standard.set(true, forKey: "isShuffleEnabled")
+        }
+        
+        let items = tracks.map { QueueItem(track: $0) }
+        originalQueue = items
+        
+        var shuffled = items
+        shuffled.shuffle()
+        
+        queue = shuffled
+        currentQueueIndex = 0
+        
         await playCurrentQueueItem()
     }
 
@@ -408,6 +436,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func toggleShuffle() {
         isShuffleEnabled.toggle()
+        UserDefaults.standard.set(isShuffleEnabled, forKey: "isShuffleEnabled")
 
         if isShuffleEnabled {
             // Save original queue and shuffle
@@ -439,6 +468,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func cycleRepeatMode() {
         let nextRawValue = (repeatMode.rawValue + 1) % RepeatMode.allCases.count
         repeatMode = RepeatMode(rawValue: nextRawValue) ?? .off
+        UserDefaults.standard.set(repeatMode.rawValue, forKey: "repeatMode")
     }
 
     // MARK: - Private Methods

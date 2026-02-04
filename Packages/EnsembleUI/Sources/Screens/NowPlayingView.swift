@@ -55,7 +55,9 @@ public struct NowPlayingView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            #if os(iOS)
             .navigationBarHidden(true)
+            #endif
             .onChange(of: viewModel.currentTrack) { newTrack in
                 if let track = newTrack {
                     loadArtworkColors(for: track)
@@ -85,8 +87,13 @@ public struct NowPlayingView: View {
                 }
                 .ignoresSafeArea()
             } else {
+                #if canImport(UIKit)
                 Color(.systemBackground)
                     .ignoresSafeArea()
+                #else
+                Color(NSColor.windowBackgroundColor)
+                    .ignoresSafeArea()
+                #endif
             }
         }
     }
@@ -186,21 +193,22 @@ public struct NowPlayingView: View {
     // Progress slider with time labels
     private var progressView: some View {
         VStack(spacing: 8) {
-            // Custom slider with variable speed scrubbing
+            // Custom slider with variable speed scrubbing and waveform
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    // Background track
-                    Capsule()
-                        .fill(Color.white.opacity(0.3))
-                        .frame(height: 4)
+                    // Waveform background
+                    WaveformView(
+                        progress: isDraggingSlider ? localProgress : viewModel.progress,
+                        color: .white
+                    )
+                    .frame(width: geometry.size.width)
+                    .opacity(0.8)
                     
-                    // Progress track
-                    Capsule()
-                        .fill(Color.white)
-                        .frame(width: geometry.size.width * (isDraggingSlider ? localProgress : viewModel.progress), height: 4)
+                    // Invisible interaction layer
+                    Color.clear
+                        .contentShape(Rectangle())
                 }
-                .frame(height: 4)
-                .contentShape(Rectangle().size(width: geometry.size.width, height: 44))
+                .frame(height: 44)
                 .onAppear {
                     sliderWidth = geometry.size.width
                 }
@@ -209,11 +217,11 @@ public struct NowPlayingView: View {
                         .onChanged { value in
                             if !isDraggingSlider {
                                 isDraggingSlider = true
-                                dragStartY = value.location.y
-                                dragStartX = value.startLocation.x
-                                initialProgress = viewModel.progress
-                                localProgress = viewModel.progress
                                 sliderWidth = geometry.size.width
+                                dragStartY = value.location.y
+                                dragStartX = value.location.x
+                                initialProgress = max(0, min(1, value.location.x / sliderWidth))
+                                localProgress = initialProgress
                             }
                             
                             currentDragY = value.location.y
@@ -226,7 +234,7 @@ public struct NowPlayingView: View {
                             let horizontalChange = value.location.x - dragStartX
                             let progressChange = (horizontalChange / sliderWidth) * scrubRate
                             
-                            // Update local progress using initialProgress to avoid jumping
+                            // Update local progress
                             localProgress = max(0, min(1, initialProgress + progressChange))
                         }
                         .onEnded { _ in
@@ -466,10 +474,11 @@ public struct NowPlayingView: View {
             }
         }
         .padding(.bottom, 50)
-        .background(Color(.systemBackground))
         #if canImport(UIKit)
+        .background(Color(.systemBackground))
         .cornerRadius(24, corners: [.topLeft, .topRight])
         #else
+        .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(24)
         #endif
     }

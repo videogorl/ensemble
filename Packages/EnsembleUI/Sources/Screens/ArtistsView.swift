@@ -142,6 +142,7 @@ public struct ArtistsView: View {
                         .padding(.vertical)
                     }
                 }
+                .padding(.bottom, 120)
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
@@ -341,7 +342,7 @@ public struct ArtistDetailView: View {
             }
 
             Button {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks.shuffled())
+                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "shuffle")

@@ -31,9 +31,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         error = nil
 
         do {
-            let allTracks = try await libraryRepository.fetchTracks()
-            // Rating 8+ is 4+ stars
-            tracks = allTracks.filter { $0.rating >= 8 }.map { Track(from: $0) }
+            let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
+            tracks = favoriteTracks.map { Track(from: $0) }
         } catch {
             self.error = error.localizedDescription
         }

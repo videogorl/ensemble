@@ -85,5 +85,6 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
+        .padding(.bottom, 120)
     }
 }

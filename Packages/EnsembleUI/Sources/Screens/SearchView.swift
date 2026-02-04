@@ -131,6 +131,7 @@ public struct SearchView: View {
                     }
                 }
             }
+            .padding(.bottom, 120)
         }
     }
 }

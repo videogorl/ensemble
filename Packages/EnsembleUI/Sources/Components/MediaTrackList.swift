@@ -2,6 +2,9 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+#if canImport(UIKit)
+import UIKit
+
 // MARK: - Track Table View Cell
 
 public class TrackTableViewCell: UITableViewCell {
@@ -316,3 +319,4 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
 }
+#endif

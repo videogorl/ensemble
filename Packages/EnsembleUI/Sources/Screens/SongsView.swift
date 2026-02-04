@@ -69,7 +69,7 @@ public struct SongsView: View {
                             Divider()
                             
                             Button {
-                                nowPlayingVM.play(tracks: libraryVM.filteredTracks.shuffled())
+                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
                             } label: {
                                 Label("Shuffle All", systemImage: "shuffle")
                             }
@@ -117,6 +117,7 @@ public struct SongsView: View {
     }
 
     private var trackListView: some View {
+        #if canImport(UIKit)
         IndexedTrackList(
             groupedTracks: groupedTracks,
             sectionTitles: sectionIndexTitles,
@@ -134,6 +135,19 @@ public struct SongsView: View {
             // Build initial index map
             trackIndexMap = Dictionary(uniqueKeysWithValues: libraryVM.filteredTracks.enumerated().map { ($1.id, $0) })
         }
+        #else
+        List {
+            ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                TrackRow(
+                    track: track,
+                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                ) {
+                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+                }
+            }
+        }
+        .padding(.bottom, 120)
+        #endif
     }
     
     private var groupedTracks: [(letter: String, tracks: [Track])] {
@@ -176,6 +190,10 @@ struct SectionHeader: View {
         .background(Color(.systemBackground).opacity(0.95))
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+
 // MARK: - Indexed Track List with Native Scrollbar
 
 struct IndexedTrackList: UIViewRepresentable {
@@ -196,6 +214,8 @@ struct IndexedTrackList: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
         tableView.backgroundColor = .systemBackground
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 120, right: 0)
+        tableView.scrollIndicatorInsets = tableView.contentInset
         return tableView
     }
     
@@ -277,6 +297,7 @@ struct IndexedTrackList: UIViewRepresentable {
         }
     }
 }
+#endif
 
 
 
