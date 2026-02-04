@@ -375,14 +375,20 @@ public struct NowPlayingView: View {
     
     // Helper: Navigate to artist
     private func handleArtistTap(track: Track) {
-        viewModel.navigateToArtist()
         dismiss()
+        // Delay navigation until after the sheet dismisses
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            viewModel.navigateToArtist()
+        }
     }
     
     // Helper: Navigate to album
     private func handleAlbumTap(track: Track) {
-        viewModel.navigateToAlbum()
         dismiss()
+        // Delay navigation until after the sheet dismisses
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            viewModel.navigateToAlbum()
+        }
     }
 }
 
