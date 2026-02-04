@@ -5,19 +5,13 @@ import SwiftUI
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @Binding var externalAlbumToNavigate: Album?
-    @Binding var shouldNavigateToAlbums: Bool
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        externalAlbumToNavigate: Binding<Album?> = .constant(nil),
-        shouldNavigateToAlbums: Binding<Bool> = .constant(false)
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._externalAlbumToNavigate = externalAlbumToNavigate
-        self._shouldNavigateToAlbums = shouldNavigateToAlbums
     }
 
     public var body: some View {
@@ -27,12 +21,10 @@ public struct MoreView: View {
                 destination: AlbumsView(
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
-                    externalAlbumToNavigate: $externalAlbumToNavigate,
                     onAlbumTap: { album in
                         // Navigate to album detail
                     }
-                ),
-                isActive: $shouldNavigateToAlbums
+                )
             ) {
                 Label("Albums", systemImage: "square.stack")
             }

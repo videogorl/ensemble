@@ -5,20 +5,15 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
-    @Binding var externalAlbumToNavigate: Album?
     @State private var searchText = ""
-    @State private var localAlbumToNavigate: Album?
-    @State private var isNavigatingExternally = false
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
-        externalAlbumToNavigate: Binding<Album?> = .constant(nil),
         onAlbumTap: @escaping (Album) -> Void
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._externalAlbumToNavigate = externalAlbumToNavigate
         self.onAlbumTap = onAlbumTap
     }
     
@@ -32,61 +27,16 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Group {
-                if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                    loadingView
-                } else if libraryVM.albums.isEmpty {
-                    emptyView
-                } else {
-                    albumGridView
-                }
-            }
-            
-            // Hidden navigation link for external navigation
-            NavigationLink(
-                destination: Group {
-                    if let album = localAlbumToNavigate {
-                        AlbumDetailView(
-                            album: album,
-                            nowPlayingVM: nowPlayingVM
-                        )
-                    }
-                },
-                isActive: $isNavigatingExternally
-            ) {
-                EmptyView()
+        Group {
+            if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                loadingView
+            } else if libraryVM.albums.isEmpty {
+                emptyView
+            } else {
+                albumGridView
             }
         }
         .navigationTitle("Albums")
-        .onChange(of: externalAlbumToNavigate) { album in
-            if let album = album {
-                // When external binding changes, update local state with a slight delay
-                // to ensure the view hierarchy is ready for the next push
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.localAlbumToNavigate = album
-                    self.isNavigatingExternally = true
-                }
-            } else {
-                self.isNavigatingExternally = false
-                self.localAlbumToNavigate = nil
-            }
-        }
-        .onAppear {
-            if let album = externalAlbumToNavigate {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.localAlbumToNavigate = album
-                    self.isNavigatingExternally = true
-                }
-            }
-        }
-        .onChange(of: isNavigatingExternally) { isActive in
-            if !isActive {
-                // If navigation ends (user hits back), clear the external binding
-                externalAlbumToNavigate = nil
-                localAlbumToNavigate = nil
-            }
-        }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()

@@ -5,20 +5,15 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onArtistTap: (Artist) -> Void
-    @Binding var externalArtistToNavigate: Artist?
     @State private var searchText = ""
-    @State private var localArtistToNavigate: Artist?
-    @State private var isNavigatingExternally = false
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
-        externalArtistToNavigate: Binding<Artist?> = .constant(nil),
         onArtistTap: @escaping (Artist) -> Void
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._externalArtistToNavigate = externalArtistToNavigate
         self.onArtistTap = onArtistTap
     }
     
@@ -31,59 +26,16 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Group {
-                if libraryVM.isLoading && libraryVM.artists.isEmpty {
-                    loadingView
-                } else if libraryVM.artists.isEmpty {
-                    emptyView
-                } else {
-                    artistListView
-                }
-            }
-            
-            // Hidden navigation link for external navigation
-            NavigationLink(
-                destination: Group {
-                    if let artist = localArtistToNavigate {
-                        ArtistDetailView(
-                            artist: artist,
-                            nowPlayingVM: nowPlayingVM,
-                            onAlbumTap: { _ in }
-                        )
-                    }
-                },
-                isActive: $isNavigatingExternally
-            ) {
-                EmptyView()
+        Group {
+            if libraryVM.isLoading && libraryVM.artists.isEmpty {
+                loadingView
+            } else if libraryVM.artists.isEmpty {
+                emptyView
+            } else {
+                artistListView
             }
         }
         .navigationTitle("Artists")
-        .onChange(of: externalArtistToNavigate) { artist in
-            if let artist = artist {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.localArtistToNavigate = artist
-                    self.isNavigatingExternally = true
-                }
-            } else {
-                self.isNavigatingExternally = false
-                self.localArtistToNavigate = nil
-            }
-        }
-        .onAppear {
-            if let artist = externalArtistToNavigate {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.localArtistToNavigate = artist
-                    self.isNavigatingExternally = true
-                }
-            }
-        }
-        .onChange(of: isNavigatingExternally) { isActive in
-            if !isActive {
-                externalArtistToNavigate = nil
-                localArtistToNavigate = nil
-            }
-        }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable {
             await libraryVM.refresh()

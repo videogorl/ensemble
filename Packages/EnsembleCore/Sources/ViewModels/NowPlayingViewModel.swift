@@ -34,12 +34,6 @@ public enum TrackRating: Equatable {
     }
 }
 
-/// Navigation requests from the Now Playing view
-public enum NavigationRequest: Equatable {
-    case artist(id: String, sourceKey: String?)
-    case album(id: String, sourceKey: String?)
-}
-
 @MainActor
 public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
@@ -50,22 +44,24 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
-    @Published public var navigationRequest: NavigationRequest?
     @Published public var currentRating: TrackRating = .none
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
+    private let navigationCoordinator: NavigationCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         playbackService: PlaybackServiceProtocol,
         syncCoordinator: SyncCoordinator,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        navigationCoordinator: NavigationCoordinator
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
+        self.navigationCoordinator = navigationCoordinator
         setupBindings()
     }
 
@@ -235,12 +231,24 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func navigateToArtist() {
         guard let track = currentTrack, let artistId = track.artistRatingKey else { return }
-        navigationRequest = .artist(id: artistId, sourceKey: track.sourceCompositeKey)
+        Task {
+            // Fetch the full artist object
+            if let cdArtist = try? await libraryRepository.fetchArtist(ratingKey: artistId) {
+                let artist = Artist(from: cdArtist)
+                navigationCoordinator.navigateToArtist(artist)
+            }
+        }
     }
 
     public func navigateToAlbum() {
         guard let track = currentTrack, let albumId = track.albumRatingKey else { return }
-        navigationRequest = .album(id: albumId, sourceKey: track.sourceCompositeKey)
+        Task {
+            // Fetch the full album object
+            if let cdAlbum = try? await libraryRepository.fetchAlbum(ratingKey: albumId) {
+                let album = Album(from: cdAlbum)
+                navigationCoordinator.navigateToAlbum(album)
+            }
+        }
     }
 
     // MARK: - Rating Management

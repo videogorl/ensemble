@@ -10,15 +10,7 @@ public struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
-    
-    // Navigation state from Now Playing
-    @State private var artistToNavigate: Artist?
-    @State private var albumToNavigate: Album?
-    
-    // Coordination state
-    @State private var artistStackID = UUID()
-    @State private var moreStackID = UUID()
-    @State private var shouldNavigateToAlbums = false
+    @State private var showingDetailView = false
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -26,7 +18,9 @@ public struct MainTabView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
+            // Main tab view
+            ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
                 // Songs
                 NavigationView {
@@ -48,13 +42,11 @@ public struct MainTabView: View {
                     ArtistsView(
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
-                        externalArtistToNavigate: $artistToNavigate,
                         onArtistTap: { artist in
                             // Navigation handled by ArtistsView
                         }
                     )
                 }
-                .id(artistStackID)
                 .navigationViewStyle(.stack)
                 .tabItem {
                     Label("Artists", systemImage: "music.mic")
@@ -87,12 +79,9 @@ public struct MainTabView: View {
                 NavigationView {
                     MoreView(
                         libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM,
-                        externalAlbumToNavigate: $albumToNavigate,
-                        shouldNavigateToAlbums: $shouldNavigateToAlbums
+                        nowPlayingVM: nowPlayingVM
                     )
                 }
-                .id(moreStackID)
                 .navigationViewStyle(.stack)
                 .tabItem {
                     Label("More", systemImage: "ellipsis")
@@ -115,66 +104,68 @@ public struct MainTabView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
-        }
-        .sheet(isPresented: $showingSyncPanel) {
-            SyncPanelView()
-        }
-        .task {
-            await libraryVM.refresh()
-        }
-        .onChange(of: nowPlayingVM.navigationRequest) { request in
-            if let request = request {
-                handleNavigationRequest(request)
-                nowPlayingVM.navigationRequest = nil
+            .sheet(isPresented: $showingNowPlaying) {
+                NowPlayingView(viewModel: nowPlayingVM)
+            }
+            .sheet(isPresented: $showingSyncPanel) {
+                SyncPanelView()
+            }
+            .task {
+                await libraryVM.refresh()
+            }
+            .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
+                // Show detail view when navigation is requested
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showingDetailView = destination != nil
+                }
+            }
+            
+            // Sliding detail view overlay
+            if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
+                detailViewForDestination(destination: destination)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(1)
             }
         }
     }
-
-    private func handleNavigationRequest(_ request: NavigationRequest) {
-        Task {
-            switch request {
-            case .artist(let id, _):
-                if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
-                    let artist = Artist(from: cdArtist)
-                    await MainActor.run {
-                        // Clear current navigation first
-                        self.artistToNavigate = nil
-                        
-                        // Reset stack to root
-                        artistStackID = UUID()
-                        
-                        self.selectedTab = 1 // Artists tab
-                        
-                        // Delay to ensure stack reset is processed
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            self.artistToNavigate = artist
-                        }
-                    }
+    
+    @ViewBuilder
+    private func detailViewForDestination(destination: NavigationCoordinator.Destination) -> some View {
+        // Wrap in NavigationView so detail views have a navigation bar
+        NavigationView {
+            Group {
+                switch destination {
+                case .artist(let artist):
+                    ArtistDetailView(
+                        artist: artist,
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { _ in }
+                    )
+                case .album(let album):
+                    AlbumDetailView(
+                        album: album,
+                        nowPlayingVM: nowPlayingVM
+                    )
                 }
-            case .album(let id, _):
-                if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
-                    let album = Album(from: cdAlbum)
-                    await MainActor.run {
-                        // Clear current navigation first
-                        self.shouldNavigateToAlbums = false
-                        self.albumToNavigate = nil
-                        
-                        // Reset stack to root
-                        moreStackID = UUID()
-                        
-                        self.selectedTab = 4 // More tab
-                        
-                        // Delay to ensure stack reset is processed
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            self.albumToNavigate = album
-                            self.shouldNavigateToAlbums = true
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showingDetailView = false
                         }
+                        // Clear destination after animation
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            deps.navigationCoordinator.clearDestination()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
                     }
                 }
             }
         }
+        .navigationViewStyle(.stack)
     }
 
     private var syncButton: some View {
@@ -197,14 +188,7 @@ public struct SidebarView: View {
     @State private var selection: SidebarSection? = .songs
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
-    
-    // Navigation state from Now Playing
-    @State private var artistToNavigate: Artist?
-    @State private var albumToNavigate: Album?
-
-    // Coordination state
-    @State private var artistStackID = UUID()
-    @State private var albumStackID = UUID()
+    @State private var showingDetailView = false
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -212,7 +196,9 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
+        ZStack {
+            // Main split view
+            NavigationSplitView {
             List(selection: $selection) {
                 Section("Library") {
                     Label("Songs", systemImage: "music.note")
@@ -256,64 +242,68 @@ public struct SidebarView: View {
         } detail: {
             detailView
         }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
-        }
-        .sheet(isPresented: $showingSyncPanel) {
-            SyncPanelView()
-        }
-        .task {
-            await libraryVM.refresh()
-        }
-        .onChange(of: nowPlayingVM.navigationRequest) { request in
-            if let request = request {
-                handleNavigationRequest(request)
-                nowPlayingVM.navigationRequest = nil
+            .sheet(isPresented: $showingNowPlaying) {
+                NowPlayingView(viewModel: nowPlayingVM)
+            }
+            .sheet(isPresented: $showingSyncPanel) {
+                SyncPanelView()
+            }
+            .task {
+                await libraryVM.refresh()
+            }
+            .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
+                // Show detail view when navigation is requested
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showingDetailView = destination != nil
+                }
+            }
+            
+            // Sliding detail view overlay
+            if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
+                detailViewForSidebar(destination: destination)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(1)
             }
         }
     }
-
-    private func handleNavigationRequest(_ request: NavigationRequest) {
-        Task {
-            switch request {
-            case .artist(let id, _):
-                if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
-                    let artist = Artist(from: cdArtist)
-                    await MainActor.run {
-                        // Clear current navigation first
-                        self.artistToNavigate = nil
-                        
-                        // Reset stack
-                        artistStackID = UUID()
-                        
-                        self.selection = .artists
-                        
-                        // Delay to ensure stack reset is processed
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            self.artistToNavigate = artist
-                        }
-                    }
+    
+    @ViewBuilder
+    private func detailViewForSidebar(destination: NavigationCoordinator.Destination) -> some View {
+        // Wrap in NavigationView so detail views have a navigation bar
+        NavigationView {
+            Group {
+                switch destination {
+                case .artist(let artist):
+                    ArtistDetailView(
+                        artist: artist,
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { _ in }
+                    )
+                case .album(let album):
+                    AlbumDetailView(
+                        album: album,
+                        nowPlayingVM: nowPlayingVM
+                    )
                 }
-            case .album(let id, _):
-                if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
-                    let album = Album(from: cdAlbum)
-                    await MainActor.run {
-                        // Clear current navigation first
-                        self.albumToNavigate = nil
-                        
-                        // Reset stack
-                        albumStackID = UUID()
-                        
-                        self.selection = .albums
-                        
-                        // Delay to ensure stack reset is processed
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            self.albumToNavigate = album
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showingDetailView = false
                         }
+                        // Clear destination after animation
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            deps.navigationCoordinator.clearDestination()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
                     }
                 }
             }
         }
+        .navigationViewStyle(.stack)
     }
 
     @ViewBuilder
@@ -327,24 +317,20 @@ public struct SidebarView: View {
             NavigationStack {
                 ArtistsView(
                     libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    externalArtistToNavigate: $artistToNavigate
+                    nowPlayingVM: nowPlayingVM
                 ) { artist in
                     // Handle navigation
                 }
             }
-            .id(artistStackID)
         case .albums:
             NavigationStack {
                 AlbumsView(
                     libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    externalAlbumToNavigate: $albumToNavigate
+                    nowPlayingVM: nowPlayingVM
                 ) { album in
                     // Handle navigation
                 }
             }
-            .id(albumStackID)
         case .genres:
             NavigationStack {
                 GenresView(libraryVM: libraryVM) { genre in

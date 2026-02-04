@@ -30,6 +30,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
     nonisolated(unsafe) public let cacheManager: CacheManager
+    nonisolated(unsafe) public let navigationCoordinator: NavigationCoordinator
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -82,6 +83,11 @@ public final class DependencyContainer: @unchecked Sendable {
                 downloadManager: downloadRef
             )
         }
+        
+        // Navigation coordinator
+        navigationCoordinator = MainActor.assumeIsolated {
+            NavigationCoordinator()
+        }
     }
 
     // MARK: - View Model Factories
@@ -100,7 +106,8 @@ public final class DependencyContainer: @unchecked Sendable {
         NowPlayingViewModel(
             playbackService: playbackService,
             syncCoordinator: syncCoordinator,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            navigationCoordinator: navigationCoordinator
         )
     }
 
