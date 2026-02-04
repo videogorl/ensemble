@@ -46,7 +46,7 @@ public final class PlaylistViewModel: ObservableObject {
 // MARK: - Playlist Detail ViewModel
 
 @MainActor
-public final class PlaylistDetailViewModel: ObservableObject {
+public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var playlist: Playlist
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false

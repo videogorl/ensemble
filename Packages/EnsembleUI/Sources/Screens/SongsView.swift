@@ -232,7 +232,13 @@ struct IndexedTrackList: UIViewRepresentable {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             let isPlaying = track.id == currentTrackId
-            cell.configure(with: track, isPlaying: isPlaying, artworkLoader: artworkLoader)
+            cell.configure(
+                with: track,
+                showArtwork: true,
+                showTrackNumber: false,
+                isPlaying: isPlaying,
+                artworkLoader: artworkLoader
+            )
             return cell
         }
         
@@ -260,116 +266,5 @@ struct IndexedTrackList: UIViewRepresentable {
     }
 }
 
-class TrackTableViewCell: UITableViewCell {
-    private let artworkImageView = UIImageView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let durationLabel = UILabel()
-    private let playingIndicator = UIImageView()
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupViews()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupViews() {
-        artworkImageView.contentMode = .scaleAspectFill
-        artworkImageView.clipsToBounds = true
-        artworkImageView.layer.cornerRadius = 4
-        artworkImageView.backgroundColor = UIColor.systemGray5
-        artworkImageView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(artworkImageView)
-        
-        titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(titleLabel)
-        
-        subtitleLabel.font = .systemFont(ofSize: 14, weight: .regular)
-        subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(subtitleLabel)
-        
-        durationLabel.font = .systemFont(ofSize: 14, weight: .regular)
-        durationLabel.textColor = .secondaryLabel
-        durationLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(durationLabel)
-        
-        playingIndicator.image = UIImage(systemName: "speaker.wave.3.fill")
-        playingIndicator.tintColor = .systemBlue
-        playingIndicator.contentMode = .scaleAspectFit
-        playingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        playingIndicator.isHidden = true
-        contentView.addSubview(playingIndicator)
-        
-        NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            artworkImageView.widthAnchor.constraint(equalToConstant: 44),
-            artworkImageView.heightAnchor.constraint(equalToConstant: 44),
-            
-            titleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: 12),
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
-            
-            subtitleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: 12),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
-            
-            durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
-            
-            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIndicator.widthAnchor.constraint(equalToConstant: 20),
-            playingIndicator.heightAnchor.constraint(equalToConstant: 20)
-        ])
-    }
-    
-    func configure(with track: Track, isPlaying: Bool, artworkLoader: ArtworkLoaderProtocol) {
-        titleLabel.text = track.title
-        
-        var subtitleParts: [String] = []
-        if let artist = track.artistName {
-            subtitleParts.append(artist)
-        }
-        if let album = track.albumName {
-            subtitleParts.append(album)
-        }
-        subtitleLabel.text = subtitleParts.joined(separator: " · ")
-        
-        durationLabel.text = track.formattedDuration
-        durationLabel.isHidden = isPlaying
-        playingIndicator.isHidden = !isPlaying
-        
-        // Reset artwork
-        artworkImageView.image = nil
-        artworkImageView.backgroundColor = UIColor.systemGray5
-        
-        // Load artwork
-        Task { @MainActor in
-            guard let url = await artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                size: ArtworkSize.thumbnail.rawValue
-            ) else {
-                return
-            }
-            
-            let request = ImageRequest(url: url)
-            if let image = try? await ImagePipeline.shared.image(for: request) {
-                self.artworkImageView.image = image
-            }
-        }
-    }
-    
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        artworkImageView.image = nil
-    }
-}
+
 

@@ -3,41 +3,36 @@ import SwiftUI
 
 public struct AlbumCard: View {
     let album: Album
-    let onTap: () -> Void
 
-    public init(album: Album, onTap: @escaping () -> Void) {
+    public init(album: Album) {
         self.album = album
-        self.onTap = onTap
     }
 
     public var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 8) {
-                ArtworkView(album: album, size: .thumbnail)
+        VStack(alignment: .leading, spacing: 8) {
+            ArtworkView(album: album, size: .thumbnail)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(album.title)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                if let artist = album.artistName {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
+                }
 
-                    if let artist = album.artistName {
-                        Text(artist)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    if let year = album.year {
-                        Text(String(year))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+                if let year = album.year {
+                    Text(String(year))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
             }
-            .frame(width: ArtworkSize.thumbnail.cgSize.width)
         }
-        .buttonStyle(.plain)
+        .frame(width: ArtworkSize.thumbnail.cgSize.width)
     }
 }
 
@@ -45,23 +40,30 @@ public struct AlbumCard: View {
 
 public struct AlbumGrid: View {
     let albums: [Album]
-    let onAlbumTap: (Album) -> Void
+    let nowPlayingVM: NowPlayingViewModel
+    let onAlbumTap: ((Album) -> Void)?
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
     ]
 
-    public init(albums: [Album], onAlbumTap: @escaping (Album) -> Void) {
+    public init(albums: [Album], nowPlayingVM: NowPlayingViewModel, onAlbumTap: ((Album) -> Void)? = nil) {
         self.albums = albums
+        self.nowPlayingVM = nowPlayingVM
         self.onAlbumTap = onAlbumTap
     }
 
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(albums) { album in
-                AlbumCard(album: album) {
-                    onAlbumTap(album)
+                NavigationLink {
+                    AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    AlbumCard(album: album)
                 }
+                .simultaneousGesture(TapGesture().onEnded {
+                    onAlbumTap?(album)
+                })
             }
         }
         .padding(.horizontal)

@@ -2,8 +2,22 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+// MARK: - Protocol
+
 @MainActor
-public final class AlbumDetailViewModel: ObservableObject {
+public protocol MediaDetailViewModelProtocol: ObservableObject {
+    var tracks: [Track] { get }
+    var isLoading: Bool { get }
+    var error: String? { get }
+    var totalDuration: String { get }
+    
+    func loadTracks() async
+}
+
+// MARK: - Album Detail ViewModel
+
+@MainActor
+public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var album: Album
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false

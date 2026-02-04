@@ -36,15 +36,19 @@ public struct PlaylistCard: View {
 
 public struct PlaylistRow: View {
     let playlist: Playlist
-    let onTap: () -> Void
+    let nowPlayingVM: NowPlayingViewModel
+    let onTap: (() -> Void)?
 
-    public init(playlist: Playlist, onTap: @escaping () -> Void) {
+    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, onTap: (() -> Void)? = nil) {
         self.playlist = playlist
+        self.nowPlayingVM = nowPlayingVM
         self.onTap = onTap
     }
 
     public var body: some View {
-        Button(action: onTap) {
+        NavigationLink {
+            PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+        } label: {
             HStack(spacing: 12) {
                 ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
 
@@ -65,13 +69,10 @@ public struct PlaylistRow: View {
                 }
 
                 Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            onTap?()
+        })
     }
 }

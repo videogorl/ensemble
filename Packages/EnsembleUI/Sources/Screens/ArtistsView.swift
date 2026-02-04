@@ -164,7 +164,7 @@ public struct ArtistDetailView: View {
                 .fontWeight(.bold)
                 .padding(.horizontal)
 
-            AlbumGrid(albums: viewModel.albums, onAlbumTap: onAlbumTap)
+            AlbumGrid(albums: viewModel.albums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
         }
     }
 }
