@@ -10,12 +10,8 @@ struct EnsembleApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if #available(iOS 16.0, *) {
-                RootView()
-                    .environment(\.dependencies, DependencyContainer.shared)
-            } else {
-                // Fallback on earlier versions
-            }
+            RootView()
+                .environment(\.dependencies, DependencyContainer.shared)
         }
     }
 }
