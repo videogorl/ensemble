@@ -9,7 +9,7 @@ public final class SyncCoordinator: ObservableObject {
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
 
-    private let accountManager: AccountManager
+    public let accountManager: AccountManager
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol

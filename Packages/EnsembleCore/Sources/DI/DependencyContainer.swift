@@ -97,7 +97,11 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     public func makeNowPlayingViewModel() -> NowPlayingViewModel {
-        NowPlayingViewModel(playbackService: playbackService)
+        NowPlayingViewModel(
+            playbackService: playbackService,
+            syncCoordinator: syncCoordinator,
+            libraryRepository: libraryRepository
+        )
     }
 
     @MainActor

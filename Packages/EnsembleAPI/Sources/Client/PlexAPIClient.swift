@@ -328,6 +328,26 @@ public actor PlexAPIClient {
         )
         return container.mediaContainer.items
     }
+    
+    /// Rate a track (0 = no rating, 2 = 1 star, 4 = 2 stars, ..., 10 = 5 stars)
+    /// Pass nil or 0 to remove rating
+    public func rateTrack(ratingKey: String, rating: Int?) async throws {
+        let ratingValue = rating ?? 0
+        
+        // Validate rating is in range (0-10, even numbers only for stars)
+        guard ratingValue >= 0 && ratingValue <= 10 else {
+            throw PlexAPIError.invalidURL
+        }
+        
+        let path = "/:/rate"
+        let query = [
+            "key": ratingKey,
+            "identifier": "com.plexapp.plugins.library",
+            "rating": String(ratingValue)
+        ]
+        
+        _ = try await serverRequestPUT(path: path, query: query)
+    }
 
     // MARK: - URL Generation
 
@@ -480,6 +500,42 @@ public actor PlexAPIClient {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+
+        let (data, _) = try await performRequest(request)
+        return data
+    }
+    
+    private func serverRequestPUT(path: String, query: [String: String] = [:]) async throws -> Data {
+        // Try with current URL first
+        do {
+            return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
+        } catch {
+            // If request fails and we have alternative URLs, attempt failover
+            if !serverConnection.alternativeURLs.isEmpty {
+                print("⚠️ PUT request failed with current URL, attempting failover...")
+                try await attemptFailover()
+                // Retry with new URL
+                return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
+            }
+            throw error
+        }
+    }
+    
+    private func performServerRequestPUT(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+        var components = URLComponents(string: url)!
+        components.path = path
+        var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
+        components.queryItems = queryItems
+
+        guard let requestURL = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
 

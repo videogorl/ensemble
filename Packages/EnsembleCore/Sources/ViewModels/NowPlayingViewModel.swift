@@ -1,5 +1,38 @@
 import Combine
 import Foundation
+import EnsemblePersistence
+
+/// Rating states for the three-state heart button
+public enum TrackRating: Equatable {
+    case none       // No rating (empty heart)
+    case disliked   // 1 star (broken heart)
+    case loved      // 5 stars (filled heart)
+    
+    public var icon: String {
+        switch self {
+        case .none: return "heart"
+        case .disliked: return "heart.slash"
+        case .loved: return "heart.fill"
+        }
+    }
+    
+    var plexRating: Int? {
+        switch self {
+        case .none: return nil  // 0 removes rating
+        case .disliked: return 2  // 1 star = 2
+        case .loved: return 10  // 5 stars = 10
+        }
+    }
+    
+    static func from(rating: Int) -> TrackRating {
+        switch rating {
+        case 0: return .none
+        case 1...4: return .disliked
+        case 5...10: return .loved
+        default: return .none
+        }
+    }
+}
 
 @MainActor
 public final class NowPlayingViewModel: ObservableObject {
@@ -11,12 +44,21 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public var currentRating: TrackRating = .none
 
     private let playbackService: PlaybackServiceProtocol
+    private let syncCoordinator: SyncCoordinator
+    private let libraryRepository: LibraryRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
 
-    public init(playbackService: PlaybackServiceProtocol) {
+    public init(
+        playbackService: PlaybackServiceProtocol,
+        syncCoordinator: SyncCoordinator,
+        libraryRepository: LibraryRepositoryProtocol
+    ) {
         self.playbackService = playbackService
+        self.syncCoordinator = syncCoordinator
+        self.libraryRepository = libraryRepository
         setupBindings()
     }
 
@@ -53,6 +95,14 @@ public final class NowPlayingViewModel: ObservableObject {
         $currentTrack
             .compactMap { $0?.duration }
             .assign(to: &$duration)
+        
+        // Update rating when track changes
+        $currentTrack
+            .map { track in
+                guard let track = track else { return .none }
+                return TrackRating.from(rating: track.rating)
+            }
+            .assign(to: &$currentRating)
     }
 
     // MARK: - Computed Properties
@@ -172,6 +222,76 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func cycleRepeatMode() {
         playbackService.cycleRepeatMode()
+    }
+
+    // MARK: - Rating Management
+    
+    /// Toggle rating through three states: none → loved → disliked → none
+    public func toggleRating() {
+        Task {
+            guard let track = currentTrack else { return }
+            
+            let newRating: TrackRating
+            switch currentRating {
+            case .none:
+                newRating = .loved
+            case .loved:
+                newRating = .disliked
+            case .disliked:
+                newRating = .none
+            }
+            
+            // Update locally first for immediate feedback
+            await MainActor.run {
+                self.currentRating = newRating
+            }
+            
+            // Send to server
+            do {
+                // Parse source composite key to get API client
+                if let sourceKey = track.sourceCompositeKey {
+                    let components = sourceKey.split(separator: ":")
+                    if components.count >= 3 {
+                        let accountId = String(components[1])
+                        let serverId = String(components[2])
+                        
+                        // Get API client from account manager
+                        if let apiClient = await syncCoordinator.accountManager.makeAPIClient(
+                            accountId: accountId,
+                            serverId: serverId
+                        ) {
+                            try await apiClient.rateTrack(
+                                ratingKey: track.id,
+                                rating: newRating.plexRating
+                            )
+                            
+                            // Update in CoreData
+                            try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
+                        }
+                    }
+                }
+            } catch {
+                print("Failed to update rating: \(error)")
+                // Revert on error
+                await MainActor.run {
+                    self.currentRating = TrackRating.from(rating: track.rating)
+                }
+            }
+        }
+    }
+    
+    private func updateTrackRatingInDatabase(trackId: String, rating: Int) async throws {
+        // Use LibraryRepository implementation's CoreDataStack
+        let context = CoreDataStack.shared.newBackgroundContext()
+        try await context.perform {
+            let request = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "ratingKey == %@", trackId)
+            
+            if let cdTrack = try context.fetch(request).first {
+                cdTrack.rating = Int16(rating)
+                try context.save()
+            }
+        }
     }
 
     // MARK: - Helpers
