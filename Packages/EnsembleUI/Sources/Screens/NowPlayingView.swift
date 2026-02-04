@@ -122,36 +122,17 @@ public struct NowPlayingView: View {
     
     // Dismiss handle
     private var dismissHandle: some View {
-        VStack(spacing: 8) {
+        HStack {
+            Spacer()
             Capsule()
                 .fill(Color.white.opacity(0.5))
                 .frame(width: 36, height: 5)
-                .padding(.top, 8)
-
-            HStack {
-                Button(action: { 
-                    dismiss() 
-                }) {
-                    Image(systemName: "chevron.down")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                }
-
-                Spacer()
-
-                Menu {
-                    Button {
-                        // Add to playlist
-                    } label: {
-                        Label("Add to Playlist", systemImage: "text.badge.plus")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                }
-            }
-            .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            dismiss()
         }
     }
     
@@ -248,7 +229,7 @@ public struct NowPlayingView: View {
 
     // Secondary controls: shuffle, repeat, heart, airplay
     private var secondaryControlsView: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: 30) {
             // Shuffle
             Button(action: viewModel.toggleShuffle) {
                 Image(systemName: "shuffle")
@@ -275,6 +256,19 @@ public struct NowPlayingView: View {
             // AirPlay button
             AirPlayButton()
                 .frame(width: 24, height: 24)
+
+            // More actions
+            Menu {
+                Button {
+                    // Add to playlist
+                } label: {
+                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.7))
+            }
         }
     }
 
