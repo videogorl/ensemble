@@ -41,7 +41,7 @@ public struct ArtistRow: View {
     public var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                ArtworkView(artist: artist, size: .thumbnail, cornerRadius: 22)
+                ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
 
                 Text(artist.name)
                     .font(.body)

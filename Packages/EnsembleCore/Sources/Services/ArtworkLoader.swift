@@ -153,6 +153,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 // MARK: - Artwork Size Presets
 
 public enum ArtworkSize: Int {
+    case tiny = 44
     case thumbnail = 100
     case small = 200
     case medium = 300

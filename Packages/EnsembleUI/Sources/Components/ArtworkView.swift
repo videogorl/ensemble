@@ -1,7 +1,6 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
-import NukeUI
 
 public struct ArtworkView: View {
     let path: String?
@@ -10,7 +9,8 @@ public struct ArtworkView: View {
     let cornerRadius: CGFloat
 
     @Environment(\.dependencies) private var dependencies
-    @State private var artworkURL: URL?
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = false
 
     public init(
         path: String?,
@@ -25,35 +25,57 @@ public struct ArtworkView: View {
     }
 
     public var body: some View {
-        LazyImage(url: artworkURL) { state in
-            if let image = state.image {
-                image
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fill)
-            } else if state.error != nil {
-                placeholderContent
-            } else {
-                placeholderContent
-                    .overlay {
-                        ProgressView()
-                            .tint(.secondary)
-                    }
-            }
-        }
-        .processors([.resize(size: CGSize(width: size.cgSize.width, height: size.cgSize.height), contentMode: .aspectFill)])
-        .frame(width: size.cgSize.width, height: size.cgSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .task(id: path) {
-            artworkURL = await dependencies.artworkLoader.artworkURLAsync(for: path, sourceKey: sourceKey, size: size.rawValue)
-        }
-    }
-
-    private var placeholderContent: some View {
         ZStack {
             Color.gray.opacity(0.2)
-            Image(systemName: "music.note")
-                .font(.system(size: size.cgSize.width * 0.3))
-                .foregroundColor(.gray.opacity(0.5))
+            
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: size.cgSize.width * 0.3))
+                    .foregroundColor(.gray.opacity(0.5))
+                
+                if isLoading {
+                    ProgressView()
+                        .tint(.secondary)
+                }
+            }
+        }
+        .frame(width: size.cgSize.width, height: size.cgSize.height)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .task(id: path) {
+            await loadArtwork()
+        }
+    }
+    
+    private func loadArtwork() async {
+        guard let url = await dependencies.artworkLoader.artworkURLAsync(
+            for: path,
+            sourceKey: sourceKey,
+            size: size.rawValue
+        ) else {
+            return
+        }
+        
+        isLoading = true
+        
+        let request = ImageRequest(
+            url: url,
+            processors: [.resize(size: size.cgSize, contentMode: .aspectFill)]
+        )
+        
+        if let image = try? await ImagePipeline.shared.image(for: request) {
+            await MainActor.run {
+                self.loadedImage = image
+                self.isLoading = false
+            }
+        } else {
+            await MainActor.run {
+                self.isLoading = false
+            }
         }
     }
 }
