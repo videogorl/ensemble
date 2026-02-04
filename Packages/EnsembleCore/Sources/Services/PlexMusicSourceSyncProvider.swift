@@ -157,6 +157,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
+            print("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
+            if trackKeys.count > 0 {
+                print("📋 First track key: \(trackKeys[0])")
+            }
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
 

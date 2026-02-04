@@ -49,6 +49,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             context.perform {
                 let request = CDPlaylist.fetchRequest()
                 request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {
                     let playlist = try context.fetch(request).first
                     continuation.resume(returning: playlist)
@@ -146,14 +147,14 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     }
 
                     // Add new playlist tracks
+                    var foundCount = 0
                     for (index, trackKey) in trackRatingKeys.enumerated() {
                         let trackRequest = CDTrack.fetchRequest()
-                        if let sourceKey = sourceCompositeKey {
-                            trackRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", trackKey, sourceKey)
-                        } else {
-                            trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
-                        }
+                        // Don't filter by sourceCompositeKey since playlists use server-level keys
+                        // but tracks use library-level keys. Track ratingKeys are unique anyway.
+                        trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
                         if let track = try context.fetch(trackRequest).first {
+                            foundCount += 1
                             let playlistTrack = CDPlaylistTrack(context: context)
                             playlistTrack.order = Int32(index)
                             playlistTrack.playlist = playlist
@@ -162,8 +163,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     }
 
                     try context.save()
+                    print("✅ Saved \(foundCount) tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) requested)")
                     continuation.resume()
                 } catch {
+                    print("❌ Error saving playlist tracks: \(error)")
                     continuation.resume(throwing: error)
                 }
             }

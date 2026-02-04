@@ -68,6 +68,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 if viewModel.isLoading && viewModel.tracks.isEmpty {
                     ProgressView()
                         .padding(.top, 40)
+                } else if viewModel.tracks.isEmpty {
+                    Text("No tracks")
+                        .foregroundColor(.secondary)
+                        .padding(.top, 40)
                 } else {
                     tracksSection
                 }
@@ -151,7 +155,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var tracksSection: some View {
-        MediaTrackList(
+        let trackCount = viewModel.tracks.count
+        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
+        
+        return MediaTrackList(
             tracks: viewModel.tracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
@@ -160,6 +167,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.tracks, startingAt: index)
         }
-        .frame(height: CGFloat(viewModel.tracks.count * 68 + (groupByDisc ? 100 : 0)))
+        .frame(height: height)
     }
 }
