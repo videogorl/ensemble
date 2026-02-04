@@ -51,6 +51,9 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    
+    // Track if we're currently updating the rating to prevent overwriting
+    private var isUpdatingRating = false
 
     public init(
         playbackService: PlaybackServiceProtocol,
@@ -99,13 +102,17 @@ public final class NowPlayingViewModel: ObservableObject {
             .compactMap { $0?.duration }
             .assign(to: &$duration)
         
-        // Update rating when track changes
+        // Update rating when track changes (but not if we're actively updating it)
         $currentTrack
-            .map { track in
-                guard let track = track else { return .none }
-                return TrackRating.from(rating: track.rating)
+            .sink { [weak self] track in
+                guard let self = self, !self.isUpdatingRating else { return }
+                guard let track = track else {
+                    self.currentRating = .none
+                    return
+                }
+                self.currentRating = TrackRating.from(rating: track.rating)
             }
-            .assign(to: &$currentRating)
+            .store(in: &cancellables)
     }
 
     // MARK: - Computed Properties
@@ -276,8 +283,9 @@ public final class NowPlayingViewModel: ObservableObject {
                 newRating = .none
             }
             
-            // Update locally first for immediate feedback
+            // Mark that we're updating to prevent overwriting
             await MainActor.run {
+                self.isUpdatingRating = true
                 self.currentRating = newRating
             }
             
@@ -302,13 +310,30 @@ public final class NowPlayingViewModel: ObservableObject {
                             
                             // Update in CoreData
                             try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
+                            
+                            // Refresh the track to get updated data
+                            if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
+                                let refreshedTrack = Track(from: updatedTrack)
+                                await MainActor.run {
+                                    // Update currentTrack if it's still the same track
+                                    if self.currentTrack?.id == track.id {
+                                        self.currentTrack = refreshedTrack
+                                    }
+                                }
+                            }
                         }
                     }
+                }
+                
+                // Clear the updating flag
+                await MainActor.run {
+                    self.isUpdatingRating = false
                 }
             } catch {
                 print("Failed to update rating: \(error)")
                 // Revert on error
                 await MainActor.run {
+                    self.isUpdatingRating = false
                     self.currentRating = TrackRating.from(rating: track.rating)
                 }
             }

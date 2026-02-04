@@ -4,6 +4,9 @@ import SwiftUI
 public struct MiniPlayer: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     let onTap: () -> Void
+    
+    @State private var dragOffset: CGFloat = 0
+    @State private var opacity: Double = 1.0
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -57,14 +60,67 @@ public struct MiniPlayer: View {
                     }
                     .foregroundColor(.primary)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
             .background(
-                Rectangle()
+                RoundedRectangle(cornerRadius: 12)
                     .fill(.ultraThinMaterial)
             )
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .offset(x: dragOffset)
+            .opacity(opacity)
             .onTapGesture(perform: onTap)
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        // Only allow horizontal swipes
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            dragOffset = value.translation.width
+                            // Fade out as we swipe
+                            opacity = 1.0 - min(abs(value.translation.width) / 200, 0.3)
+                        }
+                    }
+                    .onEnded { value in
+                        let swipeThreshold: CGFloat = 80
+                        
+                        if value.translation.width > swipeThreshold {
+                            // Swipe right - previous track
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 300
+                                opacity = 0
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                viewModel.previous()
+                                withAnimation(.spring(response: 0.3)) {
+                                    dragOffset = 0
+                                    opacity = 1.0
+                                }
+                            }
+                        } else if value.translation.width < -swipeThreshold {
+                            // Swipe left - next track
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = -300
+                                opacity = 0
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                viewModel.next()
+                                withAnimation(.spring(response: 0.3)) {
+                                    dragOffset = 0
+                                    opacity = 1.0
+                                }
+                            }
+                        } else {
+                            // Snap back
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    }
+            )
         }
     }
 }
@@ -89,7 +145,7 @@ public struct MiniPlayerContainer<Content: View>: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             content()
-                .padding(.bottom, viewModel.hasCurrentTrack ? 60 : 0)
+                .padding(.bottom, viewModel.hasCurrentTrack ? 70 : 0)
 
             if viewModel.hasCurrentTrack {
                 MiniPlayer(viewModel: viewModel, onTap: onMiniPlayerTap)

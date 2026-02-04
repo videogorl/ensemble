@@ -9,6 +9,19 @@ public struct NowPlayingView: View {
     @Environment(\.dependencies) private var deps
     
     @State private var gradientColors: ArtworkColorExtractor.GradientColors?
+    
+    // Long-press seek state
+    @State private var seekTimer: Timer?
+    @State private var isSeekingForward = false
+    @State private var isSeekingBackward = false
+    
+    // Custom slider state
+    @State private var isDraggingSlider = false
+    @State private var dragStartY: CGFloat = 0
+    @State private var dragStartX: CGFloat = 0
+    @State private var currentDragY: CGFloat = 0
+    @State private var localProgress: Double = 0
+    @State private var sliderWidth: CGFloat = 0
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -159,15 +172,19 @@ public struct NowPlayingView: View {
                 }
             }
 
-            // Album name (clickable)
+            // Album name (clickable) with icon
             if let album = track.albumName {
                 Button(action: {
                     handleAlbumTap(track: track)
                 }) {
-                    Text(album)
-                        .font(.callout)
-                        .foregroundColor(.white.opacity(0.7))
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.stack")
+                            .font(.caption)
+                        Text(album)
+                    }
+                    .font(.callout)
+                    .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
                 }
             }
         }
@@ -176,26 +193,93 @@ public struct NowPlayingView: View {
     // Progress slider with time labels
     private var progressView: some View {
         VStack(spacing: 8) {
-            // Slider
-            Slider(
-                value: Binding(
-                    get: { viewModel.progress },
-                    set: { viewModel.seekToProgress($0) }
-                ),
-                in: 0...1
-            )
-            .accentColor(.white)
+            // Custom slider with variable speed scrubbing
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background track
+                    Capsule()
+                        .fill(Color.white.opacity(0.3))
+                        .frame(height: 4)
+                    
+                    // Progress track
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: geometry.size.width * (isDraggingSlider ? localProgress : viewModel.progress), height: 4)
+                    
+                    // Scrub speed indicator
+                    if isDraggingSlider {
+                        let scrubInfo = getScrubInfo()
+                        VStack(spacing: 4) {
+                            Text(scrubInfo.label)
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                            Image(systemName: "chevron.compact.down")
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.2))
+                                .background(.ultraThinMaterial)
+                        )
+                        .clipShape(Capsule())
+                        .position(
+                            x: geometry.size.width * localProgress,
+                            y: currentDragY - dragStartY
+                        )
+                    }
+                }
+                .frame(height: 4)
+                .contentShape(Rectangle().size(width: geometry.size.width, height: 44))
+                .onAppear {
+                    sliderWidth = geometry.size.width
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isDraggingSlider {
+                                isDraggingSlider = true
+                                dragStartY = value.location.y
+                                dragStartX = value.startLocation.x
+                                localProgress = viewModel.progress
+                                sliderWidth = geometry.size.width
+                            }
+                            
+                            currentDragY = value.location.y
+                            
+                            // Calculate scrub rate based on vertical distance
+                            let verticalDistance = abs(currentDragY - dragStartY)
+                            let scrubRate = getScrubRate(verticalDistance: verticalDistance)
+                            
+                            // Calculate horizontal change from start position
+                            let horizontalChange = value.location.x - dragStartX
+                            let progressChange = (horizontalChange / sliderWidth) * scrubRate
+                            
+                            // Update local progress
+                            localProgress = max(0, min(1, viewModel.progress + progressChange))
+                        }
+                        .onEnded { _ in
+                            // Seek to final position
+                            viewModel.seekToProgress(localProgress)
+                            isDraggingSlider = false
+                        }
+                )
+            }
+            .frame(height: 44)
 
             // Time labels
             HStack {
-                Text(viewModel.formattedCurrentTime)
+                Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : viewModel.formattedCurrentTime)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
 
                 Spacer()
 
-                Text(viewModel.formattedRemainingTime)
+                Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : viewModel.formattedRemainingTime)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
@@ -206,11 +290,40 @@ public struct NowPlayingView: View {
     // Main playback controls
     private var controlsView: some View {
         HStack(spacing: 50) {
-            // Previous
-            Button(action: viewModel.previous) {
+            // Previous/Rewind button with long-press
+            ZStack {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 32))
+                
+                // Show seek indicator during long-press
+                if isSeekingBackward {
+                    Image(systemName: "chevron.left.2")
+                        .font(.system(size: 16))
+                        .offset(y: -28)
+                }
             }
+            .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if seekTimer == nil {
+                            // Start seeking after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if seekTimer == nil && !isSeekingBackward {
+                                    startSeeking(forward: false)
+                                }
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        if isSeekingBackward {
+                            stopSeeking()
+                        } else {
+                            // Short tap - execute previous action
+                            viewModel.previous()
+                        }
+                    }
+            )
 
             // Play/Pause
             Button(action: viewModel.togglePlayPause) {
@@ -218,11 +331,40 @@ public struct NowPlayingView: View {
                     .font(.system(size: 80))
             }
 
-            // Next
-            Button(action: viewModel.next) {
+            // Next/Forward button with long-press
+            ZStack {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 32))
+                
+                // Show seek indicator during long-press
+                if isSeekingForward {
+                    Image(systemName: "chevron.right.2")
+                        .font(.system(size: 16))
+                        .offset(y: -28)
+                }
             }
+            .scaleEffect(isSeekingForward ? 1.1 : 1.0)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if seekTimer == nil {
+                            // Start seeking after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if seekTimer == nil && !isSeekingForward {
+                                    startSeeking(forward: true)
+                                }
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        if isSeekingForward {
+                            stopSeeking()
+                        } else {
+                            // Short tap - execute next action
+                            viewModel.next()
+                        }
+                    }
+            )
         }
         .foregroundColor(.white)
     }
@@ -393,6 +535,69 @@ public struct NowPlayingView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             viewModel.navigateToAlbum()
         }
+    }
+    
+    // Helper: Start rapid seeking
+    private func startSeeking(forward: Bool) {
+        // Set seeking state
+        if forward {
+            isSeekingForward = true
+        } else {
+            isSeekingBackward = true
+        }
+        
+        // Create timer that seeks every 0.1 seconds
+        seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
+            guard let viewModel = viewModel else { return }
+            let currentTime = viewModel.currentTime
+            let seekAmount: TimeInterval = forward ? 2.0 : -2.0
+            let newTime = max(0, min(currentTime + seekAmount, viewModel.duration))
+            viewModel.seek(to: newTime)
+        }
+    }
+    
+    // Helper: Stop rapid seeking
+    private func stopSeeking() {
+        seekTimer?.invalidate()
+        seekTimer = nil
+        isSeekingForward = false
+        isSeekingBackward = false
+    }
+    
+    // Helper: Get scrub rate based on vertical distance
+    private func getScrubRate(verticalDistance: CGFloat) -> Double {
+        switch verticalDistance {
+        case 0..<40:
+            return 1.0      // Hi-Speed Scrubbing
+        case 40..<80:
+            return 0.5      // Half-Speed Scrubbing
+        case 80..<120:
+            return 0.25     // Quarter-Speed Scrubbing
+        default:
+            return 0.1      // Fine Scrubbing
+        }
+    }
+    
+    // Helper: Get scrub info for display
+    private func getScrubInfo() -> (label: String, rate: Double) {
+        let verticalDistance = abs(currentDragY - dragStartY)
+        switch verticalDistance {
+        case 0..<40:
+            return ("Hi-Speed Scrubbing", 1.0)
+        case 40..<80:
+            return ("Half-Speed Scrubbing", 0.5)
+        case 80..<120:
+            return ("Quarter-Speed Scrubbing", 0.25)
+        default:
+            return ("Fine Scrubbing", 0.1)
+        }
+    }
+    
+    // Helper: Format time for display
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
