@@ -67,13 +67,21 @@ public struct FavoritesView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            Text("No Favorites")
+            Text("No Favorites Yet")
                 .font(.title2)
             
-            Text("Rate tracks 4 or 5 stars to see them here")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 8) {
+                Text("Rate tracks 4 or 5 stars to add them here")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                if !libraryVM.tracks.isEmpty {
+                    Text("You have \(libraryVM.tracks.count) tracks in your library")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
         .padding()
     }

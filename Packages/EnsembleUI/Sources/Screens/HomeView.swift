@@ -51,13 +51,32 @@ public struct HomeView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            Text("No Content")
+            Text("Welcome Home")
                 .font(.title2)
             
-            Text("Sync your library to see content here")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            VStack(spacing: 8) {
+                if viewModel.error != nil {
+                    Text("Unable to load content")
+                        .font(.subheadline)
+                        .foregroundColor(.red)
+                    Text(viewModel.error ?? "")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                } else {
+                    Text("Sync your library to see personalized recommendations")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("Pull down to refresh or tap the sync button")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
+        .padding()
     }
     
     private var hubsScrollView: some View {

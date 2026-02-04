@@ -40,10 +40,16 @@ public final class HomeViewModel: ObservableObject {
         
         var allHubs: [Hub] = []
         
+        print("🏠 HomeViewModel: Starting to load hubs...")
+        print("🏠 Accounts count: \(accountManager.plexAccounts.count)")
+        
         // Fetch hubs from each Plex account
         for account in accountManager.plexAccounts {
+            print("🏠 Processing account: \(account.username)")
             for server in account.servers {
+                print("🏠 Processing server: \(server.name)")
                 for library in server.libraries where library.isEnabled {
+                    print("🏠 Processing library: \(library.title)")
                     do {
                         // Create API client for this library
                         let connection = PlexServerConnection(
@@ -64,7 +70,9 @@ public final class HomeViewModel: ObservableObject {
                         )
                         
                         // Fetch hubs
+                        print("🏠 Fetching hubs for \(library.title)...")
                         let plexHubs = try await apiClient.getHubs(sectionKey: library.key)
+                        print("🏠 Received \(plexHubs.count) hubs")
                         
                         // Convert to domain models (limit to first 10 items per hub)
                         let sourceKey = "\(account.id):\(server.id):\(library.key)"
@@ -76,8 +84,10 @@ public final class HomeViewModel: ObservableObject {
                                 hubItems = Array(metadata.prefix(10)).map { 
                                     HubItem(from: $0, sourceKey: sourceKey)
                                 }
+                                print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
                             } else {
                                 hubItems = []
+                                print("🏠 Hub '\(plexHub.title)': no metadata")
                             }
                             
                             let hub = Hub(
@@ -90,13 +100,15 @@ public final class HomeViewModel: ObservableObject {
                             allHubs.append(hub)
                         }
                     } catch {
-                        print("Error loading hubs for \(library.title): \(error.localizedDescription)")
+                        print("❌ Error loading hubs for \(library.title): \(error.localizedDescription)")
+                        self.error = "Failed to load hubs: \(error.localizedDescription)"
                         // Continue with other libraries
                     }
                 }
             }
         }
         
+        print("🏠 Total hubs loaded: \(allHubs.count)")
         hubs = allHubs
         isLoading = false
     }
