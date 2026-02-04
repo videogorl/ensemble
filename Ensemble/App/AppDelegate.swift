@@ -19,7 +19,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 mode: .default,
                 options: [.allowAirPlay, .allowBluetooth, .allowBluetoothA2DP]
             )
-            try session.setActive(true)
         } catch {
             print("Failed to configure audio session: \(error)")
         }

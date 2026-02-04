@@ -2,6 +2,9 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 import AVKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct NowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
@@ -12,6 +15,7 @@ public struct NowPlayingView: View {
     
     // Long-press seek state
     @State private var seekTimer: Timer?
+    @State private var seekWorkItem: DispatchWorkItem?
     @State private var isSeekingForward = false
     @State private var isSeekingBackward = false
     
@@ -306,16 +310,20 @@ public struct NowPlayingView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if seekTimer == nil {
-                            // Start seeking after a short delay
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                if seekTimer == nil && !isSeekingBackward {
+                        if seekTimer == nil && seekWorkItem == nil {
+                            let item = DispatchWorkItem {
+                                if !isSeekingBackward {
                                     startSeeking(forward: false)
                                 }
                             }
+                            seekWorkItem = item
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
                         }
                     }
                     .onEnded { _ in
+                        seekWorkItem?.cancel()
+                        seekWorkItem = nil
+                        
                         if isSeekingBackward {
                             stopSeeking()
                         } else {
@@ -347,16 +355,20 @@ public struct NowPlayingView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if seekTimer == nil {
-                            // Start seeking after a short delay
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                if seekTimer == nil && !isSeekingForward {
+                        if seekTimer == nil && seekWorkItem == nil {
+                            let item = DispatchWorkItem {
+                                if !isSeekingForward {
                                     startSeeking(forward: true)
                                 }
                             }
+                            seekWorkItem = item
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
                         }
                     }
                     .onEnded { _ in
+                        seekWorkItem?.cancel()
+                        seekWorkItem = nil
+                        
                         if isSeekingForward {
                             stopSeeking()
                         } else {
@@ -470,7 +482,11 @@ public struct NowPlayingView: View {
         }
         .padding(.bottom, 50)
         .background(Color(.systemBackground))
+        #if canImport(UIKit)
         .cornerRadius(24, corners: [.topLeft, .topRight])
+        #else
+        .cornerRadius(24)
+        #endif
     }
     
     // Empty state
@@ -601,6 +617,7 @@ public struct NowPlayingView: View {
     }
 }
 
+#if canImport(UIKit)
 // Helper for corner radius on specific corners
 extension View {
     func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
@@ -621,6 +638,7 @@ struct RoundedCorner: Shape {
         return Path(path.cgPath)
     }
 }
+#endif
 
 
 

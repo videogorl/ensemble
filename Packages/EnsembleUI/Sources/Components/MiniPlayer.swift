@@ -14,8 +14,8 @@ public struct MiniPlayer: View {
     }
 
     public var body: some View {
-        if let track = viewModel.currentTrack {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
+            if let track = viewModel.currentTrack {
                 // Progress bar
                 GeometryReader { geometry in
                     Rectangle()
@@ -62,66 +62,87 @@ public struct MiniPlayer: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+            } else {
+                // Nothing Playing state
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.secondary.opacity(0.2))
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Image(systemName: "music.note")
+                                .foregroundColor(.secondary)
+                        )
+
+                    Text("Nothing Playing")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.ultraThinMaterial)
-            )
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            .offset(x: dragOffset)
-            .opacity(opacity)
-            .onTapGesture(perform: onTap)
-            .gesture(
-                DragGesture(minimumDistance: 20)
-                    .onChanged { value in
-                        // Only allow horizontal swipes
-                        if abs(value.translation.width) > abs(value.translation.height) {
-                            dragOffset = value.translation.width
-                            // Fade out as we swipe
-                            opacity = 1.0 - min(abs(value.translation.width) / 200, 0.3)
-                        }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.ultraThinMaterial)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .offset(x: dragOffset)
+        .opacity(opacity)
+        .onTapGesture(perform: onTap)
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    guard viewModel.hasCurrentTrack else { return }
+                    // Only allow horizontal swipes
+                    if abs(value.translation.width) > abs(value.translation.height) {
+                        dragOffset = value.translation.width
+                        // Fade out as we swipe
+                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.3)
                     }
-                    .onEnded { value in
-                        let swipeThreshold: CGFloat = 80
-                        
-                        if value.translation.width > swipeThreshold {
-                            // Swipe right - previous track
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 300
-                                opacity = 0
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                viewModel.previous()
-                                withAnimation(.spring(response: 0.3)) {
-                                    dragOffset = 0
-                                    opacity = 1.0
-                                }
-                            }
-                        } else if value.translation.width < -swipeThreshold {
-                            // Swipe left - next track
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = -300
-                                opacity = 0
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                viewModel.next()
-                                withAnimation(.spring(response: 0.3)) {
-                                    dragOffset = 0
-                                    opacity = 1.0
-                                }
-                            }
-                        } else {
-                            // Snap back
+                }
+                .onEnded { value in
+                    guard viewModel.hasCurrentTrack else { return }
+                    let swipeThreshold: CGFloat = 80
+                    
+                    if value.translation.width > swipeThreshold {
+                        // Swipe right - previous track
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 300
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.previous()
                             withAnimation(.spring(response: 0.3)) {
                                 dragOffset = 0
                                 opacity = 1.0
                             }
                         }
+                    } else if value.translation.width < -swipeThreshold {
+                        // Swipe left - next track
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = -300
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            viewModel.next()
+                            withAnimation(.spring(response: 0.3)) {
+                                dragOffset = 0
+                                opacity = 1.0
+                            }
+                        }
+                    } else {
+                        // Snap back
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = 0
+                            opacity = 1.0
+                        }
                     }
-            )
-        }
+                }
+        )
     }
 }
 
@@ -145,11 +166,9 @@ public struct MiniPlayerContainer<Content: View>: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             content()
-                .padding(.bottom, viewModel.hasCurrentTrack ? 70 : 0)
+                .padding(.bottom, 70)
 
-            if viewModel.hasCurrentTrack {
-                MiniPlayer(viewModel: viewModel, onTap: onMiniPlayerTap)
-            }
+            MiniPlayer(viewModel: viewModel, onTap: onMiniPlayerTap)
         }
     }
 }

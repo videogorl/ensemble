@@ -48,7 +48,7 @@ public struct MainTabView: View {
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                        Color.clear.frame(height: 110)
                     }
                     .tag(0)
 
@@ -64,7 +64,7 @@ public struct MainTabView: View {
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                        Color.clear.frame(height: 110)
                     }
                     .tag(1)
 
@@ -76,7 +76,7 @@ public struct MainTabView: View {
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                        Color.clear.frame(height: 110)
                     }
                     .tag(2)
 
@@ -86,7 +86,7 @@ public struct MainTabView: View {
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                        Color.clear.frame(height: 110)
                     }
                     .tag(3)
 
@@ -99,7 +99,7 @@ public struct MainTabView: View {
                     }
                     .navigationViewStyle(.stack)
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                        Color.clear.frame(height: 110)
                     }
                     .tag(4)
                 }
@@ -120,12 +120,10 @@ public struct MainTabView: View {
 
                 // Persistent UI Layer (MiniPlayer + Custom TabBar)
                 VStack(spacing: 0) {
-                    if nowPlayingVM.hasCurrentTrack {
-                        MiniPlayer(viewModel: nowPlayingVM) {
-                            showingNowPlaying = true
-                        }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    MiniPlayer(viewModel: nowPlayingVM) {
+                        showingNowPlaying = true
                     }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
 
                     customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
                 }
@@ -210,7 +208,7 @@ public struct MainTabView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: nowPlayingVM.hasCurrentTrack ? 110 : 49)
+                Color.clear.frame(height: 110)
             }
             .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
@@ -326,13 +324,11 @@ public struct SidebarView: View {
             }
 
             // Mini player overlay (always on top)
-            if nowPlayingVM.hasCurrentTrack {
-                MiniPlayer(viewModel: nowPlayingVM) {
-                    showingNowPlaying = true
-                }
-                .background(.ultraThinMaterial)
-                .zIndex(2)
+            MiniPlayer(viewModel: nowPlayingVM) {
+                showingNowPlaying = true
             }
+            .background(.ultraThinMaterial)
+            .zIndex(2)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
@@ -383,9 +379,7 @@ public struct SidebarView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if nowPlayingVM.hasCurrentTrack {
-                    Color.clear.frame(height: 60)
-                }
+                Color.clear.frame(height: 60)
             }
             .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {

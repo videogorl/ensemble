@@ -135,7 +135,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
         } catch {
             print("Failed to setup audio session: \(error)")
         }
@@ -408,6 +407,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func loadAndPlay(url: URL) {
         cleanup()
+
+        #if !os(macOS)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
 
         print("🎵 Loading asset from URL: \(url)")
         let asset = AVURLAsset(url: url)
