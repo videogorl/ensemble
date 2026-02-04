@@ -13,7 +13,7 @@ public struct ArtistCard: View {
     public var body: some View {
         Button(action: onTap) {
             VStack(spacing: 8) {
-                ArtworkView(artist: artist, size: .medium, cornerRadius: ArtworkSize.medium.cgSize.width / 2)
+                ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
 
                 Text(artist.name)
                     .font(.subheadline)
@@ -21,7 +21,7 @@ public struct ArtistCard: View {
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
             }
-            .frame(width: ArtworkSize.medium.cgSize.width)
+            .frame(width: ArtworkSize.thumbnail.cgSize.width)
         }
         .buttonStyle(.plain)
     }
@@ -66,7 +66,7 @@ public struct ArtistGrid: View {
     let onArtistTap: (Artist) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
     ]
 
     public init(artists: [Artist], onArtistTap: @escaping (Artist) -> Void) {
