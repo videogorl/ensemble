@@ -11,6 +11,17 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
+    
+    // Helper to dismiss the detail view overlay
+    private func dismissDetailView() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showingDetailView = false
+        }
+        // Clear destination after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            deps.navigationCoordinator.clearDestination()
+        }
+    }
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -134,6 +145,18 @@ public struct MainTabView: View {
                 showingDetailView = destination != nil
             }
         }
+        .onChange(of: selectedTab) { _ in
+            // Dismiss detail view when switching tabs
+            if showingDetailView {
+                dismissDetailView()
+            }
+        }
+        .onChange(of: showingSyncPanel) { isShowing in
+            // Dismiss detail view when opening sync panel
+            if isShowing && showingDetailView {
+                dismissDetailView()
+            }
+        }
     }
     
     private func customTabBar(safeAreaBottom: CGFloat) -> some View {
@@ -189,13 +212,7 @@ public struct MainTabView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showingDetailView = false
-                        }
-                        // Clear destination after animation
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            deps.navigationCoordinator.clearDestination()
-                        }
+                        dismissDetailView()
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -226,6 +243,17 @@ public struct SidebarView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
+    
+    // Helper to dismiss the detail view overlay
+    private func dismissDetailView() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showingDetailView = false
+        }
+        // Clear destination after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            deps.navigationCoordinator.clearDestination()
+        }
+    }
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -311,6 +339,18 @@ public struct SidebarView: View {
                 showingDetailView = destination != nil
             }
         }
+        .onChange(of: selection) { _ in
+            // Dismiss detail view when switching sidebar sections
+            if showingDetailView {
+                dismissDetailView()
+            }
+        }
+        .onChange(of: showingSyncPanel) { isShowing in
+            // Dismiss detail view when opening sync panel
+            if isShowing && showingDetailView {
+                dismissDetailView()
+            }
+        }
     }
     
     @ViewBuilder
@@ -341,13 +381,7 @@ public struct SidebarView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showingDetailView = false
-                        }
-                        // Clear destination after animation
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            deps.navigationCoordinator.clearDestination()
-                        }
+                        dismissDetailView()
                     } label: {
                         Image(systemName: "chevron.left")
                     }
