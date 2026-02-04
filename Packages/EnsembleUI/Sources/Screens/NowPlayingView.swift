@@ -8,8 +8,6 @@ public struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
-    @State private var dragOffset: CGFloat = 0
-    @State private var showQueue = false
     @State private var gradientColors: ArtworkColorExtractor.GradientColors?
     
     // Navigation state
@@ -24,65 +22,24 @@ public struct NowPlayingView: View {
         GeometryReader { geometry in
             ZStack {
                 // Background gradient (vibrant colors from artwork)
-                if let colors = gradientColors {
-                    LinearGradient(
-                        colors: [colors.primary, colors.secondary, colors.tertiary],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
-                    .opacity(0.6)
-                } else {
-                    Color(.systemBackground)
-                        .ignoresSafeArea()
-                }
+                backgroundGradientView
                 
-                // Content with queue sheet overlay
-                Group {
-                    if let track = viewModel.currentTrack {
-                        ZStack(alignment: .top) {
-                            // Now Playing content
+                // Content with scrollable queue
+                if let track = viewModel.currentTrack {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            // Now Playing content (full screen height)
                             nowPlayingContent(track: track, geometry: geometry)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .offset(y: showQueue ? -geometry.size.height * 0.6 : 0)
-                                .opacity(showQueue ? 0.3 : 1)
+                                .frame(height: geometry.size.height)
                             
-                            // Queue overlay (slides up)
-                            VStack {
-                                Spacer()
-                                queueOverlay(geometry: geometry)
-                                    .offset(y: showQueue ? 0 : geometry.size.height)
-                            }
+                            // Queue section
+                            queueSection(geometry: geometry)
                         }
-                    } else {
-                        emptyStateView
                     }
+                } else {
+                    emptyStateView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            // Only handle upward drags for queue
-                            if value.translation.height < 0 {
-                                dragOffset = value.translation.height
-                            }
-                        }
-                        .onEnded { value in
-                            let threshold = -geometry.size.height * 0.4  // 40% threshold
-                            let velocity = value.predictedEndTranslation.height - value.translation.height
-                            
-                            // Snap to queue if dragged past threshold or high velocity upward
-                            if value.translation.height < threshold || velocity < -500 {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                    showQueue = true
-                                }
-                            } else {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                    showQueue = false
-                                }
-                            }
-                            dragOffset = 0
-                        }
-                )
             }
             .navigationBarHidden(true)
             .onChange(of: viewModel.currentTrack) { newTrack in
@@ -94,6 +51,24 @@ public struct NowPlayingView: View {
                 if let track = viewModel.currentTrack {
                     loadArtworkColors(for: track)
                 }
+            }
+        }
+    }
+
+    // Fixed background gradient
+    private var backgroundGradientView: some View {
+        Group {
+            if let colors = gradientColors {
+                LinearGradient(
+                    colors: [colors.primary, colors.secondary, colors.tertiary],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                .opacity(0.6)
+            } else {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -130,7 +105,18 @@ public struct NowPlayingView: View {
             
             // Secondary controls at bottom (shuffle, repeat, heart, airplay)
             secondaryControlsView
-                .padding(.bottom, 40)
+                .padding(.bottom, 20)
+            
+            // Scroll hint for queue
+            VStack(spacing: 4) {
+                Text("Up Next")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+            }
+            .foregroundColor(.white.opacity(0.6))
+            .padding(.bottom, 20)
         }
     }
     
@@ -292,8 +278,8 @@ public struct NowPlayingView: View {
         }
     }
 
-    // Queue overlay that slides up
-    private func queueOverlay(geometry: GeometryProxy) -> some View {
+    // Queue section that follows Now Playing in the ScrollView
+    private func queueSection(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             // Queue header
             HStack {
@@ -303,53 +289,52 @@ public struct NowPlayingView: View {
                 
                 Spacer()
                 
-                Button(action: {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        showQueue = false
-                    }
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
+                if viewModel.queue.count > (viewModel.currentQueueIndex + 51) {
+                    Text("\(viewModel.queue.count - (viewModel.currentQueueIndex + 1)) tracks total")
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .background(Color(.systemBackground))
+            .padding(.vertical, 20)
             
             // Queue list
-            List {
-                if !viewModel.queue.isEmpty {
-                    if viewModel.currentQueueIndex < viewModel.queue.count - 1 {
-                        ForEach(Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1).enumerated()), id: \.element.id) { index, item in
-                            TrackRow(track: item.track) {
-                                viewModel.playFromQueue(at: viewModel.currentQueueIndex + 1 + index)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    viewModel.removeFromQueue(at: viewModel.currentQueueIndex + 1 + index)
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
-                                }
-                            }
-                        }
-                    } else {
-                        Text("Queue is empty")
+            if !viewModel.queue.isEmpty {
+                let upNext = viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1)
+                if !upNext.isEmpty {
+                    // Performance optimization: Limit to 50 items
+                    let displayedTracks = Array(upNext.prefix(50).map { $0.track })
+                    
+                    TrackListView(
+                        tracks: displayedTracks,
+                        showArtwork: true,
+                        currentTrackId: nil
+                    ) { track, index in
+                        viewModel.playFromQueue(at: viewModel.currentQueueIndex + 1 + index)
+                    }
+                    
+                    if upNext.count > 50 {
+                        Text("Showing first 50 items")
+                            .font(.caption)
                             .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 16)
                     }
                 } else {
                     Text("Queue is empty")
                         .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 40)
+                        .frame(maxWidth: .infinity)
                 }
+            } else {
+                Text("Queue is empty")
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 40)
+                    .frame(maxWidth: .infinity)
             }
-            .listStyle(.plain)
         }
-        .frame(height: geometry.size.height * 0.7)
+        .padding(.bottom, 50)
         .background(Color(.systemBackground))
-        .cornerRadius(20, corners: [.topLeft, .topRight])
-        .shadow(radius: 10)
+        .cornerRadius(24, corners: [.topLeft, .topRight])
     }
     
     // Empty state
