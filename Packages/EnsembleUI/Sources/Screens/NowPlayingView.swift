@@ -124,17 +124,6 @@ public struct NowPlayingView: View {
             // Secondary controls at bottom (shuffle, repeat, heart, airplay)
             secondaryControlsView
                 .padding(.bottom, 20)
-            
-            // Scroll hint for queue
-            VStack(spacing: 4) {
-                Text("Up Next")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                Image(systemName: "chevron.up")
-                    .font(.caption)
-            }
-            .foregroundColor(.white.opacity(0.6))
-            .padding(.bottom, 20)
         }
     }
     
@@ -156,42 +145,41 @@ public struct NowPlayingView: View {
     
     // Track metadata with clickable artist/album
     private func trackMetadataView(track: Track) -> some View {
-        VStack(spacing: 8) {
-            // Artist name (clickable)
-            if let artist = track.artistName {
-                Button(action: {
-                    handleArtistTap(track: track)
-                }) {
-                    Text(artist)
-                        .font(.title3)
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(1)
-                }
-            }
-
-            // Track title
-            Text(track.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.white)
-
-            // Album name (clickable) with icon
-            if let album = track.albumName {
-                Button(action: {
-                    handleAlbumTap(track: track)
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "square.stack")
-                            .font(.caption)
-                        Text(album)
+        HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                // Artist name (clickable)
+                if let artist = track.artistName {
+                    Button(action: {
+                        handleArtistTap(track: track)
+                    }) {
+                        Text(artist)
+                            .font(.title3)
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
                     }
-                    .font(.callout)
-                    .foregroundColor(.white.opacity(0.7))
-                    .lineLimit(1)
+                }
+
+                // Track title
+                Text(track.title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundColor(.white)
+
+                // Album name (clickable)
+                if let album = track.albumName {
+                    Button(action: {
+                        handleAlbumTap(track: track)
+                    }) {
+                        Text(album)
+                            .font(.callout)
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
                 }
             }
+            Spacer()
         }
     }
 
@@ -401,9 +389,7 @@ public struct NowPlayingView: View {
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
                     .font(.title3)
-                    .foregroundColor(
-                        .accentColor.opacity(viewModel.currentRating == .none ? 0.7 : 1.0)
-                    )
+                    .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
             }
             
             // AirPlay button
