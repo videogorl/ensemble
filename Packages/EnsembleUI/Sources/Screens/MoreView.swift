@@ -29,29 +29,47 @@ public struct MoreView: View {
         List {
             if isEditing {
                 Section {
-                    Text("Select up to 4 items to appear in the main tab bar. Others will appear here in the More menu.")
+                    Text("Select up to 4 items to appear in the main tab bar. Drag to reorder. Others will appear here in the More menu.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
                 
                 Section("Tab Bar Items") {
-                    ForEach(TabItem.allCases.filter { $0 != .settings }) { tab in
+                    ForEach(settingsManager.enabledTabs) { tab in
+                        HStack {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.secondary)
+                            Label(tab.rawValue, systemImage: tab.systemImage)
+                            Spacer()
+                            Button {
+                                toggleTab(tab)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    .onMove { indices, newOffset in
+                        var current = settingsManager.enabledTabs
+                        current.move(fromOffsets: indices, toOffset: newOffset)
+                        settingsManager.enabledTabs = current
+                    }
+                }
+                
+                Section("Available Items") {
+                    ForEach(TabItem.allCases.filter { $0 != .settings && !settingsManager.enabledTabs.contains($0) }) { tab in
                         Button {
                             toggleTab(tab)
                         } label: {
                             HStack {
                                 Label(tab.rawValue, systemImage: tab.systemImage)
                                 Spacer()
-                                if settingsManager.enabledTabs.contains(tab) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                } else {
-                                    Image(systemName: "circle")
-                                        .foregroundColor(.secondary)
-                                }
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(.green)
                             }
                         }
                         .foregroundColor(.primary)
+                        .disabled(settingsManager.enabledTabs.count >= 4)
                     }
                 }
             } else {

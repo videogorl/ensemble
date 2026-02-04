@@ -6,6 +6,7 @@ public struct MiniPlayer: View {
     let onTap: () -> Void
     
     @State private var dragOffset: CGFloat = 0
+    @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
@@ -29,7 +30,7 @@ public struct MiniPlayer: View {
                     // Artwork
                     ArtworkView(track: track, size: .tiny, cornerRadius: 4)
 
-                    // Track info
+                    // Track info (swipable)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
                             .font(.subheadline)
@@ -43,6 +44,52 @@ public struct MiniPlayer: View {
                                 .lineLimit(1)
                         }
                     }
+                    .offset(x: dragOffset)
+                    .opacity(opacity)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                // Horizontal only
+                                if abs(value.translation.width) > abs(value.translation.height) {
+                                    dragOffset = value.translation.width
+                                    opacity = 1.0 - min(abs(value.translation.width) / 200, 0.5)
+                                }
+                            }
+                            .onEnded { value in
+                                let threshold: CGFloat = 80
+                                if value.translation.width > threshold {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        dragOffset = 200
+                                        opacity = 0
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        viewModel.previous()
+                                        withAnimation(.spring(response: 0.3)) {
+                                            dragOffset = 0
+                                            opacity = 1.0
+                                        }
+                                    }
+                                } else if value.translation.width < -threshold {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        dragOffset = -200
+                                        opacity = 0
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        viewModel.next()
+                                        withAnimation(.spring(response: 0.3)) {
+                                            dragOffset = 0
+                                            opacity = 1.0
+                                        }
+                                    }
+                                } else {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        dragOffset = 0
+                                        opacity = 1.0
+                                    }
+                                }
+                            }
+                    )
 
                     Spacer()
 
@@ -90,56 +137,22 @@ public struct MiniPlayer: View {
         .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
-        .offset(x: dragOffset)
-        .opacity(opacity)
+        .offset(y: verticalOffset)
         .onTapGesture(perform: onTap)
         .gesture(
-            DragGesture(minimumDistance: 20)
+            DragGesture()
                 .onChanged { value in
-                    guard viewModel.hasCurrentTrack else { return }
-                    // Only allow horizontal swipes
-                    if abs(value.translation.width) > abs(value.translation.height) {
-                        dragOffset = value.translation.width
-                        // Fade out as we swipe
-                        opacity = 1.0 - min(abs(value.translation.width) / 200, 0.3)
+                    // Vertical only for the whole player
+                    if value.translation.height < 0 {
+                        verticalOffset = value.translation.height * 0.5 // Rubber band effect
                     }
                 }
                 .onEnded { value in
-                    guard viewModel.hasCurrentTrack else { return }
-                    let swipeThreshold: CGFloat = 80
-                    
-                    if value.translation.width > swipeThreshold {
-                        // Swipe right - previous track
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = 300
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            viewModel.previous()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else if value.translation.width < -swipeThreshold {
-                        // Swipe left - next track
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = -300
-                            opacity = 0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            viewModel.next()
-                            withAnimation(.spring(response: 0.3)) {
-                                dragOffset = 0
-                                opacity = 1.0
-                            }
-                        }
-                    } else {
-                        // Snap back
-                        withAnimation(.spring(response: 0.3)) {
-                            dragOffset = 0
-                            opacity = 1.0
-                        }
+                    if value.translation.height < -50 {
+                        onTap()
+                    }
+                    withAnimation(.spring()) {
+                        verticalOffset = 0
                     }
                 }
         )

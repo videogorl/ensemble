@@ -1,5 +1,6 @@
 import EnsembleCore
 import SwiftUI
+import Nuke
 
 public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
@@ -177,6 +178,7 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @State private var isBioExpanded = false
+    @State private var gradientColors: ArtworkColorExtractor.GradientColors?
 
     public init(
         artist: Artist,
@@ -189,39 +191,78 @@ public struct ArtistDetailView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                // Hero Banner
-                heroBanner
+        ZStack(alignment: .top) {
+            // Background gradient
+            backgroundGradient
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Hero Banner
+                    heroBanner
 
-                // Action Buttons
-                actionButtons
-                    .padding(.horizontal)
-                    .padding(.top, 24)
-
-                // Albums Section
-                if viewModel.isLoading && viewModel.albums.isEmpty {
-                    ProgressView()
-                        .padding(.top, 40)
-                } else if !viewModel.albums.isEmpty {
-                    albumsSection
-                        .padding(.top, 32)
-                }
-
-                // Artist Bio
-                if let summary = viewModel.artist.summary, !summary.isEmpty {
-                    bioSection(summary: summary)
+                    // Action Buttons
+                    actionButtons
                         .padding(.horizontal)
-                        .padding(.top, 32)
+                        .padding(.top, 24)
+
+                    // Albums Section
+                    if viewModel.isLoading && viewModel.albums.isEmpty {
+                        ProgressView()
+                            .padding(.top, 40)
+                    } else if !viewModel.albums.isEmpty {
+                        albumsSection
+                            .padding(.top, 32)
+                    }
+
+                    // Artist Bio
+                    if let summary = viewModel.artist.summary, !summary.isEmpty {
+                        bioSection(summary: summary)
+                            .padding(.horizontal)
+                            .padding(.top, 32)
+                    }
                 }
+                .padding(.bottom, 120) // Extra padding for miniplayer
             }
-            .padding(.bottom, 100)
         }
         .navigationTitle(viewModel.artist.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
+            await loadArtworkColors()
+        }
+    }
+    
+    private var backgroundGradient: some View {
+        Group {
+            if let colors = gradientColors {
+                LinearGradient(
+                    colors: [colors.accent.opacity(0.4), colors.accent.opacity(0.0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 600)
+            }
+        }
+    }
+    
+    private func loadArtworkColors() async {
+        if let url = await dependencies.artworkLoader.artworkURLAsync(
+            for: viewModel.artist.thumbPath,
+            sourceKey: viewModel.artist.sourceCompositeKey,
+            ratingKey: viewModel.artist.id,
+            size: 300
+        ) {
+            let request = ImageRequest(url: url)
+            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                let colors = await ArtworkColorExtractor.extractColors(from: uiImage, cacheKey: viewModel.artist.id)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        self.gradientColors = colors
+                    }
+                }
+            }
         }
     }
 

@@ -3,54 +3,43 @@ import SwiftUI
 
 /// View showing favorited/loved tracks (rated 4+ stars)
 public struct FavoritesView: View {
-    @ObservedObject var libraryVM: LibraryViewModel
+    @StateObject private var viewModel: FavoritesViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @State private var trackIndexMap: [String: Int] = [:]
     
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
-        self.libraryVM = libraryVM
+        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
         self.nowPlayingVM = nowPlayingVM
-    }
-    
-    private var favoriteTracks: [Track] {
-        libraryVM.filteredTracks.filter { $0.rating >= 8 }  // 4+ stars (8/10)
     }
     
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+            if viewModel.isLoading && viewModel.tracks.isEmpty {
                 loadingView
-            } else if favoriteTracks.isEmpty {
+            } else if viewModel.tracks.isEmpty {
                 emptyView
             } else {
-                trackListView
+                MediaDetailView(
+                    viewModel: viewModel,
+                    nowPlayingVM: nowPlayingVM,
+                    headerData: headerData,
+                    navigationTitle: "Favorites",
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false
+                )
             }
         }
         .navigationTitle("Favorites")
-        .refreshable {
-            await libraryVM.refresh()
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !favoriteTracks.isEmpty {
-                    Menu {
-                        Button {
-                            nowPlayingVM.play(tracks: favoriteTracks.shuffled())
-                        } label: {
-                            Label("Shuffle All", systemImage: "shuffle")
-                        }
-
-                        Button {
-                            nowPlayingVM.play(tracks: favoriteTracks)
-                        } label: {
-                            Label("Play All", systemImage: "play.fill")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-        }
+    }
+    
+    private var headerData: MediaHeaderData {
+        MediaHeaderData(
+            title: "Favorites",
+            subtitle: "\(viewModel.tracks.count) tracks",
+            metadataLine: "Your loved tracks",
+            artworkPath: viewModel.tracks.first?.thumbPath,
+            sourceKey: viewModel.tracks.first?.sourceCompositeKey
+        )
     }
     
     private var loadingView: some View {
@@ -75,29 +64,8 @@ public struct FavoritesView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                
-                if !libraryVM.tracks.isEmpty {
-                    Text("You have \(libraryVM.tracks.count) tracks in your library")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
         .padding()
-    }
-    
-    private var trackListView: some View {
-        List {
-            ForEach(Array(favoriteTracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(
-                    track: track,
-                    showArtwork: true,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                ) {
-                    nowPlayingVM.play(tracks: favoriteTracks, startingAt: index)
-                }
-            }
-        }
-        .listStyle(.plain)
     }
 }

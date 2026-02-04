@@ -180,6 +180,11 @@ public final class DependencyContainer: @unchecked Sendable {
     }
     
     @MainActor
+    public func makeFavoritesViewModel() -> FavoritesViewModel {
+        FavoritesViewModel(libraryRepository: libraryRepository)
+    }
+    
+    @MainActor
     public func makeHomeViewModel() -> HomeViewModel {
         HomeViewModel(
             accountManager: accountManager,

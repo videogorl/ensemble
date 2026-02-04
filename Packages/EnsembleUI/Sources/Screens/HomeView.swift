@@ -92,7 +92,7 @@ public struct HomeView: View {
                 }
             }
             .padding(.vertical)
-            .padding(.bottom, 100)
+            .padding(.bottom, 120)
         }
     }
 }

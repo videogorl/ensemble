@@ -44,12 +44,8 @@ public struct SettingsView: View {
             }
 
             // Appearance section
-            Section("Appearance") {
+            Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Accent Color")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
                     HStack(spacing: 16) {
                         ForEach(AppAccentColor.allCases) { colorOption in
                             Circle()
@@ -69,6 +65,8 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 .padding(.vertical, 4)
+            } header: {
+                Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
             }
 
             // Playback section

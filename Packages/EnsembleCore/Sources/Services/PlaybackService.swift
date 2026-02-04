@@ -3,6 +3,7 @@ import Combine
 import EnsembleAPI
 import Foundation
 import MediaPlayer
+import Nuke
 
 // MARK: - Playback State
 
@@ -191,6 +192,75 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         commandCenter.changeShuffleModeCommand.addTarget { [weak self] _ in
             self?.toggleShuffle()
             return .success
+        }
+        
+        // Like/Dislike commands
+        commandCenter.likeCommand.isEnabled = true
+        commandCenter.likeCommand.addTarget { [weak self] _ in
+            self?.toggleLike(isLike: true)
+            return .success
+        }
+        
+        commandCenter.dislikeCommand.isEnabled = true
+        commandCenter.dislikeCommand.addTarget { [weak self] _ in
+            self?.toggleLike(isLike: false)
+            return .success
+        }
+    }
+    
+    private func toggleLike(isLike: Bool) {
+        guard let track = currentTrack else { return }
+        
+        // Use a task since this is an async operation
+        Task {
+            let currentRating = track.rating
+            let newRating: Int
+            
+            if isLike {
+                // Toggle between loved (10) and none (0)
+                newRating = (currentRating >= 8) ? 0 : 10
+            } else {
+                // Toggle between disliked (2) and none (0)
+                newRating = (currentRating > 0 && currentRating <= 4) ? 0 : 2
+            }
+            
+            do {
+                if let sourceKey = track.sourceCompositeKey {
+                    let components = sourceKey.split(separator: ":")
+                    if components.count >= 3 {
+                        let accountId = String(components[1])
+                        let serverId = String(components[2])
+                        
+                        if let apiClient = await syncCoordinator.accountManager.makeAPIClient(
+                            accountId: accountId,
+                            serverId: serverId
+                        ) {
+                            try await apiClient.rateTrack(
+                                ratingKey: track.id,
+                                rating: newRating == 0 ? nil : newRating
+                            )
+                            
+                            // Update locally
+                            // Note: This matches NowPlayingViewModel's logic
+                            let context = CoreDataStack.shared.newBackgroundContext()
+                            try await context.perform {
+                                let request = CDTrack.fetchRequest()
+                                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
+                                if let cdTrack = try context.fetch(request).first {
+                                    cdTrack.rating = Int16(newRating)
+                                    try context.save()
+                                }
+                            }
+                            
+                            // We don't have a direct way to update the Track object here easily 
+                            // without a repository, but the CDTrack is updated.
+                            // The UI will likely refresh when it observes the change or track changes.
+                        }
+                    }
+                }
+            } catch {
+                print("Failed to update rating from system UI: \(error)")
+            }
         }
     }
 
@@ -502,6 +572,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        
+        // Load artwork asynchronously
+        Task {
+            let loader = ArtworkLoader(syncCoordinator: syncCoordinator)
+            if let url = await loader.artworkURLAsync(
+                for: track.thumbPath,
+                sourceKey: track.sourceCompositeKey,
+                ratingKey: track.id,
+                size: 600
+            ) {
+                let request = ImageRequest(url: url)
+                if let image = try? await ImagePipeline.shared.image(for: request) {
+                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                        return image
+                    }
+                    
+                    await MainActor.run {
+                        // Ensure we're still playing the same track
+                        if self.currentTrack?.id == track.id {
+                            var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                            currentInfo[MPMediaItemPropertyArtwork] = artwork
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func updateNowPlayingProgress() {

@@ -16,7 +16,7 @@ public enum AppAccentColor: String, CaseIterable, Identifiable {
         switch self {
         case .purple: return .purple
         case .blue: return .blue
-        case .pink: return .pink
+        case .pink: return Color(red: 1.0, green: 0.0, blue: 1.0) // Magenta
         case .red: return .red
         case .orange: return .orange
         case .yellow: return .yellow
@@ -57,7 +57,7 @@ public enum TabItem: String, CaseIterable, Identifiable, Codable {
 
 @MainActor
 public final class SettingsManager: ObservableObject {
-    @AppStorage("accentColor") public var accentColorName: String = "purple"
+    @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     
     public init() {
@@ -86,7 +86,7 @@ public final class SettingsManager: ObservableObject {
     }
     
     public var accentColor: AppAccentColor {
-        AppAccentColor(rawValue: accentColorName) ?? .purple
+        AppAccentColor(rawValue: accentColorName) ?? .blue
     }
     
     public func setAccentColor(_ color: AppAccentColor) {

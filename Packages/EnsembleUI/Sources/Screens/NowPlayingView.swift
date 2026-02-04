@@ -24,6 +24,7 @@ public struct NowPlayingView: View {
     @State private var dragStartY: CGFloat = 0
     @State private var dragStartX: CGFloat = 0
     @State private var currentDragY: CGFloat = 0
+    @State private var initialProgress: Double = 0
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
 
@@ -155,15 +156,7 @@ public struct NowPlayingView: View {
     
     // Track metadata with clickable artist/album
     private func trackMetadataView(track: Track) -> some View {
-        VStack(spacing: 12) {
-            // Track title
-            Text(track.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.white)
-
+        VStack(spacing: 8) {
             // Artist name (clickable)
             if let artist = track.artistName {
                 Button(action: {
@@ -175,6 +168,14 @@ public struct NowPlayingView: View {
                         .lineLimit(1)
                 }
             }
+
+            // Track title
+            Text(track.title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.white)
 
             // Album name (clickable) with icon
             if let album = track.albumName {
@@ -209,32 +210,6 @@ public struct NowPlayingView: View {
                     Capsule()
                         .fill(Color.white)
                         .frame(width: geometry.size.width * (isDraggingSlider ? localProgress : viewModel.progress), height: 4)
-                    
-                    // Scrub speed indicator
-                    if isDraggingSlider {
-                        let scrubInfo = getScrubInfo()
-                        VStack(spacing: 4) {
-                            Text(scrubInfo.label)
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                            Image(systemName: "chevron.compact.down")
-                                .font(.caption2)
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.2))
-                                .background(.ultraThinMaterial)
-                        )
-                        .clipShape(Capsule())
-                        .position(
-                            x: geometry.size.width * localProgress,
-                            y: currentDragY - dragStartY
-                        )
-                    }
                 }
                 .frame(height: 4)
                 .contentShape(Rectangle().size(width: geometry.size.width, height: 44))
@@ -248,6 +223,7 @@ public struct NowPlayingView: View {
                                 isDraggingSlider = true
                                 dragStartY = value.location.y
                                 dragStartX = value.startLocation.x
+                                initialProgress = viewModel.progress
                                 localProgress = viewModel.progress
                                 sliderWidth = geometry.size.width
                             }
@@ -262,8 +238,8 @@ public struct NowPlayingView: View {
                             let horizontalChange = value.location.x - dragStartX
                             let progressChange = (horizontalChange / sliderWidth) * scrubRate
                             
-                            // Update local progress
-                            localProgress = max(0, min(1, viewModel.progress + progressChange))
+                            // Update local progress using initialProgress to avoid jumping
+                            localProgress = max(0, min(1, initialProgress + progressChange))
                         }
                         .onEnded { _ in
                             // Seek to final position
@@ -273,6 +249,29 @@ public struct NowPlayingView: View {
                 )
             }
             .frame(height: 44)
+
+            // Scrub speed indicator below slider
+            if isDraggingSlider {
+                let scrubInfo = getScrubInfo()
+                VStack(spacing: 4) {
+                    Text(scrubInfo.label)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                    Image(systemName: "chevron.compact.down")
+                        .font(.caption2)
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.2))
+                        .background(.ultraThinMaterial)
+                )
+                .clipShape(Capsule())
+                .transition(.opacity)
+            }
 
             // Time labels
             HStack {
@@ -403,7 +402,7 @@ public struct NowPlayingView: View {
                 Image(systemName: viewModel.currentRating.icon)
                     .font(.title3)
                     .foregroundColor(
-                        viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor
+                        .accentColor.opacity(viewModel.currentRating == .none ? 0.7 : 1.0)
                     )
             }
             

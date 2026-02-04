@@ -1,5 +1,6 @@
 import EnsembleCore
 import SwiftUI
+import Nuke
 
 // MARK: - Media Header Data
 
@@ -36,6 +37,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showArtwork: Bool
     let showTrackNumbers: Bool
     let groupByDisc: Bool
+    
+    @State private var gradientColors: ArtworkColorExtractor.GradientColors?
+    @Environment(\.dependencies) private var deps
 
     public init(
         viewModel: ViewModel,
@@ -56,27 +60,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                // Header
-                headerView
+        ZStack(alignment: .top) {
+            // Background gradient
+            backgroundGradient
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    headerView
 
-                // Action buttons
-                actionButtons
+                    // Action buttons
+                    actionButtons
 
-                // Tracks
-                if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                    ProgressView()
-                        .padding(.top, 40)
-                } else if viewModel.filteredTracks.isEmpty {
-                    Text("No tracks")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 40)
-                } else {
-                    tracksSection
+                    // Tracks
+                    if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                        ProgressView()
+                            .padding(.top, 40)
+                    } else if viewModel.filteredTracks.isEmpty {
+                        Text("No tracks")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        tracksSection
+                    }
                 }
+                .padding(.bottom, 120) // Extra padding for miniplayer
             }
-            .padding(.bottom, 100)
         }
         .navigationTitle(navigationTitle)
         #if os(iOS)
@@ -84,11 +94,47 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #endif
         .task {
             await viewModel.loadTracks()
+            if let path = headerData.artworkPath {
+                await loadArtworkColors(path: path, sourceKey: headerData.sourceKey)
+            }
+        }
+    }
+    
+    private var backgroundGradient: some View {
+        Group {
+            if let colors = gradientColors {
+                LinearGradient(
+                    colors: [colors.accent.opacity(0.4), colors.accent.opacity(0.0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 400)
+            }
+        }
+    }
+    
+    private func loadArtworkColors(path: String, sourceKey: String?) async {
+        let cacheKey = path
+        
+        if let url = await deps.artworkLoader.artworkURLAsync(
+            for: path,
+            sourceKey: sourceKey,
+            ratingKey: cacheKey,
+            size: 300
+        ) {
+            let request = ImageRequest(url: url)
+            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                let colors = await ArtworkColorExtractor.extractColors(from: uiImage, cacheKey: cacheKey)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        self.gradientColors = colors
+                    }
+                }
+            }
         }
     }
 
-    private var headerView: some View {
-        VStack(spacing: 16) {
+    private var headerView: some View {        VStack(spacing: 16) {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
