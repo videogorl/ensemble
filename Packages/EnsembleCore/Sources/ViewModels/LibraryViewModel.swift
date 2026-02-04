@@ -19,6 +19,12 @@ public final class LibraryViewModel: ObservableObject {
     @Published public var albumSortOption: AlbumSortOption = .title
     @Published public var genreSortOption: GenreSortOption = .title
 
+    // Filter options
+    @Published public var tracksFilterOptions: FilterOptions
+    @Published public var artistsFilterOptions: FilterOptions
+    @Published public var albumsFilterOptions: FilterOptions
+    @Published public var genresFilterOptions: FilterOptions
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let accountManager: AccountManager
@@ -32,6 +38,12 @@ public final class LibraryViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
+
+        // Load saved filter options
+        self.tracksFilterOptions = FilterPersistence.load(for: "Songs")
+        self.artistsFilterOptions = FilterPersistence.load(for: "Artists")
+        self.albumsFilterOptions = FilterPersistence.load(for: "Albums")
+        self.genresFilterOptions = FilterPersistence.load(for: "Genres")
 
         // Observe sync state
         syncCoordinator.$isSyncing
@@ -56,6 +68,31 @@ public final class LibraryViewModel: ObservableObject {
                     }
                 }
             }
+            .store(in: &cancellables)
+
+        // Save filter options when they change
+        setupFilterPersistence()
+    }
+
+    private func setupFilterPersistence() {
+        $tracksFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "Songs") }
+            .store(in: &cancellables)
+
+        $artistsFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "Artists") }
+            .store(in: &cancellables)
+
+        $albumsFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "Albums") }
+            .store(in: &cancellables)
+
+        $genresFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "Genres") }
             .store(in: &cancellables)
     }
 
@@ -163,5 +200,119 @@ public final class LibraryViewModel: ObservableObject {
     
     public var sortedGenres: [Genre] {
         genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+    }
+
+    // MARK: - Filtered Collections
+
+    /// Filtered and sorted tracks based on current filter options
+    public var filteredTracks: [Track] {
+        applyFilters(to: sortedTracks, with: tracksFilterOptions)
+    }
+
+    /// Filtered and sorted artists based on current filter options
+    public var filteredArtists: [Artist] {
+        applyFilters(to: sortedArtists, with: artistsFilterOptions)
+    }
+
+    /// Filtered and sorted albums based on current filter options
+    public var filteredAlbums: [Album] {
+        applyFilters(to: sortedAlbums, with: albumsFilterOptions)
+    }
+
+    /// Filtered and sorted genres based on current filter options
+    public var filteredGenres: [Genre] {
+        applyFilters(to: sortedGenres, with: genresFilterOptions)
+    }
+
+    // MARK: - Filter Application
+
+    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
+        var filtered = tracks
+
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.title.lowercased().contains(searchLower) ||
+                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
+                ($0.albumName?.lowercased().contains(searchLower) ?? false)
+            }
+        }
+
+        // Downloaded only filter
+        if options.showDownloadedOnly {
+            filtered = filtered.filter { $0.isDownloaded }
+        }
+
+        return filtered
+    }
+
+    private func applyFilters(to artists: [Artist], with options: FilterOptions) -> [Artist] {
+        var filtered = artists
+
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.name.lowercased().contains(searchLower)
+            }
+        }
+
+        // Genre filter
+        if !options.selectedGenres.isEmpty {
+            filtered = filtered.filter { artist in
+                // For now, we can't easily filter artists by genre without fetching their albums
+                // This would require additional repository methods
+                true
+            }
+        }
+
+        return filtered
+    }
+
+    private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
+        var filtered = albums
+
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.title.lowercased().contains(searchLower) ||
+                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
+                ($0.albumArtist?.lowercased().contains(searchLower) ?? false)
+            }
+        }
+
+        // Year range filter
+        if let yearRange = options.yearRange {
+            filtered = filtered.filter {
+                guard let year = $0.year else { return false }
+                return yearRange.contains(year)
+            }
+        }
+
+        // Artist filter
+        if !options.selectedArtists.isEmpty {
+            filtered = filtered.filter { album in
+                options.selectedArtists.contains(album.artistName ?? "") ||
+                options.selectedArtists.contains(album.albumArtist ?? "")
+            }
+        }
+
+        return filtered
+    }
+
+    private func applyFilters(to genres: [Genre], with options: FilterOptions) -> [Genre] {
+        var filtered = genres
+
+        // Search text filter
+        if !options.searchText.isEmpty {
+            let searchLower = options.searchText.lowercased()
+            filtered = filtered.filter {
+                $0.title.lowercased().contains(searchLower)
+            }
+        }
+
+        return filtered
     }
 }
