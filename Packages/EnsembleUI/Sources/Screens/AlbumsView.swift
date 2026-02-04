@@ -34,17 +34,14 @@ public struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
+        .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.albums.isEmpty {
-                    HStack(spacing: 8) {
-                        TextField("Filter", text: $libraryVM.albumsFilterOptions.searchText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                        
+                    HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
@@ -60,27 +57,23 @@ public struct AlbumsView: View {
                                 }
                             }
                         }
-                    }
-                }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.albums.isEmpty {
-                    Menu {
-                        ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                            Button {
-                                libraryVM.albumSortOption = option
-                            } label: {
-                                HStack {
-                                    Text(option.rawValue)
-                                    if libraryVM.albumSortOption == option {
-                                        Image(systemName: "checkmark")
+
+                        Menu {
+                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    libraryVM.albumSortOption = option
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if libraryVM.albumSortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
-                    } label: {
-                        Label("Sort By", systemImage: "arrow.up.arrow.down")
                     }
                 }
             }

@@ -139,6 +139,10 @@ public struct Artist: Identifiable, Hashable, Sendable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let sourceCompositeKey: String?
+    
+    // Fallback artwork from first album
+    public let fallbackThumbPath: String?
+    public let fallbackRatingKey: String?
 
     public init(
         id: String,
@@ -149,7 +153,9 @@ public struct Artist: Identifiable, Hashable, Sendable {
         artPath: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        fallbackThumbPath: String? = nil,
+        fallbackRatingKey: String? = nil
     ) {
         self.id = id
         self.key = key
@@ -160,6 +166,8 @@ public struct Artist: Identifiable, Hashable, Sendable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.sourceCompositeKey = sourceCompositeKey
+        self.fallbackThumbPath = fallbackThumbPath
+        self.fallbackRatingKey = fallbackRatingKey
     }
 }
 

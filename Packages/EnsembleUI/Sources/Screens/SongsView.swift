@@ -24,17 +24,14 @@ public struct SongsView: View {
             }
         }
         .navigationTitle("Songs")
+        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.tracks.isEmpty {
-                    HStack(spacing: 8) {
-                        TextField("Filter", text: $libraryVM.tracksFilterOptions.searchText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                        
+                    HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
@@ -50,45 +47,41 @@ public struct SongsView: View {
                                 }
                             }
                         }
-                    }
-                }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty {
-                    Menu {
+
                         Menu {
-                            ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    libraryVM.trackSortOption = option
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.trackSortOption == option {
-                                            Image(systemName: "checkmark")
+                            Menu {
+                                ForEach(TrackSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        libraryVM.trackSortOption = option
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.trackSortOption == option {
+                                                Image(systemName: "checkmark")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
+                            
+                            Divider()
+                            
+                            Button {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks.shuffled())
+                            } label: {
+                                Label("Shuffle All", systemImage: "shuffle")
+                            }
+
+                            Button {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
+                            } label: {
+                                Label("Play All", systemImage: "play.fill")
                             }
                         } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            Image(systemName: "ellipsis.circle")
                         }
-                        
-                        Divider()
-                        
-                        Button {
-                            nowPlayingVM.play(tracks: libraryVM.filteredTracks.shuffled())
-                        } label: {
-                            Label("Shuffle All", systemImage: "shuffle")
-                        }
-
-                        Button {
-                            nowPlayingVM.play(tracks: libraryVM.filteredTracks)
-                        } label: {
-                            Label("Play All", systemImage: "play.fill")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }

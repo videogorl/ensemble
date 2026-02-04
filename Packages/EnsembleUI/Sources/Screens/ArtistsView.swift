@@ -28,17 +28,14 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
+        .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refresh()
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.artists.isEmpty {
-                    HStack(spacing: 8) {
-                        TextField("Filter", text: $libraryVM.artistsFilterOptions.searchText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                        
+                    HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
@@ -54,27 +51,23 @@ public struct ArtistsView: View {
                                 }
                             }
                         }
-                    }
-                }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.artists.isEmpty {
-                    Menu {
-                        ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                            Button {
-                                libraryVM.artistSortOption = option
-                            } label: {
-                                HStack {
-                                    Text(option.rawValue)
-                                    if libraryVM.artistSortOption == option {
-                                        Image(systemName: "checkmark")
+
+                        Menu {
+                            ForEach(ArtistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    libraryVM.artistSortOption = option
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if libraryVM.artistSortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
-                    } label: {
-                        Label("Sort By", systemImage: "arrow.up.arrow.down")
                     }
                 }
             }

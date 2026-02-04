@@ -5,13 +5,19 @@ import SwiftUI
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dependencies) private var deps
 
-    @State private var selectedTab = 0
+    @State private var selectedTab: TabItem = .home
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
     
+    // Get the tabs to show in the bar (limit to 4, then More)
+    private var barTabs: [TabItem] {
+        Array(settingsManager.enabledTabs.prefix(4))
+    }
+
     // Helper to dismiss the detail view overlay
     private func dismissDetailView() {
         withAnimation(.easeInOut(duration: 0.3)) {
@@ -33,82 +39,48 @@ public struct MainTabView: View {
             ZStack(alignment: .bottom) {
                 // Main content layer (TabView)
                 TabView(selection: $selectedTab) {
-                    // Home
-                    NavigationView {
-                        HomeView(
-                            nowPlayingVM: nowPlayingVM,
-                            onAlbumTap: { _ in },
-                            onArtistTap: { _ in }
-                        )
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                syncButton
-                            }
+                    // Dynamic Tabs
+                    ForEach(barTabs) { tab in
+                        NavigationView {
+                            viewForTab(tab)
                         }
-                    }
-                    .navigationViewStyle(.stack)
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
-                    .tag(0)
-
-                    // Artists
-                    NavigationView {
-                        ArtistsView(
-                            libraryVM: libraryVM,
-                            nowPlayingVM: nowPlayingVM,
-                            onArtistTap: { artist in
-                                // Navigation handled by ArtistsView
-                            }
-                        )
-                    }
-                    .navigationViewStyle(.stack)
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
-                    .tag(1)
-
-                    // Playlists
-                    NavigationView {
-                        PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
-                            // Navigation handled by PlaylistsView
+                        #if os(iOS)
+                        .navigationViewStyle(.stack)
+                        #endif
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: 110)
                         }
+                        .tag(tab)
                     }
-                    .navigationViewStyle(.stack)
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
-                    .tag(2)
 
-                    // Search
-                    NavigationView {
-                        SearchView(nowPlayingVM: nowPlayingVM)
-                    }
-                    .navigationViewStyle(.stack)
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
-                    .tag(3)
-
-                    // More
+                    // Always show More
                     NavigationView {
                         MoreView(
                             libraryVM: libraryVM,
                             nowPlayingVM: nowPlayingVM
                         )
                     }
+                    #if os(iOS)
                     .navigationViewStyle(.stack)
+                    #endif
                     .safeAreaInset(edge: .bottom) {
                         Color.clear.frame(height: 110)
                     }
-                    .tag(4)
+                    .tag(TabItem.settings) // Using settings as a proxy tag for More
                 }
                 // Hide the standard tab bar since we're using a custom one for layering
                 .onAppear {
+                    #if os(iOS)
                     let appearance = UITabBarAppearance()
                     appearance.configureWithTransparentBackground()
                     UITabBar.appearance().standardAppearance = appearance
                     UITabBar.appearance().scrollEdgeAppearance = appearance
+                    #endif
+                    
+                    // Set initial tab if home isn't enabled
+                    if !barTabs.contains(.home) {
+                        selectedTab = barTabs.first ?? .settings
+                    }
                 }
 
                 // Sliding detail view overlay
@@ -163,17 +135,17 @@ public struct MainTabView: View {
     
     private func customTabBar(safeAreaBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
-            tabItem(title: "Home", icon: "house", tag: 0)
-            tabItem(title: "Artists", icon: "music.mic", tag: 1)
-            tabItem(title: "Playlists", icon: "music.note.list", tag: 2)
-            tabItem(title: "Search", icon: "magnifyingglass", tag: 3)
-            tabItem(title: "More", icon: "ellipsis", tag: 4)
+            ForEach(barTabs) { tab in
+                tabItem(title: tab.rawValue, icon: tab.systemImage, tag: tab)
+            }
+            
+            tabItem(title: "More", icon: "ellipsis", tag: .settings)
         }
         .frame(height: 49)
         .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 8)
     }
     
-    private func tabItem(title: String, icon: String, tag: Int) -> some View {
+    private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
         Button {
             selectedTab = tag
         } label: {
@@ -185,6 +157,63 @@ public struct MainTabView: View {
             }
             .frame(maxWidth: .infinity)
             .foregroundColor(selectedTab == tag ? .accentColor : .secondary)
+        }
+    }
+    
+    @ViewBuilder
+    private func viewForTab(_ tab: TabItem) -> some View {
+        switch tab {
+        case .home:
+            HomeView(
+                nowPlayingVM: nowPlayingVM,
+                onAlbumTap: { album in
+                    deps.navigationCoordinator.navigateToAlbum(album)
+                },
+                onArtistTap: { artist in
+                    deps.navigationCoordinator.navigateToArtist(artist)
+                }
+            )
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    syncButton
+                }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    syncButton
+                }
+                #endif
+            }
+        case .songs:
+            SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .artists:
+            ArtistsView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onArtistTap: { artist in
+                    deps.navigationCoordinator.navigateToArtist(artist)
+                }
+            )
+        case .albums:
+            AlbumsView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onAlbumTap: { album in
+                    deps.navigationCoordinator.navigateToAlbum(album)
+                }
+            )
+        case .genres:
+            GenresView(libraryVM: libraryVM) { _ in }
+        case .playlists:
+            PlaylistsView(nowPlayingVM: nowPlayingVM) { _ in }
+        case .favorites:
+            FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .search:
+            SearchView(nowPlayingVM: nowPlayingVM)
+        case .downloads:
+            DownloadsView(nowPlayingVM: nowPlayingVM)
+        case .settings:
+            SettingsView()
         }
     }
     
@@ -212,6 +241,7 @@ public struct MainTabView: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         dismissDetailView()
@@ -219,9 +249,20 @@ public struct MainTabView: View {
                         Image(systemName: "chevron.left")
                     }
                 }
+                #else
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        dismissDetailView()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                }
+                #endif
             }
         }
+        #if os(iOS)
         .navigationViewStyle(.stack)
+        #endif
     }
 
     private var syncButton: some View {
@@ -235,7 +276,7 @@ public struct MainTabView: View {
 
 // MARK: - iPad Sidebar View
 
-@available(iOS 16.0, *)
+@available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
@@ -383,6 +424,7 @@ public struct SidebarView: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         dismissDetailView()
@@ -390,9 +432,20 @@ public struct SidebarView: View {
                         Image(systemName: "chevron.left")
                     }
                 }
+                #else
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        dismissDetailView()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                }
+                #endif
             }
         }
+        #if os(iOS)
         .navigationViewStyle(.stack)
+        #endif
     }
 
     @ViewBuilder
@@ -402,8 +455,12 @@ public struct SidebarView: View {
             NavigationStack {
                 HomeView(
                     nowPlayingVM: nowPlayingVM,
-                    onAlbumTap: { _ in },
-                    onArtistTap: { _ in }
+                    onAlbumTap: { album in
+                        deps.navigationCoordinator.navigateToAlbum(album)
+                    },
+                    onArtistTap: { artist in
+                        deps.navigationCoordinator.navigateToArtist(artist)
+                    }
                 )
             }
         case .songs:
@@ -416,7 +473,7 @@ public struct SidebarView: View {
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM
                 ) { artist in
-                    // Handle navigation
+                    deps.navigationCoordinator.navigateToArtist(artist)
                 }
             }
         case .albums:
@@ -425,13 +482,13 @@ public struct SidebarView: View {
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM
                 ) { album in
-                    // Handle navigation
+                    deps.navigationCoordinator.navigateToAlbum(album)
                 }
             }
         case .genres:
             NavigationStack {
                 GenresView(libraryVM: libraryVM) { genre in
-                    // Handle navigation
+                    // Handle navigation if needed, or just let it be for now
                 }
             }
         case .playlists:

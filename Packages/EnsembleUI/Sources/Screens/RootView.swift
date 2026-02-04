@@ -4,10 +4,13 @@ import SwiftUI
 /// Root view that renders the main content directly (no auth gate)
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    
     public init() {}
 
     public var body: some View {
         mainContentView
+            .accentColor(settingsManager.accentColor.color)
             .task {
                 let deps = DependencyContainer.shared
                 deps.accountManager.loadAccounts()

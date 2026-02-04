@@ -23,6 +23,7 @@ public struct PlaylistsView: View {
             }
         }
         .navigationTitle("Playlists")
+        .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
         .task {
             await viewModel.loadPlaylists()
         }
@@ -30,14 +31,6 @@ public struct PlaylistsView: View {
             await viewModel.loadPlaylists()
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                if !viewModel.playlists.isEmpty {
-                    TextField("Filter", text: $viewModel.filterOptions.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                }
-            }
-            
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.playlists.isEmpty {
                     Menu {

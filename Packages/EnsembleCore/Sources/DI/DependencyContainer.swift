@@ -29,6 +29,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
+    nonisolated(unsafe) public let settingsManager: SettingsManager
     nonisolated(unsafe) public let cacheManager: CacheManager
     nonisolated(unsafe) public let navigationCoordinator: NavigationCoordinator
 
@@ -73,6 +74,11 @@ public final class DependencyContainer: @unchecked Sendable {
         // Services using sync coordinator
         playbackService = PlaybackService(syncCoordinator: syncCoordinator)
         artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
+
+        // Settings manager
+        settingsManager = MainActor.assumeIsolated {
+            SettingsManager()
+        }
 
         // Cache manager - must be initialized after downloadManager
         let downloadRef = downloadManager

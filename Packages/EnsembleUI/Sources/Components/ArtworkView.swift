@@ -6,6 +6,8 @@ public struct ArtworkView: View {
     let path: String?
     let sourceKey: String?
     let ratingKey: String?
+    let fallbackPath: String?
+    let fallbackRatingKey: String?
     let size: ArtworkSize
     let cornerRadius: CGFloat
 
@@ -17,12 +19,16 @@ public struct ArtworkView: View {
         path: String?,
         sourceKey: String? = nil,
         ratingKey: String? = nil,
+        fallbackPath: String? = nil,
+        fallbackRatingKey: String? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat = 8
     ) {
         self.path = path
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
+        self.fallbackPath = fallbackPath
+        self.fallbackRatingKey = fallbackRatingKey
         self.size = size
         self.cornerRadius = cornerRadius
     }
@@ -32,9 +38,15 @@ public struct ArtworkView: View {
             Color.gray.opacity(0.2)
             
             if let image = loadedImage {
+                #if os(macOS)
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                #else
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                #endif
             } else {
                 Image(systemName: "music.note")
                     .font(.system(size: size.cgSize.width * 0.3))
@@ -55,10 +67,13 @@ public struct ArtworkView: View {
     }
     
     private func loadArtwork() async {
+        let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
+        let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
+
         guard let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: path,
+            for: actualPath,
             sourceKey: sourceKey,
-            ratingKey: ratingKey,
+            ratingKey: actualRatingKey,
             size: size.rawValue
         ) else {
             return
@@ -96,7 +111,15 @@ public extension ArtworkView {
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: artist.thumbPath, sourceKey: artist.sourceCompositeKey, ratingKey: artist.id, size: size, cornerRadius: cornerRadius)
+        self.init(
+            path: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
+            size: size,
+            cornerRadius: cornerRadius
+        )
     }
 
     init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {

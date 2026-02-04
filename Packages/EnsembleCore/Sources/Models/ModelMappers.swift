@@ -107,6 +107,8 @@ public extension Artist {
     }
 
     init(from cd: CDArtist) {
+        let firstAlbum = cd.albumsArray.first
+        
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -116,7 +118,9 @@ public extension Artist {
             artPath: cd.artPath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            fallbackThumbPath: firstAlbum?.thumbPath,
+            fallbackRatingKey: firstAlbum?.ratingKey
         )
     }
 }

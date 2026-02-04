@@ -6,6 +6,7 @@ public struct SettingsView: View {
     @State private var showingDeleteAlert = false
     @State private var sourceToDelete: MusicSource?
 
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
 
     public init() {}
@@ -29,7 +30,7 @@ public struct SettingsView: View {
                 } label: {
                     HStack {
                         Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(settingsManager.accentColor.color)
                             .frame(width: 44)
                         Text("Add Plex Account")
                     }
@@ -40,6 +41,34 @@ public struct SettingsView: View {
                 if accountManager.enabledMusicSources().isEmpty {
                     Text("Add a Plex server to access your music library.")
                 }
+            }
+
+            // Appearance section
+            Section("Appearance") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Accent Color")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 16) {
+                        ForEach(AppAccentColor.allCases) { colorOption in
+                            Circle()
+                                .fill(colorOption.color)
+                                .frame(width: 30, height: 30)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.primary, lineWidth: settingsManager.accentColor == colorOption ? 2 : 0)
+                                        .frame(width: 36, height: 36)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    settingsManager.setAccentColor(colorOption)
+                                }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .padding(.vertical, 4)
             }
 
             // Playback section

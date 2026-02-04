@@ -79,7 +79,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             .padding(.bottom, 100)
         }
         .navigationTitle(navigationTitle)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task {
             await viewModel.loadTracks()
         }
@@ -154,11 +156,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 
+    @ViewBuilder
     private var tracksSection: some View {
+        #if os(iOS)
         let trackCount = viewModel.filteredTracks.count
         let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
         
-        return MediaTrackList(
+        MediaTrackList(
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
@@ -168,5 +172,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         .frame(height: height)
+        #else
+        // Basic List fallback for macOS
+        VStack(spacing: 0) {
+            ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                TrackRow(
+                    track: track,
+                    showArtwork: showArtwork,
+                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                ) {
+                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                
+                if index < viewModel.filteredTracks.count - 1 {
+                    Divider().padding(.leading, showArtwork ? 68 : 16)
+                }
+            }
+        }
+        #endif
     }
 }
