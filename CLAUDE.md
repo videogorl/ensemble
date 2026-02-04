@@ -172,6 +172,7 @@ Sources/
 │   ├── SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
 │   ├── MusicSourceSyncProvider.swift  # Protocol for source-specific sync
 │   ├── PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
+│   ├── NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 │   ├── PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
 │   ├── ArtworkLoader.swift            # Persistent artwork caching & loading
 │   └── CacheManager.swift             # Cache size tracking & management (MainActor)
@@ -195,6 +196,7 @@ Tests/
 - `DependencyContainer` (singleton) — Wires all services, creates ViewModels, injected via SwiftUI environment
 - `AccountManager` (@MainActor) — Manages multiple Plex accounts, servers, and libraries
 - `SyncCoordinator` (@MainActor) — Orchestrates library syncing across all enabled sources
+- `NavigationCoordinator` (@MainActor) — Manages cross-view navigation state (artist/album deep links from NowPlayingView)
 - `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls
 - `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) — Tracks cache sizes and provides cache clearing functionality
