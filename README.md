@@ -140,7 +140,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 ## Known Issues
 
 - **watchOS:** `AuthViewModel` is missing — app won't compile (see `CLAUDE.md`)
-- **Infrastructure:** Legacy `ios/Pods/` directory should be removed
+  - This is intentional - iOS implementation needs to be completed first
 
 ## Development Status
 

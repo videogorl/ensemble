@@ -14,6 +14,8 @@ Please comment code so that it's understandable. Don't over comment, just commen
 
 As you make big architectural changes, please be sure to update this document and the README.md file to describe the app structure in a way that helps both you and me.
 
+Do not use emojis (except in debugging).
+
 ## Project Structure
 
 ```
@@ -290,9 +292,7 @@ Tests/
   - **Fix:** Create `AuthViewModel` or refactor watchOS to use `AddPlexAccountViewModel`
 
 ### Infrastructure
-- **Legacy CocoaPods Setup** — `ios/Pods/` directory exists but isn't used by workspace
-  - **Impact:** Confusing project structure, potential build issues
-  - **Fix:** Remove `ios/` directory entirely if not needed
+- ✅ **Legacy CocoaPods Cleanup** — Removed unused `ios/Pods/` directory (was leftover from earlier experimentation)
 
 ### Documentation
 - ✅ Documentation updated to match actual implementation
