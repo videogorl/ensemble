@@ -5,15 +5,18 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
+    @Binding var externalAlbumToNavigate: Album?
     @State private var searchText = ""
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
+        externalAlbumToNavigate: Binding<Album?> = .constant(nil),
         onAlbumTap: @escaping (Album) -> Void
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._externalAlbumToNavigate = externalAlbumToNavigate
         self.onAlbumTap = onAlbumTap
     }
     
@@ -27,13 +30,31 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        Group {
-            if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                loadingView
-            } else if libraryVM.albums.isEmpty {
-                emptyView
-            } else {
-                albumGridView
+        ZStack {
+            Group {
+                if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                    loadingView
+                } else if libraryVM.albums.isEmpty {
+                    emptyView
+                } else {
+                    albumGridView
+                }
+            }
+            
+            // Hidden navigation link for external navigation
+            if let album = externalAlbumToNavigate {
+                NavigationLink(
+                    destination: AlbumDetailView(
+                        album: album,
+                        nowPlayingVM: nowPlayingVM
+                    ),
+                    isActive: Binding(
+                        get: { externalAlbumToNavigate != nil },
+                        set: { if !$0 { externalAlbumToNavigate = nil } }
+                    )
+                ) {
+                    EmptyView()
+                }
             }
         }
         .navigationTitle("Albums")

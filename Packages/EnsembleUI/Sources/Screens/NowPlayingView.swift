@@ -9,10 +9,6 @@ public struct NowPlayingView: View {
     @Environment(\.dependencies) private var deps
     
     @State private var gradientColors: ArtworkColorExtractor.GradientColors?
-    
-    // Navigation state
-    @State private var navigateToArtist = false
-    @State private var navigateToAlbum = false
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -379,15 +375,13 @@ public struct NowPlayingView: View {
     
     // Helper: Navigate to artist
     private func handleArtistTap(track: Track) {
-        // For now, just dismiss - full navigation requires parent view coordination
-        // TODO: Implement proper navigation flow with callback or environment value
+        viewModel.navigateToArtist()
         dismiss()
     }
     
     // Helper: Navigate to album
     private func handleAlbumTap(track: Track) {
-        // For now, just dismiss - full navigation requires parent view coordination
-        // TODO: Implement proper navigation flow with callback or environment value
+        viewModel.navigateToAlbum()
         dismiss()
     }
 }

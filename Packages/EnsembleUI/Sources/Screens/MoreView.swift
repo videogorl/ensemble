@@ -5,13 +5,16 @@ import SwiftUI
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Binding var externalAlbumToNavigate: Album?
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        externalAlbumToNavigate: Binding<Album?> = .constant(nil)
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._externalAlbumToNavigate = externalAlbumToNavigate
     }
 
     public var body: some View {
@@ -21,6 +24,7 @@ public struct MoreView: View {
                 AlbumsView(
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
+                    externalAlbumToNavigate: $externalAlbumToNavigate,
                     onAlbumTap: { album in
                         // Navigate to album detail
                     }

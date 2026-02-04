@@ -5,15 +5,18 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onArtistTap: (Artist) -> Void
+    @Binding var externalArtistToNavigate: Artist?
     @State private var searchText = ""
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
+        externalArtistToNavigate: Binding<Artist?> = .constant(nil),
         onArtistTap: @escaping (Artist) -> Void
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._externalArtistToNavigate = externalArtistToNavigate
         self.onArtistTap = onArtistTap
     }
     
@@ -26,13 +29,32 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        Group {
-            if libraryVM.isLoading && libraryVM.artists.isEmpty {
-                loadingView
-            } else if libraryVM.artists.isEmpty {
-                emptyView
-            } else {
-                artistListView
+        ZStack {
+            Group {
+                if libraryVM.isLoading && libraryVM.artists.isEmpty {
+                    loadingView
+                } else if libraryVM.artists.isEmpty {
+                    emptyView
+                } else {
+                    artistListView
+                }
+            }
+            
+            // Hidden navigation link for external navigation
+            if let artist = externalArtistToNavigate {
+                NavigationLink(
+                    destination: ArtistDetailView(
+                        artist: artist,
+                        nowPlayingVM: nowPlayingVM,
+                        onAlbumTap: { _ in }
+                    ),
+                    isActive: Binding(
+                        get: { externalArtistToNavigate != nil },
+                        set: { if !$0 { externalArtistToNavigate = nil } }
+                    )
+                ) {
+                    EmptyView()
+                }
             }
         }
         .navigationTitle("Artists")

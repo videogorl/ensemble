@@ -34,6 +34,12 @@ public enum TrackRating: Equatable {
     }
 }
 
+/// Navigation requests from the Now Playing view
+public enum NavigationRequest: Equatable {
+    case artist(id: String, sourceKey: String?)
+    case album(id: String, sourceKey: String?)
+}
+
 @MainActor
 public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
@@ -44,6 +50,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public var navigationRequest: NavigationRequest?
     @Published public var currentRating: TrackRating = .none
 
     private let playbackService: PlaybackServiceProtocol
@@ -222,6 +229,18 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func cycleRepeatMode() {
         playbackService.cycleRepeatMode()
+    }
+
+    // MARK: - Navigation
+
+    public func navigateToArtist() {
+        guard let track = currentTrack, let artistId = track.artistRatingKey else { return }
+        navigationRequest = .artist(id: artistId, sourceKey: track.sourceCompositeKey)
+    }
+
+    public func navigateToAlbum() {
+        guard let track = currentTrack, let albumId = track.albumRatingKey else { return }
+        navigationRequest = .album(id: albumId, sourceKey: track.sourceCompositeKey)
     }
 
     // MARK: - Rating Management

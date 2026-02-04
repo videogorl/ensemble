@@ -5,10 +5,15 @@ import SwiftUI
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
 
     @State private var selectedTab = 0
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
+    
+    // Navigation state from Now Playing
+    @State private var artistToNavigate: Artist?
+    @State private var albumToNavigate: Album?
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -38,6 +43,7 @@ public struct MainTabView: View {
                     ArtistsView(
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
+                        externalArtistToNavigate: $artistToNavigate,
                         onArtistTap: { artist in
                             // Navigation handled by ArtistsView
                         }
@@ -75,7 +81,8 @@ public struct MainTabView: View {
                 NavigationView {
                     MoreView(
                         libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM
+                        nowPlayingVM: nowPlayingVM,
+                        externalAlbumToNavigate: $albumToNavigate
                     )
                 }
                 .navigationViewStyle(.stack)
@@ -109,6 +116,35 @@ public struct MainTabView: View {
         .task {
             await libraryVM.refresh()
         }
+        .onChange(of: nowPlayingVM.navigationRequest) { request in
+            if let request = request {
+                handleNavigationRequest(request)
+                nowPlayingVM.navigationRequest = nil
+            }
+        }
+    }
+
+    private func handleNavigationRequest(_ request: NavigationRequest) {
+        Task {
+            switch request {
+            case .artist(let id, _):
+                if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
+                    let artist = Artist(from: cdArtist)
+                    await MainActor.run {
+                        self.selectedTab = 1 // Artists tab
+                        self.artistToNavigate = artist
+                    }
+                }
+            case .album(let id, _):
+                if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
+                    let album = Album(from: cdAlbum)
+                    await MainActor.run {
+                        self.selectedTab = 4 // More tab (where Albums are)
+                        self.albumToNavigate = album
+                    }
+                }
+            }
+        }
     }
 
     private var syncButton: some View {
@@ -126,10 +162,15 @@ public struct MainTabView: View {
 public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
 
     @State private var selection: SidebarSection? = .songs
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
+    
+    // Navigation state from Now Playing
+    @State private var artistToNavigate: Artist?
+    @State private var albumToNavigate: Album?
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -190,6 +231,35 @@ public struct SidebarView: View {
         .task {
             await libraryVM.refresh()
         }
+        .onChange(of: nowPlayingVM.navigationRequest) { request in
+            if let request = request {
+                handleNavigationRequest(request)
+                nowPlayingVM.navigationRequest = nil
+            }
+        }
+    }
+
+    private func handleNavigationRequest(_ request: NavigationRequest) {
+        Task {
+            switch request {
+            case .artist(let id, _):
+                if let cdArtist = try? await deps.libraryRepository.fetchArtist(ratingKey: id) {
+                    let artist = Artist(from: cdArtist)
+                    await MainActor.run {
+                        self.selection = .artists
+                        self.artistToNavigate = artist
+                    }
+                }
+            case .album(let id, _):
+                if let cdAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: id) {
+                    let album = Album(from: cdAlbum)
+                    await MainActor.run {
+                        self.selection = .albums
+                        self.albumToNavigate = album
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -201,13 +271,21 @@ public struct SidebarView: View {
             }
         case .artists:
             NavigationStack {
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM) { artist in
+                ArtistsView(
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    externalArtistToNavigate: $artistToNavigate
+                ) { artist in
                     // Handle navigation
                 }
             }
         case .albums:
             NavigationStack {
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM) { album in
+                AlbumsView(
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    externalAlbumToNavigate: $albumToNavigate
+                ) { album in
                     // Handle navigation
                 }
             }

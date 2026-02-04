@@ -4,6 +4,7 @@ import Foundation
 public protocol LibraryRepositoryProtocol: Sendable {
     // Artists
     func fetchArtists() async throws -> [CDArtist]
+    func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func upsertArtist(
         ratingKey: String,
         key: String,
@@ -18,6 +19,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
+    func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
     func upsertAlbum(
         ratingKey: String,
@@ -112,6 +114,22 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         }
     }
 
+    public func fetchArtist(ratingKey: String) async throws -> CDArtist? {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                do {
+                    let artist = try context.fetch(request).first
+                    continuation.resume(returning: artist)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func upsertArtist(
         ratingKey: String,
         key: String,
@@ -195,6 +213,22 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let albums = try context.fetch(request)
                     continuation.resume(returning: albums)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchAlbum(ratingKey: String) async throws -> CDAlbum? {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDAlbum.fetchRequest()
+                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                do {
+                    let album = try context.fetch(request).first
+                    continuation.resume(returning: album)
                 } catch {
                     continuation.resume(throwing: error)
                 }

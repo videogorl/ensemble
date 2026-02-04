@@ -13,6 +13,7 @@ public extension Track {
             artistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
+            artistRatingKey: plex.grandparentRatingKey,
             trackNumber: plex.index ?? 0,
             discNumber: plex.parentIndex ?? 1,
             duration: plex.durationSeconds,
@@ -35,6 +36,7 @@ public extension Track {
             artistName: cd.artistName,
             albumName: cd.albumName,
             albumRatingKey: cd.album?.ratingKey,
+            artistRatingKey: cd.album?.artist?.ratingKey,
             trackNumber: Int(cd.trackNumber),
             discNumber: Int(cd.discNumber),
             duration: cd.durationSeconds,
@@ -212,7 +214,9 @@ public extension Download {
         let track = cd.track.map { Track(from: $0) } ?? Track(
             id: "unknown",
             key: "",
-            title: "Unknown Track"
+            title: "Unknown Track",
+            artistName: "Unknown Artist",
+            albumName: "Unknown Album"
         )
 
         let status: DownloadStatus
