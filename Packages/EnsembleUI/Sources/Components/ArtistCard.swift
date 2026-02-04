@@ -42,7 +42,6 @@ public struct ArtistRow: View {
         Button(action: onTap) {
             HStack(spacing: 12) {
                 ArtworkView(artist: artist, size: .thumbnail, cornerRadius: 22)
-                    .frame(width: 44, height: 44)
 
                 Text(artist.name)
                     .font(.body)

@@ -32,7 +32,6 @@ public struct TrackRow: View {
 
                 if showArtwork {
                     ArtworkView(track: track, size: .thumbnail, cornerRadius: 4)
-                        .frame(width: 44, height: 44)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {

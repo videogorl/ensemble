@@ -25,7 +25,6 @@ public struct MiniPlayer: View {
                 HStack(spacing: 12) {
                     // Artwork
                     ArtworkView(track: track, size: .thumbnail, cornerRadius: 4)
-                        .frame(width: 44, height: 44)
 
                     // Track info
                     VStack(alignment: .leading, spacing: 2) {

@@ -1,5 +1,6 @@
 import EnsembleCore
 import SwiftUI
+import Nuke
 
 public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
@@ -171,6 +172,8 @@ struct IndexedTrackList: UIViewRepresentable {
     let currentTrackId: String?
     let onTrackTap: (Track) -> Void
     
+    @Environment(\.dependencies) private var dependencies
+    
     func makeUIView(context: Context) -> UITableView {
         let tableView = UITableView(frame: .zero, style: .plain)
         tableView.delegate = context.coordinator
@@ -188,11 +191,18 @@ struct IndexedTrackList: UIViewRepresentable {
         context.coordinator.groupedTracks = groupedTracks
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.onTrackTap = onTrackTap
+        context.coordinator.artworkLoader = dependencies.artworkLoader
         tableView.reloadData()
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(groupedTracks: groupedTracks, sectionTitles: sectionTitles, currentTrackId: currentTrackId, onTrackTap: onTrackTap)
+        Coordinator(
+            groupedTracks: groupedTracks,
+            sectionTitles: sectionTitles,
+            currentTrackId: currentTrackId,
+            onTrackTap: onTrackTap,
+            artworkLoader: dependencies.artworkLoader
+        )
     }
     
     class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource {
@@ -200,12 +210,14 @@ struct IndexedTrackList: UIViewRepresentable {
         let sectionTitles: [String]
         var currentTrackId: String?
         var onTrackTap: (Track) -> Void
+        var artworkLoader: ArtworkLoaderProtocol
         
-        init(groupedTracks: [(letter: String, tracks: [Track])], sectionTitles: [String], currentTrackId: String?, onTrackTap: @escaping (Track) -> Void) {
+        init(groupedTracks: [(letter: String, tracks: [Track])], sectionTitles: [String], currentTrackId: String?, onTrackTap: @escaping (Track) -> Void, artworkLoader: ArtworkLoaderProtocol) {
             self.groupedTracks = groupedTracks
             self.sectionTitles = sectionTitles
             self.currentTrackId = currentTrackId
             self.onTrackTap = onTrackTap
+            self.artworkLoader = artworkLoader
         }
         
         func numberOfSections(in tableView: UITableView) -> Int {
@@ -220,7 +232,7 @@ struct IndexedTrackList: UIViewRepresentable {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             let isPlaying = track.id == currentTrackId
-            cell.configure(with: track, isPlaying: isPlaying)
+            cell.configure(with: track, isPlaying: isPlaying, artworkLoader: artworkLoader)
             return cell
         }
         
@@ -249,8 +261,7 @@ struct IndexedTrackList: UIViewRepresentable {
 }
 
 class TrackTableViewCell: UITableViewCell {
-    private var artworkHostingController: UIHostingController<ArtworkView>?
-    private let artworkContainer = UIView()
+    private let artworkImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let durationLabel = UILabel()
@@ -266,8 +277,12 @@ class TrackTableViewCell: UITableViewCell {
     }
     
     private func setupViews() {
-        artworkContainer.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(artworkContainer)
+        artworkImageView.contentMode = .scaleAspectFill
+        artworkImageView.clipsToBounds = true
+        artworkImageView.layer.cornerRadius = 4
+        artworkImageView.backgroundColor = UIColor.systemGray5
+        artworkImageView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(artworkImageView)
         
         titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -291,16 +306,16 @@ class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(playingIndicator)
         
         NSLayoutConstraint.activate([
-            artworkContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            artworkContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            artworkContainer.widthAnchor.constraint(equalToConstant: 44),
-            artworkContainer.heightAnchor.constraint(equalToConstant: 44),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            artworkImageView.widthAnchor.constraint(equalToConstant: 44),
+            artworkImageView.heightAnchor.constraint(equalToConstant: 44),
             
-            titleLabel.leadingAnchor.constraint(equalTo: artworkContainer.trailingAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: 12),
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             titleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
             
-            subtitleLabel.leadingAnchor.constraint(equalTo: artworkContainer.trailingAnchor, constant: 12),
+            subtitleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: 12),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
             
@@ -315,7 +330,7 @@ class TrackTableViewCell: UITableViewCell {
         ])
     }
     
-    func configure(with track: Track, isPlaying: Bool) {
+    func configure(with track: Track, isPlaying: Bool, artworkLoader: ArtworkLoaderProtocol) {
         titleLabel.text = track.title
         
         var subtitleParts: [String] = []
@@ -331,31 +346,30 @@ class TrackTableViewCell: UITableViewCell {
         durationLabel.isHidden = isPlaying
         playingIndicator.isHidden = !isPlaying
         
-        // Setup SwiftUI artwork view
-        let artworkView = ArtworkView(track: track, size: .thumbnail, cornerRadius: 4)
+        // Reset artwork
+        artworkImageView.image = nil
+        artworkImageView.backgroundColor = UIColor.systemGray5
         
-        if let hostingController = artworkHostingController {
-            hostingController.rootView = artworkView
-        } else {
-            let hostingController = UIHostingController(rootView: artworkView)
-            hostingController.view.backgroundColor = .clear
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-            artworkContainer.addSubview(hostingController.view)
+        // Load artwork
+        Task { @MainActor in
+            guard let url = await artworkLoader.artworkURLAsync(
+                for: track.thumbPath,
+                sourceKey: track.sourceCompositeKey,
+                size: ArtworkSize.thumbnail.rawValue
+            ) else {
+                return
+            }
             
-            NSLayoutConstraint.activate([
-                hostingController.view.leadingAnchor.constraint(equalTo: artworkContainer.leadingAnchor),
-                hostingController.view.trailingAnchor.constraint(equalTo: artworkContainer.trailingAnchor),
-                hostingController.view.topAnchor.constraint(equalTo: artworkContainer.topAnchor),
-                hostingController.view.bottomAnchor.constraint(equalTo: artworkContainer.bottomAnchor)
-            ])
-            
-            self.artworkHostingController = hostingController
+            let request = ImageRequest(url: url)
+            if let image = try? await ImagePipeline.shared.image(for: request) {
+                self.artworkImageView.image = image
+            }
         }
     }
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        artworkHostingController?.rootView = ArtworkView(path: nil, size: .thumbnail, cornerRadius: 4)
+        artworkImageView.image = nil
     }
 }
 

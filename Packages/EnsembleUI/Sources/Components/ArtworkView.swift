@@ -1,6 +1,7 @@
 import EnsembleCore
-import NukeUI
 import SwiftUI
+import Nuke
+import NukeUI
 
 public struct ArtworkView: View {
     let path: String?
@@ -24,43 +25,36 @@ public struct ArtworkView: View {
     }
 
     public var body: some View {
-        Group {
-            if let url = artworkURL {
-                LazyImage(url: url) { state in
-                    if let image = state.image {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else if state.error != nil {
-                        placeholderView
-                    } else {
-                        placeholderView
-                            .overlay {
-                                ProgressView()
-                                    .tint(.secondary)
-                            }
-                    }
-                }
+        LazyImage(url: artworkURL) { state in
+            if let image = state.image {
+                image
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fill)
+            } else if state.error != nil {
+                placeholderContent
             } else {
-                placeholderView
+                placeholderContent
+                    .overlay {
+                        ProgressView()
+                            .tint(.secondary)
+                    }
             }
         }
+        .processors([.resize(size: CGSize(width: size.cgSize.width, height: size.cgSize.height), contentMode: .aspectFill)])
         .frame(width: size.cgSize.width, height: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: path) {
-            // Load artwork URL asynchronously
             artworkURL = await dependencies.artworkLoader.artworkURLAsync(for: path, sourceKey: sourceKey, size: size.rawValue)
         }
     }
 
-    private var placeholderView: some View {
-        Rectangle()
-            .fill(Color.gray.opacity(0.2))
-            .overlay {
-                Image(systemName: "music.note")
-                    .font(.system(size: size.cgSize.width * 0.3))
-                    .foregroundColor(.gray.opacity(0.5))
-            }
+    private var placeholderContent: some View {
+        ZStack {
+            Color.gray.opacity(0.2)
+            Image(systemName: "music.note")
+                .font(.system(size: size.cgSize.width * 0.3))
+                .foregroundColor(.gray.opacity(0.5))
+        }
     }
 }
 
