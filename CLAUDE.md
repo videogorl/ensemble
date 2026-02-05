@@ -13,6 +13,8 @@ Please don't remove existing functionality (unless directed) when re-architectin
 
 Whenever you're done and are prepared to wait for me to test, commit your changes so we can roll them back if your context is cut off or if something breaks.
 
+If a problem is mentioned, interview to help hone in on where the problem is originating from.
+
 ## Project Overview
 
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
