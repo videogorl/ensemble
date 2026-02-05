@@ -12,19 +12,22 @@ public struct WaveformView: View {
     }
     
     public var body: some View {
-        HStack(spacing: 2) {
-            let count = heights.isEmpty ? 40 : heights.count
-            ForEach(0..<count, id: \.self) { index in
-                let barProgress = Double(index) / Double(count)
-                let isPlayed = barProgress <= progress
-                let height = heights.isEmpty ? 0.2 : heights[index]
+        GeometryReader { geometry in
+            HStack(spacing: 2) {
+                let count = heights.isEmpty ? 40 : heights.count
+                let maxHeight = geometry.size.height
                 
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(isPlayed ? color : color.opacity(0.3))
-                    .frame(height: CGFloat(height) * 30)
+                ForEach(0..<count, id: \.self) { index in
+                    let barProgress = Double(index) / Double(count)
+                    let isPlayed = barProgress <= progress
+                    let height = heights.isEmpty ? 0.2 : heights[index]
+                    
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isPlayed ? color : color.opacity(0.3))
+                        .frame(height: CGFloat(height) * maxHeight)
+                }
             }
+            .id(heights) // Force re-render if heights content changes
         }
-        .id(heights) // Force re-render if heights content changes
-        .frame(height: 40)
     }
 }

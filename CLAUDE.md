@@ -283,6 +283,7 @@ Tests/
 - `ArtworkColorExtractor` — Actor-based background color extraction for dynamic gradients on detail views
 - `ConnectionStatusBanner` — Network connectivity status banner
 - `AirPlayButton` — Native AirPlay route picker integration
+- `WaveformView` — Audio waveform visualization with real Plex loudness data or fallback generation
 
 ### Key Architectural Patterns
 
@@ -364,6 +365,94 @@ ArtworkView(album: album, size: .medium)
 - Faster loading on subsequent views
 - Supports offline viewing (when track files are also downloaded)
 - Memory efficient (iOS 15+ / 2GB RAM compatible)
+
+### Waveform Visualization System
+
+The app implements an intelligent waveform visualization system that displays audio waveforms in the NowPlayingView:
+
+**Architecture:**
+
+1. **Plex Sonic Analysis (Preferred)** — Uses Plex server's loudness analysis data
+   - Plex servers perform sonic analysis on tracks (requires Plex Pass)
+   - Analysis generates loudness timeline data (similar to Plexamp's "SoundPrints")
+   - Data is accessed via `/library/metadata/{ratingKey}/loudness` endpoint
+   - Returns ~100-200 loudness samples representing the track's audio profile
+   - This is the same data Plexamp uses for waveform seeking
+
+2. **PlexLoudnessTimeline** (`EnsembleAPI`) — Model for Plex loudness data
+   - Decodes loudness arrays from Plex server response
+   - Handles multiple response formats (array or comma-separated string)
+   - Field: `loudness: [Double]?` — Array of loudness values
+
+3. **PlexAPIClient.getLoudnessTimeline()** (`EnsembleAPI`) — API method to fetch waveform data
+   - Asynchronously fetches loudness timeline for a track
+   - Returns `nil` if server hasn't performed sonic analysis yet
+   - Non-blocking and fails gracefully (missing data is normal, not an error)
+
+4. **PlaybackService.generateWaveform()** (`EnsembleCore`) — Waveform generation logic
+   - **Primary:** Attempts to fetch real loudness data from Plex server
+   - **Fallback:** Generates pseudo-random waveform if Plex data unavailable
+   - Normalizes loudness values to 0.3-1.0 range with contrast enhancement (power curve)
+   - Applies floor boosting for better visual prominence and contrast
+   - Runs asynchronously to avoid blocking playback
+
+5. **WaveformView** (`EnsembleUI`) — SwiftUI visualization component
+   - Displays waveform as horizontal bars with variable heights
+   - Shows playback progress (played vs unplayed portions)
+   - Supports both real Plex data and fallback visualization
+   - Automatically updates when track changes
+
+**Implementation Flow:**
+```swift
+// In PlaybackService when track changes
+private func generateWaveform(for ratingKey: String) {
+    Task {
+        // Try to fetch from Plex
+        if let timeline = try await apiClient.getLoudnessTimeline(for: ratingKey),
+           let loudness = timeline.loudness {
+            // Use real waveform data
+            self.waveformHeights = normalizeLoudnessData(loudness)
+        } else {
+            // Fallback to pseudo-random waveform
+            self.waveformHeights = generateFallbackWaveform(for: ratingKey)
+        }
+    }
+}
+
+// In NowPlayingView
+WaveformView(
+    progress: viewModel.progress,
+    color: .white,
+    heights: viewModel.waveformHeights
+)
+```
+
+**Plex Sonic Analysis:**
+- **Purpose:** Enables features like "Sonically Similar Albums", "Track Radio", and waveform visualization
+- **Requirement:** Plex Pass subscription
+- **Setup:** Server → Settings → Library → "Perform sonic analysis for music"
+- **Processing:** Analyzes loudness, tempo, timbre, and harmony
+- **Timeline:** Sonic analysis runs as scheduled task or during library scans
+
+**Fallback Waveform:**
+- Deterministic pseudo-random generation based on track ID
+- Generates consistent waveform for same track across sessions
+- Creates realistic-looking patterns with multiple peaks
+- ~120 samples for smooth visualization
+- Used when Plex sonic analysis hasn't been performed
+
+**Benefits:**
+- Real audio waveforms when Plex sonic analysis available
+- Graceful degradation to attractive fallback visualization
+- No client-side audio processing required (no battery/memory impact)
+- Leverages existing Plex infrastructure (same as Plexamp)
+- Non-blocking async loading doesn't delay playback
+
+**Future Enhancements:**
+- Cache waveform data locally to reduce repeated API calls
+- Implement waveform seeking (jump to specific parts of track)
+- Show visual indicators for silent portions or hidden tracks
+- Extract colors from waveform for additional UI theming
 
 ### Hub-Based Home Screen
 

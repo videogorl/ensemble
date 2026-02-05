@@ -212,6 +212,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let lastViewedAt: Int?
     public let userRating: Double?  // User's rating (0-10 scale, Plex uses even numbers: 0,2,4,6,8,10 for 0-5 stars)
     public let media: [PlexMedia]?
+    public let loudnessTimeline: String?  // Path to loudness timeline data (used for waveform visualization)
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -235,6 +236,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case lastViewedAt
         case userRating
         case media = "Media"
+        case loudnessTimeline
     }
 
     public var id: String { ratingKey }
@@ -277,6 +279,39 @@ public struct PlexMediaPart: Codable, Sendable {
     public let file: String?
     public let size: Int?
     public let container: String?
+}
+
+// MARK: - Loudness Timeline (Waveform Data)
+
+/// Represents loudness timeline data for waveform visualization
+/// Plex provides this data after sonic analysis of tracks
+public struct PlexLoudnessTimeline: Codable, Sendable {
+    /// Array of loudness values (typically ~100-200 samples)
+    /// Values represent relative loudness at different points in the track
+    public let loudness: [Double]?
+    
+    enum CodingKeys: String, CodingKey {
+        case loudness
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Plex can return loudness data in different formats
+        // Try to decode as array of doubles first
+        if let values = try? container.decode([Double].self, forKey: .loudness) {
+            self.loudness = values
+        } else {
+            // If that fails, try decoding as string and parsing
+            if let stringValue = try? container.decode(String.self, forKey: .loudness) {
+                // Parse comma-separated values
+                let components = stringValue.split(separator: ",")
+                self.loudness = components.compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            } else {
+                self.loudness = nil
+            }
+        }
+    }
 }
 
 // MARK: - Genre

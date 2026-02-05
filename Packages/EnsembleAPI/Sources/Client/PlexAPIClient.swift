@@ -466,6 +466,34 @@ public actor PlexAPIClient {
 
         return components.url
     }
+    
+    /// Fetch loudness timeline data for waveform visualization
+    /// Returns nil if the server hasn't performed sonic analysis on this track yet
+    public func getLoudnessTimeline(for ratingKey: String) async throws -> PlexLoudnessTimeline? {
+        print("🎵 Fetching loudness timeline for track: \(ratingKey)")
+        
+        // Plex provides loudness data at /library/metadata/{ratingKey}/loudness
+        // This endpoint only exists if the server has performed sonic analysis
+        let path = "/library/metadata/\(ratingKey)/loudness"
+        
+        do {
+            let data = try await serverRequest(path: path)
+            let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
+            
+            if let count = timeline.loudness?.count {
+                print("✅ Retrieved \(count) loudness samples for track \(ratingKey)")
+            } else {
+                print("⚠️ No loudness data available for track \(ratingKey)")
+            }
+            
+            return timeline
+        } catch {
+            // If the endpoint doesn't exist (404), the server hasn't analyzed this track yet
+            // This is normal and not an error condition
+            print("ℹ️ Loudness timeline not available for track \(ratingKey): \(error.localizedDescription)")
+            return nil
+        }
+    }
 
     // MARK: - Connection Management
     

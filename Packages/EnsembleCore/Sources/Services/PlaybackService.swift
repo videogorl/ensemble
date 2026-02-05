@@ -197,22 +197,77 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func generateWaveform(for ratingKey: String) {
         print("🎵 Generating waveform for track: \(ratingKey)")
         
-        // IMPORTANT: This generates a pseudo-random waveform based on track ID for visual consistency.
-        // It does NOT represent the actual audio waveform.
-        //
-        // For real audio waveform extraction, you would need to:
-        // 1. Download or stream the audio file
-        // 2. Use AVAssetReader with AVAssetReaderTrackOutput
-        // 3. Extract audio samples from the AVAssetReaderTrackOutput
-        // 4. Calculate RMS (Root Mean Square) or peak values for visualization
-        // 5. Downsample to ~100-200 points for UI display
-        //
-        // This is a significant architectural change that would require:
-        // - Caching waveform data (100-200 doubles per track)
-        // - Background processing to avoid blocking UI
-        // - Handling streaming vs downloaded files differently
-        // - Additional storage (~2KB per track for waveform data)
+        // Try to fetch real waveform data from Plex server (if sonic analysis has been performed)
+        Task { @MainActor in
+            guard let track = self.currentTrack else { return }
+            
+            // Parse source composite key to get API client
+            if let sourceKey = track.sourceCompositeKey {
+                let components = sourceKey.split(separator: ":")
+                if components.count >= 3 {
+                    let accountId = String(components[1])
+                    let serverId = String(components[2])
+                    
+                    // Get API client from account manager
+                    if let apiClient = self.syncCoordinator.accountManager.makeAPIClient(
+                        accountId: accountId,
+                        serverId: serverId
+                    ) {
+                        do {
+                            // Attempt to fetch loudness timeline from Plex
+                            if let timeline = try await apiClient.getLoudnessTimeline(for: ratingKey),
+                               let loudness = timeline.loudness,
+                               !loudness.isEmpty {
+                                // Normalize loudness values to 0.0-1.0 range for visualization
+                                let normalizedHeights = self.normalizeLoudnessData(loudness)
+                                self.waveformHeights = normalizedHeights
+                                print("✅ Using real waveform data from Plex (\(normalizedHeights.count) samples)")
+                                return
+                            }
+                        } catch {
+                            print("ℹ️ Could not fetch Plex waveform data: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: Generate pseudo-random waveform if Plex data is unavailable
+            self.waveformHeights = self.generateFallbackWaveform(for: ratingKey)
+            print("🎵 Using fallback waveform (\(self.waveformHeights.count) samples)")
+        }
+    }
+    
+    /// Normalize Plex loudness data to 0.0-1.0 range for visualization
+    /// Applies aggressive contrast enhancement for dramatic Plexamp-style waveforms
+    private func normalizeLoudnessData(_ loudness: [Double]) -> [Double] {
+        guard !loudness.isEmpty else { return [] }
         
+        // Find min and max loudness values
+        let minLoudness = loudness.min() ?? 0
+        let maxLoudness = loudness.max() ?? 1
+        let range = maxLoudness - minLoudness
+        
+        guard range > 0 else {
+            // If all values are the same, return middle height
+            return Array(repeating: 0.6, count: loudness.count)
+        }
+        
+        // Normalize to 0.0-1.0 first
+        let normalized = loudness.map { (($0 - minLoudness) / range) }
+        
+        // Apply aggressive contrast enhancement using power curve
+        // Exponent of 0.4 creates dramatic differences between quiet and loud sections
+        // (lower exponent = more extreme contrast, similar to Plexamp)
+        let contrastExponent = 0.4
+        let enhanced = normalized.map { pow($0, contrastExponent) }
+        
+        // Map to 0.2-1.0 range for maximum visual impact
+        // Lower floor allows for more dramatic height variation
+        return enhanced.map { 0.2 + ($0 * 0.8) }
+    }
+    
+    /// Generate fallback pseudo-random waveform when Plex data is unavailable
+    private func generateFallbackWaveform(for ratingKey: String) -> [Double] {
         // Simple seeded random to make it consistent for the same track
         var seed = UInt64(truncatingIfNeeded: Int64(ratingKey.hashValue))
         func nextRandom() -> Double {
@@ -220,29 +275,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return Double(seed >> 32) / Double(UInt32.max)
         }
         
-        // Increased sample count for more detail (40 -> 120)
+        // Generate ~120 samples for detail
         let count = 120
         var heights: [Double] = []
         
-        // Generate a more complex "realistic" shape with multiple peaks
+        // Generate a dramatic waveform with extreme variation (Plexamp-style)
         for i in 0..<count {
             let progress = Double(i) / Double(count)
             
-            // Create multiple peaks throughout the track
+            // Create multiple peaks throughout the track with more variation
             let primaryWave = sin(progress * .pi) // Main envelope
-            let secondaryWave = sin(progress * .pi * 3) * 0.3 // Add variation
-            let tertiaryWave = sin(progress * .pi * 7) * 0.15 // Add micro variation
+            let secondaryWave = sin(progress * .pi * 3) * 0.4 // Add variation
+            let tertiaryWave = sin(progress * .pi * 7) * 0.2 // Add micro variation
             
             let envelope = primaryWave + secondaryWave + tertiaryWave
             
-            let base = 0.25 + (0.45 * envelope)
-            let variance = 0.25 * nextRandom()
+            // Create dramatic height differences
+            let base = 0.5 + (0.4 * envelope)
+            let variance = 0.3 * nextRandom() // Increased variance for more drama
             
-            heights.append(max(0.1, min(1.0, base + variance)))
+            // Apply power curve for contrast similar to real data
+            let raw = max(0.0, min(1.0, base + variance))
+            let enhanced = pow(raw, 0.5) // Contrast enhancement
+            
+            heights.append(0.2 + (enhanced * 0.8)) // Match real data range
         }
         
-        print("🎵 Generated \(heights.count) waveform samples")
-        self.waveformHeights = heights
+        return heights
     }
 
     // MARK: - Audio Session
