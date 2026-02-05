@@ -336,6 +336,33 @@ public final class SyncCoordinator: ObservableObject {
         
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
     }
+
+    /// Get tracks for an album from the music source
+    public func getAlbumTracks(albumId: String, sourceKey: String) async throws -> [Track] {
+        guard let provider = syncProviders[sourceKey] else {
+            throw PlexAPIError.noServerSelected
+        }
+        
+        return try await provider.getAlbumTracks(albumKey: albumId)
+    }
+
+    /// Get albums for an artist from the music source
+    public func getArtistAlbums(artistId: String, sourceKey: String) async throws -> [Album] {
+        guard let provider = syncProviders[sourceKey] else {
+            throw PlexAPIError.noServerSelected
+        }
+        
+        return try await provider.getArtistAlbums(artistKey: artistId)
+    }
+
+    /// Get all tracks for an artist from the music source
+    public func getArtistTracks(artistId: String, sourceKey: String) async throws -> [Track] {
+        guard let provider = syncProviders[sourceKey] else {
+            throw PlexAPIError.noServerSelected
+        }
+        
+        return try await provider.getArtistTracks(artistKey: artistId)
+    }
     
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {

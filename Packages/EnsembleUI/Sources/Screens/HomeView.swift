@@ -187,28 +187,39 @@ struct HubItemCard: View {
                 ArtworkView(
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
+                    ratingKey: item.id,
                     size: .medium,
-                    cornerRadius: 8
+                    cornerRadius: item.type == "artist" ? 80 : 8
                 )
                 .frame(width: 160, height: 160)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
-                // Title
-                Text(item.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
-                    .frame(width: 160, alignment: .leading)
-                
-                // Subtitle
-                if let subtitle = item.subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .frame(width: 160, alignment: .leading)
+                VStack(alignment: item.type == "artist" ? .center : .leading, spacing: 2) {
+                    // Title
+                    Text(item.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                        .foregroundColor(.primary)
+                        .multilineTextAlignment(item.type == "artist" ? .center : .leading)
+                    
+                    // Subtitle (Artist or Album name)
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .multilineTextAlignment(item.type == "artist" ? .center : .leading)
+                    }
+                    
+                    // Extra info for albums (Year)
+                    if item.type == "album", let year = item.year {
+                        Text(String(year))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .frame(width: 160, alignment: item.type == "artist" ? .center : .leading)
             }
         }
         .buttonStyle(.plain)

@@ -12,14 +12,17 @@ public final class ArtistDetailViewModel: ObservableObject {
     @Published public var filterOptions: FilterOptions
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         artist: Artist,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.artist = artist
         self.libraryRepository = libraryRepository
+        self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "ArtistDetail")
         
         // Save filter options when they change
@@ -39,8 +42,15 @@ public final class ArtistDetailViewModel: ObservableObject {
 
         do {
             let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
-            albums = cachedAlbums.map { Album(from: $0) }
+            if !cachedAlbums.isEmpty {
+                albums = cachedAlbums.map { Album(from: $0) }
+            } else if let sourceKey = artist.sourceCompositeKey {
+                print("👨‍🎤 ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
+                let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                albums = apiAlbums
+            }
         } catch {
+            print("❌ ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
             self.error = error.localizedDescription
         }
 
@@ -50,8 +60,15 @@ public final class ArtistDetailViewModel: ObservableObject {
     public func loadTracks() async {
         do {
             let cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
-            tracks = cachedTracks.map { Track(from: $0) }
+            if !cachedTracks.isEmpty {
+                tracks = cachedTracks.map { Track(from: $0) }
+            } else if let sourceKey = artist.sourceCompositeKey {
+                print("👨‍🎤 ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
+                tracks = apiTracks
+            }
         } catch {
+            print("❌ ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
             self.error = error.localizedDescription
         }
     }

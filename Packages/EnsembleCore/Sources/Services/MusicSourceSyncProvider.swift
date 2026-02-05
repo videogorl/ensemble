@@ -25,4 +25,13 @@ public protocol MusicSourceSyncProvider: Sendable {
     
     /// Rate a track (0-10)
     func rateTrack(ratingKey: String, rating: Int?) async throws
+
+    /// Get tracks for an album directly from the source
+    func getAlbumTracks(albumKey: String) async throws -> [Track]
+
+    /// Get albums for an artist directly from the source
+    func getArtistAlbums(artistKey: String) async throws -> [Album]
+
+    /// Get all tracks for an artist directly from the source
+    func getArtistTracks(artistKey: String) async throws -> [Track]
 }

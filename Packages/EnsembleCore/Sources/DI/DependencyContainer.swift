@@ -138,7 +138,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeArtistDetailViewModel(artist: Artist) -> ArtistDetailViewModel {
         ArtistDetailViewModel(
             artist: artist,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 
@@ -146,7 +147,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeAlbumDetailViewModel(album: Album) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
             album: album,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 

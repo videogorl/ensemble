@@ -196,4 +196,19 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     public func rateTrack(ratingKey: String, rating: Int?) async throws {
         try await apiClient.rateTrack(ratingKey: ratingKey, rating: rating)
     }
+
+    public func getAlbumTracks(albumKey: String) async throws -> [Track] {
+        let plexTracks = try await apiClient.getAlbumTracks(albumKey: albumKey)
+        return plexTracks.map { Track(from: $0) }
+    }
+
+    public func getArtistAlbums(artistKey: String) async throws -> [Album] {
+        let plexAlbums = try await apiClient.getArtistAlbums(artistKey: artistKey)
+        return plexAlbums.map { Album(from: $0) }
+    }
+
+    public func getArtistTracks(artistKey: String) async throws -> [Track] {
+        let plexTracks = try await apiClient.getArtistTracks(artistKey: artistKey)
+        return plexTracks.map { Track(from: $0) }
+    }
 }

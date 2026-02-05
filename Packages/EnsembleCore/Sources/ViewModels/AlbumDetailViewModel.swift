@@ -27,14 +27,17 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public var filterOptions: FilterOptions
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         album: Album,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.album = album
         self.libraryRepository = libraryRepository
+        self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
         
         // Save filter options when they change
@@ -53,9 +56,19 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         error = nil
 
         do {
+            // First try to fetch from local repository
             let cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
-            tracks = cachedTracks.map { Track(from: $0) }
+            
+            if !cachedTracks.isEmpty {
+                tracks = cachedTracks.map { Track(from: $0) }
+            } else if let sourceKey = album.sourceCompositeKey {
+                // If not found and we have a source key, try to fetch from API
+                print("💿 AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
+                tracks = apiTracks
+            }
         } catch {
+            print("❌ AlbumDetailViewModel error: \(error.localizedDescription)")
             self.error = error.localizedDescription
         }
 

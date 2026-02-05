@@ -265,7 +265,9 @@ public struct MainTabView: View {
                     ArtistDetailView(
                         artist: artist,
                         nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { _ in }
+                        onAlbumTap: { album in
+                            deps.navigationCoordinator.navigateToAlbum(album)
+                        }
                     )
                 case .album(let album):
                     AlbumDetailView(
@@ -446,7 +448,9 @@ public struct SidebarView: View {
                     ArtistDetailView(
                         artist: artist,
                         nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { _ in }
+                        onAlbumTap: { album in
+                            deps.navigationCoordinator.navigateToAlbum(album)
+                        }
                     )
                 case .album(let album):
                     AlbumDetailView(
