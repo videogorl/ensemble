@@ -52,6 +52,7 @@ public struct NowPlayingView: View {
                             queueSection(geometry: geometry)
                         }
                     }
+                    .frame(width: geometry.size.width)
                 } else {
                     emptyStateView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,6 +199,7 @@ public struct NowPlayingView: View {
                         .contentShape(Rectangle())
                 }
                 .frame(height: 24)
+                .clipped()
                 .onAppear {
                     sliderWidth = geometry.size.width
                 }
