@@ -108,7 +108,7 @@ struct SourceStatusRow: View {
 
     @ViewBuilder
     private var statusView: some View {
-        switch status {
+        switch status.syncStatus {
         case .idle:
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
@@ -169,7 +169,7 @@ struct SourceStatusRow: View {
 
 extension MusicSourceStatus {
     var isSyncing: Bool {
-        if case .syncing = self {
+        if case .syncing = syncStatus {
             return true
         }
         return false

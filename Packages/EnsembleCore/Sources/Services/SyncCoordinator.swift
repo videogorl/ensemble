@@ -8,8 +8,11 @@ import Foundation
 public final class SyncCoordinator: ObservableObject {
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
+    @Published public private(set) var isOffline = false
 
     public let accountManager: AccountManager
+    public let networkMonitor: NetworkMonitor
+    public let serverHealthChecker: ServerHealthChecker
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -20,12 +23,19 @@ public final class SyncCoordinator: ObservableObject {
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        artworkDownloadManager: ArtworkDownloadManagerProtocol
+        artworkDownloadManager: ArtworkDownloadManagerProtocol,
+        networkMonitor: NetworkMonitor,
+        serverHealthChecker: ServerHealthChecker
     ) {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.artworkDownloadManager = artworkDownloadManager
+        self.networkMonitor = networkMonitor
+        self.serverHealthChecker = serverHealthChecker
+
+        // Observe network state changes
+        setupNetworkMonitoring()
     }
 
     /// Rebuild sync providers from current account configuration
@@ -57,11 +67,16 @@ public final class SyncCoordinator: ObservableObject {
                     // Initialize status with last sync timestamp if available
                     if sourceStatuses[sourceId] == nil {
                         Task {
+                            let syncStatus: MusicSourceStatus.SyncStatus
                             if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
-                                sourceStatuses[sourceId] = .lastSynced(lastSyncDate)
+                                syncStatus = .lastSynced(lastSyncDate)
                             } else {
-                                sourceStatuses[sourceId] = .idle
+                                syncStatus = .idle
                             }
+                            sourceStatuses[sourceId] = MusicSourceStatus(
+                                syncStatus: syncStatus,
+                                connectionState: .unknown
+                            )
                         }
                     }
                 }
@@ -94,7 +109,12 @@ public final class SyncCoordinator: ObservableObject {
 
         for (_, provider) in syncProviders {
             let sourceId = provider.sourceIdentifier
-            sourceStatuses[sourceId] = .syncing(progress: 0)
+            let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+            
+            sourceStatuses[sourceId] = MusicSourceStatus(
+                syncStatus: .syncing(progress: 0),
+                connectionState: currentConnectionState
+            )
 
             do {
                 // Sync library content (artists, albums, tracks, genres)
@@ -102,8 +122,13 @@ public final class SyncCoordinator: ObservableObject {
                     to: libraryRepository,
                     progressHandler: { [weak self] progress in
                         Task { @MainActor in
+                            guard let self = self else { return }
+                            let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
                             // Library sync takes up 70% of the progress
-                            self?.sourceStatuses[sourceId] = .syncing(progress: progress * 0.7)
+                            self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                syncStatus: .syncing(progress: progress * 0.7),
+                                connectionState: connState
+                            )
                         }
                     }
                 )
@@ -119,16 +144,27 @@ public final class SyncCoordinator: ObservableObject {
                         to: playlistRepository,
                         progressHandler: { [weak self] progress in
                             Task { @MainActor in
+                                guard let self = self else { return }
+                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
                                 // Playlist sync takes up the remaining 20%
-                                self?.sourceStatuses[sourceId] = .syncing(progress: 0.8 + (progress * 0.2))
+                                self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                    syncStatus: .syncing(progress: 0.8 + (progress * 0.2)),
+                                    connectionState: connState
+                                )
                             }
                         }
                     )
                 }
                 
-                sourceStatuses[sourceId] = .lastSynced(Date())
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .lastSynced(Date()),
+                    connectionState: currentConnectionState
+                )
             } catch {
-                sourceStatuses[sourceId] = .error(error.localizedDescription)
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .error(error.localizedDescription),
+                    connectionState: currentConnectionState
+                )
             }
         }
     }
@@ -137,7 +173,12 @@ public final class SyncCoordinator: ObservableObject {
     public func sync(source: MusicSourceIdentifier) async {
         guard let provider = syncProviders[source.compositeKey] else { return }
 
-        sourceStatuses[source] = .syncing(progress: 0)
+        let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
+        
+        sourceStatuses[source] = MusicSourceStatus(
+            syncStatus: .syncing(progress: 0),
+            connectionState: currentConnectionState
+        )
 
         do {
             // Sync library content
@@ -145,8 +186,13 @@ public final class SyncCoordinator: ObservableObject {
                 to: libraryRepository,
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
                         // Library sync takes up 80% of the progress
-                        self?.sourceStatuses[source] = .syncing(progress: progress * 0.8)
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: progress * 0.8),
+                            connectionState: connState
+                        )
                     }
                 }
             )
@@ -156,15 +202,26 @@ public final class SyncCoordinator: ObservableObject {
                 to: playlistRepository,
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
                         // Playlist sync takes up the remaining 20%
-                        self?.sourceStatuses[source] = .syncing(progress: 0.8 + (progress * 0.2))
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: 0.8 + (progress * 0.2)),
+                            connectionState: connState
+                        )
                     }
                 }
             )
             
-            sourceStatuses[source] = .lastSynced(Date())
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .lastSynced(Date()),
+                connectionState: currentConnectionState
+            )
         } catch {
-            sourceStatuses[source] = .error(error.localizedDescription)
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .error(error.localizedDescription),
+                connectionState: currentConnectionState
+            )
         }
     }
 
@@ -223,7 +280,11 @@ public final class SyncCoordinator: ObservableObject {
             for (index, album) in sourceAlbums.enumerated() {
                 // Update progress (artwork caching is 10% of total, happens at 70-80%)
                 let artworkProgress = 0.7 + (0.1 * Double(index) / Double(max(sourceAlbums.count, 1)))
-                sourceStatuses[sourceId] = .syncing(progress: artworkProgress)
+                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: artworkProgress),
+                    connectionState: currentConnectionState
+                )
                 
                 // Skip if already cached
                 if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
@@ -254,6 +315,74 @@ public final class SyncCoordinator: ObservableObject {
             print("✅ Cached \(cachedCount) album artworks")
         } catch {
             print("❌ Failed to cache artwork: \(error)")
+        }
+    }
+    
+    // MARK: - Network Monitoring
+    
+    /// Set up observation of network state changes
+    private func setupNetworkMonitoring() {
+        networkMonitor.$networkState
+            .sink { [weak self] state in
+                Task { @MainActor [weak self] in
+                    await self?.handleNetworkChange(state)
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    /// Handle network state changes
+    private func handleNetworkChange(_ state: NetworkState) async {
+        print("🌐 SyncCoordinator: Network state changed to \(state.description)")
+        
+        switch state {
+        case .online:
+            isOffline = false
+            // Check server health when coming back online
+            await serverHealthChecker.checkAllServers()
+            updateSourceConnectionStates()
+            
+        case .offline, .limited:
+            isOffline = true
+            updateSourceConnectionStates()
+            
+        case .unknown:
+            break
+        }
+    }
+    
+    /// Update source statuses with current connection states from health checker
+    private func updateSourceConnectionStates() {
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                for library in server.libraries where library.isEnabled {
+                    let sourceId = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    )
+                    
+                    // Get connection state from health checker
+                    let connectionState = serverHealthChecker.getServerState(
+                        accountId: account.id,
+                        serverId: server.id
+                    )
+                    
+                    // Update status preserving sync state
+                    if let currentStatus = sourceStatuses[sourceId] {
+                        sourceStatuses[sourceId] = MusicSourceStatus(
+                            syncStatus: currentStatus.syncStatus,
+                            connectionState: connectionState
+                        )
+                    } else {
+                        sourceStatuses[sourceId] = MusicSourceStatus(
+                            syncStatus: .idle,
+                            connectionState: connectionState
+                        )
+                    }
+                }
+            }
         }
     }
 }

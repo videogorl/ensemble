@@ -27,6 +27,8 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Services
 
+    nonisolated(unsafe) public let networkMonitor: NetworkMonitor
+    nonisolated(unsafe) public let serverHealthChecker: ServerHealthChecker
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
     nonisolated(unsafe) public let settingsManager: SettingsManager
@@ -62,12 +64,26 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         accountManager = am
 
+        // Network monitoring (must be created before SyncCoordinator)
+        let nm = MainActor.assumeIsolated {
+            NetworkMonitor()
+        }
+        networkMonitor = nm
+
+        // Server health checking (must be created before SyncCoordinator)
+        let shc = MainActor.assumeIsolated {
+            ServerHealthChecker(accountManager: am)
+        }
+        serverHealthChecker = shc
+
         syncCoordinator = MainActor.assumeIsolated {
             SyncCoordinator(
                 accountManager: am,
                 libraryRepository: libraryRef,
                 playlistRepository: playlistRef,
-                artworkDownloadManager: artworkDownloadRef
+                artworkDownloadManager: artworkDownloadRef,
+                networkMonitor: nm,
+                serverHealthChecker: shc
             )
         }
 

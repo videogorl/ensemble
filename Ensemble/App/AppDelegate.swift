@@ -1,5 +1,6 @@
 import AVFoundation
 import UIKit
+import EnsembleCore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -8,6 +9,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // Configure audio session for background playback
         configureAudioSession()
+        
+        // Start network monitoring
+        Task { @MainActor in
+            DependencyContainer.shared.networkMonitor.startMonitoring()
+        }
+        
         return true
     }
 
@@ -31,5 +38,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) {
         // Handle background download completion
         completionHandler()
+    }
+    
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Stop network monitoring to save battery
+        Task { @MainActor in
+            DependencyContainer.shared.networkMonitor.stopMonitoring()
+        }
+    }
+    
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        // Resume network monitoring when app returns to foreground
+        Task { @MainActor in
+            DependencyContainer.shared.networkMonitor.startMonitoring()
+        }
     }
 }

@@ -43,6 +43,6 @@ public final class SyncPanelViewModel: ObservableObject {
     }
 
     public func statusFor(_ source: MusicSource) -> MusicSourceStatus {
-        sourceStatuses[source.id] ?? .idle
+        sourceStatuses[source.id] ?? MusicSourceStatus()
     }
 }

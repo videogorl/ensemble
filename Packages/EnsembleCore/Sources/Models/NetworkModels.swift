@@ -8,7 +8,7 @@ public enum NetworkState: Equatable, Sendable {
     case online(NetworkType)
     case limited              // Captive portal or restricted connectivity
     case offline
-    
+
     /// Whether the device has any network connectivity
     public var isConnected: Bool {
         switch self {
@@ -18,7 +18,7 @@ public enum NetworkState: Equatable, Sendable {
             return false
         }
     }
-    
+
     /// User-facing description of the network state
     public var description: String {
         switch self {
@@ -42,7 +42,7 @@ public enum NetworkType: Equatable, Sendable {
     case cellular
     case wired               // Ethernet (macOS)
     case other
-    
+
     public var description: String {
         switch self {
         case .wifi:
@@ -66,7 +66,7 @@ public enum ServerConnectionState: Equatable, Sendable {
     case connecting
     case degraded(url: String)     // Connected but experiencing errors
     case offline
-    
+
     /// Whether the server is reachable
     public var isAvailable: Bool {
         switch self {
@@ -76,7 +76,7 @@ public enum ServerConnectionState: Equatable, Sendable {
             return false
         }
     }
-    
+
     /// The currently active connection URL (if any)
     public var activeURL: String? {
         switch self {
@@ -86,7 +86,7 @@ public enum ServerConnectionState: Equatable, Sendable {
             return nil
         }
     }
-    
+
     /// User-facing description of the connection state
     public var description: String {
         switch self {
@@ -102,7 +102,7 @@ public enum ServerConnectionState: Equatable, Sendable {
             return "Offline"
         }
     }
-    
+
     /// Color indicator for UI display
     public var statusColor: StatusColor {
         switch self {

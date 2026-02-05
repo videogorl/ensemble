@@ -32,11 +32,37 @@ public struct MusicSourceIdentifier: Hashable, Codable, Sendable, Identifiable {
 
 // MARK: - Music Source Status
 
-public enum MusicSourceStatus: Sendable {
-    case idle
-    case syncing(progress: Double)
-    case error(String)
-    case lastSynced(Date)
+/// Combined sync and connection status for a music source
+public struct MusicSourceStatus: Sendable, Equatable {
+    public let syncStatus: SyncStatus
+    public let connectionState: ServerConnectionState
+
+    public init(syncStatus: SyncStatus = .idle, connectionState: ServerConnectionState = .unknown) {
+        self.syncStatus = syncStatus
+        self.connectionState = connectionState
+    }
+
+    /// Sync operation status (independent of connection state)
+    public enum SyncStatus: Equatable, Sendable {
+        case idle
+        case syncing(progress: Double)
+        case error(String)
+        case lastSynced(Date)
+    }
+
+    /// Overall availability - true if both connected and not in error state
+    public var isAvailable: Bool {
+        connectionState.isAvailable && !syncStatus.isError
+    }
+}
+
+extension MusicSourceStatus.SyncStatus {
+    public var isError: Bool {
+        if case .error = self {
+            return true
+        }
+        return false
+    }
 }
 
 // MARK: - Music Source
@@ -53,7 +79,7 @@ public struct MusicSource: Identifiable, Sendable {
         displayName: String,
         accountName: String,
         sourceType: MusicSourceType,
-        status: MusicSourceStatus = .idle
+        status: MusicSourceStatus = MusicSourceStatus()
     ) {
         self.id = id
         self.displayName = displayName
