@@ -239,7 +239,7 @@ Sources/
 │   ├── AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 │   ├── AlbumCard.swift               # Grid card for albums
 │   ├── ArtistCard.swift              # Grid card for artists
-│   ├── ArtworkColorExtractor.swift   # Actor-based gradient color extraction from artwork
+│   ├── BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
 │   ├── ArtworkView.swift             # Lazy-loading artwork with Nuke
 │   ├── ConnectionStatusBanner.swift  # Network status UI indicator
 │   ├── EmptyLibraryView.swift        # Empty state with sync prompt
@@ -315,7 +315,7 @@ Tests/
   - Home screen loading debouncing (2s) to prevent rapid reloads
   - Delayed network monitor start (500ms) to avoid blocking app launch
   - Task.detached for non-blocking background work
-  - Actor-based artwork color extraction for thread safety
+  - Blurred artwork background for efficient and beautiful visuals (replaces complex color extraction)
 
 ### Artwork Caching System
 

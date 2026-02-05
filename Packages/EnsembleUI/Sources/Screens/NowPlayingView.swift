@@ -11,7 +11,7 @@ public struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
-    @State private var gradientColors: ArtworkColorExtractor.GradientColors?
+    @State private var artworkImage: UIImage?
     
     // Long-press seek state
     @State private var seekTimer: Timer?
@@ -67,12 +67,12 @@ public struct NowPlayingView: View {
             #endif
             .onChange(of: viewModel.currentTrack) { newTrack in
                 if let track = newTrack {
-                    loadArtworkColors(for: track)
+                    loadArtworkImage(for: track)
                 }
             }
             .onAppear {
                 if let track = viewModel.currentTrack {
-                    loadArtworkColors(for: track)
+                    loadArtworkImage(for: track)
                 }
             }
         }
@@ -80,29 +80,7 @@ public struct NowPlayingView: View {
 
     // Fixed background gradient
     private var backgroundGradientView: some View {
-        Group {
-            if let colors = gradientColors {
-                ZStack {
-                    LinearGradient(
-                        colors: [colors.accent, colors.secondary],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    
-                    // Dimming overlay: heavier if colors are bright to maintain control visibility
-                    Color.black.opacity(colors.isLight ? 0.5 : 0.3)
-                }
-                .ignoresSafeArea()
-            } else {
-                #if canImport(UIKit)
-                Color(.systemBackground)
-                    .ignoresSafeArea()
-                #else
-                Color(NSColor.windowBackgroundColor)
-                    .ignoresSafeArea()
-                #endif
-            }
-        }
+        BlurredArtworkBackground(image: artworkImage)
     }
 
     // Now Playing content with new layout
@@ -524,28 +502,22 @@ public struct NowPlayingView: View {
         }
     }
     
-    // Helper: Load artwork colors for gradient background
-    private func loadArtworkColors(for track: Track) {
+    // Helper: Load artwork image for blurred background
+    private func loadArtworkImage(for track: Track) {
         Task {
             // Get artwork URL
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
-                size: 300
+                size: 600 // Use slightly larger size for background
             ) {
                 // Load image
                 let request = ImageRequest(url: artworkURL)
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                    // Extract colors
-                    let colors = await ArtworkColorExtractor.extractColors(
-                        from: uiImage,
-                        cacheKey: track.id
-                    )
-                    
                     await MainActor.run {
                         withAnimation(.easeInOut(duration: 0.5)) {
-                            self.gradientColors = colors
+                            self.artworkImage = uiImage
                         }
                     }
                 }

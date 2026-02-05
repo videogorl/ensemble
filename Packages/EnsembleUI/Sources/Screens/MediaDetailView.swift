@@ -38,7 +38,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showTrackNumbers: Bool
     let groupByDisc: Bool
     
-    @State private var gradientColors: ArtworkColorExtractor.GradientColors?
+    @State private var artworkImage: UIImage?
     @Environment(\.dependencies) private var deps
 
     public init(
@@ -94,39 +94,41 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .task {
             await viewModel.loadTracks()
             if let path = headerData.artworkPath {
-                await loadArtworkColors(path: path, sourceKey: headerData.sourceKey)
+                await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
         }
     }
     
     private var backgroundGradient: some View {
-        Group {
-            if let colors = gradientColors {
-                LinearGradient(
-                    colors: [colors.accent.opacity(0.4), colors.accent.opacity(0.0)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 400)
-            }
-        }
+        BlurredArtworkBackground(
+            image: artworkImage,
+            topDimming: 0.1,
+            bottomDimming: 0.4
+        )
+        .mask(
+            LinearGradient(
+                colors: [.white, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .frame(height: 500)
     }
     
-    private func loadArtworkColors(path: String, sourceKey: String?) async {
+    private func loadArtworkImage(path: String, sourceKey: String?) async {
         let cacheKey = path
         
         if let url = await deps.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
             ratingKey: cacheKey,
-            size: 300
+            size: 600
         ) {
             let request = ImageRequest(url: url)
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                let colors = await ArtworkColorExtractor.extractColors(from: uiImage, cacheKey: cacheKey)
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.5)) {
-                        self.gradientColors = colors
+                        self.artworkImage = uiImage
                     }
                 }
             }

@@ -202,7 +202,7 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @State private var isBioExpanded = false
-    @State private var gradientColors: ArtworkColorExtractor.GradientColors?
+    @State private var artworkImage: UIImage?
 
     public init(
         artist: Artist,
@@ -256,36 +256,38 @@ public struct ArtistDetailView: View {
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
-            await loadArtworkColors()
+            await loadArtworkImage()
         }
     }
     
     private var backgroundGradient: some View {
-        Group {
-            if let colors = gradientColors {
-                LinearGradient(
-                    colors: [colors.accent.opacity(0.4), colors.accent.opacity(0.0)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 600)
-            }
-        }
+        BlurredArtworkBackground(
+            image: artworkImage,
+            topDimming: 0.1,
+            bottomDimming: 0.4
+        )
+        .mask(
+            LinearGradient(
+                colors: [.white, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .frame(height: 600)
     }
     
-    private func loadArtworkColors() async {
+    private func loadArtworkImage() async {
         if let url = await dependencies.artworkLoader.artworkURLAsync(
             for: viewModel.artist.thumbPath,
             sourceKey: viewModel.artist.sourceCompositeKey,
             ratingKey: viewModel.artist.id,
-            size: 300
+            size: 600
         ) {
             let request = ImageRequest(url: url)
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                let colors = await ArtworkColorExtractor.extractColors(from: uiImage, cacheKey: viewModel.artist.id)
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.5)) {
-                        self.gradientColors = colors
+                        self.artworkImage = uiImage
                     }
                 }
             }
