@@ -14,7 +14,6 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var showingDetailView = false
-    @State private var hasRestoredTab = false
     
     // IDs to trigger pop-to-root by resetting NavigationViews
     @State private var tabRootIDs: [TabItem: Int] = [:]
@@ -92,17 +91,6 @@ public struct MainTabView: View {
                     UITabBar.appearance().standardAppearance = appearance
                     UITabBar.appearance().scrollEdgeAppearance = appearance
                     #endif
-                    
-                    // Restore selected tab on first appear
-                    if !hasRestoredTab {
-                        if let restoredTab = TabItem(rawValue: settingsManager.selectedTab),
-                           barTabs.contains(restoredTab) || restoredTab == .settings {
-                            selectedTab = restoredTab
-                        } else if !barTabs.contains(.home) {
-                            selectedTab = barTabs.first ?? .settings
-                        }
-                        hasRestoredTab = true
-                    }
                 }
 
                 // Sliding detail view overlay
@@ -147,9 +135,6 @@ public struct MainTabView: View {
             }
         }
         .onChange(of: selectedTab) { newTab in
-            // Save selected tab
-            settingsManager.selectedTab = newTab.rawValue
-            
             // Dismiss detail view when switching tabs
             if showingDetailView {
                 dismissDetailView()

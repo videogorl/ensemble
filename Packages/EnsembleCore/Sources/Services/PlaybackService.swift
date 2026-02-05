@@ -843,8 +843,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     /// Save playback state to UserDefaults
     private func savePlaybackState() {
+        print("💾 savePlaybackState() called, queue.count: \(queue.count)")
+        
         guard !queue.isEmpty else {
             // Clear saved state if queue is empty
+            print("💾 Queue is empty, clearing saved state")
             UserDefaults.standard.removeObject(forKey: queueKey)
             UserDefaults.standard.removeObject(forKey: currentIndexKey)
             UserDefaults.standard.removeObject(forKey: currentTimeKey)
@@ -852,19 +855,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         
         let tracks = queue.map { $0.track }
+        print("💾 Encoding \(tracks.count) tracks, current index: \(currentQueueIndex), time: \(currentTime)s")
+        
         if let encoded = try? JSONEncoder().encode(tracks) {
+            print("💾 Successfully encoded \(encoded.count) bytes")
             UserDefaults.standard.set(encoded, forKey: queueKey)
             UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
             UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
+            print("💾 Saved to UserDefaults")
+        } else {
+            print("💾 Failed to encode tracks")
         }
     }
     
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
-        guard let data = UserDefaults.standard.data(forKey: queueKey),
-              let tracks = try? JSONDecoder().decode([Track].self, from: data),
-              !tracks.isEmpty else {
-            print("🔄 No playback state to restore")
+        print("🔄 restorePlaybackState() called")
+        
+        // Check if data exists
+        let hasData = UserDefaults.standard.data(forKey: queueKey) != nil
+        print("🔄 Queue data exists: \(hasData)")
+        
+        guard let data = UserDefaults.standard.data(forKey: queueKey) else {
+            print("🔄 No queue data found in UserDefaults")
+            return
+        }
+        
+        print("🔄 Found queue data, size: \(data.count) bytes")
+        
+        guard let tracks = try? JSONDecoder().decode([Track].self, from: data) else {
+            print("🔄 Failed to decode tracks from saved data")
+            return
+        }
+        
+        print("🔄 Decoded \(tracks.count) tracks")
+        
+        guard !tracks.isEmpty else {
+            print("🔄 Track array is empty")
             return
         }
         
@@ -872,17 +899,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let time = UserDefaults.standard.double(forKey: currentTimeKey)
         
         print("🔄 Restoring playback state: \(tracks.count) tracks, index: \(index), time: \(time)s")
+        print("🔄 First track: \(tracks[0].title)")
         
         // Restore queue
+        print("🔄 Calling play() to restore queue...")
         await play(tracks: tracks, startingAt: index)
+        print("🔄 Queue restored")
         
         // Seek to saved position
         await MainActor.run {
+            print("🔄 Seeking to position and pausing...")
             if time > 0 {
                 seek(to: time)
             }
             // Start paused, let user resume
             pause()
+            print("🔄 Restoration complete - paused at \(time)s")
         }
     }
 }
