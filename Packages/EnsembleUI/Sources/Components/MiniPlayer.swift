@@ -227,6 +227,8 @@ public struct MiniPlayer: View {
         let trackID = track.id
         currentLoadTrackID = trackID
         
+        print("🎨 MiniPlayer: Loading artwork for \(track.title)")
+        
         Task {
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
@@ -236,10 +238,12 @@ public struct MiniPlayer: View {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 200
             ) {
+                print("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
                 let request = ImageRequest(url: artworkURL)
                 
                 // Try synchronous cache lookup first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    print("🎨 MiniPlayer: Using cached image for \(track.title)")
                     await MainActor.run {
                         if self.currentLoadTrackID == trackID {
                             self.artworkImage = cachedImage.image
@@ -249,7 +253,9 @@ public struct MiniPlayer: View {
                 }
                 
                 // Load asynchronously if not cached
+                print("🎨 MiniPlayer: Loading from network for \(track.title)")
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                    print("🎨 MiniPlayer: Loaded image for \(track.title)")
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
@@ -260,7 +266,11 @@ public struct MiniPlayer: View {
                             }
                         }
                     }
+                } else {
+                    print("🎨 MiniPlayer: Failed to load image for \(track.title)")
                 }
+            } else {
+                print("🎨 MiniPlayer: No artwork URL for \(track.title)")
             }
         }
     }

@@ -85,14 +85,19 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Determine which path and ratingKey to use
         let actualPath: String?
         let actualRatingKey: String?
+        let usedFallback: Bool
         
         if path != nil && !path!.isEmpty {
             actualPath = path
             actualRatingKey = ratingKey
+            usedFallback = false
         } else if fallbackPath != nil && !fallbackPath!.isEmpty {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
+            usedFallback = true
+            print("🔄 ArtworkLoader[\(size)]: Using fallback - track:\(ratingKey ?? "nil") → album:\(fallbackRatingKey ?? "nil") path:\(fallbackPath ?? "nil")")
         } else {
+            print("❌ ArtworkLoader[\(size)]: No artwork - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             return nil
         }
         
@@ -104,19 +109,31 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             let albumFilename = "\(key)_album.jpg"
             let albumPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
             if FileManager.default.fileExists(atPath: albumPath) {
-                return URL(fileURLWithPath: albumPath)
+                let url = URL(fileURLWithPath: albumPath)
+                print("📦 ArtworkLoader[\(size)]: Local file - ratingKey:\(key) file:\(albumFilename)")
+                return url
             }
             
             // Try artist artwork cache
             let artistFilename = "\(key)_artist.jpg"
             let artistPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
             if FileManager.default.fileExists(atPath: artistPath) {
-                return URL(fileURLWithPath: artistPath)
+                let url = URL(fileURLWithPath: artistPath)
+                print("📦 ArtworkLoader[\(size)]: Local file - ratingKey:\(key) file:\(artistFilename)")
+                return url
             }
         }
         
         // Fall back to network
-        return try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: size)
+        let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: size)
+        if let url = networkURL {
+            if usedFallback {
+                print("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")
+            } else {
+                print("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
+            }
+        }
+        return networkURL
     }
     
     // MARK: - Pre-downloading
