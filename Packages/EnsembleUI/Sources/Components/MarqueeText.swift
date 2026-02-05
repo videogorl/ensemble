@@ -86,6 +86,7 @@ public struct MarqueeText: View {
                             .lineLimit(1)
                     }
                 }
+                .frame(width: containerWidth > 0 ? containerWidth : nil, alignment: .leading)
                 .mask(
                     HStack(spacing: 0) {
                         if textWidth > containerWidth {
