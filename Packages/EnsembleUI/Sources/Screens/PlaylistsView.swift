@@ -156,7 +156,8 @@ public struct PlaylistDetailView: View {
             subtitle: playlist.summary,
             metadataLine: metadataParts.joined(separator: " · "),
             artworkPath: playlist.compositePath,
-            sourceKey: playlist.sourceCompositeKey
+            sourceKey: playlist.sourceCompositeKey,
+            ratingKey: playlist.id
         )
     }
 }

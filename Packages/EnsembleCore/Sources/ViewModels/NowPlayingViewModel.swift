@@ -306,36 +306,21 @@ public final class NowPlayingViewModel: ObservableObject {
             
             // Send to server
             do {
-                // Parse source composite key to get API client
-                if let sourceKey = track.sourceCompositeKey {
-                    let components = sourceKey.split(separator: ":")
-                    if components.count >= 3 {
-                        let accountId = String(components[1])
-                        let serverId = String(components[2])
-                        
-                        // Get API client from account manager
-                        if let apiClient = syncCoordinator.accountManager.makeAPIClient(
-                            accountId: accountId,
-                            serverId: serverId
-                        ) {
-                            try await apiClient.rateTrack(
-                                ratingKey: track.id,
-                                rating: newRating.plexRating
-                            )
-                            
-                            // Update in CoreData
-                            try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
-                            
-                            // Refresh the track to get updated data
-                            if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
-                                let refreshedTrack = Track(from: updatedTrack)
-                                await MainActor.run {
-                                    // Update currentTrack if it's still the same track
-                                    if self.currentTrack?.id == track.id {
-                                        self.currentTrack = refreshedTrack
-                                    }
-                                }
-                            }
+                try await syncCoordinator.rateTrack(
+                    track: track,
+                    rating: newRating.plexRating
+                )
+                
+                // Update in CoreData
+                try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
+                
+                // Refresh the track to get updated data
+                if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
+                    let refreshedTrack = Track(from: updatedTrack)
+                    await MainActor.run {
+                        // Update currentTrack if it's still the same track
+                        if self.currentTrack?.id == track.id {
+                            self.currentTrack = refreshedTrack
                         }
                     }
                 }

@@ -253,7 +253,8 @@ public struct AlbumDetailView: View {
             subtitle: album.artistName,
             metadataLine: metadataParts.joined(separator: " · "),
             artworkPath: album.thumbPath,
-            sourceKey: album.sourceCompositeKey
+            sourceKey: album.sourceCompositeKey,
+            ratingKey: album.id
         )
     }
 }

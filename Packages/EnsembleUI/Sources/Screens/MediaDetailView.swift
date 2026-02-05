@@ -10,19 +10,22 @@ public struct MediaHeaderData {
     let metadataLine: String
     let artworkPath: String?
     let sourceKey: String?
+    let ratingKey: String?
 
     public init(
         title: String,
         subtitle: String? = nil,
         metadataLine: String,
         artworkPath: String?,
-        sourceKey: String?
+        sourceKey: String?,
+        ratingKey: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.metadataLine = metadataLine
         self.artworkPath = artworkPath
         self.sourceKey = sourceKey
+        self.ratingKey = ratingKey
     }
 }
 
@@ -116,12 +119,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
     
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        let cacheKey = path
-        
         if let url = await deps.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
-            ratingKey: cacheKey,
+            ratingKey: headerData.ratingKey,
             size: 600
         ) {
             let request = ImageRequest(url: url)

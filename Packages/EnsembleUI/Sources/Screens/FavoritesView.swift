@@ -38,7 +38,8 @@ public struct FavoritesView: View {
             subtitle: "\(viewModel.tracks.count) tracks",
             metadataLine: "Your loved tracks",
             artworkPath: viewModel.tracks.first?.thumbPath,
-            sourceKey: viewModel.tracks.first?.sourceCompositeKey
+            sourceKey: viewModel.tracks.first?.sourceCompositeKey,
+            ratingKey: viewModel.tracks.first?.id
         )
     }
     

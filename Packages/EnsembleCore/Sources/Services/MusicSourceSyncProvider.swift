@@ -22,4 +22,7 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
+    
+    /// Rate a track (0-10)
+    func rateTrack(ratingKey: String, rating: Int?) async throws
 }

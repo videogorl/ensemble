@@ -192,4 +192,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
         try await apiClient.getArtworkURL(path: path, size: size)
     }
+
+    public func rateTrack(ratingKey: String, rating: Int?) async throws {
+        try await apiClient.rateTrack(ratingKey: ratingKey, rating: rating)
+    }
 }

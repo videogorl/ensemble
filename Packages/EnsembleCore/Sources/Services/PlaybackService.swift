@@ -399,39 +399,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             
             do {
-                if let sourceKey = track.sourceCompositeKey {
-                    let components = sourceKey.split(separator: ":")
-                    if components.count >= 3 {
-                        let accountId = String(components[1])
-                        let serverId = String(components[2])
-                        
-                        if let apiClient = await syncCoordinator.accountManager.makeAPIClient(
-                            accountId: accountId,
-                            serverId: serverId
-                        ) {
-                            try await apiClient.rateTrack(
-                                ratingKey: track.id,
-                                rating: newRating == 0 ? nil : newRating
-                            )
-                            
-                            // Update locally
-                            // Note: This matches NowPlayingViewModel's logic
-                            let context = CoreDataStack.shared.newBackgroundContext()
-                            try await context.perform {
-                                let request = CDTrack.fetchRequest()
-                                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
-                                if let cdTrack = try context.fetch(request).first {
-                                    cdTrack.rating = Int16(newRating)
-                                    try context.save()
-                                }
-                            }
-                            
-                            // We don't have a direct way to update the Track object here easily 
-                            // without a repository, but the CDTrack is updated.
-                            // The UI will likely refresh when it observes the change or track changes.
-                        }
+                try await syncCoordinator.rateTrack(
+                    track: track,
+                    rating: newRating == 0 ? nil : newRating
+                )
+                
+                // Update locally
+                // Note: This matches NowPlayingViewModel's logic
+                let context = CoreDataStack.shared.newBackgroundContext()
+                try await context.perform {
+                    let request = CDTrack.fetchRequest()
+                    request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
+                    if let cdTrack = try context.fetch(request).first {
+                        cdTrack.rating = Int16(newRating)
+                        try context.save()
                     }
                 }
+                
+                // We don't have a direct way to update the Track object here easily 
+                // without a repository, but the CDTrack is updated.
+                // The UI will likely refresh when it observes the change or track changes.
             } catch {
                 print("Failed to update rating from system UI: \(error)")
             }
