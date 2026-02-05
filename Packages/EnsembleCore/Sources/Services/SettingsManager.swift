@@ -59,6 +59,7 @@ public enum TabItem: String, CaseIterable, Identifiable, Codable {
 public final class SettingsManager: ObservableObject {
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
+    @AppStorage("selectedTab") public var selectedTab: String = "home"
     
     public init() {
         if enabledTabsData.isEmpty {

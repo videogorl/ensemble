@@ -185,6 +185,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     currentTrack = queue[index].track
                     generateWaveform(for: currentTrack?.id ?? "")
                     updateNowPlayingInfo()
+                    savePlaybackState()
                     
                     // Pre-fetch next item for gapless
                     Task { await prefetchNextItem() }
@@ -495,12 +496,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let item = QueueItem(track: track)
         queue.append(item)
         originalQueue.append(item)
+        savePlaybackState()
     }
 
     public func addToQueue(_ tracks: [Track]) {
         let items = tracks.map { QueueItem(track: $0) }
         queue.append(contentsOf: items)
         originalQueue.append(contentsOf: items)
+        savePlaybackState()
     }
 
     public func playNext(_ track: Track) {
@@ -511,6 +514,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             queue.append(item)
         }
+        savePlaybackState()
     }
 
     public func removeFromQueue(at index: Int) {
@@ -813,6 +817,57 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+    
+    // MARK: - State Restoration
+    
+    private let queueKey = "com.ensemble.playback.queue"
+    private let currentIndexKey = "com.ensemble.playback.currentIndex"
+    private let currentTimeKey = "com.ensemble.playback.currentTime"
+    
+    /// Save playback state to UserDefaults
+    private func savePlaybackState() {
+        guard !queue.isEmpty else {
+            // Clear saved state if queue is empty
+            UserDefaults.standard.removeObject(forKey: queueKey)
+            UserDefaults.standard.removeObject(forKey: currentIndexKey)
+            UserDefaults.standard.removeObject(forKey: currentTimeKey)
+            return
+        }
+        
+        let tracks = queue.map { $0.track }
+        if let encoded = try? JSONEncoder().encode(tracks) {
+            UserDefaults.standard.set(encoded, forKey: queueKey)
+            UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
+            UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
+        }
+    }
+    
+    /// Restore playback state from UserDefaults
+    public func restorePlaybackState() async {
+        guard let data = UserDefaults.standard.data(forKey: queueKey),
+              let tracks = try? JSONDecoder().decode([Track].self, from: data),
+              !tracks.isEmpty else {
+            print("🔄 No playback state to restore")
+            return
+        }
+        
+        let index = UserDefaults.standard.integer(forKey: currentIndexKey)
+        let time = UserDefaults.standard.double(forKey: currentTimeKey)
+        
+        print("🔄 Restoring playback state: \(tracks.count) tracks, index: \(index), time: \(time)s")
+        
+        // Restore queue
+        await play(tracks: tracks, startingAt: index)
+        
+        // Seek to saved position
+        await MainActor.run {
+            if time > 0 {
+                seek(to: time)
+            }
+            // Start paused, let user resume
+            pause()
+        }
     }
 }
 
