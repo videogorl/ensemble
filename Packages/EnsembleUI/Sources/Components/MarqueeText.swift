@@ -58,9 +58,6 @@ public struct MarqueeText: View {
                             .fixedSize(horizontal: true, vertical: false)
                     }
                     .offset(x: offset)
-                    .onAppear {
-                        startAnimation()
-                    }
                 } else {
                     // Static text
                     Text(text)
@@ -72,27 +69,30 @@ public struct MarqueeText: View {
             }
             .mask(
                 HStack(spacing: 0) {
-                    if textWidth > geometry.size.width {
+                    // Left fade - only when actually offset
+                    if textWidth > geometry.size.width && offset < 0 {
                         LinearGradient(
                             gradient: Gradient(colors: [.clear, .black]),
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 12)
-                        
-                        Rectangle().fill(Color.black)
-                        
+                        .frame(width: 16)
+                    }
+                    
+                    Rectangle().fill(Color.black)
+                    
+                    // Right fade - only when text is long
+                    if textWidth > geometry.size.width {
                         LinearGradient(
                             gradient: Gradient(colors: [.black, .clear]),
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 12)
-                    } else {
-                        Rectangle().fill(Color.black)
+                        .frame(width: 16)
                     }
                 }
             )
+            .id(text) // Force view reset when text changes
         }
         .frame(height: fontHeight)
     }
@@ -109,10 +109,26 @@ public struct MarqueeText: View {
     private func startAnimation() {
         guard textWidth > containerWidth else { return }
         
-        let duration = Double(textWidth) / 30.0 // Adjusted speed
+        // Reset state
+        offset = 0
         
-        withAnimation(Animation.linear(duration: duration).repeatForever(autoreverses: false)) {
-            offset = -(textWidth + 50)
+        let duration = Double(textWidth) / 30.0
+        let delay = 3.0 // Wait at start
+        let waitAtEnd = 2.0 // Wait after finishing scroll before resetting
+        
+        // Start the sequence after an initial delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.linear(duration: duration)) {
+                offset = -(textWidth + 50)
+            }
+            
+            // Wait for duration + waitAtEnd, then reset and loop
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + waitAtEnd) {
+                // Snap back to start without animation
+                offset = 0
+                // Recursively start again
+                startAnimation()
+            }
         }
     }
 }
