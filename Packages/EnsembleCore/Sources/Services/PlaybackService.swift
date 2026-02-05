@@ -257,7 +257,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         // Apply contrast enhancement using power curve
         // Exponent > 1.0 expands the range, making quiet sections quieter and loud sections stand out
-        let contrastExponent = 1.2
+        let contrastExponent = 1.5
         let enhanced = normalized.map { pow($0, contrastExponent) }
         
         // Map to 0.1-1.0 range for maximum visual impact
@@ -295,7 +295,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Apply power curve for contrast similar to real data
             let raw = max(0.0, min(1.0, base + variance))
-            let enhanced = pow(raw, 1.2) // Contrast enhancement
+            let enhanced = pow(raw, 1.5) // Contrast enhancement
             
             heights.append(0.1 + (enhanced * 0.9)) // Match real data range
         }

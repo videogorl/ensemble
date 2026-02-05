@@ -23,6 +23,7 @@ public struct NowPlayingView: View {
     @State private var isDraggingSlider = false
     @State private var dragStartY: CGFloat = 0
     @State private var dragStartX: CGFloat = 0
+    @State private var lastDragX: CGFloat = 0
     @State private var currentDragY: CGFloat = 0
     @State private var initialProgress: Double = 0
     @State private var localProgress: Double = 0
@@ -116,7 +117,7 @@ public struct NowPlayingView: View {
                 .frame(width: artworkSize, height: artworkSize)
                 .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
                 .padding(.top, 60)
-                .padding(.bottom, 50)
+                .padding(.bottom, 80)
             
             // Playback slider
             progressView(track: track)
@@ -218,7 +219,7 @@ public struct NowPlayingView: View {
                     Color.clear
                         .contentShape(Rectangle())
                 }
-                .frame(height: 32)
+                .frame(height: 24)
                 .onAppear {
                     sliderWidth = geometry.size.width
                 }
@@ -230,6 +231,7 @@ public struct NowPlayingView: View {
                                 sliderWidth = geometry.size.width
                                 dragStartY = value.location.y
                                 dragStartX = value.location.x
+                                lastDragX = value.location.x
                                 initialProgress = max(0, min(1, value.location.x / sliderWidth))
                                 localProgress = initialProgress
                             }
@@ -248,12 +250,13 @@ public struct NowPlayingView: View {
                                 lastScrubRate = scrubRate
                             }
                             
-                            // Calculate horizontal change from start position
-                            let horizontalChange = value.location.x - dragStartX
-                            let progressChange = (horizontalChange / sliderWidth) * scrubRate
+                            // Calculate delta from last position and apply current scrub rate
+                            let deltaX = value.location.x - lastDragX
+                            let progressChange = (deltaX / sliderWidth) * scrubRate
                             
-                            // Update local progress
-                            localProgress = max(0, min(1, initialProgress + progressChange))
+                            // Update local progress incrementally
+                            localProgress = max(0, min(1, localProgress + progressChange))
+                            lastDragX = value.location.x
                         }
                         .onEnded { _ in
                             // Seek to final position
@@ -262,7 +265,7 @@ public struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 32)
+            .frame(height: 24)
 
             // Time labels with scrub indicator in center
             HStack {
