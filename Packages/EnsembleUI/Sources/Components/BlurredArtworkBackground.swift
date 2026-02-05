@@ -6,6 +6,7 @@ public struct BlurredArtworkBackground: View {
     let blurRadius: CGFloat
     let contrast: Double
     let saturation: Double
+    let brightness: Double
     let opacity: Double
     let topDimming: Double
     let bottomDimming: Double
@@ -15,14 +16,16 @@ public struct BlurredArtworkBackground: View {
         blurRadius: CGFloat = 80,
         contrast: Double = 1.7,
         saturation: Double = 1.9,
+        brightness: Double = 0.1,
         opacity: Double = 1.0,
-        topDimming: Double = 0.2,
-        bottomDimming: Double = 0.5
+        topDimming: Double = 0.1,
+        bottomDimming: Double = 0.4
     ) {
         self.image = image
         self.blurRadius = blurRadius
         self.contrast = contrast
         self.saturation = saturation
+        self.brightness = brightness
         self.opacity = opacity
         self.topDimming = topDimming
         self.bottomDimming = bottomDimming
@@ -41,6 +44,7 @@ public struct BlurredArtworkBackground: View {
                         .blur(radius: blurRadius)
                         .contrast(contrast)
                         .saturation(saturation)
+                        .brightness(brightness)
                         .opacity(opacity)
                     #else
                     Image(uiImage: image)
@@ -51,6 +55,7 @@ public struct BlurredArtworkBackground: View {
                         .blur(radius: blurRadius, opaque: true)
                         .contrast(contrast)
                         .saturation(saturation)
+                        .brightness(brightness)
                         .opacity(opacity)
                     #endif
                     
