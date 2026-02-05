@@ -160,6 +160,10 @@ public class TrackTableViewCell: UITableViewCell {
                     fallbackRatingKey: track.fallbackRatingKey,
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
+                    // No artwork available - clear any stale image from cell reuse
+                    if self.currentTrackID == track.id {
+                        self.artworkImageView.image = nil
+                    }
                     return
                 }
                 
