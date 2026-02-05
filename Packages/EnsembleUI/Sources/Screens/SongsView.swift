@@ -245,11 +245,41 @@ struct IndexedTrackList: UIViewRepresentable {
     }
     
     func updateUIView(_ tableView: UITableView, context: Context) {
+        // Check if data actually changed before reloading
+        let dataChanged = context.coordinator.groupedTracks.count != groupedTracks.count ||
+            !zip(context.coordinator.groupedTracks, groupedTracks).allSatisfy { old, new in
+                old.letter == new.letter && old.tracks.count == new.tracks.count &&
+                zip(old.tracks, new.tracks).allSatisfy { $0.id == $1.id }
+            }
+        
+        let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
+        
+        // Update coordinator state
         context.coordinator.groupedTracks = groupedTracks
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.onTrackTap = onTrackTap
         context.coordinator.artworkLoader = dependencies.artworkLoader
-        tableView.reloadData()
+        
+        // Only reload if data actually changed
+        if dataChanged {
+            tableView.reloadData()
+        } else if currentTrackChanged {
+            // Only update visible cells instead of full reload
+            tableView.visibleCells.forEach { cell in
+                if let trackCell = cell as? TrackTableViewCell,
+                   let indexPath = tableView.indexPath(for: cell) {
+                    let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+                    let isPlaying = track.id == currentTrackId
+                    trackCell.configure(
+                        with: track,
+                        showArtwork: true,
+                        showTrackNumber: false,
+                        isPlaying: isPlaying,
+                        artworkLoader: dependencies.artworkLoader
+                    )
+                }
+            }
+        }
     }
     
     func makeCoordinator() -> Coordinator {

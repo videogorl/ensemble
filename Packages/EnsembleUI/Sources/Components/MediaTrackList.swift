@@ -143,13 +143,15 @@ public class TrackTableViewCell: UITableViewCell {
         
         // Load artwork if needed
         if showArtwork {
-            currentTrackID = track.id
-            artworkImageView.backgroundColor = UIColor.systemGray5
-            
-            // Cancel any previous artwork load task
-            artworkLoadTask?.cancel()
-            
-            artworkLoadTask = Task { @MainActor in
+            // Only load artwork if track changed
+            if currentTrackID != track.id {
+                currentTrackID = track.id
+                artworkImageView.backgroundColor = UIColor.systemGray5
+                
+                // Cancel any previous artwork load task
+                artworkLoadTask?.cancel()
+                
+                artworkLoadTask = Task { @MainActor in
                 guard let url = await artworkLoader.artworkURLAsync(
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
@@ -179,6 +181,9 @@ public class TrackTableViewCell: UITableViewCell {
                         self.artworkImageView.image = image
                     }
                 }
+            }
+            } else {
+                // Same track - just update playing state without reloading artwork
             }
         } else {
             currentTrackID = nil
@@ -243,14 +248,43 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
+        let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
+        
+        // Check if data actually changed
+        let dataChanged = context.coordinator.tracks.count != tracks.count ||
+            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id }
+        
+        let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
+        
+        // Update coordinator state
         context.coordinator.tracks = tracks
-        context.coordinator.groupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
+        context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.onTrackTap = onTrackTap
         context.coordinator.artworkLoader = dependencies.artworkLoader
-        tableView.reloadData()
+        
+        // Only reload if data actually changed
+        if dataChanged {
+            tableView.reloadData()
+        } else if currentTrackChanged {
+            // Only update visible cells instead of full reload
+            tableView.visibleCells.forEach { cell in
+                if let trackCell = cell as? TrackTableViewCell,
+                   let indexPath = tableView.indexPath(for: cell) {
+                    let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
+                    let isPlaying = track.id == currentTrackId
+                    trackCell.configure(
+                        with: track,
+                        showArtwork: showArtwork,
+                        showTrackNumber: showTrackNumbers,
+                        isPlaying: isPlaying,
+                        artworkLoader: dependencies.artworkLoader
+                    )
+                }
+            }
+        }
     }
     
     public func makeCoordinator() -> Coordinator {
