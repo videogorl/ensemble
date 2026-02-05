@@ -774,6 +774,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupObservers(for: item)
         print("🎵 Starting playback")
         player?.play()
+        playbackState = .playing
     }
 
     private func setupObservers(for item: AVPlayerItem) {
@@ -783,7 +784,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 switch item.status {
                 case .readyToPlay:
                     print("✅ Player ready to play")
-                    self?.playbackState = .playing
+                    // Don't automatically set state to .playing - let play() method control this
+                    // Just update the now playing info
                     self?.updateNowPlayingInfo()
                 case .failed:
                     print("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")

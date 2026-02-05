@@ -12,12 +12,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure audio session for background playback
         configureAudioSession()
         
-        // Start network monitoring with a delay to avoid blocking app launch
-        // This allows the UI to become responsive first
+        // Start network monitoring immediately (non-blocking)
+        // Network monitor will publish initial state asynchronously
         Task.detached(priority: .utility) {
-            print("📱 AppDelegate: Delayed network monitor start at \(Date())")
-            // Small delay to let UI initialize
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             await MainActor.run {
                 print("📱 AppDelegate: Starting network monitor at \(Date())")
                 DependencyContainer.shared.networkMonitor.startMonitoring()
@@ -25,10 +22,29 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         
-        // Restore playback state
+        // Restore playback state after network monitor has had time to detect connectivity
+        // This prevents false "offline" errors during startup
         Task.detached(priority: .utility) {
-            print("📱 AppDelegate: Waiting 1s before restoring playback state...")
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            print("📱 AppDelegate: Waiting for network monitor to initialize...")
+            
+            // Wait for network monitor to report a non-Unknown state
+            let networkMonitor = await MainActor.run { DependencyContainer.shared.networkMonitor }
+            var attempts = 0
+            let maxAttempts = 20 // 2 seconds max wait
+            
+            while attempts < maxAttempts {
+                let state = await MainActor.run { networkMonitor.networkState }
+                if state != .unknown {
+                    print("📱 AppDelegate: Network state detected: \(state)")
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                attempts += 1
+            }
+            
+            // Small additional delay to ensure connections are stable
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
             print("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
                 DependencyContainer.shared.playbackService
