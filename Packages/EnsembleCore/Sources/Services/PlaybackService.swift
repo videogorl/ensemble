@@ -196,8 +196,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     private func generateWaveform(for ratingKey: String) {
         print("🎵 Generating waveform for track: \(ratingKey)")
+        
+        // IMPORTANT: This generates a pseudo-random waveform based on track ID for visual consistency.
+        // It does NOT represent the actual audio waveform.
+        //
+        // For real audio waveform extraction, you would need to:
+        // 1. Download or stream the audio file
+        // 2. Use AVAssetReader with AVAssetReaderTrackOutput
+        // 3. Extract audio samples from the AVAssetReaderTrackOutput
+        // 4. Calculate RMS (Root Mean Square) or peak values for visualization
+        // 5. Downsample to ~100-200 points for UI display
+        //
+        // This is a significant architectural change that would require:
+        // - Caching waveform data (100-200 doubles per track)
+        // - Background processing to avoid blocking UI
+        // - Handling streaming vs downloaded files differently
+        // - Additional storage (~2KB per track for waveform data)
+        
         // Simple seeded random to make it consistent for the same track
-        // TODO: Replace with real audio waveform extraction using AVAssetReader
         var seed = UInt64(truncatingIfNeeded: Int64(ratingKey.hashValue))
         func nextRandom() -> Double {
             seed = seed &* 6364136223846793005 &+ 1

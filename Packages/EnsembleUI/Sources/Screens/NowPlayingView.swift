@@ -217,12 +217,6 @@ public struct NowPlayingView: View {
                     // Invisible interaction layer
                     Color.clear
                         .contentShape(Rectangle())
-                    
-                    // Floating scrub speed indicator (overlay, doesn't affect layout)
-                    if isDraggingSlider {
-                        scrubIndicator
-                            .position(x: geometry.size.width / 2, y: -20)
-                    }
                 }
                 .frame(height: 44)
                 .onAppear {
@@ -270,13 +264,20 @@ public struct NowPlayingView: View {
             }
             .frame(height: 44)
 
-            // Time labels
+            // Time labels with scrub indicator in center
             HStack {
                 Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : viewModel.formattedCurrentTime)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
 
+                Spacer()
+                
+                // Scrub speed indicator (inline with time labels)
+                if isDraggingSlider {
+                    scrubIndicator
+                }
+                
                 Spacer()
 
                 Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : viewModel.formattedRemainingTime)
@@ -287,30 +288,22 @@ public struct NowPlayingView: View {
         }
     }
     
-    // Scrub speed indicator as an overlay
+    // Scrub speed indicator (no background)
     private var scrubIndicator: some View {
         let verticalDistance = abs(currentDragY - dragStartY)
         let isMovingUp = currentDragY < dragStartY
         let isMaxFine = verticalDistance >= 120
         let scrubInfo = getScrubInfo()
         
-        return VStack(spacing: 2) {
+        return HStack(spacing: 4) {
             Image(systemName: isMaxFine ? "minus" : (isMovingUp ? "chevron.compact.up" : "chevron.compact.down"))
                 .font(.caption2)
-                .foregroundColor(.white)
+                .foregroundColor(.white.opacity(0.7))
             
             Text(scrubInfo.label)
                 .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
+                .foregroundColor(.white.opacity(0.7))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.2))
-        )
-        .clipShape(Capsule())
         .transition(.opacity)
     }
 

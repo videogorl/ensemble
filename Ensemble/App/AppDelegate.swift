@@ -27,11 +27,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Restore playback state
         Task.detached(priority: .utility) {
+            print("📱 AppDelegate: Waiting 1s before restoring playback state...")
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            print("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
                 DependencyContainer.shared.playbackService
             }
+            print("📱 AppDelegate: Calling restorePlaybackState()...")
             await playbackService.restorePlaybackState()
+            print("📱 AppDelegate: Playback state restoration complete")
         }
         
         print("📱 AppDelegate: didFinishLaunching returning at \(Date())")

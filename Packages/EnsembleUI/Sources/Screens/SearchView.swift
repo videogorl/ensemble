@@ -30,6 +30,11 @@ public struct SearchView: View {
             }
         }
         .navigationTitle("Search")
+        .safeAreaInset(edge: .bottom) {
+            // When keyboard is visible, don't add extra padding (keyboard manages its own space)
+            // Otherwise add padding for tab bar + mini player
+            Color.clear.frame(height: keyboardHeight > 0 ? 0 : 110)
+        }
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
@@ -154,10 +159,6 @@ public struct SearchView: View {
                     }
                 }
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            // When keyboard is visible, use keyboard height; otherwise use tab bar + mini player height
-            Color.clear.frame(height: keyboardHeight > 0 ? keyboardHeight : 110)
         }
     }
 }
