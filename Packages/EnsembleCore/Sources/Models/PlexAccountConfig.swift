@@ -78,30 +78,53 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         try container.encode(libraries, forKey: .libraries)
     }
     
-    /// Get the best connection to try (prefer local, then non-relay, then relay)
+    /// Get the best connection based on Plex's recommended priority:
+    /// 1. HTTPS connections (local or plex.direct) - most secure and reliable
+    /// 2. HTTP local connections - fast but only works on LAN
+    /// 3. HTTP direct connections - works remotely but less secure
+    /// 4. Relay connections - slowest, last resort
     public var preferredConnection: PlexConnectionConfig {
-        // Try local connections first
-        if let local = connections.first(where: { $0.local && !($0.relay ?? false) }) {
-            return local
+        // Filter out relay connections first, we'll use them as last resort
+        let nonRelayConnections = connections.filter { !($0.relay ?? false) }
+        let relayConnections = connections.filter { $0.relay ?? false }
+        
+        // Priority 1: HTTPS connections (both local and remote plex.direct)
+        // These include plex.direct URLs which work everywhere with valid SSL
+        if let httpsConnection = nonRelayConnections.first(where: { $0.protocol == "https" }) {
+            return httpsConnection
         }
-        // Then try non-relay remote connections
-        if let remote = connections.first(where: { !$0.local && !($0.relay ?? false) }) {
-            return remote
+        
+        // Priority 2: HTTP local connections (only good on LAN)
+        if let localConnection = nonRelayConnections.first(where: { $0.local && $0.protocol == "http" }) {
+            return localConnection
         }
-        // Finally try relay
-        if let relay = connections.first(where: { $0.relay ?? false }) {
-            return relay
+        
+        // Priority 3: Any remaining non-relay connection (HTTP direct)
+        if let directConnection = nonRelayConnections.first {
+            return directConnection
         }
+        
+        // Priority 4: Relay as last resort
+        if let relayConnection = relayConnections.first {
+            return relayConnection
+        }
+        
         // Fallback to first connection or create one from URL
         return connections.first ?? PlexConnectionConfig(uri: url, local: false)
     }
     
-    /// Get all connections ordered by preference
+    /// Get all connections ordered by preference (HTTPS first, then HTTP, then relay)
     public var orderedConnections: [PlexConnectionConfig] {
-        let local = connections.filter { $0.local && !($0.relay ?? false) }
-        let remote = connections.filter { !$0.local && !($0.relay ?? false) }
+        let nonRelay = connections.filter { !($0.relay ?? false) }
         let relay = connections.filter { $0.relay ?? false }
-        return local + remote + relay
+        
+        // Separate by protocol
+        let https = nonRelay.filter { $0.protocol == "https" }
+        let httpLocal = nonRelay.filter { $0.protocol == "http" && $0.local }
+        let httpRemote = nonRelay.filter { $0.protocol == "http" && !$0.local }
+        
+        // Order: HTTPS (all) → HTTP local → HTTP remote → Relay
+        return https + httpLocal + httpRemote + relay
     }
 }
 

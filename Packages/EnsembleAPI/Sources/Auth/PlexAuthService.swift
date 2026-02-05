@@ -73,7 +73,7 @@ public actor PlexAuthService {
         }
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 15  // Reduced from 30s for better responsiveness
         self.session = URLSession(configuration: config)
     }
 

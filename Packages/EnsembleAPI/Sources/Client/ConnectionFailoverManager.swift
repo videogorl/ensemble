@@ -17,7 +17,7 @@ public actor ConnectionFailoverManager {
     
     /// Test a connection and return whether it's reachable
     public func testConnection(url: String, token: String) async -> Bool {
-        guard let connectionURL = URL(string: url) else {
+        guard URL(string: url) != nil else {
             print("❌ ConnectionTest[\(url)]: Invalid URL")
             return false
         }
@@ -80,7 +80,8 @@ public actor ConnectionFailoverManager {
         return nil
     }
     
-    /// Test connections in parallel and return the fastest working one
+    /// Test connections in parallel and return the best one based on protocol and speed
+    /// Prefers HTTPS connections even if they're slightly slower (better for remote access)
     public func findFastestConnection(
         urls: [String],
         token: String
@@ -95,15 +96,34 @@ public actor ConnectionFailoverManager {
                 }
             }
             
-            // Collect results and find fastest successful connection
+            // Collect results and find best connection
             var results: [(String, Bool, TimeInterval)] = []
             for await result in group {
                 results.append(result)
             }
             
-            // Sort by success first, then by duration
-            let successful = results.filter { $0.1 }.sorted { $0.2 < $1.2 }
-            return successful.first?.0
+            // Filter to successful connections only
+            let successful = results.filter { $0.1 }
+            guard !successful.isEmpty else { return nil }
+            
+            // Score connections: HTTPS gets bonus, faster is better
+            // Score = duration - (2.0 seconds if HTTPS) to prefer HTTPS even if 2s slower
+            let scored = successful.map { (url, _, duration) -> (String, Double) in
+                let isHTTPS = url.lowercased().hasPrefix("https://")
+                let httpsBonus: TimeInterval = isHTTPS ? -2.0 : 0.0  // Prefer HTTPS by 2 seconds
+                let score = duration + httpsBonus
+                return (url, score)
+            }
+            
+            // Sort by score (lower is better) and return best
+            let best = scored.sorted { $0.1 < $1.1 }.first
+            
+            if let bestURL = best?.0, let bestScore = best?.1 {
+                let isHTTPS = bestURL.lowercased().hasPrefix("https://")
+                print("🏆 Best connection: \(bestURL) (score: \(String(format: "%.2f", bestScore))s, HTTPS: \(isHTTPS))")
+            }
+            
+            return best?.0
         }
     }
     

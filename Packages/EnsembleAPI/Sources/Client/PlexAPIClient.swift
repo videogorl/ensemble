@@ -100,8 +100,20 @@ public actor PlexAPIClient {
         }
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 15  // Reduced from 30s for faster failover on remote networks
+        config.timeoutIntervalForResource = 120  // Keep resource timeout longer for large responses
         self.session = URLSession(configuration: config)
+        
+        // Log connection details for debugging
+        let isHTTPS = connection.url.lowercased().hasPrefix("https://")
+        let altCount = connection.alternativeURLs.count
+        print("🔌 PlexAPIClient initialized")
+        print("   Primary URL: \(connection.url) (HTTPS: \(isHTTPS))")
+        print("   Alternative URLs: \(altCount)")
+        for (index, altURL) in connection.alternativeURLs.enumerated() {
+            let altHTTPS = altURL.lowercased().hasPrefix("https://")
+            print("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
+        }
     }
 
     // MARK: - Server Connection
@@ -398,7 +410,7 @@ public actor PlexAPIClient {
 
         guard let url = components.url else {
             print("❌ PlexAPIClient: Failed to construct final URL")
-            print("❌ PlexAPIClient: Components - path: \(components.path ?? "nil"), host: \(components.host ?? "nil")")
+            print("❌ PlexAPIClient: Components - path: \(components.path), host: \(components.host ?? "nil")")
             throw PlexAPIError.invalidURL
         }
 
@@ -576,6 +588,11 @@ public actor PlexAPIClient {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+
+        // Log request for debugging (only show host and path, not full URL with token)
+        let isHTTPS = url.lowercased().hasPrefix("https://")
+        let urlHost = URLComponents(string: url)?.host ?? "unknown"
+        print("📡 Request: \(request.httpMethod ?? "GET") \(urlHost)\(path) (HTTPS: \(isHTTPS))")
 
         let (data, _) = try await performRequest(request)
         return data

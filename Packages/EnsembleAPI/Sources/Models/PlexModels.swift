@@ -78,9 +78,39 @@ public struct PlexDevice: Codable, Sendable, Identifiable {
         provides.contains("server")
     }
 
+    /// Get the best connection based on Plex's recommended priority:
+    /// 1. HTTPS connections (local or plex.direct) - most secure and reliable
+    /// 2. HTTP local connections - fast but only works on LAN
+    /// 3. HTTP direct connections - works remotely but less secure
+    /// 4. Relay connections - slowest, last resort
     public var bestConnection: PlexConnection? {
-        // Prefer local connections, then relay
-        connections.first { $0.local } ?? connections.first
+        // Filter out relay connections first, we'll use them as last resort
+        let nonRelayConnections = connections.filter { !($0.relay ?? false) }
+        let relayConnections = connections.filter { $0.relay ?? false }
+        
+        // Priority 1: HTTPS connections (both local and remote)
+        // These include plex.direct URLs which work everywhere with valid SSL
+        if let httpsConnection = nonRelayConnections.first(where: { $0.protocol == "https" }) {
+            return httpsConnection
+        }
+        
+        // Priority 2: HTTP local connections (only good on LAN)
+        if let localConnection = nonRelayConnections.first(where: { $0.local && $0.protocol == "http" }) {
+            return localConnection
+        }
+        
+        // Priority 3: Any remaining non-relay connection (HTTP direct)
+        if let directConnection = nonRelayConnections.first {
+            return directConnection
+        }
+        
+        // Priority 4: Relay as last resort
+        if let relayConnection = relayConnections.first {
+            return relayConnection
+        }
+        
+        // Fallback to any connection
+        return connections.first
     }
 }
 
