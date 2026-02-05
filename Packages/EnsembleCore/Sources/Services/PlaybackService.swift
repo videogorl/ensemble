@@ -144,13 +144,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
+    private let artworkLoader: ArtworkLoaderProtocol
     private var originalQueue: [QueueItem] = []  // For shuffle restore
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor) {
+    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
+        self.artworkLoader = artworkLoader
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -846,10 +848,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         
-        // Load artwork asynchronously
+        // Load artwork asynchronously using the injected loader
         Task {
-            let loader = ArtworkLoader(syncCoordinator: syncCoordinator)
-            if let url = await loader.artworkURLAsync(
+            if let url = await artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,

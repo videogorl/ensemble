@@ -88,8 +88,9 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         // Services using sync coordinator
-        playbackService = PlaybackService(syncCoordinator: syncCoordinator, networkMonitor: nm)
+        // Note: artworkLoader must be created before playbackService since it's a dependency
         artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
+        playbackService = PlaybackService(syncCoordinator: syncCoordinator, networkMonitor: nm, artworkLoader: artworkLoader)
 
         // Settings manager
         settingsManager = MainActor.assumeIsolated {
