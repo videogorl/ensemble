@@ -1,6 +1,8 @@
 import EnsembleCore
 import SwiftUI
 
+/// Home screen displaying dynamic content hubs from Plex servers
+/// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
@@ -33,22 +35,13 @@ public struct HomeView: View {
         }
         .navigationTitle("Home")
         .task {
-            print("🏠 HomeView: .task {} modifier triggered at \(Date())")
-            // Spawn a detached task so we don't block the view's task modifier
-            print("🏠 HomeView: Creating Task.detached...")
-            let task = Task.detached(priority: .userInitiated) { [viewModel] in
-                print("🏠 HomeView: Task.detached started executing at \(Date())")
-                print("🏠 HomeView: About to call viewModel.loadHubs() at \(Date())")
+            // Load hubs in a detached task to avoid blocking UI
+            Task.detached(priority: .userInitiated) { [viewModel] in
                 await viewModel.loadHubs()
-                print("🏠 HomeView: Returned from viewModel.loadHubs() at \(Date())")
-                print("🏠 HomeView: Task.detached completed at \(Date())")
             }
-            print("🏠 HomeView: Task.detached created, .task {} returning at \(Date())")
         }
         .refreshable {
-            print("🏠 HomeView: .refreshable {} triggered")
             await viewModel.refresh()
-            print("🏠 HomeView: .refreshable {} completed")
         }
     }
     
@@ -142,6 +135,7 @@ public struct HomeView: View {
 
 // MARK: - Hub Section
 
+/// Displays a single hub section with horizontally scrolling content
 struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
@@ -178,6 +172,8 @@ struct HubSection: View {
 
 // MARK: - Hub Item Card
 
+/// Card view for individual hub items (albums, artists, tracks, playlists)
+/// Uses local-first artwork loading and skeleton models for offline-friendly navigation
 struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
@@ -185,120 +181,101 @@ struct HubItemCard: View {
     let onArtistTap: (Artist) -> Void
     let onPlaylistTap: (Playlist) -> Void
     
+    private var isArtist: Bool {
+        item.type == "artist"
+    }
+    
     var body: some View {
         Button {
             handleTap()
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                // Artwork
+            VStack(alignment: isArtist ? .center : .leading, spacing: 8) {
+                // Artwork with circular corners for artists, rounded for others
                 ArtworkView(
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.id,
                     size: .medium,
-                    cornerRadius: item.type == "artist" ? 80 : 8
+                    cornerRadius: isArtist ? 80 : 8
                 )
                 .frame(width: 160, height: 160)
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
-                VStack(alignment: item.type == "artist" ? .center : .leading, spacing: 2) {
-                    // Title
+                // Text content
+                VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
                     Text(item.title)
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .lineLimit(2)
                         .foregroundColor(.primary)
-                        .multilineTextAlignment(item.type == "artist" ? .center : .leading)
+                        .multilineTextAlignment(isArtist ? .center : .leading)
                     
-                    // Subtitle (Artist or Album name)
                     if let subtitle = item.subtitle {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
-                            .multilineTextAlignment(item.type == "artist" ? .center : .leading)
+                            .multilineTextAlignment(isArtist ? .center : .leading)
                     }
                     
-                    // Extra info for albums (Year)
                     if item.type == "album", let year = item.year {
                         Text(String(year))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
-                .frame(width: 160, alignment: item.type == "artist" ? .center : .leading)
+                .frame(width: 160, alignment: isArtist ? .center : .leading)
             }
         }
         .buttonStyle(.plain)
     }
     
     private func handleTap() {
-        print("🏠 HubItemCard: Tapped item '\(item.title)' of type '\(item.type)'")
-        
-        if item.type == "album" {
-            if let album = item.album {
-                print("🏠 HubItemCard: Navigating to album using reference")
-                onAlbumTap(album)
-            } else {
-                print("🏠 HubItemCard: Navigating to album using skeleton")
-                let skeleton = Album(
-                    id: item.id,
-                    key: item.id,
-                    title: item.title,
-                    artistName: item.subtitle,
-                    year: item.year,
-                    thumbPath: item.thumbPath,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-                onAlbumTap(skeleton)
-            }
-        } else if item.type == "track" {
-            if let track = item.track {
-                print("🏠 HubItemCard: Playing track using reference")
-                nowPlayingVM.play(tracks: [track])
-            } else {
-                print("🏠 HubItemCard: Playing track using skeleton")
-                let skeleton = Track(
-                    id: item.id,
-                    key: item.id,
-                    title: item.title,
-                    artistName: item.subtitle,
-                    thumbPath: item.thumbPath,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-                nowPlayingVM.play(tracks: [skeleton])
-            }
-        } else if item.type == "artist" {
-            if let artist = item.artist {
-                print("🏠 HubItemCard: Navigating to artist using reference")
-                onArtistTap(artist)
-            } else {
-                print("🏠 HubItemCard: Navigating to artist using skeleton")
-                let skeleton = Artist(
-                    id: item.id,
-                    key: item.id,
-                    name: item.title,
-                    thumbPath: item.thumbPath,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-                onArtistTap(skeleton)
-            }
-        } else if item.type == "playlist" {
-            if let playlist = item.playlist {
-                print("🏠 HubItemCard: Navigating to playlist using reference")
-                onPlaylistTap(playlist)
-            } else {
-                print("🏠 HubItemCard: Navigating to playlist using skeleton")
-                let skeleton = Playlist(
-                    id: item.id,
-                    key: item.id,
-                    title: item.title,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-                onPlaylistTap(skeleton)
-            }
-        } else {
-            print("🏠 HubItemCard: Unknown item type '\(item.type)', no action taken")
+        switch item.type {
+        case "album":
+            let album = item.album ?? Album(
+                id: item.id,
+                key: item.id,
+                title: item.title,
+                artistName: item.subtitle,
+                year: item.year,
+                thumbPath: item.thumbPath,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+            onAlbumTap(album)
+            
+        case "artist":
+            let artist = item.artist ?? Artist(
+                id: item.id,
+                key: item.id,
+                name: item.title,
+                thumbPath: item.thumbPath,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+            onArtistTap(artist)
+            
+        case "track":
+            let track = item.track ?? Track(
+                id: item.id,
+                key: item.id,
+                title: item.title,
+                artistName: item.subtitle,
+                thumbPath: item.thumbPath,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+            nowPlayingVM.play(tracks: [track])
+            
+        case "playlist":
+            let playlist = item.playlist ?? Playlist(
+                id: item.id,
+                key: item.id,
+                title: item.title,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+            onPlaylistTap(playlist)
+            
+        default:
+            break
         }
     }
 }
