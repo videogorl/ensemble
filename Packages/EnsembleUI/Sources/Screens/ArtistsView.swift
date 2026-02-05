@@ -248,6 +248,7 @@ public struct ArtistDetailView: View {
                     }
                 }
             }
+            .ignoresSafeArea(edges: .top)
         }
         .navigationTitle(viewModel.artist.name)
         #if os(iOS)
@@ -303,8 +304,10 @@ public struct ArtistDetailView: View {
                     size: .extraLarge,
                     cornerRadius: 0
                 )
-                .frame(width: geometry.size.width, height: 250)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: geometry.size.width, height: 250 + geometry.safeAreaInsets.top)
                 .clipped()
+                .offset(y: -geometry.safeAreaInsets.top)
 
                 // Gradient overlay
                 LinearGradient(
@@ -315,7 +318,8 @@ public struct ArtistDetailView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 250)
+                .frame(height: 250 + geometry.safeAreaInsets.top)
+                .offset(y: -geometry.safeAreaInsets.top)
 
                 // Artist info overlay
                 VStack(alignment: .leading, spacing: 8) {
