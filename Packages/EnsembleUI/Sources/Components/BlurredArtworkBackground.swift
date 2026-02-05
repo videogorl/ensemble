@@ -14,9 +14,9 @@ public struct BlurredArtworkBackground: View {
     public init(
         image: UIImage?,
         blurRadius: CGFloat = 80,
-        contrast: Double = 1.7,
+        contrast: Double = 2.0,
         saturation: Double = 1.9,
-        brightness: Double = 0.1,
+        brightness: Double = -0.05,
         opacity: Double = 1.0,
         topDimming: Double = 0.1,
         bottomDimming: Double = 0.4
@@ -69,9 +69,11 @@ public struct BlurredArtworkBackground: View {
                     
                     // Dimming gradient to ensure controls are visible
                     LinearGradient(
-                        colors: [
-                            .black.opacity(topDimming),
-                            .black.opacity(bottomDimming)
+                        stops: [
+                            .init(color: .black.opacity(topDimming), location: 0),
+                            .init(color: .black.opacity(topDimming * 0.5), location: 0.4),
+                            .init(color: .black.opacity(bottomDimming * 0.7), location: 0.7),
+                            .init(color: .black.opacity(bottomDimming), location: 1.0)
                         ],
                         startPoint: .top,
                         endPoint: .bottom

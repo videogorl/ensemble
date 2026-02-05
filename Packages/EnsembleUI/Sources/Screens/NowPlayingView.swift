@@ -94,6 +94,7 @@ public struct NowPlayingView: View {
             let artworkSize = min(geometry.size.width * 0.65, geometry.size.height * 0.3)
             ArtworkView(track: track, size: .medium, cornerRadius: 12)
                 .frame(width: artworkSize, height: artworkSize)
+                .contrast(1.1)
                 .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
                 .padding(.top, 60)
                 .padding(.bottom, 80)
@@ -174,6 +175,7 @@ public struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
 
     // Progress slider with time labels
@@ -269,6 +271,7 @@ public struct NowPlayingView: View {
                     .foregroundColor(.white.opacity(0.7))
             }
         }
+        .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 0)
     }
     
     // Scrub speed indicator (no background)
@@ -378,6 +381,7 @@ public struct NowPlayingView: View {
             )
         }
         .foregroundColor(.white)
+        .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 5)
     }
 
     // Secondary controls: shuffle, repeat, heart, airplay
@@ -421,6 +425,7 @@ public struct NowPlayingView: View {
                     .foregroundColor(.white.opacity(0.7))
             }
         }
+        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
 
     // Queue section that follows Now Playing in the ScrollView
