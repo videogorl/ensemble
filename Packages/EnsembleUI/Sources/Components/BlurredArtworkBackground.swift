@@ -13,8 +13,8 @@ public struct BlurredArtworkBackground: View {
     public init(
         image: UIImage?,
         blurRadius: CGFloat = 80,
-        contrast: Double = 1.4,
-        saturation: Double = 0.8,
+        contrast: Double = 1.7,
+        saturation: Double = 1.9,
         opacity: Double = 1.0,
         topDimming: Double = 0.2,
         bottomDimming: Double = 0.5
