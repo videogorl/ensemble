@@ -19,7 +19,7 @@ public struct BlurredArtworkBackground: View {
         brightness: Double = -0.05,
         opacity: Double = 1.0,
         topDimming: Double = 0.1,
-        bottomDimming: Double = 0.4
+        bottomDimming: Double = 0.5
     ) {
         self.image = image
         self.blurRadius = blurRadius
