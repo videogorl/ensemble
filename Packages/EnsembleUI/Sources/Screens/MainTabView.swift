@@ -151,6 +151,7 @@ public struct MainTabView: View {
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)
         }
+        .padding(.horizontal, 4)
         .frame(height: 49)
         .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 8)
     }
@@ -158,11 +159,13 @@ public struct MainTabView: View {
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
         let isSelected = selectedTab == tag
         
-        return VStack(spacing: 4) {
+        return VStack(spacing: 2) {
             Image(systemName: icon)
-                .font(.system(size: 22))
+                .font(.system(size: 23))
+                .frame(height: 26)
             Text(title)
-                .font(.system(size: 10))
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
