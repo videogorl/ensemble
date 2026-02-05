@@ -332,12 +332,55 @@ public actor PlexAPIClient {
     
     /// Get all hubs for a library section (Recently Added, Recently Played, etc.)
     public func getHubs(sectionKey: String) async throws -> [PlexHub] {
-        let data = try await serverRequest(path: "/hubs/sections/\(sectionKey)")
+        // Adding count and includeLibrary ensures we get items back in the Metadata array
+        let data = try await serverRequest(
+            path: "/hubs/sections/\(sectionKey)",
+            query: [
+                "count": "12",
+                "includeLibrary": "1",
+                "includeExternalMedia": "1",
+                "excludeFields": "summary" // Reduce payload size
+            ]
+        )
+        
+        // Log raw JSON for debugging
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("🔍 Raw Hubs JSON (Section \(sectionKey)): \(jsonString.prefix(2000))")
+        }
+        
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexHub>.self,
             from: data
         )
-        return container.mediaContainer.items
+        let hubs = container.mediaContainer.items
+        print("🏠 Decoded \(hubs.count) hubs from Section \(sectionKey)")
+        return hubs
+    }
+    
+    /// Get global hubs (across all libraries)
+    public func getGlobalHubs() async throws -> [PlexHub] {
+        let data = try await serverRequest(
+            path: "/hubs",
+            query: [
+                "count": "12",
+                "includeLibrary": "1",
+                "includeExternalMedia": "1",
+                "excludeFields": "summary"
+            ]
+        )
+        
+        // Log raw JSON for debugging
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("🔍 Raw Global Hubs JSON: \(jsonString.prefix(2000))")
+        }
+        
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexHub>.self,
+            from: data
+        )
+        let hubs = container.mediaContainer.items
+        print("🏠 Decoded \(hubs.count) global hubs")
+        return hubs
     }
     
     /// Get items for a specific hub

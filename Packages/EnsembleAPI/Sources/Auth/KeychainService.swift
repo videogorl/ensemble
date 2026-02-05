@@ -1,5 +1,5 @@
 import Foundation
-import KeychainAccess
+@preconcurrency import KeychainAccess
 
 public protocol KeychainServiceProtocol: Sendable {
     func save(_ value: String, forKey key: String) throws

@@ -398,7 +398,7 @@ public final class SyncCoordinator: ObservableObject {
                     cachedCount += 1
                 } catch {
                     // Continue with next album on error
-                    print("Failed to cache artwork for album \(album.title ?? "unknown"): \(error)")
+                    print("Failed to cache artwork for album \(album.title): \(error)")
                 }
             }
             

@@ -255,9 +255,11 @@ public extension Download {
 public extension HubItem {
     /// Create a HubItem from PlexHubMetadata
     init(from plex: PlexHubMetadata, sourceKey: String) {
+        let type = plex.type?.lowercased() ?? "track"
+        
         // Determine subtitle based on type
         let subtitle: String?
-        if plex.type == "track" {
+        if type == "track" {
             subtitle = plex.grandparentTitle ?? plex.parentTitle
         } else {
             subtitle = plex.parentTitle
@@ -265,7 +267,7 @@ public extension HubItem {
         
         // Determine best thumb path
         let thumbPath: String?
-        if plex.type == "track" {
+        if type == "track" {
             thumbPath = plex.parentThumb ?? plex.grandparentThumb ?? plex.thumb
         } else {
             thumbPath = plex.thumb ?? plex.art
@@ -274,8 +276,10 @@ public extension HubItem {
         // Create album or track reference if applicable
         var album: Album? = nil
         var track: Track? = nil
+        var artist: Artist? = nil
+        var playlist: Playlist? = nil
         
-        if plex.type == "album" {
+        if type == "album" {
             album = Album(
                 id: plex.ratingKey,
                 key: plex.key,
@@ -286,7 +290,7 @@ public extension HubItem {
                 artPath: plex.art,
                 sourceCompositeKey: sourceKey
             )
-        } else if plex.type == "track" {
+        } else if type == "track" {
             track = Track(
                 id: plex.ratingKey,
                 key: plex.key,
@@ -297,18 +301,36 @@ public extension HubItem {
                 thumbPath: plex.parentThumb ?? plex.grandparentThumb,
                 sourceCompositeKey: sourceKey
             )
+        } else if type == "artist" {
+            artist = Artist(
+                id: plex.ratingKey,
+                key: plex.key,
+                name: plex.title,
+                thumbPath: plex.thumb,
+                artPath: plex.art,
+                sourceCompositeKey: sourceKey
+            )
+        } else if type == "playlist" {
+            playlist = Playlist(
+                id: plex.ratingKey,
+                key: plex.key,
+                title: plex.title,
+                sourceCompositeKey: sourceKey
+            )
         }
         
         self.init(
             id: plex.ratingKey,
-            type: plex.type,
+            type: type,
             title: plex.title,
             subtitle: subtitle,
             thumbPath: thumbPath,
             year: plex.year,
             sourceCompositeKey: sourceKey,
             album: album,
-            track: track
+            track: track,
+            artist: artist,
+            playlist: playlist
         )
     }
 }

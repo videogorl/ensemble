@@ -13,8 +13,21 @@ public protocol ArtworkLoaderProtocol {
 public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
-    private var urlCache: [String: URL] = [:]
-    private let cacheLock = NSLock()
+    
+    // Using an actor for thread-safe cache access in Swift 6
+    private actor URLCacheActor {
+        private var cache: [String: URL] = [:]
+        
+        func get(_ key: String) -> URL? {
+            cache[key]
+        }
+        
+        func set(_ key: String, url: URL) {
+            cache[key] = url
+        }
+    }
+    
+    private let urlCache = URLCacheActor()
 
     public init(
         syncCoordinator: SyncCoordinator,
@@ -38,20 +51,19 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
         let cacheKey = "\(sourceKey ?? ""):\(path):\(size)"
         
-        // Check cache first
-        cacheLock.lock()
-        if let cachedURL = urlCache[cacheKey] {
-            cacheLock.unlock()
-            return cachedURL
-        }
-        cacheLock.unlock()
-
+        // Note: This method returns nil immediately on first call and triggers background fetch
+        // This is a legacy pattern for UI components that can't wait for async.
+        // The View will re-render once the cache is populated.
+        
         // Fetch asynchronously and cache
         Task {
+            // Check cache first via actor
+            if await urlCache.get(cacheKey) != nil {
+                return
+            }
+            
             if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size) {
-                cacheLock.lock()
-                urlCache[cacheKey] = url
-                cacheLock.unlock()
+                await urlCache.set(cacheKey, url: url)
             }
         }
 
@@ -120,7 +132,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
-                print("Failed to download artwork for album \(album.title ?? "unknown"): \(error)")
+                print("Failed to download artwork for album \(album.title): \(error)")
                 continue
             }
         }
@@ -161,7 +173,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
-                print("Failed to download artwork for artist \(artist.name ?? "unknown"): \(error)")
+                print("Failed to download artwork for artist \(artist.name): \(error)")
                 continue
             }
         }

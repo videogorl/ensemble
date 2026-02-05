@@ -24,6 +24,17 @@ public final class HomeViewModel: ObservableObject {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         
+        // Reload when accounts change (e.g. after initial load from keychain)
+        accountManager.$plexAccounts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] accounts in
+                print("🏠 HomeViewModel: Accounts changed (count: \(accounts.count)), triggering load")
+                Task { @MainActor in
+                    await self?.loadHubs()
+                }
+            }
+            .store(in: &cancellables)
+        
         // Auto-reload when sync completes (with debouncing)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
@@ -31,6 +42,7 @@ public final class HomeViewModel: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] syncing in
                 if !syncing {
+                    print("🏠 HomeViewModel: Sync completed, triggering load")
                     Task { @MainActor in
                         await self?.loadHubs()
                     }
@@ -69,8 +81,10 @@ public final class HomeViewModel: ObservableObject {
             print("🏠 HomeViewModel: Load task started on main actor")
             isLoading = true
             error = nil
+            hubs = [] // Clear existing hubs for a fresh load
             
             print("🏠 HomeViewModel: Starting to load hubs...")
+            print("🏠 AccountManager has \(accountManager.plexAccounts.count) accounts")
             
             // Capture clients and library info on main actor BEFORE entering detached task
             // This ensures we reuse the cached API clients (with their active connections)
@@ -78,13 +92,18 @@ public final class HomeViewModel: ObservableObject {
             var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
             
             for account in accountManager.plexAccounts {
+                print("🏠 Processing account: \(account.username) (ID: \(account.id)) with \(account.servers.count) servers")
                 for server in account.servers {
                     // Reuse cached client from AccountManager
                     guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                        print("🏠 Could not create/retrieve API client for server: \(server.name)")
                         continue
                     }
                     
-                    for library in server.libraries where library.isEnabled {
+                    let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                    print("🏠 Server: \(server.name) has \(server.libraries.count) libraries (\(enabledLibraries.count) enabled)")
+                    
+                    for library in enabledLibraries {
                         let sourceKey = "\(account.id):\(server.id):\(library.key)"
                         fetchTasks.append((sourceKey, client, library.key))
                     }
@@ -95,60 +114,124 @@ public final class HomeViewModel: ObservableObject {
             
             // Perform the actual loading in a detached task to avoid blocking UI
             print("🏠 HomeViewModel: Creating detached task for hub fetching...")
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<[Hub], Error> in
+            await Task.detached(priority: .userInitiated) { 
                 print("🏠 HomeViewModel: Detached task started (off main actor)")
-                var allHubs: [Hub] = []
                 
-                // Process each fetch task
+                // Track seen IDs to avoid duplicates - this must only be accessed within MainActor.run
+                // to be safe in Swift 6, but since we're in a single serial detached task loop,
+                // we can also manage it here IF we're careful.
+                // Better: Move the duplicate check ENTIRELY to the MainActor.
+                
+                // 1. Process each fetch task (section-specific hubs)
                 for task in fetchTasks {
                     print("🏠 Fetching hubs for source: \(task.sourceKey)")
                     do {
                         // Fetch hubs using the reused client
                         let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
-                        print("🏠 Received \(plexHubs.count) hubs")
+                        
+                        // Process hubs off-main-actor
+                        print("🏠 Processing \(plexHubs.count) hubs for \(task.sourceKey)")
+                        var processedHubs: [Hub] = []
                         
                         for plexHub in plexHubs {
-                            // Fetch items for this hub (limited)
-                            let hubItems: [HubItem]
-                            if let metadata = plexHub.metadata {
-                                hubItems = Array(metadata.prefix(10)).map { 
-                                    HubItem(from: $0, sourceKey: task.sourceKey)
+                            let hubId = "\(task.sourceKey):\(plexHub.id)"
+                            
+                            // Fetch items for this hub if they weren't provided inline
+                            var hubItems: [HubItem] = []
+                            
+                            if let metadata = plexHub.metadata, !metadata.isEmpty {
+                                let filteredMetadata = metadata.filter { item in
+                                    let type = item.type?.lowercased() ?? ""
+                                    return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
                                 }
-                                print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
-                            } else {
-                                hubItems = []
-                                print("🏠 Hub '\(plexHub.title)': no metadata")
+                                hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                            } else if let key = plexHub.key ?? plexHub.hubKey {
+                                if let metadata = try? await task.client.getHubItems(hubKey: key) {
+                                    let filteredMetadata = metadata.filter { item in
+                                        let type = item.type?.lowercased() ?? ""
+                                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                                    }
+                                    hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                }
                             }
                             
-                            let hub = Hub(
-                                id: plexHub.hubIdentifier,
-                                title: plexHub.title,
-                                type: plexHub.type,
-                                items: hubItems
-                            )
-                            
-                            allHubs.append(hub)
+                            if !hubItems.isEmpty {
+                                processedHubs.append(Hub(
+                                    id: hubId,
+                                    title: plexHub.title,
+                                    type: plexHub.type ?? "mixed",
+                                    items: hubItems
+                                ))
+                            }
+                        }
+                        
+                        // Update UI incrementally on MainActor
+                        await MainActor.run {
+                            for hub in processedHubs {
+                                // Double check ID uniqueness on the main actor where 'hubs' lives
+                                if !self.hubs.contains(where: { $0.id == hub.id }) {
+                                    self.hubs.append(hub)
+                                }
+                            }
                         }
                     } catch {
                         print("❌ Error loading hubs for \(task.sourceKey): \(error.localizedDescription)")
-                        // Continue with other libraries even if one fails
                     }
                 }
                 
-                print("🏠 Total hubs loaded: \(allHubs.count)")
-                return .success(allHubs)
+                // 2. If we have very few hubs, try fetching global hubs (as a fallback)
+                let currentHubCount = await MainActor.run { self.hubs.count }
+                if currentHubCount < 3 {
+                    print("🏠 Few hubs found, fetching global hubs...")
+                    var handledServers = Set<String>()
+                    for task in fetchTasks {
+                        let serverId = task.sourceKey.split(separator: ":").prefix(2).joined(separator: ":")
+                        if handledServers.contains(serverId) { continue }
+                        handledServers.insert(serverId)
+                        
+                        do {
+                            let globalHubs = try await task.client.getGlobalHubs()
+                            var processedHubs: [Hub] = []
+                            
+                            for plexHub in globalHubs {
+                                let hubType = plexHub.type?.lowercased() ?? ""
+                                let isMusic = hubType.contains("artist") || hubType.contains("album") || hubType.contains("track") || hubType.contains("playlist") || hubType.contains("music")
+                                if !isMusic { continue }
+                                
+                                let hubId = "\(task.sourceKey):global:\(plexHub.id)"
+                                var hubItems: [HubItem] = []
+                                
+                                if let metadata = plexHub.metadata, !metadata.isEmpty {
+                                    let filteredMetadata = metadata.filter { item in
+                                        let type = item.type?.lowercased() ?? ""
+                                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                                    }
+                                    hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                }
+                                
+                                if !hubItems.isEmpty {
+                                    processedHubs.append(Hub(
+                                        id: hubId,
+                                        title: plexHub.title,
+                                        type: plexHub.type ?? "mixed",
+                                        items: hubItems
+                                    ))
+                                }
+                            }
+                            
+                            await MainActor.run {
+                                for hub in processedHubs {
+                                    if !self.hubs.contains(where: { $0.id == hub.id }) {
+                                        self.hubs.append(hub)
+                                    }
+                                }
+                            }
+                        } catch {
+                            print("❌ Error loading global hubs: \(error.localizedDescription)")
+                        }
+                    }
+                }
             }.value
-            
-            // Update UI on main actor with results
-            print("🏠 HomeViewModel: Updating UI with results...")
-            switch result {
-            case .success(let loadedHubs):
-                hubs = loadedHubs
-                print("🏠 HomeViewModel: UI updated with \(loadedHubs.count) hubs")
-            case .failure(let loadError):
-                error = "Failed to load hubs: \(loadError.localizedDescription)"
-                print("🏠 HomeViewModel: UI updated with error")
-            }
             
             isLoading = false
             let loadEndTime = Date()

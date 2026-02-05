@@ -140,9 +140,10 @@ public struct PlexMediaContainer<T: Codable & Sendable>: Codable, Sendable {
         public let directory: [U]?
         public let metadata: [U]?
         public let playlist: [U]?
+        public let hub: [U]?
 
         public var items: [U] {
-            directory ?? metadata ?? playlist ?? []
+            directory ?? metadata ?? playlist ?? hub ?? []
         }
 
         enum CodingKeys: String, CodingKey {
@@ -155,6 +156,7 @@ public struct PlexMediaContainer<T: Codable & Sendable>: Codable, Sendable {
             case directory = "Directory"
             case metadata = "Metadata"
             case playlist = "Playlist"
+            case hub = "Hub"
         }
     }
 
@@ -177,7 +179,8 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public var id: String { key }
 
     public var isMusicLibrary: Bool {
-        type == "artist"
+        let lowerType = type.lowercased()
+        return lowerType == "artist" || lowerType == "music"
     }
 }
 
@@ -394,19 +397,19 @@ public struct PlexUser: Codable, Sendable {
 
 /// Represents a hub on the Plex home screen (Recently Added, Recently Played, etc.)
 public struct PlexHub: Codable, Sendable, Identifiable {
-    public let hubKey: String
-    public let key: String
+    public let hubKey: String?
+    public let key: String?
     public let title: String
-    public let type: String
-    public let hubIdentifier: String
+    public let type: String?
+    public let hubIdentifier: String?
     public let context: String?
-    public let size: Int
-    public let more: Bool
+    public let size: Int?
+    public let more: Bool?
     public let style: String?
     public let promoted: Bool?
     public let metadata: [PlexHubMetadata]?
     
-    public var id: String { hubIdentifier }
+    public var id: String { hubIdentifier ?? key ?? hubKey ?? title }
     
     enum CodingKeys: String, CodingKey {
         case hubKey
@@ -427,7 +430,7 @@ public struct PlexHub: Codable, Sendable, Identifiable {
 public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
-    public let type: String  // "album", "track", "playlist"
+    public let type: String?  // "album", "track", "playlist"
     public let title: String
     public let parentTitle: String?  // Artist name for albums/tracks
     public let grandparentTitle: String?  // Artist name for tracks

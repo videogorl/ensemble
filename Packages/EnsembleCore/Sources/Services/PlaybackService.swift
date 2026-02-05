@@ -504,7 +504,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     /// Retry playing the current track (useful after network errors)
     public func retryCurrentTrack() async {
-        guard let track = currentTrack else { return }
+        guard currentTrack != nil else { return }
         await playCurrentQueueItem()
     }
 

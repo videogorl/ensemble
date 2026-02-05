@@ -15,8 +15,8 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Multi-Source
 
-    nonisolated(unsafe) public let accountManager: AccountManager
-    nonisolated(unsafe) public let syncCoordinator: SyncCoordinator
+    public let accountManager: AccountManager
+    public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
 
@@ -27,13 +27,13 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Services
 
-    nonisolated(unsafe) public let networkMonitor: NetworkMonitor
-    nonisolated(unsafe) public let serverHealthChecker: ServerHealthChecker
+    public let networkMonitor: NetworkMonitor
+    public let serverHealthChecker: ServerHealthChecker
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
-    nonisolated(unsafe) public let settingsManager: SettingsManager
-    nonisolated(unsafe) public let cacheManager: CacheManager
-    nonisolated(unsafe) public let navigationCoordinator: NavigationCoordinator
+    public let settingsManager: SettingsManager
+    public let cacheManager: CacheManager
+    public let navigationCoordinator: NavigationCoordinator
 
     // MARK: - Legacy (kept for add-account flow)
 

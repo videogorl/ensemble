@@ -58,39 +58,62 @@ public struct HomeView: View {
     }
     
     private var emptyView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "house")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            
-            Text("Welcome Home")
-                .font(.title2)
-            
-            VStack(spacing: 8) {
-                if let errorMessage = viewModel.error {
-                    Text("Unable to load content")
-                        .font(.subheadline)
-                        .foregroundColor(.red)
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                } else {
-                    Text("No content available yet")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    
-                    Text("Your Plex server may not have hub data available, or content may still be loading. Pull down to refresh.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer()
+                    .frame(height: 60)
+                
+                Image(systemName: "house")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+                
+                Text("Welcome Home")
+                    .font(.title2)
+                
+                VStack(spacing: 8) {
+                    if let errorMessage = viewModel.error {
+                        Text("Unable to load content")
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    } else {
+                        Text("No content available yet")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        
+                        Text("Your Plex server may not have hub data available, or content may still be loading. Pull down to refresh.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
                 }
+                
+                Button {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                
+                Spacer()
             }
+            .frame(maxWidth: .infinity)
+            .padding()
         }
-        .padding()
     }
     
     private var hubsScrollView: some View {
@@ -196,6 +219,8 @@ struct HubItemCard: View {
             onAlbumTap(album)
         } else if item.type == "track", let track = item.track {
             nowPlayingVM.play(tracks: [track])
+        } else if item.type == "artist", let artist = item.artist {
+            onArtistTap(artist)
         }
     }
 }

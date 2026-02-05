@@ -494,6 +494,8 @@ public struct HubItem: Identifiable, Sendable, Equatable {
     // Reference to actual domain object
     public let album: Album?
     public let track: Track?
+    public let artist: Artist?
+    public let playlist: Playlist?
     
     public init(
         id: String,
@@ -504,7 +506,9 @@ public struct HubItem: Identifiable, Sendable, Equatable {
         year: Int?,
         sourceCompositeKey: String,
         album: Album? = nil,
-        track: Track? = nil
+        track: Track? = nil,
+        artist: Artist? = nil,
+        playlist: Playlist? = nil
     ) {
         self.id = id
         self.type = type
@@ -515,5 +519,7 @@ public struct HubItem: Identifiable, Sendable, Equatable {
         self.sourceCompositeKey = sourceCompositeKey
         self.album = album
         self.track = track
+        self.artist = artist
+        self.playlist = playlist
     }
 }
