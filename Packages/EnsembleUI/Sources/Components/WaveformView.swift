@@ -13,7 +13,7 @@ public struct WaveformView: View {
     
     public var body: some View {
         GeometryReader { geometry in
-            HStack(spacing: 2) {
+            HStack(spacing: 1) {
                 let count = heights.isEmpty ? 40 : heights.count
                 let maxHeight = geometry.size.height
                 
@@ -23,11 +23,11 @@ public struct WaveformView: View {
                     let height = heights.isEmpty ? 0.2 : heights[index]
                     
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(isPlayed ? color : color.opacity(0.3))
-                        .frame(height: CGFloat(height) * maxHeight)
+                        .fill(isPlayed ? color : color.opacity(0.25))
+                        .frame(height: max(2, CGFloat(height) * maxHeight))
                 }
             }
-            .id(heights) // Force re-render if heights content changes
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

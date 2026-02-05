@@ -218,7 +218,7 @@ public struct NowPlayingView: View {
                     Color.clear
                         .contentShape(Rectangle())
                 }
-                .frame(height: 44)
+                .frame(height: 32)
                 .onAppear {
                     sliderWidth = geometry.size.width
                 }
@@ -262,7 +262,7 @@ public struct NowPlayingView: View {
                         }
                 )
             }
-            .frame(height: 44)
+            .frame(height: 32)
 
             // Time labels with scrub indicator in center
             HStack {

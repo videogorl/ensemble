@@ -255,15 +255,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Normalize to 0.0-1.0 first
         let normalized = loudness.map { (($0 - minLoudness) / range) }
         
-        // Apply aggressive contrast enhancement using power curve
-        // Exponent of 0.4 creates dramatic differences between quiet and loud sections
-        // (lower exponent = more extreme contrast, similar to Plexamp)
-        let contrastExponent = 0.4
+        // Apply contrast enhancement using power curve
+        // Exponent > 1.0 expands the range, making quiet sections quieter and loud sections stand out
+        let contrastExponent = 1.2
         let enhanced = normalized.map { pow($0, contrastExponent) }
         
-        // Map to 0.2-1.0 range for maximum visual impact
+        // Map to 0.1-1.0 range for maximum visual impact
         // Lower floor allows for more dramatic height variation
-        return enhanced.map { 0.2 + ($0 * 0.8) }
+        return enhanced.map { 0.1 + ($0 * 0.9) }
     }
     
     /// Generate fallback pseudo-random waveform when Plex data is unavailable
@@ -285,20 +284,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Create multiple peaks throughout the track with more variation
             let primaryWave = sin(progress * .pi) // Main envelope
-            let secondaryWave = sin(progress * .pi * 3) * 0.4 // Add variation
-            let tertiaryWave = sin(progress * .pi * 7) * 0.2 // Add micro variation
+            let secondaryWave = sin(progress * .pi * 4.5) * 0.5 // Add variation
+            let tertiaryWave = sin(progress * .pi * 12) * 0.3 // Add micro variation
             
-            let envelope = primaryWave + secondaryWave + tertiaryWave
+            let envelope = max(0.1, primaryWave + secondaryWave + tertiaryWave)
             
             // Create dramatic height differences
-            let base = 0.5 + (0.4 * envelope)
-            let variance = 0.3 * nextRandom() // Increased variance for more drama
+            let base = 0.4 * envelope
+            let variance = 0.6 * nextRandom() // High variance for more drama
             
             // Apply power curve for contrast similar to real data
             let raw = max(0.0, min(1.0, base + variance))
-            let enhanced = pow(raw, 0.5) // Contrast enhancement
+            let enhanced = pow(raw, 1.2) // Contrast enhancement
             
-            heights.append(0.2 + (enhanced * 0.8)) // Match real data range
+            heights.append(0.1 + (enhanced * 0.9)) // Match real data range
         }
         
         return heights
