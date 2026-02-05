@@ -9,6 +9,7 @@ public struct MarqueeText: View {
     @State private var offset: CGFloat = 0
     @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
+    @State private var showLeftFade = false
     
     public init(
         text: String,
@@ -23,78 +24,100 @@ public struct MarqueeText: View {
     }
     
     public var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background measurement text
+        // This base Text sets the height and fills the available width
+        Text(text)
+            .font(font)
+            .fontWeight(fontWeight)
+            .lineLimit(1)
+            .opacity(0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear
+                        .onAppear {
+                            self.containerWidth = geometry.size.width
+                        }
+                        .onChange(of: geometry.size.width) { newWidth in
+                            self.containerWidth = newWidth
+                        }
+                }
+            )
+            .overlay(
+                // Measurement view for textWidth
                 Text(text)
                     .font(font)
                     .fontWeight(fontWeight)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .background(GeometryReader { textGeometry in
-                        Color.clear.onAppear {
-                            self.textWidth = textGeometry.size.width
-                            self.containerWidth = geometry.size.width
+                    .background(GeometryReader { proxy in
+                        Color.clear.onAppear { self.textWidth = proxy.size.width }
+                    })
+                    .opacity(0)
+            )
+            .overlay(
+                ZStack(alignment: .leading) {
+                    if textWidth > containerWidth {
+                        // Scrolling text
+                        HStack(spacing: 50) {
+                            Text(text)
+                                .font(font)
+                                .fontWeight(fontWeight)
+                                .foregroundColor(color)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                            
+                            Text(text)
+                                .font(font)
+                                .fontWeight(fontWeight)
+                                .foregroundColor(color)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .offset(x: offset)
+                        .onAppear {
                             startAnimation()
                         }
-                    })
-                    .opacity(0) // Hide the measurement text
-                
-                if textWidth > geometry.size.width {
-                    // Scrolling text
-                    HStack(spacing: 50) {
+                    } else {
+                        // Static text
                         Text(text)
                             .font(font)
                             .fontWeight(fontWeight)
                             .foregroundColor(color)
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                        
-                        Text(text)
-                            .font(font)
-                            .fontWeight(fontWeight)
-                            .foregroundColor(color)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .offset(x: offset)
-                } else {
-                    // Static text
-                    Text(text)
-                        .font(font)
-                        .fontWeight(fontWeight)
-                        .foregroundColor(color)
-                        .lineLimit(1)
-                }
-            }
-            .mask(
-                HStack(spacing: 0) {
-                    // Left fade - only when actually offset
-                    if textWidth > geometry.size.width && offset < 0 {
-                        LinearGradient(
-                            gradient: Gradient(colors: [.clear, .black]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 16)
-                    }
-                    
-                    Rectangle().fill(Color.black)
-                    
-                    // Right fade - only when text is long
-                    if textWidth > geometry.size.width {
-                        LinearGradient(
-                            gradient: Gradient(colors: [.black, .clear]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: 16)
                     }
                 }
+                .mask(
+                    HStack(spacing: 0) {
+                        if textWidth > containerWidth {
+                            // Left fade - appears quickly when scrolling starts
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .black.opacity(showLeftFade ? 0 : 1), location: 0),
+                                    .init(color: .black, location: 1)
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 24)
+                            
+                            Rectangle().fill(Color.black)
+                            
+                            // Right fade - always present when overflowing
+                            LinearGradient(
+                                gradient: Gradient(colors: [.black, .clear]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 24)
+                        } else {
+                            Rectangle().fill(Color.black)
+                        }
+                    }
+                )
+                , alignment: .leading
             )
-            .id(text) // Force view reset when text changes
-        }
-        .frame(height: fontHeight)
+            .clipped()
+            .id(text)
     }
     
     private var fontHeight: CGFloat {
@@ -111,6 +134,7 @@ public struct MarqueeText: View {
         
         // Reset state
         offset = 0
+        showLeftFade = false
         
         let duration = Double(textWidth) / 30.0
         let delay = 3.0 // Wait at start
@@ -118,6 +142,11 @@ public struct MarqueeText: View {
         
         // Start the sequence after an initial delay
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // Trigger fade in quickly (0.3s) just as we start scrolling
+            withAnimation(.easeIn(duration: 0.3)) {
+                showLeftFade = true
+            }
+            
             withAnimation(.linear(duration: duration)) {
                 offset = -(textWidth + 50)
             }
@@ -126,6 +155,7 @@ public struct MarqueeText: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + duration + waitAtEnd) {
                 // Snap back to start without animation
                 offset = 0
+                showLeftFade = false
                 // Recursively start again
                 startAnimation()
             }
