@@ -947,21 +947,78 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("🔄 Restoring playback state: \(tracks.count) tracks, index: \(index), time: \(time)s")
         print("🔄 First track: \(tracks[0].title)")
         
-        // Restore queue
-        print("🔄 Calling play() to restore queue...")
-        await play(tracks: tracks, startingAt: index)
-        print("🔄 Queue restored")
+        // Restore queue without starting playback
+        print("🔄 Restoring queue...")
+        await restoreQueue(tracks: tracks, index: index, time: time)
+        print("🔄 Restoration complete - paused at \(time)s")
+    }
+    
+    /// Restore queue without starting playback
+    private func restoreQueue(tracks: [Track], index: Int, time: TimeInterval) async {
+        guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
         
-        // Seek to saved position
-        await MainActor.run {
-            print("🔄 Seeking to position and pausing...")
-            if time > 0 {
-                seek(to: time)
-            }
-            // Start paused, let user resume
-            pause()
-            print("🔄 Restoration complete - paused at \(time)s")
+        // Disable shuffle on restore
+        if isShuffleEnabled {
+            isShuffleEnabled = false
+            UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
         }
+        
+        // Set up queue
+        queue = tracks.map { QueueItem(track: $0) }
+        originalQueue = queue
+        currentQueueIndex = index
+        currentTrack = tracks[index]
+        
+        // Load the player item but don't start playback
+        let track = tracks[index]
+        generateWaveform(for: track.id)
+        playbackState = .loading
+        currentTime = 0
+        
+        do {
+            let item = try await createPlayerItem(for: track)
+            await loadAndPrepare(item: item, track: track, seekTo: time)
+        } catch {
+            print("❌ Failed to prepare track during restore: \(error)")
+            playbackState = .failed(error.localizedDescription)
+        }
+    }
+    
+    /// Load and prepare a player item without starting playback
+    @MainActor
+    private func loadAndPrepare(item: AVPlayerItem, track: Track, seekTo time: TimeInterval) {
+        // Stop current observers but don't full cleanup
+        statusObservation?.invalidate()
+        statusObservation = nil
+        
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        
+        #if !os(macOS)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+        
+        playerItems.removeAll()
+        playerItems[track.id] = item
+        
+        player?.removeAllItems()
+        player?.insert(item, after: nil)
+        
+        setupObservers(for: item)
+        
+        // Seek to the saved position
+        if time > 0 {
+            let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
+            player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            currentTime = time
+        }
+        
+        // Set state to paused (not playing)
+        playbackState = .paused
+        print("🎵 Track prepared and paused at \(time)s")
+        updateNowPlayingInfo()
     }
 }
 
