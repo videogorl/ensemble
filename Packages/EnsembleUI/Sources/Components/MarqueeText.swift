@@ -152,13 +152,22 @@ public struct MarqueeText: View {
                 offset = -(textWidth + 50)
             }
             
-            // Wait for duration + waitAtEnd, then reset and loop
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + waitAtEnd) {
-                // Snap back to start without animation
-                offset = 0
-                showLeftFade = false
-                // Recursively start again
-                startAnimation()
+            // Fade out the mask slightly BEFORE the animation finishes
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, duration - 0.3)) {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showLeftFade = false
+                }
+            }
+            
+            // Wait for the animation to finish, then handle the pause and reset
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                // Wait for the end-of-cycle pause, then reset and loop
+                DispatchQueue.main.asyncAfter(deadline: .now() + waitAtEnd) {
+                    // Snap back to start without animation
+                    offset = 0
+                    // Recursively start again
+                    startAnimation()
+                }
             }
         }
     }
