@@ -103,9 +103,14 @@ public struct MoreView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") {
                     withAnimation {
@@ -113,6 +118,15 @@ public struct MoreView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                Button(isEditing ? "Done" : "Edit") {
+                    withAnimation {
+                        isEditing.toggle()
+                    }
+                }
+            }
+            #endif
         }
     }
     

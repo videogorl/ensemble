@@ -310,7 +310,7 @@ public final class NowPlayingViewModel: ObservableObject {
                         let serverId = String(components[2])
                         
                         // Get API client from account manager
-                        if let apiClient = await syncCoordinator.accountManager.makeAPIClient(
+                        if let apiClient = syncCoordinator.accountManager.makeAPIClient(
                             accountId: accountId,
                             serverId: serverId
                         ) {

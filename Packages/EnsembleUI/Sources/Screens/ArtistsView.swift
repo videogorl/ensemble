@@ -34,6 +34,7 @@ public struct ArtistsView: View {
             await libraryVM.refresh()
         }
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.artists.isEmpty {
                     HStack(spacing: 16) {
@@ -72,6 +73,27 @@ public struct ArtistsView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !libraryVM.artists.isEmpty {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.artistsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -224,7 +246,9 @@ public struct ArtistDetailView: View {
             }
         }
         .navigationTitle(viewModel.artist.name)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()

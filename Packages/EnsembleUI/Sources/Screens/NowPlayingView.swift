@@ -114,7 +114,7 @@ public struct NowPlayingView: View {
                 .padding(.bottom, 50)
             
             // Playback slider
-            progressView
+            progressView(track: track)
                 .padding(.horizontal, 40)
             
             // Track metadata (below slider, clickable)
@@ -192,7 +192,7 @@ public struct NowPlayingView: View {
     }
 
     // Progress slider with time labels
-    private var progressView: some View {
+    private func progressView(track: Track) -> some View {
         VStack(spacing: 8) {
             // Custom slider with variable speed scrubbing and waveform
             GeometryReader { geometry in
@@ -204,6 +204,9 @@ public struct NowPlayingView: View {
                         heights: viewModel.waveformHeights
                     )
                     .frame(width: geometry.size.width)
+                    .id(track.id) // Force view reset when track changes
+                    .transition(.opacity)
+                    .animation(.easeInOut, value: track.id)
                     .opacity(0.8)
                     
                     // Invisible interaction layer
@@ -568,11 +571,13 @@ public struct NowPlayingView: View {
         
         // Create timer that seeks every 0.1 seconds
         seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
-            guard let viewModel = viewModel else { return }
-            let currentTime = viewModel.currentTime
-            let seekAmount: TimeInterval = forward ? 2.0 : -2.0
-            let newTime = max(0, min(currentTime + seekAmount, viewModel.duration))
-            viewModel.seek(to: newTime)
+            Task { @MainActor in
+                guard let viewModel = viewModel else { return }
+                let currentTime = viewModel.currentTime
+                let seekAmount: TimeInterval = forward ? 2.0 : -2.0
+                let newTime = max(0, min(currentTime + seekAmount, viewModel.duration))
+                viewModel.seek(to: newTime)
+            }
         }
     }
     

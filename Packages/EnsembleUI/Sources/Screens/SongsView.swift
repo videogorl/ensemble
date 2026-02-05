@@ -29,6 +29,7 @@ public struct SongsView: View {
             await libraryVM.refresh()
         }
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.tracks.isEmpty {
                     HStack(spacing: 16) {
@@ -85,6 +86,28 @@ public struct SongsView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !libraryVM.tracks.isEmpty {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.tracksFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                        // Add Sort Menu for macOS here if needed
+                    }
+                }
+            }
+            #endif
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -186,7 +209,11 @@ struct SectionHeader: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+        #if canImport(UIKit)
         .background(Color(.systemBackground).opacity(0.95))
+        #else
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
+        #endif
     }
 }
 

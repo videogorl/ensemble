@@ -31,6 +31,7 @@ public struct PlaylistsView: View {
             await viewModel.loadPlaylists()
         }
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.playlists.isEmpty {
                     Menu {
@@ -51,6 +52,28 @@ public struct PlaylistsView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !viewModel.playlists.isEmpty {
+                    Menu {
+                        ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                            Button {
+                                viewModel.playlistSortOption = option
+                            } label: {
+                                HStack {
+                                    Text(option.rawValue)
+                                    if viewModel.playlistSortOption == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort By", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
+            #endif
         }
     }
 

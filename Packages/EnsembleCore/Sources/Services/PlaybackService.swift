@@ -169,6 +169,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     
     private func generateWaveform(for ratingKey: String) {
+        print("🎵 Generating waveform for track: \(ratingKey)")
         // Simple seeded random to make it consistent for the same track
         var seed = UInt64(truncatingIfNeeded: Int64(ratingKey.hashValue))
         func nextRandom() -> Double {
@@ -190,6 +191,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             heights.append(min(1.0, base + variance))
         }
         
+        print("🎵 Generated \(heights.count) heights, first: \(heights.first ?? 0)")
         self.waveformHeights = heights
     }
 

@@ -40,7 +40,9 @@ public struct SearchView: View {
 
             TextField("Songs, artists, albums", text: $viewModel.searchQuery)
                 .textFieldStyle(.plain)
+                #if os(iOS)
                 .autocapitalization(.none)
+                #endif
                 .disableAutocorrection(true)
                 .focused($isSearchFieldFocused)
 

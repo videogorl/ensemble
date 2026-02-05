@@ -119,7 +119,11 @@ public struct SettingsView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .navigationTitle("Settings")
         .sheet(isPresented: $showingAddAccount) {
             AddPlexAccountView()
@@ -200,7 +204,9 @@ struct AudioQualitySettingsView: View {
             }
         }
         .navigationTitle("Audio Quality")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
@@ -232,7 +238,9 @@ struct StorageSettingsView: View {
             }
         }
         .navigationTitle("Storage")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .alert("Clear Downloads", isPresented: $showingClearAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Clear All", role: .destructive) {

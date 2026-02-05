@@ -24,6 +24,7 @@ public struct WaveformView: View {
                     .frame(height: CGFloat(height) * 30)
             }
         }
+        .id(heights) // Force re-render if heights content changes
         .frame(height: 40)
     }
 }

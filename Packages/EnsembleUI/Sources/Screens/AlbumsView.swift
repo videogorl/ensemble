@@ -39,6 +39,7 @@ public struct AlbumsView: View {
             await libraryVM.refresh()
         }
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.albums.isEmpty {
                     HStack(spacing: 16) {
@@ -77,6 +78,27 @@ public struct AlbumsView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !libraryVM.albums.isEmpty {
+                    HStack(spacing: 16) {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
