@@ -22,7 +22,7 @@ import Foundation
 
 // MARK: - Track
 
-public struct Track: Identifiable, Hashable, Sendable {
+public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
