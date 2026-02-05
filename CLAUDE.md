@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+
+## Coding style
+
+Leave doc comments and comments above classes and other elements so that both the user and the agent know what's going on: keep this up to date.
+
+As you make big architectural changes, please update this document and the README.md file as necessary.
+
 ## Project Overview
 
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
@@ -163,10 +170,12 @@ Sources/
 ├── DI/
 │   └── DependencyContainer.swift      # Singleton DI container & VM factories
 ├── Models/
-│   ├── DomainModels.swift             # UI-facing models (Track, Album, Artist, etc.)
+│   ├── DomainModels.swift             # UI-facing models (Track, Album, Artist, Hub, etc.)
 │   ├── ModelMappers.swift             # CD* ↔ Domain model conversions
 │   ├── MusicSource.swift              # Multi-account source identification
-│   └── PlexAccountConfig.swift        # Account/server/library configuration
+│   ├── PlexAccountConfig.swift        # Account/server/library configuration
+│   ├── FilterOptions.swift            # Filter/sort configuration with persistence
+│   └── NetworkModels.swift            # Network state & connectivity models
 ├── Services/
 │   ├── AccountManager.swift           # Multi-account configuration (MainActor)
 │   ├── SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
@@ -175,12 +184,17 @@ Sources/
 │   ├── NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 │   ├── PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
 │   ├── ArtworkLoader.swift            # Persistent artwork caching & loading
-│   └── CacheManager.swift             # Cache size tracking & management (MainActor)
+│   ├── CacheManager.swift             # Cache size tracking & management (MainActor)
+│   ├── NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
+│   ├── ServerHealthChecker.swift      # Concurrent server health checks
+│   └── SettingsManager.swift          # App settings (accent colors, customizable tabs)
 ├── ViewModels/
 │   ├── AddPlexAccountViewModel.swift
 │   ├── AlbumDetailViewModel.swift
 │   ├── ArtistDetailViewModel.swift
 │   ├── DownloadsViewModel.swift
+│   ├── FavoritesViewModel.swift       # Tracks rated 4+ stars
+│   ├── HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 │   ├── LibraryViewModel.swift
 │   ├── NowPlayingViewModel.swift
 │   ├── PlaylistViewModel.swift
@@ -200,11 +214,16 @@ Tests/
 - `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls
 - `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) — Tracks cache sizes and provides cache clearing functionality
+- `NetworkMonitor` (@MainActor) — Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
+- `ServerHealthChecker` — Concurrent health checks for all configured servers with automatic failover
+- `SettingsManager` (@MainActor) — Manages accent colors and customizable tab configuration
 
 **Key Models:**
-- Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist` (UI-facing, protocol-conforming)
+- Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
 - `MusicSource` / `MusicSourceIdentifier` — Multi-account source tracking
 - `PlexAccountConfig` — Account/server/library hierarchy for configuration
+- `FilterOptions` — Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
+- `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` — Network state management models
 
 #### EnsembleUI (Presentation Layer)
 - **Location:** `Packages/EnsembleUI/`
@@ -215,28 +234,36 @@ Tests/
 ```
 Sources/
 ├── Components/
+│   ├── AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 │   ├── AlbumCard.swift               # Grid card for albums
 │   ├── ArtistCard.swift              # Grid card for artists
+│   ├── ArtworkColorExtractor.swift   # Actor-based gradient color extraction from artwork
 │   ├── ArtworkView.swift             # Lazy-loading artwork with Nuke
+│   ├── ConnectionStatusBanner.swift  # Network status UI indicator
 │   ├── EmptyLibraryView.swift        # Empty state with sync prompt
+│   ├── FilterSheet.swift             # Advanced filtering UI with persistence
 │   ├── MediaTrackList.swift          # Reusable track list with context menu
 │   ├── MiniPlayer.swift              # Compact persistent player overlay
 │   ├── PlaylistCard.swift            # Grid card for playlists
-│   └── TrackRow.swift                # Single track row with artwork
+│   ├── ScrollIndex.swift             # A-Z index for fast scrolling
+│   ├── TrackRow.swift                # Single track row with artwork
+│   └── WaveformView.swift            # Audio waveform visualization
 ├── Screens/
 │   ├── AddPlexAccountView.swift      # Account setup flow
 │   ├── AlbumsView.swift              # Album grid
 │   ├── ArtistsView.swift             # Artist grid
 │   ├── DownloadsView.swift           # Offline downloads
+│   ├── FavoritesView.swift           # Tracks rated 4+ stars
 │   ├── GenresView.swift              # Genre browsing
+│   ├── HomeView.swift                # Hub-based home screen (Recently Added, etc.)
 │   ├── MainTabView.swift             # iPhone tab bar
-│   ├── MediaDetailView.swift         # Artist/Album detail (adaptive)
+│   ├── MediaDetailView.swift         # Artist/Album/Playlist detail (adaptive, protocol-based)
 │   ├── MoreView.swift                # Additional options
 │   ├── NowPlayingView.swift          # Full-screen player
 │   ├── PlaylistsView.swift           # Playlist grid
 │   ├── RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 │   ├── SearchView.swift              # Search interface
-│   ├── SettingsView.swift            # App settings
+│   ├── SettingsView.swift            # App settings with customizable tabs & accent colors
 │   ├── SongsView.swift               # All songs list
 │   └── SyncPanelView.swift           # Library sync status & controls
 └── EnsembleUI.swift                  # Public exports
@@ -248,8 +275,14 @@ Tests/
 **Key Views:**
 - `RootView` — Adapts by platform: tab navigation on iPhone, sidebar on iPad/macOS
 - `MiniPlayer` — Persistent compact player overlay across all screens
-- `MediaDetailView` — Unified artist/album detail view
+- `MediaDetailView` — Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` — Local-first artwork loading with automatic fallback to network
+- `HomeView` — Hub-based home screen with horizontally-scrolling sections (Recently Added, Recently Played, etc.)
+- `FavoritesView` — Displays tracks rated 4+ stars
+- `FilterSheet` — Advanced filtering UI with artist/genre multi-select, year ranges, downloaded-only filter
+- `ArtworkColorExtractor` — Actor-based background color extraction for dynamic gradients on detail views
+- `ConnectionStatusBanner` — Network connectivity status banner
+- `AirPlayButton` — Native AirPlay route picker integration
 
 ### Key Architectural Patterns
 
@@ -257,6 +290,7 @@ Tests/
 - **Dependency Injection** — Centralized `DependencyContainer` singleton, injected through SwiftUI environment key
 - **Actor-based concurrency** — Thread-safe networking with `PlexAPIClient` and `PlexAuthService` actors
 - **Repository pattern** — Protocol abstractions for CoreData access (`LibraryRepositoryProtocol`, `PlaylistRepositoryProtocol`)
+- **Protocol-based view reuse** — `MediaDetailViewModelProtocol` enables single `MediaDetailView` for multiple content types (Artist, Album, Playlist, Favorites)
 - **Domain model separation** — Three distinct model layers:
   - API models (`Plex*` in EnsembleAPI) — Raw server responses
   - CoreData models (`CD*` in EnsemblePersistence) — Persisted entities
@@ -265,10 +299,20 @@ Tests/
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
   - Provider pattern allows pluggable sync implementations
+- **Network resilience** — Multi-layered approach for robust connectivity
+  - `NetworkMonitor` — OS-level connectivity monitoring (NWPathMonitor) with 1s debouncing
+  - `ServerHealthChecker` — Concurrent health checks for all configured servers
+  - `ConnectionFailoverManager` — Automatic failover between server URLs (Local → Direct → Relay)
 - **Persistent artwork caching** — Two-tier caching system for optimal performance
   - Local filesystem cache via `ArtworkDownloadManager` (survives app restarts)
   - In-memory cache via Nuke's `ImagePipeline` (fast access during session)
   - Local-first loading strategy: check filesystem → fetch from network if needed
+- **Performance optimizations** — Debouncing and background processing throughout
+  - Network monitor debouncing (1s) to reduce unnecessary UI updates
+  - Home screen loading debouncing (2s) to prevent rapid reloads
+  - Delayed network monitor start (500ms) to avoid blocking app launch
+  - Task.detached for non-blocking background work
+  - Actor-based artwork color extraction for thread safety
 
 ### Artwork Caching System
 
@@ -321,18 +365,159 @@ ArtworkView(album: album, size: .medium)
 - Supports offline viewing (when track files are also downloaded)
 - Memory efficient (iOS 15+ / 2GB RAM compatible)
 
+### Hub-Based Home Screen
+
+The app features a dynamic home screen powered by Plex's hub system:
+
+**Architecture:**
+- `Hub` domain model — Represents content sections (Recently Added, Recently Played, Most Played, etc.)
+- `HubItem` domain model — Individual items within a hub (can be tracks, albums, artists, playlists)
+- `HomeViewModel` — Loads hub data from Plex API with 2s debouncing to prevent rapid reloads
+- `HomeView` — Displays horizontally-scrolling sections with navigation to detail views
+
+**Implementation Details:**
+- Uses `Task.detached` for non-blocking hub loading
+- Supports hub-specific navigation (tapping an item navigates to appropriate detail view)
+- Fetches from Plex API's `/hubs` endpoint
+- Automatically refreshes when accounts change
+
+**User Experience:**
+- Provides personalized music discovery
+- Quick access to recently added content
+- Shows listening history and favorites
+- Mimics Plex's web/mobile interface patterns
+
+### Advanced Filtering System
+
+Comprehensive filtering with persistence across app launches:
+
+**FilterOptions Model** (`EnsembleCore/Models/FilterOptions.swift`):
+- `searchText` — Text search across titles, artists, albums
+- `sortOption` — Generic sort options (title, artist, album, duration, track number, etc.)
+- `sortDirection` — Ascending or descending
+- `selectedGenreIds` — Multi-select genre filtering
+- `selectedArtistIds` — Multi-select artist filtering
+- `yearRange` — Closed range for filtering by release year
+- `onlyDownloaded` — Toggle to show only offline content
+
+**FilterPersistence:**
+- Saves filters to UserDefaults per-view (e.g., "albumsFilter", "songsFilter")
+- Automatic serialization using Codable
+- Survives app restarts
+
+**UI Components:**
+- `FilterSheet` — Full-screen filter interface with:
+  - Search bar
+  - Sort option picker
+  - Genre multi-select (chips)
+  - Artist multi-select (chips)
+  - Year range slider
+  - Downloaded-only toggle
+
+**Usage in ViewModels:**
+- All list ViewModels support `FilterOptions`
+- `filteredTracks`, `filteredAlbums`, etc. computed properties apply filters
+- Real-time filtering as user types or changes selections
+
+### Network State Management
+
+Multi-layered network resilience for reliable streaming:
+
+**NetworkMonitor Service** (`EnsembleCore/Services/NetworkMonitor.swift`):
+- Uses `NWPathMonitor` for OS-level connectivity detection
+- MainActor-isolated for direct UI updates
+- 1s debouncing to prevent rapid state changes
+- Published properties: `isConnected`, `networkState`, `networkType`
+- Detects: WiFi, Cellular, Wired, Unknown connection types
+- States: `.online`, `.offline`, `.limited`, `.unknown`
+
+**ServerHealthChecker Service** (`EnsembleCore/Services/ServerHealthChecker.swift`):
+- Concurrent health checks for all configured servers
+- Returns `ServerConnectionState` per server (connected/connecting/disconnected/error)
+- Tests connection URLs in priority order: Local → Direct → Relay
+- Used by sync operations to avoid offline servers
+
+**ConnectionFailoverManager** (`EnsembleAPI/Client/ConnectionFailoverManager.swift`):
+- Automatic failover between server connection URLs
+- Retries failed requests on alternate URLs
+- Updates preferred connection for future requests
+
+**UI Integration:**
+- `ConnectionStatusBanner` — Shows warning when offline/limited
+- Status indicators throughout the app
+- `StatusColor` enum provides consistent color coding (green/yellow/red/gray)
+
+**App Lifecycle Integration:**
+- iOS: Network monitor starts in `AppDelegate` (delayed 500ms to avoid blocking launch)
+- macOS: Stops monitoring when app goes to background (energy efficiency)
+- Proactive server health checks on foreground transition
+
+### Customizable UI Settings
+
+User customization via `SettingsManager` (`EnsembleCore/Services/SettingsManager.swift`):
+
+**Accent Colors:**
+- `AppAccentColor` enum with 7 colors: `.purple` (default), `.blue`, `.pink`, `.red`, `.orange`, `.yellow`, `.green`
+- Stored in `@AppStorage("accentColor")`
+- Applied app-wide via `.tint()` modifier
+
+**Customizable Tabs:**
+- `TabItem` enum with 10 available tabs:
+  - Core: Home, Artists, Albums, Songs, Playlists, Genres
+  - Features: Search, Downloads, Favorites, More
+- Users can enable/disable tabs via Settings
+- Default enabled tabs: Home, Artists, Playlists, Search
+- Stored in `@AppStorage("enabledTabs")` as array of raw values
+- Tab order preserved, just hidden when disabled
+
+**Settings UI:**
+- `SettingsView` provides interface for all customization
+- Real-time preview of accent colors
+- Toggle switches for each tab
+- Cache management controls
+
+### Favorites System
+
+Quick access to highly-rated music:
+
+**Implementation:**
+- `FavoritesViewModel` — Filters tracks with `userRating >= 8.0` (4+ stars out of 5)
+- `FavoritesView` — Dedicated screen in app navigation
+- Implements `MediaDetailViewModelProtocol` for consistency with Album/Artist/Playlist views
+- Reuses `MediaDetailView` for unified UI
+
+**Features:**
+- Shows all favorited tracks across all sources
+- Supports all standard track list features (play, queue, shuffle, etc.)
+- Filtering and sorting like other library views
+- Real-time updates when ratings change
+
 ### App Targets
 
 - **Ensemble** (`Ensemble/Ensemble/`) — iOS/iPadOS/macOS app target
-  - Entry point: `EnsembleApp.swift`
-  - Audio config: `AppDelegate.swift` (UIApplicationDelegate for audio session setup)
+  - Entry point: `EnsembleApp.swift` — Scene-based lifecycle with environment injection
+  - Audio config: `AppDelegate.swift` (iOS only, UIApplicationDelegate) — Handles:
+    - AVAudioSession configuration for background playback
+    - Remote command center setup (play/pause/skip controls on lock screen)
+    - Network monitoring lifecycle (delayed start 500ms to avoid blocking launch)
+    - Proactive server health checks on foreground transition
+  - Platform-specific behavior:
+    - iOS: Full feature set, background playback, remote controls
+    - macOS: Network monitoring stops on background for energy efficiency
   - Supports iOS 15+, requires iOS 16+ for full feature set
-  
+
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) — watchOS app target
   - Entry point: `EnsembleWatchApp.swift`
-  - All views consolidated in `WatchRootView.swift`
+  - All views consolidated in `WatchRootView.swift`:
+    - `WatchRootView` — Root with auth state management
+    - `WatchLoginView` — PIN authentication flow
+    - `WatchMainView` — Tab-based navigation
+    - `WatchNowPlayingView` — Playback controls
+    - `WatchLibraryView` — Recent tracks list
   - Simplified UI: authentication, library browsing, now playing controls
-  - **⚠️ Known Issue:** References missing `AuthViewModel` — needs implementation or refactor
+  - **⚠️ CRITICAL ISSUE:** References `DependencyContainer.shared.makeAuthViewModel()` on line 5 which does not exist
+    - **Impact:** watchOS app won't compile
+    - **Fix:** Create `AuthViewModel` or refactor watchOS to use `AddPlexAccountViewModel`
 
 ## External Dependencies
 
@@ -347,15 +532,38 @@ ArtworkView(album: album, size: .medium)
 ## Known Issues & Technical Debt
 
 ### Critical
-- **watchOS Authentication Missing** — `WatchRootView.swift:5` references `AuthViewModel` and `DependencyContainer.makeAuthViewModel()` which don't exist
+- **watchOS Authentication Missing** — `EnsembleWatch/Views/WatchRootView.swift:5`
+  - **Issue:** References `DependencyContainer.shared.makeAuthViewModel()` which does not exist
   - **Impact:** watchOS app won't compile
-  - **Fix:** Create `AuthViewModel` or refactor watchOS to use `AddPlexAccountViewModel`
+  - **Root Cause:** iOS uses `AddPlexAccountViewModel`, watchOS was designed with different auth flow
+  - **Fix Options:**
+    1. Create `AuthViewModel` in EnsembleCore and add factory method to DependencyContainer
+    2. Refactor watchOS to use existing `AddPlexAccountViewModel`
+    3. Create watchOS-specific auth flow that matches iOS patterns
+
+### Feature Completeness
+- **Offline Playback Infrastructure Exists But Not Wired Up**
+  - `DownloadManager` handles track file downloads
+  - `DownloadsView` shows download queue
+  - Missing: Wire up audio file downloads to `PlaybackService` for true offline playback
+
+- **Artwork Pre-Caching Not Automatic**
+  - `ArtworkLoader.predownloadArtwork()` methods exist
+  - Not currently called during library sync
+  - Would improve offline experience if wired up to `SyncCoordinator`
 
 ### Infrastructure
 - ✅ **Legacy CocoaPods Cleanup** — Removed unused `ios/Pods/` directory (was leftover from earlier experimentation)
 
 ### Documentation
-- ✅ Documentation updated to match actual implementation
+- ✅ **Documentation Fully Updated** — CLAUDE.md now reflects all implemented features including:
+  - Hub-based home screen
+  - Advanced filtering system
+  - Network state management
+  - Customizable UI settings
+  - Favorites system
+  - All new UI components
+  - Complete service layer documentation
 
 ## Development Guidelines
 

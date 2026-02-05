@@ -1,5 +1,31 @@
 import Foundation
 
+/// Network state and connectivity models
+///
+/// This file contains models for tracking network connectivity at multiple layers:
+///
+/// 1. Device-Level Connectivity (NetworkMonitor)
+///    - `NetworkState`: Overall connectivity (online/offline/limited/unknown)
+///    - `NetworkType`: Connection type (wifi/cellular/wired/other)
+///
+/// 2. Server-Level Connectivity (ServerHealthChecker)
+///    - `ServerConnectionState`: Per-server connection status
+///    - Used to determine which servers are reachable
+///
+/// 3. UI Feedback
+///    - `StatusColor`: Color coding for connection states
+///    - Used in ConnectionStatusBanner and throughout UI
+///
+/// Architecture:
+/// - NetworkMonitor uses NWPathMonitor for OS-level connectivity detection
+/// - ServerHealthChecker performs active health checks on configured servers
+/// - ConnectionFailoverManager uses these states to choose optimal connection URLs
+///
+/// Usage:
+/// - NetworkMonitor publishes NetworkState changes via @Published
+/// - ServerHealthChecker maintains dictionary of ServerConnectionState per server
+/// - UI components use StatusColor for consistent visual feedback
+
 // MARK: - Network State
 
 /// Overall network connectivity state

@@ -5,25 +5,45 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 ## Features
 
 ### Current Features
+
+**Core Functionality:**
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
 - **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS, simplified controls on watchOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
-- **Full Playback Controls** — Queue management, shuffle, repeat, background audio
-- **Offline Caching** — CoreData-backed library caching for fast browsing
-- **Persistent Artwork Caching** — Artwork downloads persist across app restarts for faster loading and offline viewing
-- **Rich Metadata** — Artists, albums, genres, playlists with artwork
+- **Full Playback Controls** — Queue management, shuffle, repeat, background audio, remote controls (lock screen)
+
+**Content Discovery:**
+- **Hub-Based Home Screen** — Personalized sections: Recently Added, Recently Played, Most Played, etc.
+- **Favorites** — Quick access to your highly-rated tracks (4+ stars)
+- **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
 - **Search** — Fast search across your entire library
-- **Now Playing** — Full-screen player with mini player overlay
+
+**Advanced Features:**
+- **Advanced Filtering** — Multi-select genres/artists, year ranges, sort options with persistence
+- **Persistent Artwork Caching** — Artwork persists across app restarts for instant loading and offline viewing
+- **Offline Library Caching** — CoreData-backed library caching for fast browsing without network
+- **Network Resilience** — Automatic server failover (Local → Direct → Relay), health monitoring, connectivity detection
+- **Customizable UI** — 7 accent colors, customizable tabs (enable/disable any tab)
+
+**Playback Experience:**
+- **Now Playing** — Full-screen player with dynamic artwork gradients and mini player overlay
+- **AirPlay Support** — Stream to AirPlay devices with native picker
+- **Background Audio** — Continues playing when app is backgrounded
+- **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
+
+**Management:**
 - **Settings & Sync** — Manual library sync with progress tracking
-- **Cache Management** — View storage usage and clear caches by type
+- **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
+- **Download Management** — Infrastructure for offline track downloads (UI complete, playback in progress)
 
 ### Planned Features
-- Offline playback (download management infrastructure exists)
-- Apple Music integration
-- Advanced queue management (reordering, history)
-- Lyrics support
-- CarPlay support
-- Crossfade & gapless playback
+- **Offline Playback** — Wire up audio file downloads for true offline playback (infrastructure complete)
+- **Apple Music Integration** — Multi-source architecture ready for additional services
+- **Advanced Queue Management** — Reordering, playback history, queue persistence
+- **Lyrics Support** — Display synced lyrics from Plex servers
+- **CarPlay Support** — Native CarPlay interface for safe driving
+- **Audio Enhancements** — Crossfade, gapless playback, equalizer
+- **Smart Features** — Smart playlists, listening statistics, recommendations
 
 ## Requirements
 
@@ -77,18 +97,21 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 
 | Package | Purpose | Key Components |
 |---------|---------|----------------|
-| **EnsembleAPI** | Plex networking & auth | `PlexAPIClient`, `PlexAuthService`, `KeychainService` |
+| **EnsembleAPI** | Plex networking & auth | `PlexAPIClient`, `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `DownloadManager`, `ArtworkDownloadManager` |
-| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService`, `ArtworkLoader`, `CacheManager`, ViewModels |
-| **EnsembleUI** | User interface | Screens, components, `RootView`, `MiniPlayer`, `ArtworkView` |
+| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, ViewModels |
+| **EnsembleUI** | User interface | `RootView`, `HomeView`, `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `ArtworkColorExtractor` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
 - **Dependency Injection** via centralized `DependencyContainer`
 - **Repository Pattern** for CoreData access
 - **Actor-based networking** for thread safety
+- **Protocol-based view reuse** — Single detail view for multiple content types
 - **Multi-source architecture** — Designed to support multiple services (Plex, future Apple Music, etc.)
-- **Persistent artwork caching** — Local-first loading with automatic network fallback
+- **Network resilience** — Multi-layered connectivity monitoring with automatic failover
+- **Persistent artwork caching** — Two-tier caching (filesystem + memory) with local-first loading
+- **Performance optimizations** — Debouncing, background processing, memory-efficient design
 
 ## Development
 
@@ -142,17 +165,27 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS:** `AuthViewModel` is missing — app won't compile (see `CLAUDE.md`)
+- **watchOS:** Authentication needs refactoring — references missing `AuthViewModel` (see `CLAUDE.md` for details)
   - This is intentional - iOS implementation needs to be completed first
+- **Offline Playback:** Infrastructure complete but audio file downloads not wired to playback
+- **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 
 ## Development Status
 
-**Current Phase:** Feature-complete MVP with multi-library support
+**Current Phase:** Feature-rich MVP with advanced functionality
+
+**Completed:**
+- Multi-library Plex support with network resilience
+- Hub-based home screen and content discovery
+- Advanced filtering and customization
+- Persistent artwork caching system
+- Network monitoring and server health checks
 
 **Next Steps:**
+- Complete offline playback wiring
 - Fix watchOS authentication
-- Implement offline playback
-- Add advanced queue management
+- Add automatic artwork pre-caching during sync
+- Implement queue reordering
 - Prepare for beta testing
 
 ## Roadmap
@@ -175,17 +208,23 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] iPad sidebar navigation
 - [x] Settings & manual sync
 - [x] watchOS basic playback
+- [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
+- [x] **Favorites System** — Quick access to highly-rated tracks
+- [x] **Advanced Filtering** — Multi-select genres/artists, year ranges, sort persistence
+- [x] **Customizable UI** — Accent colors and customizable tabs
 
 ### Phase 4: Offline & Advanced (In Progress)
 - [x] Download manager infrastructure
 - [x] Downloads view
 - [x] **Persistent Artwork Caching** — Artwork persists across app launches with local-first loading
 - [x] **Cache Management** — View storage usage and clear caches by type
+- [x] **Network Resilience** — Multi-layered connectivity monitoring with automatic failover
+- [x] **Server Health Monitoring** — Concurrent health checks with connection priority (Local → Direct → Relay)
+- [x] **Network State UI** — Connectivity banner and status indicators
 - [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
 - [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
-- [ ] **Network Reachability Indicator** — Show online/offline status to users
 - [ ] **Background Sync** — Use iOS background refresh to keep library updated
-- [ ] Queue reordering
+- [ ] Queue reordering and persistence
 - [ ] Playback history
 
 ### Phase 5: Ecosystem Integration

@@ -1,5 +1,22 @@
 import Foundation
 
+/// Models representing Plex API responses
+///
+/// This file contains all data models for Plex server communication.
+/// Models are organized by category and follow Plex's JSON structure.
+///
+/// Key Model Categories:
+/// - PIN Authentication: `PlexPIN` for OAuth PIN flow
+/// - Resources/Servers: `PlexDevice`, `PlexConnection` for server discovery
+/// - Media Container: `PlexMediaContainer<T>` generic wrapper for all responses
+/// - Library Sections: `PlexLibrarySection` for library metadata
+/// - Media Types: `PlexArtist`, `PlexAlbum`, `PlexTrack` for music content
+/// - Collections: `PlexGenre`, `PlexPlaylist` for categorization
+/// - Hubs: `PlexHub`, `PlexHubMetadata` for home screen content
+/// - User Info: `PlexUser` for account information
+///
+/// Note: All models conform to Codable & Sendable for async/actor usage
+
 // MARK: - PIN Authentication
 
 public struct PlexPIN: Codable, Sendable {

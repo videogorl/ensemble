@@ -1,5 +1,25 @@
 import Foundation
 
+/// Domain models for UI layer
+///
+/// These models represent the app's business domain and are used throughout the UI.
+/// They are distinct from CoreData models (CD*) and API models (Plex*).
+///
+/// Model Categories:
+/// - Core Media: `Track`, `Album`, `Artist` - Music content
+/// - Collections: `Genre`, `Playlist` - Content organization
+/// - Infrastructure: `Server`, `ServerConnection`, `Library` - Server configuration
+/// - Downloads: `Download`, `DownloadStatus` - Offline support
+/// - Discovery: `Hub`, `HubItem` - Home screen content sections
+/// - Sort Options: Various enums for sorting lists (TrackSortOption, AlbumSortOption, etc.)
+///
+/// Model Conversion:
+/// - API models → Domain models: via PlexAPIClient in sync providers
+/// - CoreData models → Domain models: via ModelMappers
+/// - Domain models → CoreData models: via ModelMappers
+///
+/// All models conform to Sendable for safe async/concurrent usage
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable {
