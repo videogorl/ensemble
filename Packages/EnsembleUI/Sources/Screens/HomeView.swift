@@ -6,16 +6,19 @@ public struct HomeView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
     let onArtistTap: (Artist) -> Void
+    let onPlaylistTap: (Playlist) -> Void
     
     public init(
         nowPlayingVM: NowPlayingViewModel,
         onAlbumTap: @escaping (Album) -> Void,
-        onArtistTap: @escaping (Artist) -> Void
+        onArtistTap: @escaping (Artist) -> Void,
+        onPlaylistTap: @escaping (Playlist) -> Void
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self.nowPlayingVM = nowPlayingVM
         self.onAlbumTap = onAlbumTap
         self.onArtistTap = onArtistTap
+        self.onPlaylistTap = onPlaylistTap
     }
     
     public var body: some View {
@@ -124,7 +127,8 @@ public struct HomeView: View {
                         hub: hub,
                         nowPlayingVM: nowPlayingVM,
                         onAlbumTap: onAlbumTap,
-                        onArtistTap: onArtistTap
+                        onArtistTap: onArtistTap,
+                        onPlaylistTap: onPlaylistTap
                     )
                 }
             }
@@ -143,6 +147,7 @@ struct HubSection: View {
     let nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
     let onArtistTap: (Artist) -> Void
+    let onPlaylistTap: (Playlist) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -160,7 +165,8 @@ struct HubSection: View {
                             item: item,
                             nowPlayingVM: nowPlayingVM,
                             onAlbumTap: onAlbumTap,
-                            onArtistTap: onArtistTap
+                            onArtistTap: onArtistTap,
+                            onPlaylistTap: onPlaylistTap
                         )
                     }
                 }
@@ -177,6 +183,7 @@ struct HubItemCard: View {
     let nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: (Album) -> Void
     let onArtistTap: (Artist) -> Void
+    let onPlaylistTap: (Playlist) -> Void
     
     var body: some View {
         Button {
@@ -226,12 +233,72 @@ struct HubItemCard: View {
     }
     
     private func handleTap() {
-        if item.type == "album", let album = item.album {
-            onAlbumTap(album)
-        } else if item.type == "track", let track = item.track {
-            nowPlayingVM.play(tracks: [track])
-        } else if item.type == "artist", let artist = item.artist {
-            onArtistTap(artist)
+        print("🏠 HubItemCard: Tapped item '\(item.title)' of type '\(item.type)'")
+        
+        if item.type == "album" {
+            if let album = item.album {
+                print("🏠 HubItemCard: Navigating to album using reference")
+                onAlbumTap(album)
+            } else {
+                print("🏠 HubItemCard: Navigating to album using skeleton")
+                let skeleton = Album(
+                    id: item.id,
+                    key: item.id,
+                    title: item.title,
+                    artistName: item.subtitle,
+                    year: item.year,
+                    thumbPath: item.thumbPath,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+                onAlbumTap(skeleton)
+            }
+        } else if item.type == "track" {
+            if let track = item.track {
+                print("🏠 HubItemCard: Playing track using reference")
+                nowPlayingVM.play(tracks: [track])
+            } else {
+                print("🏠 HubItemCard: Playing track using skeleton")
+                let skeleton = Track(
+                    id: item.id,
+                    key: item.id,
+                    title: item.title,
+                    artistName: item.subtitle,
+                    thumbPath: item.thumbPath,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+                nowPlayingVM.play(tracks: [skeleton])
+            }
+        } else if item.type == "artist" {
+            if let artist = item.artist {
+                print("🏠 HubItemCard: Navigating to artist using reference")
+                onArtistTap(artist)
+            } else {
+                print("🏠 HubItemCard: Navigating to artist using skeleton")
+                let skeleton = Artist(
+                    id: item.id,
+                    key: item.id,
+                    name: item.title,
+                    thumbPath: item.thumbPath,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+                onArtistTap(skeleton)
+            }
+        } else if item.type == "playlist" {
+            if let playlist = item.playlist {
+                print("🏠 HubItemCard: Navigating to playlist using reference")
+                onPlaylistTap(playlist)
+            } else {
+                print("🏠 HubItemCard: Navigating to playlist using skeleton")
+                let skeleton = Playlist(
+                    id: item.id,
+                    key: item.id,
+                    title: item.title,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+                onPlaylistTap(skeleton)
+            }
+        } else {
+            print("🏠 HubItemCard: Unknown item type '\(item.type)', no action taken")
         }
     }
 }

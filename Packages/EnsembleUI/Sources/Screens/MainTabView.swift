@@ -220,6 +220,9 @@ public struct MainTabView: View {
                 },
                 onArtistTap: { artist in
                     deps.navigationCoordinator.navigateToArtist(artist)
+                },
+                onPlaylistTap: { playlist in
+                    deps.navigationCoordinator.navigateToPlaylist(playlist)
                 }
             )
         case .songs:
@@ -243,7 +246,12 @@ public struct MainTabView: View {
         case .genres:
             GenresView(libraryVM: libraryVM) { _ in }
         case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM) { _ in }
+            PlaylistsView(
+                nowPlayingVM: nowPlayingVM,
+                onPlaylistTap: { playlist in
+                    deps.navigationCoordinator.navigateToPlaylist(playlist)
+                }
+            )
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:
@@ -272,6 +280,11 @@ public struct MainTabView: View {
                 case .album(let album):
                     AlbumDetailView(
                         album: album,
+                        nowPlayingVM: nowPlayingVM
+                    )
+                case .playlist(let playlist):
+                    PlaylistDetailView(
+                        playlist: playlist,
                         nowPlayingVM: nowPlayingVM
                     )
                 }
@@ -457,6 +470,11 @@ public struct SidebarView: View {
                         album: album,
                         nowPlayingVM: nowPlayingVM
                     )
+                case .playlist(let playlist):
+                    PlaylistDetailView(
+                        playlist: playlist,
+                        nowPlayingVM: nowPlayingVM
+                    )
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -501,6 +519,9 @@ public struct SidebarView: View {
                         },
                         onArtistTap: { artist in
                             deps.navigationCoordinator.navigateToArtist(artist)
+                        },
+                        onPlaylistTap: { playlist in
+                            deps.navigationCoordinator.navigateToPlaylist(playlist)
                         }
                     )
                 }
@@ -534,9 +555,12 @@ public struct SidebarView: View {
                 }
             case .playlists:
                 NavigationStack {
-                    PlaylistsView(nowPlayingVM: nowPlayingVM) { playlist in
-                        // Handle navigation
-                    }
+                    PlaylistsView(
+                        nowPlayingVM: nowPlayingVM,
+                        onPlaylistTap: { playlist in
+                            deps.navigationCoordinator.navigateToPlaylist(playlist)
+                        }
+                    )
                 }
             case .favorites:
                 NavigationStack {

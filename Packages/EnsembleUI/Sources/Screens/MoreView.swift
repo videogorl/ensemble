@@ -7,6 +7,7 @@ public struct MoreView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let onSyncTap: () -> Void
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(\.dependencies) private var deps
     
     @State private var isEditing = false
 
@@ -157,17 +158,45 @@ public struct MoreView: View {
     private func destinationForTab(_ tab: TabItem) -> some View {
         switch tab {
         case .home:
-            HomeView(nowPlayingVM: nowPlayingVM, onAlbumTap: { _ in }, onArtistTap: { _ in })
+            HomeView(
+                nowPlayingVM: nowPlayingVM,
+                onAlbumTap: { album in
+                    deps.navigationCoordinator.navigateToAlbum(album)
+                },
+                onArtistTap: { artist in
+                    deps.navigationCoordinator.navigateToArtist(artist)
+                },
+                onPlaylistTap: { playlist in
+                    deps.navigationCoordinator.navigateToPlaylist(playlist)
+                }
+            )
         case .songs:
             SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artists:
-            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, onArtistTap: { _ in })
+            ArtistsView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onArtistTap: { artist in
+                    deps.navigationCoordinator.navigateToArtist(artist)
+                }
+            )
         case .albums:
-            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, onAlbumTap: { _ in })
+            AlbumsView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onAlbumTap: { album in
+                    deps.navigationCoordinator.navigateToAlbum(album)
+                }
+            )
         case .genres:
             GenresView(libraryVM: libraryVM) { _ in }
         case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM) { _ in }
+            PlaylistsView(
+                nowPlayingVM: nowPlayingVM,
+                onPlaylistTap: { playlist in
+                    deps.navigationCoordinator.navigateToPlaylist(playlist)
+                }
+            )
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:

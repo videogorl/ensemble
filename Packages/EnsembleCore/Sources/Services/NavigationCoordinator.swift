@@ -8,6 +8,7 @@ public final class NavigationCoordinator: ObservableObject {
     public enum Destination: Equatable {
         case artist(Artist)
         case album(Album)
+        case playlist(Playlist)
     }
     
     /// Published destination that views can observe
@@ -23,6 +24,11 @@ public final class NavigationCoordinator: ObservableObject {
     /// Request navigation to an album
     public func navigateToAlbum(_ album: Album) {
         pendingDestination = .album(album)
+    }
+    
+    /// Request navigation to a playlist
+    public func navigateToPlaylist(_ playlist: Playlist) {
+        pendingDestination = .playlist(playlist)
     }
     
     /// Clear the pending destination after navigation is handled

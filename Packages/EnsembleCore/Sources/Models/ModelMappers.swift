@@ -348,14 +348,60 @@ public extension Hub {
 
 public extension HubItem {
     init(from cd: CDHubItem) {
+        let type = cd.type
+        
+        var album: Album? = nil
+        var track: Track? = nil
+        var artist: Artist? = nil
+        var playlist: Playlist? = nil
+        
+        if type == "album" {
+            album = Album(
+                id: cd.id,
+                key: cd.id,
+                title: cd.title,
+                artistName: cd.subtitle,
+                thumbPath: cd.thumbPath,
+                sourceCompositeKey: cd.sourceCompositeKey
+            )
+        } else if type == "track" {
+            track = Track(
+                id: cd.id,
+                key: cd.id,
+                title: cd.title,
+                artistName: cd.subtitle,
+                thumbPath: cd.thumbPath,
+                sourceCompositeKey: cd.sourceCompositeKey
+            )
+        } else if type == "artist" {
+            artist = Artist(
+                id: cd.id,
+                key: cd.id,
+                name: cd.title,
+                thumbPath: cd.thumbPath,
+                sourceCompositeKey: cd.sourceCompositeKey
+            )
+        } else if type == "playlist" {
+            playlist = Playlist(
+                id: cd.id,
+                key: cd.id,
+                title: cd.title,
+                sourceCompositeKey: cd.sourceCompositeKey
+            )
+        }
+
         self.init(
             id: cd.id,
-            type: cd.type,
+            type: type,
             title: cd.title,
             subtitle: cd.subtitle,
             thumbPath: cd.thumbPath,
             year: nil, // Year is not stored directly in HubItem, can be inferred from linked entities if we add them later
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            album: album,
+            track: track,
+            artist: artist,
+            playlist: playlist
         )
     }
 }
