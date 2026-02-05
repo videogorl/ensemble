@@ -30,10 +30,22 @@ public struct HomeView: View {
         }
         .navigationTitle("Home")
         .task {
-            await viewModel.loadHubs()
+            print("🏠 HomeView: .task {} modifier triggered at \(Date())")
+            // Spawn a detached task so we don't block the view's task modifier
+            print("🏠 HomeView: Creating Task.detached...")
+            let task = Task.detached(priority: .userInitiated) { [viewModel] in
+                print("🏠 HomeView: Task.detached started executing at \(Date())")
+                print("🏠 HomeView: About to call viewModel.loadHubs() at \(Date())")
+                await viewModel.loadHubs()
+                print("🏠 HomeView: Returned from viewModel.loadHubs() at \(Date())")
+                print("🏠 HomeView: Task.detached completed at \(Date())")
+            }
+            print("🏠 HomeView: Task.detached created, .task {} returning at \(Date())")
         }
         .refreshable {
+            print("🏠 HomeView: .refreshable {} triggered")
             await viewModel.refresh()
+            print("🏠 HomeView: .refreshable {} completed")
         }
     }
     

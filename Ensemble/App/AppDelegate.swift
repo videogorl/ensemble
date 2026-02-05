@@ -7,14 +7,25 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        print("📱 AppDelegate: didFinishLaunching at \(Date())")
+        
         // Configure audio session for background playback
         configureAudioSession()
         
-        // Start network monitoring
-        Task { @MainActor in
-            DependencyContainer.shared.networkMonitor.startMonitoring()
+        // Start network monitoring with a delay to avoid blocking app launch
+        // This allows the UI to become responsive first
+        Task.detached(priority: .utility) {
+            print("📱 AppDelegate: Delayed network monitor start at \(Date())")
+            // Small delay to let UI initialize
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            await MainActor.run {
+                print("📱 AppDelegate: Starting network monitor at \(Date())")
+                DependencyContainer.shared.networkMonitor.startMonitoring()
+                print("📱 AppDelegate: Network monitor started at \(Date())")
+            }
         }
         
+        print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }
 

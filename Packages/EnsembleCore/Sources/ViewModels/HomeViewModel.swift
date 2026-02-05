@@ -28,11 +28,11 @@ public final class HomeViewModel: ObservableObject {
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] syncing in
                 if !syncing {
                     Task { @MainActor in
-                        await self?.loadHubsIfNeeded()
+                        await self?.loadHubs()
                     }
                 }
             }
@@ -41,6 +41,14 @@ public final class HomeViewModel: ObservableObject {
     
     /// Load hubs only if enough time has passed since last load (debouncing)
     private func loadHubsIfNeeded() async {
+        await loadHubs()
+    }
+    
+    /// Load hubs from all configured accounts
+    public func loadHubs() async {
+        let loadStartTime = Date()
+        print("🏠 HomeViewModel.loadHubs() called at \(loadStartTime)")
+        
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -48,31 +56,34 @@ public final class HomeViewModel: ObservableObject {
             return
         }
         
-        await loadHubs()
-    }
-    
-    /// Load hubs from all configured accounts
-    public func loadHubs() async {
         // Cancel any existing load task
         loadTask?.cancel()
         
         // Record load time for debouncing
         lastLoadTime = Date()
         
+        print("🏠 HomeViewModel: Creating load task...")
+        
         // Create a new load task that runs off the main actor
         loadTask = Task { @MainActor in
+            print("🏠 HomeViewModel: Load task started on main actor")
             isLoading = true
             error = nil
             
             print("🏠 HomeViewModel: Starting to load hubs...")
-            print("🏠 Accounts count: \(accountManager.plexAccounts.count)")
+            
+            // Capture accounts on main actor BEFORE entering detached task
+            let accounts = accountManager.plexAccounts
+            print("🏠 Accounts count: \(accounts.count)")
             
             // Perform the actual loading in a detached task to avoid blocking UI
-            let result = await Task.detached(priority: .userInitiated) { [accountManager] () -> Result<[Hub], Error> in
+            print("🏠 HomeViewModel: Creating detached task for hub fetching...")
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<[Hub], Error> in
+                print("🏠 HomeViewModel: Detached task started (off main actor)")
                 var allHubs: [Hub] = []
                 
-                // Fetch hubs from each Plex account
-                for account in await accountManager.plexAccounts {
+                // Fetch hubs from each Plex account (using captured accounts)
+                for account in accounts {
                     print("🏠 Processing account: \(account.username)")
                     for server in account.servers {
                         print("🏠 Processing server: \(server.name)")
@@ -140,17 +151,24 @@ public final class HomeViewModel: ObservableObject {
             }.value
             
             // Update UI on main actor with results
+            print("🏠 HomeViewModel: Updating UI with results...")
             switch result {
             case .success(let loadedHubs):
                 hubs = loadedHubs
+                print("🏠 HomeViewModel: UI updated with \(loadedHubs.count) hubs")
             case .failure(let loadError):
                 error = "Failed to load hubs: \(loadError.localizedDescription)"
+                print("🏠 HomeViewModel: UI updated with error")
             }
             
             isLoading = false
+            let loadEndTime = Date()
+            print("🏠 HomeViewModel: Load task completed in \(loadEndTime.timeIntervalSince(loadStartTime))s")
         }
         
+        print("🏠 HomeViewModel: Awaiting load task...")
         await loadTask?.value
+        print("🏠 HomeViewModel: loadHubs() returning")
     }
     
     /// Refresh hubs

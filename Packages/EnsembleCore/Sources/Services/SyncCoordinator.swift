@@ -18,6 +18,8 @@ public final class SyncCoordinator: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
+    private var isCheckingHealth = false
+    private var lastHealthCheckTime: Date?
 
     public init(
         accountManager: AccountManager,
@@ -402,20 +404,41 @@ public final class SyncCoordinator: ObservableObject {
     private func setupNetworkMonitoring() {
         networkMonitor.$networkState
             .sink { [weak self] state in
+                print("🌐 SyncCoordinator.sink: Received network state \(state.description)")
+                // Don't await - let the handler run asynchronously
                 Task { @MainActor [weak self] in
-                    await self?.handleNetworkChange(state)
+                    print("🌐 SyncCoordinator.sink: Task spawned, calling handleNetworkChange")
+                    self?.handleNetworkChange(state)
+                    print("🌐 SyncCoordinator.sink: handleNetworkChange returned")
                 }
             }
             .store(in: &cancellables)
     }
     
     /// Handle network state changes
-    private func handleNetworkChange(_ state: NetworkState) async {
+    private func handleNetworkChange(_ state: NetworkState) {
         print("🌐 SyncCoordinator: Network state changed to \(state.description)")
 
         switch state {
         case .online:
             isOffline = false
+            
+            // Throttle health checks - don't run if one is already in progress
+            // or if we checked within the last 5 seconds
+            if isCheckingHealth {
+                print("🌐 SyncCoordinator: Health check already in progress, skipping")
+                return
+            }
+            
+            if let lastCheck = lastHealthCheckTime,
+               Date().timeIntervalSince(lastCheck) < 5.0 {
+                print("🌐 SyncCoordinator: Health check too recent (\(Date().timeIntervalSince(lastCheck))s ago), skipping")
+                return
+            }
+            
+            isCheckingHealth = true
+            lastHealthCheckTime = Date()
+            
             // Check server health when coming back online (non-blocking)
             // Run in background to avoid blocking UI
             Task.detached(priority: .userInitiated) { [weak self] in
@@ -425,6 +448,7 @@ public final class SyncCoordinator: ObservableObject {
                 // Update states on main actor after checks complete
                 await MainActor.run {
                     self.updateSourceConnectionStates()
+                    self.isCheckingHealth = false
                 }
                 
                 // Update API clients with new connection URLs
@@ -436,6 +460,7 @@ public final class SyncCoordinator: ObservableObject {
             updateSourceConnectionStates()
 
         case .unknown:
+            // Don't trigger health checks for unknown state
             break
         }
     }

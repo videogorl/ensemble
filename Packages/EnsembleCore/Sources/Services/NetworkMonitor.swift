@@ -53,9 +53,9 @@ public final class NetworkMonitor: ObservableObject {
         // Cancel any pending update
         debounceTask?.cancel()
 
-        // Schedule new update after 300ms
+        // Schedule new update after 1 second to avoid rapid changes during startup
         debounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
 
             guard !Task.isCancelled else { return }
             self?.updateState(from: path)
