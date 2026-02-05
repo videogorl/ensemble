@@ -1,58 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21754" systemVersion="22F82" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
-    <entity name="CDMusicSource" representedClassName="CDMusicSource" syncable="YES">
-        <attribute name="accountId" attributeType="String"/>
-        <attribute name="accountName" optional="YES" attributeType="String"/>
-        <attribute name="compositeKey" attributeType="String"/>
-        <attribute name="displayName" optional="YES" attributeType="String"/>
-        <attribute name="lastSyncedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="libraryId" attributeType="String"/>
-        <attribute name="serverId" attributeType="String"/>
-        <attribute name="type" attributeType="String"/>
-        <relationship name="albums" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAlbum" inverseName="source" inverseEntity="CDAlbum"/>
-        <relationship name="artists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArtist" inverseName="source" inverseEntity="CDArtist"/>
-        <relationship name="genres" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDGenre" inverseName="source" inverseEntity="CDGenre"/>
-        <relationship name="playlists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylist" inverseName="source" inverseEntity="CDPlaylist"/>
-        <relationship name="tracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDTrack" inverseName="source" inverseEntity="CDTrack"/>
-        <uniquenessConstraints>
-            <uniquenessConstraint>
-                <constraint value="compositeKey"/>
-            </uniquenessConstraint>
-        </uniquenessConstraints>
-    </entity>
-    <entity name="CDServer" representedClassName="CDServer" syncable="YES">
-        <attribute name="accessToken" optional="YES" attributeType="String"/>
-        <attribute name="clientIdentifier" attributeType="String"/>
-        <attribute name="name" attributeType="String"/>
-        <attribute name="platform" optional="YES" attributeType="String"/>
-        <attribute name="url" attributeType="String"/>
-        <relationship name="artists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArtist" inverseName="server" inverseEntity="CDArtist"/>
-    </entity>
-    <entity name="CDArtist" representedClassName="CDArtist" syncable="YES">
-        <attribute name="artPath" optional="YES" attributeType="String"/>
-        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="key" attributeType="String"/>
-        <attribute name="name" attributeType="String"/>
-        <attribute name="ratingKey" attributeType="String"/>
-        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
-        <attribute name="summary" optional="YES" attributeType="String"/>
-        <attribute name="thumbPath" optional="YES" attributeType="String"/>
-        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <relationship name="albums" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAlbum" inverseName="artist" inverseEntity="CDAlbum"/>
-        <relationship name="server" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDServer" inverseName="artists" inverseEntity="CDServer"/>
-        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="artists" inverseEntity="CDMusicSource"/>
-        <uniquenessConstraints>
-            <uniquenessConstraint>
-                <constraint value="ratingKey"/>
-                <constraint value="sourceCompositeKey"/>
-            </uniquenessConstraint>
-        </uniquenessConstraints>
-    </entity>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24512" systemVersion="25C56" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
     <entity name="CDAlbum" representedClassName="CDAlbum" syncable="YES">
         <attribute name="albumArtist" optional="YES" attributeType="String"/>
-        <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="artistName" optional="YES" attributeType="String"/>
+        <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="key" attributeType="String"/>
@@ -75,33 +26,84 @@
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
-    <entity name="CDTrack" representedClassName="CDTrack" syncable="YES">
-        <attribute name="albumName" optional="YES" attributeType="String"/>
-        <attribute name="artistName" optional="YES" attributeType="String"/>
+    <entity name="CDArtist" representedClassName="CDArtist" syncable="YES">
+        <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="discNumber" optional="YES" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
-        <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="key" attributeType="String"/>
-        <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="localFilePath" optional="YES" attributeType="String"/>
-        <attribute name="playCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="name" attributeType="String"/>
         <attribute name="ratingKey" attributeType="String"/>
         <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
-        <attribute name="streamKey" optional="YES" attributeType="String"/>
+        <attribute name="summary" optional="YES" attributeType="String"/>
         <attribute name="thumbPath" optional="YES" attributeType="String"/>
-        <attribute name="title" attributeType="String"/>
-        <attribute name="trackNumber" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <relationship name="album" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDAlbum" inverseName="tracks" inverseEntity="CDAlbum"/>
-        <relationship name="download" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CDDownload" inverseName="track" inverseEntity="CDDownload"/>
-        <relationship name="playlistTracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylistTrack" inverseName="track" inverseEntity="CDPlaylistTrack"/>
-        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="tracks" inverseEntity="CDMusicSource"/>
+        <relationship name="albums" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAlbum" inverseName="artist" inverseEntity="CDAlbum"/>
+        <relationship name="server" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDServer" inverseName="artists" inverseEntity="CDServer"/>
+        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="artists" inverseEntity="CDMusicSource"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="ratingKey"/>
                 <constraint value="sourceCompositeKey"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDDownload" representedClassName="CDDownload" syncable="YES">
+        <attribute name="completedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="error" optional="YES" attributeType="String"/>
+        <attribute name="filePath" optional="YES" attributeType="String"/>
+        <attribute name="fileSize" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="progress" optional="YES" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="startedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+        <relationship name="track" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDTrack" inverseName="download" inverseEntity="CDTrack"/>
+    </entity>
+    <entity name="CDGenre" representedClassName="CDGenre" syncable="YES">
+        <attribute name="key" attributeType="String"/>
+        <attribute name="ratingKey" optional="YES" attributeType="String"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="title" attributeType="String"/>
+        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="genres" inverseEntity="CDMusicSource"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="key"/>
+                <constraint value="sourceCompositeKey"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDHub" representedClassName="CDHub" syncable="YES">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="type" optional="YES" attributeType="String"/>
+        <relationship name="items" optional="YES" toMany="YES" deletionRule="Cascade" ordered="YES" destinationEntity="CDHubItem" inverseName="hub" inverseEntity="CDHubItem"/>
+    </entity>
+    <entity name="CDHubItem" representedClassName="CDHubItem" syncable="YES">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="subtitle" optional="YES" attributeType="String"/>
+        <attribute name="thumbPath" optional="YES" attributeType="String"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="type" optional="YES" attributeType="String"/>
+        <relationship name="hub" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDHub" inverseName="items" inverseEntity="CDHub"/>
+    </entity>
+    <entity name="CDMusicSource" representedClassName="CDMusicSource" syncable="YES">
+        <attribute name="accountId" attributeType="String"/>
+        <attribute name="accountName" optional="YES" attributeType="String"/>
+        <attribute name="compositeKey" attributeType="String"/>
+        <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="lastSyncedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="libraryId" attributeType="String"/>
+        <attribute name="serverId" attributeType="String"/>
+        <attribute name="type" attributeType="String"/>
+        <relationship name="albums" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAlbum" inverseName="source" inverseEntity="CDAlbum"/>
+        <relationship name="artists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArtist" inverseName="source" inverseEntity="CDArtist"/>
+        <relationship name="genres" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDGenre" inverseName="source" inverseEntity="CDGenre"/>
+        <relationship name="playlists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylist" inverseName="source" inverseEntity="CDPlaylist"/>
+        <relationship name="tracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDTrack" inverseName="source" inverseEntity="CDTrack"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="compositeKey"/>
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
@@ -133,25 +135,40 @@
         <relationship name="playlist" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDPlaylist" inverseName="playlistTracks" inverseEntity="CDPlaylist"/>
         <relationship name="track" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDTrack" inverseName="playlistTracks" inverseEntity="CDTrack"/>
     </entity>
-    <entity name="CDDownload" representedClassName="CDDownload" syncable="YES">
-        <attribute name="completedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="error" optional="YES" attributeType="String"/>
-        <attribute name="filePath" optional="YES" attributeType="String"/>
-        <attribute name="fileSize" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="progress" optional="YES" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="startedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="status" optional="YES" attributeType="String"/>
-        <relationship name="track" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDTrack" inverseName="download" inverseEntity="CDTrack"/>
+    <entity name="CDServer" representedClassName="CDServer" syncable="YES">
+        <attribute name="accessToken" optional="YES" attributeType="String"/>
+        <attribute name="clientIdentifier" attributeType="String"/>
+        <attribute name="name" attributeType="String"/>
+        <attribute name="platform" optional="YES" attributeType="String"/>
+        <attribute name="url" attributeType="String"/>
+        <relationship name="artists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArtist" inverseName="server" inverseEntity="CDArtist"/>
     </entity>
-    <entity name="CDGenre" representedClassName="CDGenre" syncable="YES">
+    <entity name="CDTrack" representedClassName="CDTrack" syncable="YES">
+        <attribute name="albumName" optional="YES" attributeType="String"/>
+        <attribute name="artistName" optional="YES" attributeType="String"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="discNumber" optional="YES" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="key" attributeType="String"/>
-        <attribute name="ratingKey" optional="YES" attributeType="String"/>
+        <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="localFilePath" optional="YES" attributeType="String"/>
+        <attribute name="playCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="ratingKey" attributeType="String"/>
         <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="streamKey" optional="YES" attributeType="String"/>
+        <attribute name="thumbPath" optional="YES" attributeType="String"/>
         <attribute name="title" attributeType="String"/>
-        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="genres" inverseEntity="CDMusicSource"/>
+        <attribute name="trackNumber" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="album" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDAlbum" inverseName="tracks" inverseEntity="CDAlbum"/>
+        <relationship name="download" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CDDownload" inverseName="track" inverseEntity="CDDownload"/>
+        <relationship name="playlistTracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylistTrack" inverseName="track" inverseEntity="CDPlaylistTrack"/>
+        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="tracks" inverseEntity="CDMusicSource"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
-                <constraint value="key"/>
+                <constraint value="ratingKey"/>
                 <constraint value="sourceCompositeKey"/>
             </uniquenessConstraint>
         </uniquenessConstraints>

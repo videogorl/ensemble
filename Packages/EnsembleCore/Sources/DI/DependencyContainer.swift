@@ -22,6 +22,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let libraryRepository: LibraryRepositoryProtocol
     public let playlistRepository: PlaylistRepositoryProtocol
+    public let hubRepository: HubRepositoryProtocol
     public let downloadManager: DownloadManagerProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
@@ -50,6 +51,7 @@ public final class DependencyContainer: @unchecked Sendable {
         // Repositories
         libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
         playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
+        hubRepository = HubRepository()
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
         artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
 
@@ -207,7 +209,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeHomeViewModel() -> HomeViewModel {
         HomeViewModel(
             accountManager: accountManager,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            hubRepository: hubRepository
         )
     }
 }

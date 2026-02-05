@@ -252,3 +252,44 @@ extension CDGenre {
         return NSFetchRequest<CDGenre>(entityName: "CDGenre")
     }
 }
+
+// MARK: - CDHub
+
+@objc(CDHub)
+public class CDHub: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var title: String
+    @NSManaged public var type: String
+    @NSManaged public var order: Int16
+    @NSManaged public var items: NSOrderedSet?
+}
+
+extension CDHub {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDHub> {
+        return NSFetchRequest<CDHub>(entityName: "CDHub")
+    }
+
+    public var itemsArray: [CDHubItem] {
+        return items?.array as? [CDHubItem] ?? []
+    }
+}
+
+// MARK: - CDHubItem
+
+@objc(CDHubItem)
+public class CDHubItem: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var type: String
+    @NSManaged public var title: String
+    @NSManaged public var subtitle: String?
+    @NSManaged public var thumbPath: String?
+    @NSManaged public var sourceCompositeKey: String
+    @NSManaged public var order: Int16
+    @NSManaged public var hub: CDHub?
+}
+
+extension CDHubItem {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDHubItem> {
+        return NSFetchRequest<CDHubItem>(entityName: "CDHubItem")
+    }
+}

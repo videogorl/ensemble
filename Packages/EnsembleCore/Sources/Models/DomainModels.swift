@@ -98,7 +98,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 
 // MARK: - Album
 
-public struct Album: Identifiable, Hashable, Sendable {
+public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
@@ -149,7 +149,7 @@ public struct Album: Identifiable, Hashable, Sendable {
 
 // MARK: - Artist
 
-public struct Artist: Identifiable, Hashable, Sendable {
+public struct Artist: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let name: String
@@ -193,7 +193,7 @@ public struct Artist: Identifiable, Hashable, Sendable {
 
 // MARK: - Genre
 
-public struct Genre: Identifiable, Hashable, Sendable {
+public struct Genre: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public let key: String
     public let title: String
@@ -209,7 +209,7 @@ public struct Genre: Identifiable, Hashable, Sendable {
 
 // MARK: - Playlist
 
-public struct Playlist: Identifiable, Hashable, Sendable {
+public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
@@ -263,7 +263,7 @@ public struct Playlist: Identifiable, Hashable, Sendable {
 
 // MARK: - Server
 
-public struct Server: Identifiable, Hashable, Sendable {
+public struct Server: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // clientIdentifier
     public let name: String
     public let url: String
@@ -291,7 +291,7 @@ public struct Server: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct ServerConnection: Identifiable, Hashable, Sendable {
+public struct ServerConnection: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // uri
     public let uri: String
     public let local: Bool
@@ -320,7 +320,7 @@ public struct ServerConnection: Identifiable, Hashable, Sendable {
 
 // MARK: - Library
 
-public struct Library: Identifiable, Hashable, Sendable {
+public struct Library: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // key
     public let key: String
     public let title: String
@@ -467,7 +467,7 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
 // MARK: - Hub (Home Screen Content)
 
 /// Represents a section on the home screen
-public struct Hub: Identifiable, Sendable, Equatable {
+public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let id: String
     public let title: String
     public let type: String
@@ -482,7 +482,7 @@ public struct Hub: Identifiable, Sendable, Equatable {
 }
 
 /// Item within a hub (can be album, track, or playlist)
-public struct HubItem: Identifiable, Sendable, Equatable {
+public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let id: String
     public let type: String  // "album", "track", "playlist"
     public let title: String

@@ -334,3 +334,28 @@ public extension HubItem {
         )
     }
 }
+
+public extension Hub {
+    init(from cd: CDHub) {
+        self.init(
+            id: cd.id,
+            title: cd.title,
+            type: cd.type,
+            items: cd.itemsArray.map { HubItem(from: $0) }
+        )
+    }
+}
+
+public extension HubItem {
+    init(from cd: CDHubItem) {
+        self.init(
+            id: cd.id,
+            type: cd.type,
+            title: cd.title,
+            subtitle: cd.subtitle,
+            thumbPath: cd.thumbPath,
+            year: nil, // Year is not stored directly in HubItem, can be inferred from linked entities if we add them later
+            sourceCompositeKey: cd.sourceCompositeKey
+        )
+    }
+}

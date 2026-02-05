@@ -10,6 +10,7 @@ public final class HomeViewModel: ObservableObject {
     
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
+    private let hubRepository: HubRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
@@ -19,10 +20,20 @@ public final class HomeViewModel: ObservableObject {
     
     public init(
         accountManager: AccountManager,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        hubRepository: HubRepositoryProtocol
     ) {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
+        self.hubRepository = hubRepository
+        
+        // Load cached hubs immediately if available
+        Task { @MainActor in
+            if let cached = try? await hubRepository.fetchHubs(), !cached.isEmpty {
+                print("🏠 HomeViewModel: Loaded \(cached.count) hubs from cache")
+                self.hubs = cached
+            }
+        }
         
         // Reload when accounts change (e.g. after initial load from keychain)
         accountManager.$plexAccounts
@@ -81,7 +92,9 @@ public final class HomeViewModel: ObservableObject {
             print("🏠 HomeViewModel: Load task started on main actor")
             isLoading = true
             error = nil
-            hubs = [] // Clear existing hubs for a fresh load
+            
+            // We DON'T clear hubs here if we already have some (from cache)
+            // to avoid flickering. They will be replaced/updated as we fetch new ones.
             
             print("🏠 HomeViewModel: Starting to load hubs...")
             print("🏠 AccountManager has \(accountManager.plexAccounts.count) accounts")
@@ -114,29 +127,19 @@ public final class HomeViewModel: ObservableObject {
             
             // Perform the actual loading in a detached task to avoid blocking UI
             print("🏠 HomeViewModel: Creating detached task for hub fetching...")
-            await Task.detached(priority: .userInitiated) { 
+            let fetchedHubs = await Task.detached(priority: .userInitiated) { 
                 print("🏠 HomeViewModel: Detached task started (off main actor)")
                 
-                // Track seen IDs to avoid duplicates - this must only be accessed within MainActor.run
-                // to be safe in Swift 6, but since we're in a single serial detached task loop,
-                // we can also manage it here IF we're careful.
-                // Better: Move the duplicate check ENTIRELY to the MainActor.
+                var collectedHubs: [Hub] = []
                 
                 // 1. Process each fetch task (section-specific hubs)
                 for task in fetchTasks {
                     print("🏠 Fetching hubs for source: \(task.sourceKey)")
                     do {
-                        // Fetch hubs using the reused client
                         let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
-                        
-                        // Process hubs off-main-actor
-                        print("🏠 Processing \(plexHubs.count) hubs for \(task.sourceKey)")
-                        var processedHubs: [Hub] = []
                         
                         for plexHub in plexHubs {
                             let hubId = "\(task.sourceKey):\(plexHub.id)"
-                            
-                            // Fetch items for this hub if they weren't provided inline
                             var hubItems: [HubItem] = []
                             
                             if let metadata = plexHub.metadata, !metadata.isEmpty {
@@ -156,7 +159,7 @@ public final class HomeViewModel: ObservableObject {
                             }
                             
                             if !hubItems.isEmpty {
-                                processedHubs.append(Hub(
+                                collectedHubs.append(Hub(
                                     id: hubId,
                                     title: plexHub.title,
                                     type: plexHub.type ?? "mixed",
@@ -164,24 +167,13 @@ public final class HomeViewModel: ObservableObject {
                                 ))
                             }
                         }
-                        
-                        // Update UI incrementally on MainActor
-                        await MainActor.run {
-                            for hub in processedHubs {
-                                // Double check ID uniqueness on the main actor where 'hubs' lives
-                                if !self.hubs.contains(where: { $0.id == hub.id }) {
-                                    self.hubs.append(hub)
-                                }
-                            }
-                        }
                     } catch {
                         print("❌ Error loading hubs for \(task.sourceKey): \(error.localizedDescription)")
                     }
                 }
                 
-                // 2. If we have very few hubs, try fetching global hubs (as a fallback)
-                let currentHubCount = await MainActor.run { self.hubs.count }
-                if currentHubCount < 3 {
+                // 2. Fallback to global hubs if needed
+                if collectedHubs.count < 3 {
                     print("🏠 Few hubs found, fetching global hubs...")
                     var handledServers = Set<String>()
                     for task in fetchTasks {
@@ -191,8 +183,6 @@ public final class HomeViewModel: ObservableObject {
                         
                         do {
                             let globalHubs = try await task.client.getGlobalHubs()
-                            var processedHubs: [Hub] = []
-                            
                             for plexHub in globalHubs {
                                 let hubType = plexHub.type?.lowercased() ?? ""
                                 let isMusic = hubType.contains("artist") || hubType.contains("album") || hubType.contains("track") || hubType.contains("playlist") || hubType.contains("music")
@@ -210,7 +200,7 @@ public final class HomeViewModel: ObservableObject {
                                 }
                                 
                                 if !hubItems.isEmpty {
-                                    processedHubs.append(Hub(
+                                    collectedHubs.append(Hub(
                                         id: hubId,
                                         title: plexHub.title,
                                         type: plexHub.type ?? "mixed",
@@ -218,24 +208,30 @@ public final class HomeViewModel: ObservableObject {
                                     ))
                                 }
                             }
-                            
-                            await MainActor.run {
-                                for hub in processedHubs {
-                                    if !self.hubs.contains(where: { $0.id == hub.id }) {
-                                        self.hubs.append(hub)
-                                    }
-                                }
-                            }
                         } catch {
                             print("❌ Error loading global hubs: \(error.localizedDescription)")
                         }
                     }
                 }
+                
+                return collectedHubs
             }.value
+            
+            // Update UI all at once to avoid flickering
+            if !fetchedHubs.isEmpty {
+                self.hubs = fetchedHubs
+            }
             
             isLoading = false
             let loadEndTime = Date()
             print("🏠 HomeViewModel: Load task completed in \(loadEndTime.timeIntervalSince(loadStartTime))s")
+            
+            // Persist to cache
+            let hubsToCache = hubs
+            Task.detached(priority: .background) { [hubRepository] in
+                try? await hubRepository.saveHubs(hubsToCache)
+                print("🏠 HomeViewModel: Hubs persisted to cache")
+            }
         }
         
         print("🏠 HomeViewModel: Awaiting load task...")
