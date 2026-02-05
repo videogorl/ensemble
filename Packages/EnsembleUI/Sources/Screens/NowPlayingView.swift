@@ -513,9 +513,6 @@ public struct NowPlayingView: View {
     // Helper: Load artwork image for blurred background
     private func loadArtworkImage(for track: Track) {
         let trackID = track.id
-        
-        // Clear previous image immediately when track changes
-        artworkImage = nil
         currentLoadTrackID = trackID
         
         Task {
@@ -526,13 +523,25 @@ public struct NowPlayingView: View {
                 ratingKey: track.id,
                 size: 600 // Use slightly larger size for background
             ) {
-                // Load image
+                // Check Nuke cache first for instant display
                 let request = ImageRequest(url: artworkURL)
+                
+                // Try synchronous cache lookup first
+                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    await MainActor.run {
+                        if self.currentLoadTrackID == trackID {
+                            self.artworkImage = cachedImage.image
+                        }
+                    }
+                    return
+                }
+                
+                // Load asynchronously if not cached
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
-                            withAnimation(.easeInOut(duration: 0.3)) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
                                 self.artworkImage = uiImage
                             }
                         }

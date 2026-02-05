@@ -120,9 +120,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
     
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        // Clear previous image immediately when path changes
         await MainActor.run {
-            self.artworkImage = nil
             self.currentLoadPath = path
         }
         
@@ -133,11 +131,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             size: 600
         ) {
             let request = ImageRequest(url: url)
+            
+            // Try synchronous cache lookup first
+            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                await MainActor.run {
+                    if self.currentLoadPath == path {
+                        self.artworkImage = cachedImage.image
+                    }
+                }
+                return
+            }
+            
+            // Load asynchronously if not cached
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                 await MainActor.run {
                     // Only update if this is still the current path
                     if self.currentLoadPath == path {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
                             self.artworkImage = uiImage
                         }
                     }

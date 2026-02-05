@@ -183,14 +183,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
-                    currentQueueIndex = index
-                    currentTrack = queue[index].track
-                    generateWaveform(for: currentTrack?.id ?? "")
-                    updateNowPlayingInfo()
-                    savePlaybackState()
+                    // Batch state updates to prevent multiple Combine publications
+                    let newTrack = queue[index].track
                     
-                    // Pre-fetch next item for gapless
-                    Task { await prefetchNextItem() }
+                    // Update all state in a single transaction
+                    Task { @MainActor in
+                        self.currentQueueIndex = index
+                        self.currentTrack = newTrack
+                        
+                        // Non-state-changing operations
+                        self.generateWaveform(for: newTrack.id)
+                        self.updateNowPlayingInfo()
+                        self.savePlaybackState()
+                        
+                        // Pre-fetch next item for gapless
+                        await self.prefetchNextItem()
+                    }
                 }
             }
         }
@@ -673,10 +681,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         let track = queue[currentQueueIndex].track
-        currentTrack = track
+        
+        // Batch all state updates together to minimize Combine publications
+        await MainActor.run {
+            self.currentTrack = track
+            self.playbackState = .loading
+            self.currentTime = 0
+        }
+        
+        // Generate waveform asynchronously (doesn't affect state)
         generateWaveform(for: track.id)
-        playbackState = .loading
-        currentTime = 0
 
         do {
             let item = try await createPlayerItem(for: track)
@@ -686,7 +700,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             Task { await prefetchNextItem() }
         } catch {
             print("❌ Failed to prepare track: \(error)")
-            playbackState = .failed(error.localizedDescription)
+            await MainActor.run {
+                self.playbackState = .failed(error.localizedDescription)
+            }
         }
     }
     

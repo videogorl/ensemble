@@ -17,6 +17,8 @@ public class TrackTableViewCell: UITableViewCell {
     
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
+    private var currentTrackID: String?
+    private var artworkLoadTask: Task<Void, Never>?
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -141,10 +143,13 @@ public class TrackTableViewCell: UITableViewCell {
         
         // Load artwork if needed
         if showArtwork {
-            artworkImageView.image = nil
+            currentTrackID = track.id
             artworkImageView.backgroundColor = UIColor.systemGray5
             
-            Task { @MainActor in
+            // Cancel any previous artwork load task
+            artworkLoadTask?.cancel()
+            
+            artworkLoadTask = Task { @MainActor in
                 guard let url = await artworkLoader.artworkURLAsync(
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
@@ -155,16 +160,37 @@ public class TrackTableViewCell: UITableViewCell {
                 }
                 
                 let request = ImageRequest(url: url)
+                
+                // Check cache first for instant display
+                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    // Only update if still showing same track
+                    if self.currentTrackID == track.id {
+                        self.artworkImageView.image = cachedImage.image
+                    }
+                    return
+                }
+                
+                // Load asynchronously if not cached
                 if let image = try? await ImagePipeline.shared.image(for: request) {
-                    self.artworkImageView.image = image
+                    // Only update if still showing same track
+                    if self.currentTrackID == track.id {
+                        self.artworkImageView.image = image
+                    }
                 }
             }
+        } else {
+            currentTrackID = nil
+            artworkImageView.image = nil
         }
     }
     
     public override func prepareForReuse() {
         super.prepareForReuse()
-        artworkImageView.image = nil
+        // Cancel any in-flight artwork load
+        artworkLoadTask?.cancel()
+        artworkLoadTask = nil
+        currentTrackID = nil
+        // Don't clear the image - let the next configure() call handle it
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
     }
