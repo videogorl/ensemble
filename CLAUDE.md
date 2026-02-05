@@ -13,7 +13,7 @@ Please don't remove existing functionality (unless directed) when re-architectin
 
 Whenever you're done and are prepared to wait for me to test, commit your changes so we can roll them back if your context is cut off or if something breaks.
 
-If a problem is mentioned, interview to help hone in on where the problem is originating from.
+If a problem is mentioned, interview to help hone in on where the problem is originating from. When troubleshooting, add logs to the appropriate files so debugging can be more efficient.
 
 ## Project Overview
 
