@@ -1,6 +1,7 @@
 import EnsembleCore
 import SwiftUI
 import Nuke
+import NukeUI
 
 public struct ArtworkView: View {
     let path: String?
@@ -12,8 +13,14 @@ public struct ArtworkView: View {
     let cornerRadius: CGFloat
 
     @Environment(\.dependencies) private var dependencies
-    @State private var loadedImage: UIImage?
-    @State private var isLoading = false
+    @State private var artworkURL: URL?
+    
+    // Unique ID to identify this specific artwork request
+    private var loadID: String {
+        let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
+        let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
+        return "\(actualPath ?? "")|\(actualRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
+    }
 
     public init(
         path: String?,
@@ -34,67 +41,56 @@ public struct ArtworkView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color.gray.opacity(0.2)
-            
-            if let image = loadedImage {
-                #if os(macOS)
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                #else
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                #endif
-            } else {
-                Image(systemName: "music.note")
-                    .font(.system(size: size.cgSize.width * 0.3))
-                    .foregroundColor(.gray.opacity(0.5))
+        LazyImage(url: artworkURL) { state in
+            ZStack {
+                Color.gray.opacity(0.2)
                 
-                if isLoading {
-                    ProgressView()
-                        .tint(.secondary)
+                if let image = state.image {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else if state.error != nil {
+                    // Show placeholder on error
+                    Image(systemName: "music.note")
+                        .font(.system(size: size.cgSize.width * 0.3))
+                        .foregroundColor(.gray.opacity(0.5))
+                } else {
+                    // Loading or no URL yet
+                    Image(systemName: "music.note")
+                        .font(.system(size: size.cgSize.width * 0.3))
+                        .foregroundColor(.gray.opacity(0.5))
                 }
             }
         }
+        .processors([.resize(size: size.cgSize, contentMode: .aspectFill)])
+        .priority(.high)
         .frame(width: size.cgSize.width, height: size.cgSize.height)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .task(id: path) {
-            await loadArtwork()
+        .id(loadID)  // Force view recreation only when artwork actually changes
+        .task(id: loadID) {
+            await loadArtworkURL()
         }
     }
     
-    private func loadArtwork() async {
+    private func loadArtworkURL() async {
         let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
         let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
-
-        guard let url = await dependencies.artworkLoader.artworkURLAsync(
+        
+        guard actualPath != nil else {
+            return
+        }
+        
+        let url = await dependencies.artworkLoader.artworkURLAsync(
             for: actualPath,
             sourceKey: sourceKey,
             ratingKey: actualRatingKey,
             size: size.rawValue
-        ) else {
-            return
-        }
-        
-        isLoading = true
-        
-        let request = ImageRequest(
-            url: url,
-            processors: [.resize(size: size.cgSize, contentMode: .aspectFill)]
         )
         
-        if let image = try? await ImagePipeline.shared.image(for: request) {
-            await MainActor.run {
-                self.loadedImage = image
-                self.isLoading = false
-            }
-        } else {
-            await MainActor.run {
-                self.isLoading = false
-            }
+        // Only update if URL actually changed
+        if url != artworkURL {
+            artworkURL = url
         }
     }
 }

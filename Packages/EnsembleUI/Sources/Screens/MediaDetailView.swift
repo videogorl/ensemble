@@ -42,6 +42,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     
     @State private var artworkImage: UIImage?
+    @State private var currentLoadPath: String?
     @Environment(\.dependencies) private var deps
 
     public init(
@@ -119,6 +120,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
     
     private func loadArtworkImage(path: String, sourceKey: String?) async {
+        // Clear previous image immediately when path changes
+        await MainActor.run {
+            self.artworkImage = nil
+            self.currentLoadPath = path
+        }
+        
         if let url = await deps.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
@@ -128,8 +135,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             let request = ImageRequest(url: url)
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.5)) {
-                        self.artworkImage = uiImage
+                    // Only update if this is still the current path
+                    if self.currentLoadPath == path {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            self.artworkImage = uiImage
+                        }
                     }
                 }
             }

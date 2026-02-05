@@ -12,6 +12,7 @@ public struct NowPlayingView: View {
     @Environment(\.dependencies) private var deps
     
     @State private var artworkImage: UIImage?
+    @State private var currentLoadTrackID: String?
     
     // Long-press seek state
     @State private var seekTimer: Timer?
@@ -511,6 +512,12 @@ public struct NowPlayingView: View {
     
     // Helper: Load artwork image for blurred background
     private func loadArtworkImage(for track: Track) {
+        let trackID = track.id
+        
+        // Clear previous image immediately when track changes
+        artworkImage = nil
+        currentLoadTrackID = trackID
+        
         Task {
             // Get artwork URL
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
@@ -523,8 +530,11 @@ public struct NowPlayingView: View {
                 let request = ImageRequest(url: artworkURL)
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                     await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            self.artworkImage = uiImage
+                        // Only update if this is still the current track
+                        if self.currentLoadTrackID == trackID {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                self.artworkImage = uiImage
+                            }
                         }
                     }
                 }

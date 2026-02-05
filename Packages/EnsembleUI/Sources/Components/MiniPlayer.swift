@@ -11,6 +11,7 @@ public struct MiniPlayer: View {
     @State private var dragOffset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
+    @State private var currentLoadTrackID: String?
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -217,6 +218,12 @@ public struct MiniPlayer: View {
     }
 
     private func loadArtworkImage(for track: Track) {
+        let trackID = track.id
+        
+        // Clear previous image immediately when track changes
+        artworkImage = nil
+        currentLoadTrackID = trackID
+        
         Task {
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
@@ -227,8 +234,11 @@ public struct MiniPlayer: View {
                 let request = ImageRequest(url: artworkURL)
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                     await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            self.artworkImage = uiImage
+                        // Only update if this is still the current track
+                        if self.currentLoadTrackID == trackID {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                self.artworkImage = uiImage
+                            }
                         }
                     }
                 }
