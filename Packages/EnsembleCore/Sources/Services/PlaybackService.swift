@@ -447,6 +447,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = index
 
         await playCurrentQueueItem()
+        savePlaybackState()
     }
     
     public func shufflePlay(tracks: [Track]) async {
@@ -468,6 +469,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = 0
         
         await playCurrentQueueItem()
+        savePlaybackState()
     }
 
     public func pause() {
@@ -512,20 +514,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If we have items in the queue, AVQueuePlayer might already be playing it or can advance
         if let player = player, player.items().count > 1 {
             player.advanceToNextItem()
-            // handleItemChange will be called by observer
+            // handleItemChange will be called by observer which saves state
         } else {
             // Manually advance
             let nextIndex = currentQueueIndex + 1
             if nextIndex >= queue.count {
                 if repeatMode == .all {
                     currentQueueIndex = 0
-                    Task { await playCurrentQueueItem() }
+                    Task { 
+                        await playCurrentQueueItem()
+                        savePlaybackState()
+                    }
                 } else {
                     stop()
                 }
             } else {
                 currentQueueIndex = nextIndex
-                Task { await playCurrentQueueItem() }
+                Task { 
+                    await playCurrentQueueItem()
+                    savePlaybackState()
+                }
             }
         }
     }
@@ -543,7 +551,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         currentQueueIndex -= 1
-        Task { await playCurrentQueueItem() }
+        Task { 
+            await playCurrentQueueItem()
+            savePlaybackState()
+        }
     }
 
     public func seek(to time: TimeInterval) {
@@ -551,6 +562,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = time
         updateNowPlayingInfo()
+        savePlaybackState()
     }
 
     // MARK: - Queue Management
@@ -592,6 +604,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if index < currentQueueIndex {
             currentQueueIndex -= 1
         }
+        
+        savePlaybackState()
     }
 
     public func clearQueue() {
@@ -606,6 +620,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         originalQueue = queue
+        savePlaybackState()
     }
 
     // MARK: - Shuffle & Repeat
@@ -639,6 +654,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 currentQueueIndex = index
             }
         }
+        
+        savePlaybackState()
     }
 
     public func cycleRepeatMode() {
