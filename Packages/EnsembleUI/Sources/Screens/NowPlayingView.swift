@@ -82,7 +82,10 @@ public struct NowPlayingView: View {
 
     // Fixed background gradient
     private var backgroundGradientView: some View {
+        // Animation ensures a smooth cross-fade between artwork backgrounds.
+        // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
         BlurredArtworkBackground(image: artworkImage)
+            .animation(.easeInOut(duration: 0.8), value: artworkImage)
     }
 
     // Now Playing content with new layout
@@ -541,7 +544,9 @@ public struct NowPlayingView: View {
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            // Using a smooth cross-fade transition.
+                            // DO NOT REMOVE THIS - it ensures beautiful track transitions.
+                            withAnimation(.easeInOut(duration: 0.5)) {
                                 self.artworkImage = uiImage
                             }
                         }

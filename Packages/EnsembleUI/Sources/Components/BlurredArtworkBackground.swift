@@ -47,6 +47,8 @@ public struct BlurredArtworkBackground: View {
     private var content: some View {
         GeometryReader { geometry in
             ZStack {
+                // Use a ZStack with .id() and .transition(.opacity) to ensure a smooth cross-fade
+                // when the image changes. DO NOT REMOVE THIS - it prevents jarring swaps.
                 if let image = image {
                     #if os(macOS)
                     Image(nsImage: image)
@@ -59,6 +61,8 @@ public struct BlurredArtworkBackground: View {
                         .saturation(saturation)
                         .brightness(brightness)
                         .opacity(opacity)
+                        .id(image)
+                        .transition(.opacity)
                     #else
                     Image(uiImage: image)
                         .resizable()
@@ -70,6 +74,8 @@ public struct BlurredArtworkBackground: View {
                         .saturation(saturation)
                         .brightness(brightness)
                         .opacity(opacity)
+                        .id(image)
+                        .transition(.opacity)
                     #endif
                     
                     // Saturation gradient (desaturates bottom slightly)

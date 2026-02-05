@@ -165,6 +165,8 @@ public struct MiniPlayer: View {
         .background(
             ZStack {
                 if viewModel.currentTrack != nil {
+                    // Animation ensures a smooth cross-fade between artwork backgrounds.
+                    // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
                     BlurredArtworkBackground(
                         image: artworkImage,
                         blurRadius: 40,
@@ -175,6 +177,7 @@ public struct MiniPlayer: View {
                         bottomDimming: 0.1,
                         shouldIgnoreSafeArea: false
                     )
+                    .animation(.easeInOut(duration: 0.8), value: artworkImage)
                     .clipped()
                 }
                 
@@ -248,7 +251,9 @@ public struct MiniPlayer: View {
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            // Using a smooth cross-fade transition.
+                            // DO NOT REMOVE THIS - it ensures beautiful track transitions.
+                            withAnimation(.easeInOut(duration: 0.5)) {
                                 self.artworkImage = uiImage
                             }
                         }
