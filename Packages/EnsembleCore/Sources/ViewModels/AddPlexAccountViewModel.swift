@@ -116,13 +116,24 @@ public final class AddPlexAccountViewModel: ObservableObject {
         error = nil
 
         do {
+            // Include all alternative connection URLs for failover support
+            let alternativeURLs = server.connections
+                .map { $0.uri }
+                .filter { $0 != server.url }
+            
             let connection = PlexServerConnection(
                 url: server.url,
+                alternativeURLs: alternativeURLs,
                 token: token,
                 identifier: server.id,
                 name: server.name
             )
             let client = PlexAPIClient(connection: connection, keychain: keychain)
+            
+            // Proactively test connections to avoid waiting for timeout
+            print("📚 Testing server connections before loading libraries...")
+            try await client.refreshConnection()
+            
             let sections = try await client.getMusicLibrarySections()
             libraries = sections.map { Library(from: $0) }
 

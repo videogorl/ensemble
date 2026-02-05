@@ -234,7 +234,21 @@ public final class SyncCoordinator: ObservableObject {
         
         if let sourceKey = track.sourceCompositeKey,
            let provider = syncProviders[sourceKey] {
-            print("🔍 Using provider for sourceKey: \(sourceKey)")
+            // Parse the composite key to extract serverId
+            let components = sourceKey.split(separator: ":")
+            if components.count >= 3 {
+                let accountId = String(components[0])
+                let serverId = String(components[1])
+                let libraryId = String(components[2])
+                
+                // Find the server name
+                if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
+                   let server = account.servers.first(where: { $0.id == serverId }) {
+                    print("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
+                } else {
+                    print("🔍 Using provider for sourceKey: \(sourceKey)")
+                }
+            }
             return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
         }
 
@@ -263,6 +277,24 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         return nil
+    }
+    
+    /// Delete all CoreData for a removed music source
+    public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
+        do {
+            print("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
+            try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
+            
+            // Remove from status tracking
+            sourceStatuses.removeValue(forKey: sourceId)
+            
+            // Clear API client cache for this source
+            accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
+            
+            print("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
+        } catch {
+            print("❌ Failed to cleanup source \(sourceId.compositeKey): \(error)")
+        }
     }
     
     // MARK: - Artwork Pre-Caching

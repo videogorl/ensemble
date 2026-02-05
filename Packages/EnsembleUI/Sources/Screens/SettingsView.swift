@@ -4,10 +4,13 @@ import SwiftUI
 public struct SettingsView: View {
     @State private var showingAddAccount = false
     @State private var showingDeleteAlert = false
+    @State private var showingClearDataAlert = false
     @State private var sourceToDelete: MusicSource?
 
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let cacheManager = DependencyContainer.shared.cacheManager
 
     public init() {}
 
@@ -93,6 +96,34 @@ public struct SettingsView: View {
                         Text("Manage Downloads")
                     }
                 }
+                
+                Button(role: .destructive) {
+                    showingClearDataAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                            .frame(width: 44)
+                        Text("Clear All Library Data")
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            
+            // Debug section
+            Section("Reset") {
+                Button(role: .destructive) {
+                    // Clear all accounts from keychain
+                    for account in accountManager.plexAccounts {
+                        accountManager.removePlexAccount(id: account.id)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "person.2.slash")
+                            .frame(width: 44)
+                        Text("Remove All Accounts")
+                            .foregroundColor(.red)
+                    }
+                }
             }
 
             // About section
@@ -135,6 +166,13 @@ public struct SettingsView: View {
             Button("Remove", role: .destructive) {
                 if let source = sourceToDelete {
                     accountManager.removeMusicSource(source.id)
+                    
+                    // Clean up CoreData for this source
+                    Task {
+                        await syncCoordinator.cleanupRemovedSource(source.id)
+                        await syncCoordinator.refreshProviders()
+                    }
+                    
                     sourceToDelete = nil
                 }
             }
@@ -143,6 +181,16 @@ public struct SettingsView: View {
                 Text("Remove \(source.displayName)? Your music will remain in the library until the next sync.")
             }
         }
+        .alert("Clear All Library Data", isPresented: $showingClearDataAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear All Data", role: .destructive) {
+                Task {
+                    try? await cacheManager.clearAllCaches()
+                }
+            }
+        } message: {
+            Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
+        }
     }
 }
 
@@ -150,6 +198,7 @@ public struct SettingsView: View {
 
 struct MusicSourceRow: View {
     let source: MusicSource
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
 
     var body: some View {
         HStack(spacing: 12) {
@@ -165,6 +214,14 @@ struct MusicSourceRow: View {
                 Text(source.accountName)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                // Show connection count for debugging
+                if let account = accountManager.plexAccounts.first(where: { $0.id == source.id.accountId }),
+                   let server = account.servers.first(where: { $0.id == source.id.serverId }) {
+                    Text("\(server.connections.count) connection\(server.connections.count == 1 ? "" : "s")")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
             }
         }
     }

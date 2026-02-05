@@ -180,10 +180,7 @@ public final class CacheManager: ObservableObject {
     private func clearLibraryMetadata() async throws {
         // This is destructive - delete all CoreData entities
         // We should confirm with user before calling this
-        let sources = try await libraryRepository.fetchMusicSources()
-        for source in sources {
-            try await libraryRepository.deleteAllData(forSourceCompositeKey: source.compositeKey ?? "")
-        }
+        try await libraryRepository.deleteAllLibraryData()
     }
     
     private func clearAllDownloads() async throws {

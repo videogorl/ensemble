@@ -28,8 +28,10 @@ public final class ServerHealthChecker: ObservableObject {
         // Check each server concurrently
         await withTaskGroup(of: (String, ServerConnectionState).self) { group in
             for account in accountManager.plexAccounts {
+                print("🏥   Account: \(account.username) (ID: \(account.id))")
                 for server in account.servers {
                     let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
+                    print("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
 
                     group.addTask {
                         let state = await self.performServerCheck(
@@ -101,6 +103,11 @@ public final class ServerHealthChecker: ObservableObject {
             return .offline
         }
 
+        print("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
+        for (index, url) in connectionURLs.enumerated() {
+            print("  [\(index + 1)] \(url)")
+        }
+
         // Try to find a working connection
         if let workingURL = await failoverManager.findWorkingConnection(
             urls: connectionURLs,
@@ -109,7 +116,7 @@ public final class ServerHealthChecker: ObservableObject {
             print("✅ ServerHealthChecker: Server \(server.name) is online at \(workingURL)")
             return .connected(url: workingURL)
         } else {
-            print("❌ ServerHealthChecker: Server \(server.name) is offline")
+            print("❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed")
             return .offline
         }
     }

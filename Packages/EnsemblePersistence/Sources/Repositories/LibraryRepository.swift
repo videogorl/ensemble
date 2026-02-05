@@ -88,6 +88,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func updateMusicSourceSyncTimestamp(compositeKey: String) async throws
 
     func deleteAllData(forSourceCompositeKey: String) async throws
+    
+    func deleteAllLibraryData() async throws
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -727,6 +729,31 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     try context.save()
                     continuation.resume()
                 } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    public func deleteAllLibraryData() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    // Delete all library entities regardless of source
+                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDPlaylist", "CDMusicSource", "CDServer"] {
+                        let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                        let objects = try context.fetch(request)
+                        for object in objects {
+                            context.delete(object)
+                        }
+                        print("🗑️ Deleted \(objects.count) \(entityName) objects")
+                    }
+                    
+                    try context.save()
+                    print("✅ All library data deleted successfully")
+                    continuation.resume()
+                } catch {
+                    print("❌ Failed to delete library data: \(error)")
                     continuation.resume(throwing: error)
                 }
             }

@@ -18,36 +18,49 @@ public actor ConnectionFailoverManager {
     /// Test a connection and return whether it's reachable
     public func testConnection(url: String, token: String) async -> Bool {
         guard let connectionURL = URL(string: url) else {
+            print("❌ ConnectionTest[\(url)]: Invalid URL")
             return false
         }
-        
+
         // Build a simple test request to the server's identity endpoint
         var testURL = URLComponents(string: url)
         testURL?.path = "/identity"
         testURL?.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
-        
+
         guard let requestURL = testURL?.url else {
+            print("❌ ConnectionTest[\(url)]: Failed to build test URL")
             return false
         }
-        
+
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         request.timeoutInterval = timeout
-        
+
+        print("🔄 ConnectionTest[\(url)]: Testing...")
+
         do {
+            let startTime = Date()
             let (_, response) = try await session.data(for: request)
-            
+            let duration = Date().timeIntervalSince(startTime)
+
             guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
                 updateConnectionHealth(url: url, success: false)
                 return false
             }
-            
+
             let isSuccessful = (200...299).contains(httpResponse.statusCode)
+            if isSuccessful {
+                print("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s (HTTP \(httpResponse.statusCode))")
+            } else {
+                print("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
+            }
             updateConnectionHealth(url: url, success: isSuccessful)
             return isSuccessful
-            
+
         } catch {
+            print("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
             updateConnectionHealth(url: url, success: false)
             return false
         }

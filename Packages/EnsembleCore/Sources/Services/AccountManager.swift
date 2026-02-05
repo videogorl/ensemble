@@ -8,6 +8,7 @@ public final class AccountManager: ObservableObject {
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
 
     private let keychain: KeychainServiceProtocol
+    private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
 
     public init(keychain: KeychainServiceProtocol) {
         self.keychain = keychain
@@ -41,12 +42,20 @@ public final class AccountManager: ObservableObject {
     }
 
     public func removePlexAccount(id: String) {
+        // Clear cached API clients for this account
+        plexAccounts.first(where: { $0.id == id })?.servers.forEach { server in
+            clearAPIClientCache(accountId: id, serverId: server.id)
+        }
         plexAccounts.removeAll { $0.id == id }
         saveAccounts()
     }
 
     public func updatePlexAccount(_ account: PlexAccountConfig) {
         if let index = plexAccounts.firstIndex(where: { $0.id == account.id }) {
+            // Clear cached API clients for this account's servers
+            account.servers.forEach { server in
+                clearAPIClientCache(accountId: account.id, serverId: server.id)
+            }
             plexAccounts[index] = account
             saveAccounts()
         }
@@ -143,8 +152,15 @@ public final class AccountManager: ObservableObject {
         !plexAccounts.isEmpty
     }
 
-    /// Create a PlexAPIClient configured for a specific server
+    /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
+        let cacheKey = "\(accountId):\(serverId)"
+
+        // Return cached client if available
+        if let cachedClient = apiClientCache[cacheKey] {
+            return cachedClient
+        }
+
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
             return nil
@@ -163,6 +179,19 @@ public final class AccountManager: ObservableObject {
             name: server.name
         )
 
-        return PlexAPIClient(connection: connection, keychain: keychain)
+        let client = PlexAPIClient(connection: connection, keychain: keychain)
+        apiClientCache[cacheKey] = client
+        return client
+    }
+
+    /// Clear the API client cache (useful when accounts/servers are removed or reconfigured)
+    public func clearAPIClientCache() {
+        apiClientCache.removeAll()
+    }
+
+    /// Clear cache for a specific server
+    public func clearAPIClientCache(accountId: String, serverId: String) {
+        let cacheKey = "\(accountId):\(serverId)"
+        apiClientCache.removeValue(forKey: cacheKey)
     }
 }
