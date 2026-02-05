@@ -159,42 +159,42 @@ public struct NowPlayingView: View {
     
     // Track metadata with clickable artist/album
     private func trackMetadataView(track: Track) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 8) {
-                // Artist name (clickable)
-                if let artist = track.artistName {
-                    Button(action: {
-                        handleArtistTap(track: track)
-                    }) {
-                        Text(artist)
-                            .font(.title3)
-                            .foregroundColor(.white.opacity(0.9))
-                            .lineLimit(1)
-                    }
-                }
-
-                // Track title
-                Text(track.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .foregroundColor(.white)
-
-                // Album name (clickable)
-                if let album = track.albumName {
-                    Button(action: {
-                        handleAlbumTap(track: track)
-                    }) {
-                        Text(album)
-                            .font(.callout)
-                            .foregroundColor(.white.opacity(0.7))
-                            .lineLimit(1)
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            // Artist name (clickable)
+            if let artist = track.artistName {
+                Button(action: {
+                    handleArtistTap(track: track)
+                }) {
+                    MarqueeText(
+                        text: artist,
+                        font: .title3,
+                        color: .white.opacity(0.9)
+                    )
                 }
             }
-            Spacer()
+
+            // Track title
+            MarqueeText(
+                text: track.title,
+                font: .title2,
+                color: .white,
+                fontWeight: .bold
+            )
+
+            // Album name (clickable)
+            if let album = track.albumName {
+                Button(action: {
+                    handleAlbumTap(track: track)
+                }) {
+                    MarqueeText(
+                        text: album,
+                        font: .callout,
+                        color: .white.opacity(0.7)
+                    )
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // Progress slider with time labels
