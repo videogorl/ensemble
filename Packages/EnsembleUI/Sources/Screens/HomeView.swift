@@ -186,9 +186,7 @@ struct HubItemCard: View {
     }
     
     var body: some View {
-        Button {
-            handleTap()
-        } label: {
+        Button(action: handleTap) {
             VStack(alignment: isArtist ? .center : .leading, spacing: 8) {
                 // Artwork with circular corners for artists, rounded for others
                 ArtworkView(
@@ -231,6 +229,8 @@ struct HubItemCard: View {
     }
     
     private func handleTap() {
+        print("🎯 HubItemCard tapped: '\(item.title)' (type: \(item.type))")
+        
         switch item.type {
         case "album":
             let album = item.album ?? Album(
@@ -242,6 +242,7 @@ struct HubItemCard: View {
                 thumbPath: item.thumbPath,
                 sourceCompositeKey: item.sourceCompositeKey
             )
+            print("🎯 Calling onAlbumTap for: \(album.title)")
             onAlbumTap(album)
             
         case "artist":
@@ -252,6 +253,7 @@ struct HubItemCard: View {
                 thumbPath: item.thumbPath,
                 sourceCompositeKey: item.sourceCompositeKey
             )
+            print("🎯 Calling onArtistTap for: \(artist.name)")
             onArtistTap(artist)
             
         case "track":
@@ -263,6 +265,7 @@ struct HubItemCard: View {
                 thumbPath: item.thumbPath,
                 sourceCompositeKey: item.sourceCompositeKey
             )
+            print("🎯 Calling play for track: \(track.title)")
             nowPlayingVM.play(tracks: [track])
             
         case "playlist":
@@ -272,9 +275,11 @@ struct HubItemCard: View {
                 title: item.title,
                 sourceCompositeKey: item.sourceCompositeKey
             )
+            print("🎯 Calling onPlaylistTap for: \(playlist.title)")
             onPlaylistTap(playlist)
             
         default:
+            print("🎯 Unknown item type: \(item.type)")
             break
         }
     }

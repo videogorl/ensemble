@@ -18,17 +18,23 @@ public final class NavigationCoordinator: ObservableObject {
     
     /// Request navigation to an artist
     public func navigateToArtist(_ artist: Artist) {
+        print("🧭 NavigationCoordinator: navigateToArtist called for: \(artist.name)")
         pendingDestination = .artist(artist)
+        print("🧭 NavigationCoordinator: pendingDestination set to artist")
     }
     
     /// Request navigation to an album
     public func navigateToAlbum(_ album: Album) {
+        print("🧭 NavigationCoordinator: navigateToAlbum called for: \(album.title)")
         pendingDestination = .album(album)
+        print("🧭 NavigationCoordinator: pendingDestination set to album")
     }
     
     /// Request navigation to a playlist
     public func navigateToPlaylist(_ playlist: Playlist) {
+        print("🧭 NavigationCoordinator: navigateToPlaylist called for: \(playlist.title)")
         pendingDestination = .playlist(playlist)
+        print("🧭 NavigationCoordinator: pendingDestination set to playlist")
     }
     
     /// Clear the pending destination after navigation is handled

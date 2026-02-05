@@ -8,6 +8,7 @@ public struct MainTabView: View {
     @StateObject private var searchVM: SearchViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
 
     @State private var selectedTab: TabItem = .home
@@ -30,7 +31,7 @@ public struct MainTabView: View {
         }
         // Clear destination after animation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            deps.navigationCoordinator.clearDestination()
+            navigationCoordinator.clearDestination()
         }
     }
 
@@ -94,7 +95,7 @@ public struct MainTabView: View {
                 }
 
                 // Sliding detail view overlay
-                if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
+                if showingDetailView, let destination = navigationCoordinator.pendingDestination {
                     detailViewForDestination(destination: destination)
                         .transition(.move(edge: .trailing))
                         .zIndex(1)
@@ -128,10 +129,12 @@ public struct MainTabView: View {
         .task {
             await libraryVM.refresh()
         }
-        .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
+        .onChange(of: navigationCoordinator.pendingDestination) { destination in
+            print("🎬 MainTabView: onChange fired! destination = \(String(describing: destination))")
             // Show detail view when navigation is requested
             withAnimation(.easeInOut(duration: 0.3)) {
                 showingDetailView = destination != nil
+                print("🎬 MainTabView: showingDetailView = \(showingDetailView)")
             }
         }
         .onChange(of: selectedTab) { newTab in
