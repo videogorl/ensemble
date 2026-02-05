@@ -84,8 +84,13 @@ struct SourceStatusRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(source.displayName)
-                        .font(.headline)
+                    HStack(spacing: 6) {
+                        // Connection status indicator dot
+                        connectionIndicator
+
+                        Text(source.displayName)
+                            .font(.headline)
+                    }
 
                     Text(source.accountName)
                         .font(.caption)
@@ -101,9 +106,56 @@ struct SourceStatusRow: View {
                 .disabled(status.isSyncing)
             }
 
-            // Status indicator
+            // Connection status text
+            connectionStatusView
+
+            // Sync status indicator
             statusView
         }
+    }
+
+    // Connection status indicator dot
+    private var connectionIndicator: some View {
+        Circle()
+            .fill(connectionColor)
+            .frame(width: 8, height: 8)
+    }
+
+    // Connection status text
+    @ViewBuilder
+    private var connectionStatusView: some View {
+        HStack(spacing: 4) {
+            Image(systemName: connectionIcon)
+                .font(.caption)
+                .foregroundColor(connectionColor)
+
+            Text(connectionText)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var connectionColor: Color {
+        switch status.connectionState.statusColor {
+        case .green: return .green
+        case .yellow: return .yellow
+        case .orange: return .orange
+        case .red: return .red
+        case .gray: return .gray
+        }
+    }
+
+    private var connectionIcon: String {
+        switch status.connectionState {
+        case .connected: return "checkmark.circle.fill"
+        case .connecting: return "arrow.triangle.2.circlepath"
+        case .degraded: return "exclamationmark.triangle.fill"
+        case .offline, .unknown: return "xmark.circle.fill"
+        }
+    }
+
+    private var connectionText: String {
+        status.connectionState.description
     }
 
     @ViewBuilder

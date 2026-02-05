@@ -187,6 +187,10 @@ public final class NowPlayingViewModel: ObservableObject {
     public func stop() {
         playbackService.stop()
     }
+    
+    public func retryCurrentTrack() async {
+        await playbackService.retryCurrentTrack()
+    }
 
     public func next() {
         playbackService.next()

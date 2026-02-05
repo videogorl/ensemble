@@ -383,10 +383,10 @@ public actor PlexAPIClient {
         }
 
         print("🔍 PlexAPIClient: Building stream URL with partKey: \(partKey)")
-        print("🔍 PlexAPIClient: Server URL: \(serverConnection.url)")
-        
-        guard var components = URLComponents(string: serverConnection.url) else {
-            print("❌ PlexAPIClient: Failed to create URLComponents from server URL")
+        print("🔍 PlexAPIClient: Current server URL: \(currentServerURL)")
+
+        guard var components = URLComponents(string: currentServerURL) else {
+            print("❌ PlexAPIClient: Failed to create URLComponents from current server URL")
             throw PlexAPIError.invalidURL
         }
         
@@ -411,7 +411,7 @@ public actor PlexAPIClient {
         print("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
         print("🔍 Track ratingKey: \(track.ratingKey)")
         print("🔍 Track media count: \(track.media?.count ?? 0)")
-        
+
         if let media = track.media?.first {
             print("🔍 First media - parts count: \(media.part?.count ?? 0)")
             if let part = media.part?.first {
@@ -422,15 +422,16 @@ public actor PlexAPIClient {
         } else {
             print("❌ No media array in track")
         }
-        
+
         guard let partKey = track.media?.first?.part?.first?.key else {
             print("❌ Cannot extract part key from track")
             throw PlexAPIError.invalidURL
         }
 
         print("🔍 Building URL with partKey: \(partKey)")
-        guard var components = URLComponents(string: serverConnection.url) else {
-            print("❌ Failed to create URLComponents from server URL")
+        print("🔍 Current server URL: \(currentServerURL)")
+        guard var components = URLComponents(string: currentServerURL) else {
+            print("❌ Failed to create URLComponents from current server URL")
             throw PlexAPIError.invalidURL
         }
         
@@ -491,6 +492,24 @@ public actor PlexAPIClient {
     /// Get the current active server URL
     public func getCurrentServerURL() -> String {
         currentServerURL
+    }
+
+    /// Update the current server URL (e.g., from external health checks)
+    /// This allows proactive failover based on network changes
+    public func updateCurrentServerURL(_ url: String) {
+        print("🔄 PlexAPIClient: Updating current server URL to: \(url)")
+        currentServerURL = url
+    }
+
+    /// Proactively test and update to the best available connection
+    public func refreshConnection() async {
+        print("🔄 PlexAPIClient: Refreshing connection...")
+        do {
+            try await attemptFailover()
+            print("✅ PlexAPIClient: Connection refreshed, now using: \(currentServerURL)")
+        } catch {
+            print("⚠️ PlexAPIClient: Failed to refresh connection: \(error)")
+        }
     }
 
     // MARK: - Private Methods

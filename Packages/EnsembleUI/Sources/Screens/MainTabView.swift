@@ -7,6 +7,7 @@ public struct MainTabView: View {
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @Environment(\.dependencies) private var deps
 
     @State private var selectedTab: TabItem = .home
@@ -41,9 +42,13 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                // Main content layer (TabView)
-                TabView(selection: $selectedTab) {
+            VStack(spacing: 0) {
+                // Connection status banner at top
+                ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                
+                ZStack(alignment: .bottom) {
+                    // Main content layer (TabView)
+                    TabView(selection: $selectedTab) {
                     // Dynamic Tabs
                     ForEach(barTabs) { tab in
                         NavigationView {
@@ -113,6 +118,7 @@ public struct MainTabView: View {
                 .zIndex(2)
             }
             .ignoresSafeArea(.container, edges: .bottom)
+            }
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)

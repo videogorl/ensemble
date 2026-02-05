@@ -334,20 +334,48 @@ public final class SyncCoordinator: ObservableObject {
     /// Handle network state changes
     private func handleNetworkChange(_ state: NetworkState) async {
         print("🌐 SyncCoordinator: Network state changed to \(state.description)")
-        
+
         switch state {
         case .online:
             isOffline = false
             // Check server health when coming back online
             await serverHealthChecker.checkAllServers()
             updateSourceConnectionStates()
-            
+            // Update API clients with new connection URLs
+            await refreshAPIClientConnections()
+
         case .offline, .limited:
             isOffline = true
             updateSourceConnectionStates()
-            
+
         case .unknown:
             break
+        }
+    }
+
+    /// Update all API clients with the latest working connection URLs from health checks
+    public func refreshAPIClientConnections() async {
+        print("🔄 SyncCoordinator: Updating API client connections...")
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                // Get the working URL from health checker
+                let connectionState = serverHealthChecker.getServerState(
+                    accountId: account.id,
+                    serverId: server.id
+                )
+
+                // If we found a working URL, update the API client
+                if case .connected(let workingURL) = connectionState,
+                   let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
+                    await apiClient.updateCurrentServerURL(workingURL)
+                    print("✅ Updated API client for server \(server.name) to use: \(workingURL)")
+                } else if case .degraded(let workingURL) = connectionState,
+                          let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
+                    await apiClient.updateCurrentServerURL(workingURL)
+                    print("⚠️ Updated API client for server \(server.name) to use degraded connection: \(workingURL)")
+                }
+            }
         }
     }
     

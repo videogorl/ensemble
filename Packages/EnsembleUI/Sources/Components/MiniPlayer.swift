@@ -16,6 +16,32 @@ public struct MiniPlayer: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            // Error banner (if playback failed)
+            if case .failed(let errorMessage) = viewModel.playbackState {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+
+                    Text(errorMessage)
+                        .font(.caption)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Button("Retry") {
+                        Task {
+                            await viewModel.retryCurrentTrack()
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.orange)
+            }
+
             if let track = viewModel.currentTrack {
                 // Progress bar
                 GeometryReader { geometry in

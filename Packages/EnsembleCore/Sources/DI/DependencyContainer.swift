@@ -88,7 +88,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         // Services using sync coordinator
-        playbackService = PlaybackService(syncCoordinator: syncCoordinator)
+        playbackService = PlaybackService(syncCoordinator: syncCoordinator, networkMonitor: nm)
         artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
 
         // Settings manager

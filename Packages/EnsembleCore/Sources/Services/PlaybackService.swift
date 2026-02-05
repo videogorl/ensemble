@@ -15,6 +15,28 @@ public enum PlaybackState: Equatable, Sendable {
     case failed(String)
 }
 
+// MARK: - Playback Error
+
+public enum PlaybackError: Error, LocalizedError {
+    case offline
+    case serverUnavailable
+    case networkError(Error)
+    case unknown(Error)
+    
+    public var errorDescription: String? {
+        switch self {
+        case .offline:
+            return "No internet connection"
+        case .serverUnavailable:
+            return "Server is unavailable"
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        case .unknown(let error):
+            return error.localizedDescription
+        }
+    }
+}
+
 public enum RepeatMode: Int, CaseIterable, Sendable {
     case off = 0
     case all = 1
@@ -72,6 +94,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func pause()
     func resume()
     func stop()
+    func retryCurrentTrack() async
     func next()
     func previous()
     func seek(to time: TimeInterval)
@@ -120,12 +143,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var currentItemObservation: NSKeyValueObservation?
 
     private let syncCoordinator: SyncCoordinator
+    private let networkMonitor: NetworkMonitor
     private var originalQueue: [QueueItem] = []  // For shuffle restore
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator) {
+    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor) {
         self.syncCoordinator = syncCoordinator
+        self.networkMonitor = networkMonitor
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -394,6 +419,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
+    
+    /// Retry playing the current track (useful after network errors)
+    public func retryCurrentTrack() async {
+        guard let track = currentTrack else { return }
+        await playCurrentQueueItem()
+    }
 
     public func next() {
         guard !queue.isEmpty else { return }
@@ -568,14 +599,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
+        // If we have a local file, use it regardless of network state
         if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
             let url = URL(fileURLWithPath: localPath)
             return AVPlayerItem(url: url)
         }
         
-        let url = try await syncCoordinator.getStreamURL(for: track)
-        let asset = AVURLAsset(url: url)
-        return AVPlayerItem(asset: asset)
+        // Check network connectivity before attempting to stream
+        guard await MainActor.run(body: { networkMonitor.isConnected }) else {
+            throw PlaybackError.offline
+        }
+        
+        // Attempt to get stream URL
+        do {
+            let url = try await syncCoordinator.getStreamURL(for: track)
+            let asset = AVURLAsset(url: url)
+            return AVPlayerItem(asset: asset)
+        } catch {
+            // Convert errors to PlaybackError
+            if let plexError = error as? PlexAPIError {
+                switch plexError {
+                case .noServerSelected:
+                    throw PlaybackError.serverUnavailable
+                case .networkError:
+                    throw PlaybackError.networkError(error)
+                default:
+                    throw PlaybackError.unknown(error)
+                }
+            }
+            throw PlaybackError.unknown(error)
+        }
     }
     
     private func prefetchNextItem() async {

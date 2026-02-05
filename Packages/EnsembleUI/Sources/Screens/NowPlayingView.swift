@@ -38,7 +38,7 @@ public struct NowPlayingView: View {
             ZStack {
                 // Background gradient (vibrant colors from artwork)
                 backgroundGradientView
-                
+
                 // Content with scrollable queue
                 if let track = viewModel.currentTrack {
                     ScrollView(showsIndicators: false) {
@@ -46,7 +46,7 @@ public struct NowPlayingView: View {
                             // Now Playing content (full screen height)
                             nowPlayingContent(track: track, geometry: geometry)
                                 .frame(height: geometry.size.height)
-                            
+
                             // Queue section
                             queueSection(geometry: geometry)
                         }
@@ -54,6 +54,11 @@ public struct NowPlayingView: View {
                 } else {
                     emptyStateView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // Error overlay (when playback fails)
+                if case .failed(let errorMessage) = viewModel.playbackState {
+                    errorOverlayView(errorMessage: errorMessage)
                 }
             }
             #if os(iOS)
@@ -623,6 +628,53 @@ public struct NowPlayingView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    // Error overlay when playback fails
+    private func errorOverlayView(errorMessage: String) -> some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.orange)
+
+            VStack(spacing: 8) {
+                Text("Playback Error")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+
+                Text(errorMessage)
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+
+                Text("Check your connection and try again")
+                    .font(.callout)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                Task {
+                    await viewModel.retryCurrentTrack()
+                }
+            } label: {
+                Text("Retry")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 12)
+                    .background(Color.orange)
+                    .cornerRadius(12)
+            }
+        }
+        .padding(40)
+        .background(.ultraThinMaterial)
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.3), radius: 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.3))
     }
 }
 
