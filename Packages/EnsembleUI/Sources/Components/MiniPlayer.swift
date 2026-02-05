@@ -1,10 +1,13 @@
 import EnsembleCore
 import SwiftUI
+import Nuke
 
 public struct MiniPlayer: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     let onTap: () -> Void
     
+    @Environment(\.dependencies) private var deps
+    @State private var artworkImage: UIImage?
     @State private var dragOffset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
@@ -157,14 +160,41 @@ public struct MiniPlayer: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
+            ZStack {
+                if viewModel.currentTrack != nil {
+                    BlurredArtworkBackground(
+                        image: artworkImage,
+                        blurRadius: 40,
+                        contrast: 1.4,
+                        saturation: 1.4,
+                        brightness: -0.1,
+                        topDimming: 0.1,
+                        bottomDimming: 0.1
+                    )
+                }
+                
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.regularMaterial.opacity(0.8))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
         )
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .offset(y: verticalOffset)
         .onTapGesture(perform: onTap)
+        .onChange(of: viewModel.currentTrack) { newTrack in
+            if let track = newTrack {
+                loadArtworkImage(for: track)
+            } else {
+                artworkImage = nil
+            }
+        }
+        .onAppear {
+            if let track = viewModel.currentTrack {
+                loadArtworkImage(for: track)
+            }
+        }
         .gesture(
             DragGesture()
                 .onChanged { value in
@@ -182,6 +212,26 @@ public struct MiniPlayer: View {
                     }
                 }
         )
+    }
+
+    private func loadArtworkImage(for track: Track) {
+        Task {
+            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
+                for: track.thumbPath,
+                sourceKey: track.sourceCompositeKey,
+                ratingKey: track.id,
+                size: 200
+            ) {
+                let request = ImageRequest(url: artworkURL)
+                if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            self.artworkImage = uiImage
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
