@@ -889,6 +889,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
+                fallbackPath: track.fallbackThumbPath,
+                fallbackRatingKey: track.fallbackRatingKey,
                 size: 600
             ) {
                 let request = ImageRequest(url: url)

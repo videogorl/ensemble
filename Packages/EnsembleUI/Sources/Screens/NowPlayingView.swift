@@ -524,6 +524,8 @@ public struct NowPlayingView: View {
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
+                fallbackPath: track.fallbackThumbPath,
+                fallbackRatingKey: track.fallbackRatingKey,
                 size: 600 // Use slightly larger size for background
             ) {
                 // Check Nuke cache first for instant display

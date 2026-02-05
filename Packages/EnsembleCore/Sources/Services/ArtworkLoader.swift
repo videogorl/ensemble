@@ -5,7 +5,7 @@ import Nuke
 
 public protocol ArtworkLoaderProtocol {
     func artworkURL(for path: String?, sourceKey: String?, size: Int) -> URL?
-    func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, size: Int) async -> URL?
+    func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
 }
@@ -73,11 +73,33 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     /// Async version for modern Swift concurrency
     /// Checks local cache first if ratingKey is provided, otherwise fetches from network
-    public func artworkURLAsync(for path: String?, sourceKey: String? = nil, ratingKey: String? = nil, size: Int = 300) async -> URL? {
-        guard let path = path else { return nil }
+    /// Supports fallback artwork (e.g., album artwork for tracks without specific artwork)
+    public func artworkURLAsync(
+        for path: String?, 
+        sourceKey: String? = nil, 
+        ratingKey: String? = nil,
+        fallbackPath: String? = nil,
+        fallbackRatingKey: String? = nil,
+        size: Int = 300
+    ) async -> URL? {
+        // Determine which path and ratingKey to use
+        let actualPath: String?
+        let actualRatingKey: String?
+        
+        if path != nil && !path!.isEmpty {
+            actualPath = path
+            actualRatingKey = ratingKey
+        } else if fallbackPath != nil && !fallbackPath!.isEmpty {
+            actualPath = fallbackPath
+            actualRatingKey = fallbackRatingKey
+        } else {
+            return nil
+        }
+        
+        guard let finalPath = actualPath else { return nil }
         
         // Check local cache first if we have a ratingKey
-        if let key = ratingKey {
+        if let key = actualRatingKey {
             // Try album artwork cache
             let albumFilename = "\(key)_album.jpg"
             let albumPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
@@ -94,7 +116,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
         
         // Fall back to network
-        return try? await syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size)
+        return try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: size)
     }
     
     // MARK: - Pre-downloading

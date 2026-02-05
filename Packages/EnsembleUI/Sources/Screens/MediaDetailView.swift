@@ -128,6 +128,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             for: path,
             sourceKey: sourceKey,
             ratingKey: headerData.ratingKey,
+            fallbackPath: nil,  // No fallback for album/artist/playlist detail views
+            fallbackRatingKey: nil,
             size: 600
         ) {
             let request = ImageRequest(url: url)

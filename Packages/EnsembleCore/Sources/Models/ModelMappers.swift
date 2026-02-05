@@ -18,6 +18,8 @@ public extension Track {
             discNumber: plex.parentIndex ?? 1,
             duration: plex.durationSeconds,
             thumbPath: plex.thumb ?? plex.parentThumb ?? plex.grandparentThumb,
+            fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
+            fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
             streamKey: plex.streamURL,
             localFilePath: nil,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -41,6 +43,8 @@ public extension Track {
             discNumber: Int(cd.discNumber),
             duration: cd.durationSeconds,
             thumbPath: cd.thumbPath,
+            fallbackThumbPath: cd.album?.thumbPath,  // Album artwork as fallback
+            fallbackRatingKey: cd.album?.ratingKey,  // Album ratingKey
             streamKey: cd.streamKey,
             localFilePath: cd.localFilePath,
             dateAdded: cd.dateAdded,

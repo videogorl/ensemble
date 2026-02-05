@@ -154,6 +154,8 @@ public class TrackTableViewCell: UITableViewCell {
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
                     ratingKey: track.id,
+                    fallbackPath: track.fallbackThumbPath,
+                    fallbackRatingKey: track.fallbackRatingKey,
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
                     return

@@ -232,6 +232,8 @@ public struct MiniPlayer: View {
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
+                fallbackPath: track.fallbackThumbPath,
+                fallbackRatingKey: track.fallbackRatingKey,
                 size: 200
             ) {
                 let request = ImageRequest(url: artworkURL)

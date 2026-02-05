@@ -82,9 +82,11 @@ public struct ArtworkView: View {
         }
         
         let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: actualPath,
+            for: path,
             sourceKey: sourceKey,
-            ratingKey: actualRatingKey,
+            ratingKey: ratingKey,
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: fallbackRatingKey,
             size: size.rawValue
         )
         

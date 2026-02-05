@@ -34,6 +34,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let discNumber: Int
     public let duration: TimeInterval  // Seconds
     public let thumbPath: String?
+    public let fallbackThumbPath: String?  // Album artwork as fallback
+    public let fallbackRatingKey: String?  // Album ratingKey
     public let streamKey: String?
     public let localFilePath: String?
     public let dateAdded: Date?
@@ -55,6 +57,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         discNumber: Int = 1,
         duration: TimeInterval = 0,
         thumbPath: String? = nil,
+        fallbackThumbPath: String? = nil,
+        fallbackRatingKey: String? = nil,
         streamKey: String? = nil,
         localFilePath: String? = nil,
         dateAdded: Date? = nil,
@@ -75,6 +79,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.discNumber = discNumber
         self.duration = duration
         self.thumbPath = thumbPath
+        self.fallbackThumbPath = fallbackThumbPath
+        self.fallbackRatingKey = fallbackRatingKey
         self.streamKey = streamKey
         self.localFilePath = localFilePath
         self.dateAdded = dateAdded

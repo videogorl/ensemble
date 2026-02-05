@@ -281,6 +281,8 @@ public struct ArtistDetailView: View {
             for: viewModel.artist.thumbPath,
             sourceKey: viewModel.artist.sourceCompositeKey,
             ratingKey: viewModel.artist.id,
+            fallbackPath: viewModel.artist.fallbackThumbPath,
+            fallbackRatingKey: viewModel.artist.fallbackRatingKey,
             size: 600
         ) {
             let request = ImageRequest(url: url)
