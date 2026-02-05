@@ -217,6 +217,12 @@ public struct NowPlayingView: View {
                     // Invisible interaction layer
                     Color.clear
                         .contentShape(Rectangle())
+                    
+                    // Floating scrub speed indicator (overlay, doesn't affect layout)
+                    if isDraggingSlider {
+                        scrubIndicator
+                            .position(x: geometry.size.width / 2, y: -20)
+                    }
                 }
                 .frame(height: 44)
                 .onAppear {
@@ -264,29 +270,6 @@ public struct NowPlayingView: View {
             }
             .frame(height: 44)
 
-            // Scrub speed indicator below slider
-            if isDraggingSlider {
-                let scrubInfo = getScrubInfo()
-                VStack(spacing: 4) {
-                    Text(scrubInfo.label)
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                    Image(systemName: "chevron.compact.down")
-                        .font(.caption2)
-                        .foregroundColor(.white)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule()
-                        .fill(Color.white.opacity(0.2))
-                        .background(.ultraThinMaterial)
-                )
-                .clipShape(Capsule())
-                .transition(.opacity)
-            }
-
             // Time labels
             HStack {
                 Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : viewModel.formattedCurrentTime)
@@ -302,6 +285,33 @@ public struct NowPlayingView: View {
                     .foregroundColor(.white.opacity(0.7))
             }
         }
+    }
+    
+    // Scrub speed indicator as an overlay
+    private var scrubIndicator: some View {
+        let verticalDistance = abs(currentDragY - dragStartY)
+        let isMovingUp = currentDragY < dragStartY
+        let isMaxFine = verticalDistance >= 120
+        let scrubInfo = getScrubInfo()
+        
+        return VStack(spacing: 2) {
+            Image(systemName: isMaxFine ? "minus" : (isMovingUp ? "chevron.compact.up" : "chevron.compact.down"))
+                .font(.caption2)
+                .foregroundColor(.white)
+            
+            Text(scrubInfo.label)
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.2))
+        )
+        .clipShape(Capsule())
+        .transition(.opacity)
     }
 
     // Main playback controls

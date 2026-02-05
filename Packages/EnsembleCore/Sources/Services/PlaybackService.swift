@@ -196,27 +196,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func generateWaveform(for ratingKey: String) {
         print("🎵 Generating waveform for track: \(ratingKey)")
         // Simple seeded random to make it consistent for the same track
+        // TODO: Replace with real audio waveform extraction using AVAssetReader
         var seed = UInt64(truncatingIfNeeded: Int64(ratingKey.hashValue))
         func nextRandom() -> Double {
             seed = seed &* 6364136223846793005 &+ 1
             return Double(seed >> 32) / Double(UInt32.max)
         }
         
-        let count = 40
+        // Increased sample count for more detail (40 -> 120)
+        let count = 120
         var heights: [Double] = []
         
-        // Generate a "realistic" shape: quiet at start/end, louder in middle
+        // Generate a more complex "realistic" shape with multiple peaks
         for i in 0..<count {
             let progress = Double(i) / Double(count)
-            let envelope = sin(progress * .pi) // 0 at start/end, 1 in middle
             
-            let base = 0.2 + (0.5 * envelope)
-            let variance = 0.3 * nextRandom()
+            // Create multiple peaks throughout the track
+            let primaryWave = sin(progress * .pi) // Main envelope
+            let secondaryWave = sin(progress * .pi * 3) * 0.3 // Add variation
+            let tertiaryWave = sin(progress * .pi * 7) * 0.15 // Add micro variation
             
-            heights.append(min(1.0, base + variance))
+            let envelope = primaryWave + secondaryWave + tertiaryWave
+            
+            let base = 0.25 + (0.45 * envelope)
+            let variance = 0.25 * nextRandom()
+            
+            heights.append(max(0.1, min(1.0, base + variance)))
         }
         
-        print("🎵 Generated \(heights.count) heights, first: \(heights.first ?? 0)")
+        print("🎵 Generated \(heights.count) waveform samples")
         self.waveformHeights = heights
     }
 
