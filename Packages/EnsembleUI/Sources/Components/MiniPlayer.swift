@@ -161,6 +161,7 @@ public struct MiniPlayer: View {
                 .padding(.vertical, 12)
             }
         }
+        .clipped()
         .background(
             ZStack {
                 if viewModel.currentTrack != nil {
@@ -174,6 +175,7 @@ public struct MiniPlayer: View {
                         bottomDimming: 0.1,
                         shouldIgnoreSafeArea: false
                     )
+                    .clipped()
                 }
                 
                 RoundedRectangle(cornerRadius: 12)
@@ -181,23 +183,8 @@ public struct MiniPlayer: View {
             }
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-        .offset(y: verticalOffset)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: onTap)
-        .onChange(of: viewModel.currentTrack) { newTrack in
-            if let track = newTrack {
-                loadArtworkImage(for: track)
-            } else {
-                artworkImage = nil
-            }
-        }
-        .onAppear {
-            if let track = viewModel.currentTrack {
-                loadArtworkImage(for: track)
-            }
-        }
         .gesture(
             DragGesture()
                 .onChanged { value in
@@ -215,6 +202,22 @@ public struct MiniPlayer: View {
                     }
                 }
         )
+        .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .offset(y: verticalOffset)
+        .onChange(of: viewModel.currentTrack) { newTrack in
+            if let track = newTrack {
+                loadArtworkImage(for: track)
+            } else {
+                artworkImage = nil
+            }
+        }
+        .onAppear {
+            if let track = viewModel.currentTrack {
+                loadArtworkImage(for: track)
+            }
+        }
     }
 
     private func loadArtworkImage(for track: Track) {
