@@ -161,11 +161,15 @@ public struct ArtistsView: View {
                             nowPlayingVM: nowPlayingVM,
                             onArtistTap: onArtistTap
                         )
-                                                    .padding(.vertical)
-                                            }
-                                        }
-                                        
-                                        if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {                    ScrollIndex(
+                        .padding(.vertical)
+                    }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 110)
+                }
+                
+                if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
+                    ScrollIndex(
                         letters: artistSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in

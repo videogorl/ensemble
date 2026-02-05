@@ -113,8 +113,12 @@ public struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
 
                     customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
+                        .background(
+                            Rectangle()
+                                .fill(.regularMaterial)
+                                .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
+                        )
                 }
-                .background(.ultraThinMaterial)
                 .zIndex(2)
             }
             .ignoresSafeArea(.container, edges: .bottom)
@@ -406,7 +410,6 @@ public struct SidebarView: View {
             MiniPlayer(viewModel: nowPlayingVM) {
                 showingNowPlaying = true
             }
-            .background(.ultraThinMaterial)
             .zIndex(2)
         }
         .sheet(isPresented: $showingNowPlaying) {

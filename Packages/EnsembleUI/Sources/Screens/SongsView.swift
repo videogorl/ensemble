@@ -169,6 +169,9 @@ public struct SongsView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 110)
+        }
         #endif
     }
     
@@ -240,8 +243,9 @@ struct IndexedTrackList: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
         tableView.backgroundColor = .systemBackground
-        tableView.contentInset = .zero
-        tableView.scrollIndicatorInsets = .zero
+        tableView.contentInsetAdjustmentBehavior = .never
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 110, right: 0)
+        tableView.scrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 110, right: 0)
         return tableView
     }
     

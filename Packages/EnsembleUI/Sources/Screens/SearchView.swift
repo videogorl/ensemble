@@ -1,10 +1,12 @@
 import EnsembleCore
 import SwiftUI
+import Combine
 
 public struct SearchView: View {
     @StateObject private var viewModel: SearchViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
+    @State private var keyboardHeight: CGFloat = 0
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
@@ -31,6 +33,20 @@ public struct SearchView: View {
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    keyboardHeight = keyboardFrame.height
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.25)) {
+                keyboardHeight = 0
+            }
+        }
+        #endif
     }
 
     private var searchBar: some View {
@@ -138,6 +154,10 @@ public struct SearchView: View {
                     }
                 }
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            // When keyboard is visible, use keyboard height; otherwise use tab bar + mini player height
+            Color.clear.frame(height: keyboardHeight > 0 ? keyboardHeight : 110)
         }
     }
 }

@@ -67,24 +67,26 @@ public struct HomeView: View {
                 .font(.title2)
             
             VStack(spacing: 8) {
-                if viewModel.error != nil {
+                if let errorMessage = viewModel.error {
                     Text("Unable to load content")
                         .font(.subheadline)
                         .foregroundColor(.red)
-                    Text(viewModel.error ?? "")
+                    Text(errorMessage)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 } else {
-                    Text("Sync your library to see personalized recommendations")
+                    Text("No content available yet")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                     
-                    Text("Pull down to refresh or tap the sync button")
+                    Text("Your Plex server may not have hub data available, or content may still be loading. Pull down to refresh.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
                 }
             }
         }
@@ -104,6 +106,9 @@ public struct HomeView: View {
                 }
             }
             .padding(.vertical)
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 110)
         }
     }
 }

@@ -158,9 +158,9 @@ public struct MiniPlayer: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(.ultraThinMaterial)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
         )
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .offset(y: verticalOffset)
