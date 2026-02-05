@@ -11,6 +11,11 @@ public final class HomeViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var loadTask: Task<Void, Never>?
+    private var lastLoadTime: Date?
+    
+    // Debounce interval to prevent rapid successive loads
+    private let debounceInterval: TimeInterval = 2.0
     
     public init(
         accountManager: AccountManager,
@@ -19,98 +24,133 @@ public final class HomeViewModel: ObservableObject {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes (with debouncing)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] syncing in
                 if !syncing {
                     Task { @MainActor in
-                        await self?.loadHubs()
+                        await self?.loadHubsIfNeeded()
                     }
                 }
             }
             .store(in: &cancellables)
     }
     
-    /// Load hubs from all configured accounts
-    public func loadHubs() async {
-        isLoading = true
-        error = nil
-        
-        var allHubs: [Hub] = []
-        
-        print("🏠 HomeViewModel: Starting to load hubs...")
-        print("🏠 Accounts count: \(accountManager.plexAccounts.count)")
-        
-        // Fetch hubs from each Plex account
-        for account in accountManager.plexAccounts {
-            print("🏠 Processing account: \(account.username)")
-            for server in account.servers {
-                print("🏠 Processing server: \(server.name)")
-                for library in server.libraries where library.isEnabled {
-                    print("🏠 Processing library: \(library.title)")
-                    do {
-                        // Create API client for this library
-                        let connection = PlexServerConnection(
-                            url: server.url,
-                            token: account.authToken,
-                            identifier: server.id,
-                            name: server.name
-                        )
-                        
-                        let librarySelection = PlexLibrarySelection(
-                            key: library.key,
-                            title: library.title
-                        )
-                        
-                        let apiClient = PlexAPIClient(
-                            connection: connection,
-                            librarySelection: librarySelection
-                        )
-                        
-                        // Fetch hubs
-                        print("🏠 Fetching hubs for \(library.title)...")
-                        let plexHubs = try await apiClient.getHubs(sectionKey: library.key)
-                        print("🏠 Received \(plexHubs.count) hubs")
-                        
-                        // Convert to domain models (limit to first 10 items per hub)
-                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
-                        
-                        for plexHub in plexHubs {
-                            // Fetch items for this hub (limited)
-                            let hubItems: [HubItem]
-                            if let metadata = plexHub.metadata {
-                                hubItems = Array(metadata.prefix(10)).map { 
-                                    HubItem(from: $0, sourceKey: sourceKey)
-                                }
-                                print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
-                            } else {
-                                hubItems = []
-                                print("🏠 Hub '\(plexHub.title)': no metadata")
-                            }
-                            
-                            let hub = Hub(
-                                id: plexHub.hubIdentifier,
-                                title: plexHub.title,
-                                type: plexHub.type,
-                                items: hubItems
-                            )
-                            
-                            allHubs.append(hub)
-                        }
-                    } catch {
-                        print("❌ Error loading hubs for \(library.title): \(error.localizedDescription)")
-                        self.error = "Failed to load hubs: \(error.localizedDescription)"
-                        // Continue with other libraries
-                    }
-                }
-            }
+    /// Load hubs only if enough time has passed since last load (debouncing)
+    private func loadHubsIfNeeded() async {
+        // Check if we should debounce
+        if let lastLoad = lastLoadTime,
+           Date().timeIntervalSince(lastLoad) < debounceInterval {
+            print("🏠 HomeViewModel: Skipping load due to debounce (last load: \(Date().timeIntervalSince(lastLoad))s ago)")
+            return
         }
         
-        print("🏠 Total hubs loaded: \(allHubs.count)")
-        hubs = allHubs
-        isLoading = false
+        await loadHubs()
+    }
+    
+    /// Load hubs from all configured accounts
+    public func loadHubs() async {
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
+        // Record load time for debouncing
+        lastLoadTime = Date()
+        
+        // Create a new load task that runs off the main actor
+        loadTask = Task { @MainActor in
+            isLoading = true
+            error = nil
+            
+            print("🏠 HomeViewModel: Starting to load hubs...")
+            print("🏠 Accounts count: \(accountManager.plexAccounts.count)")
+            
+            // Perform the actual loading in a detached task to avoid blocking UI
+            let result = await Task.detached(priority: .userInitiated) { [accountManager] () -> Result<[Hub], Error> in
+                var allHubs: [Hub] = []
+                
+                // Fetch hubs from each Plex account
+                for account in await accountManager.plexAccounts {
+                    print("🏠 Processing account: \(account.username)")
+                    for server in account.servers {
+                        print("🏠 Processing server: \(server.name)")
+                        for library in server.libraries where library.isEnabled {
+                            print("🏠 Processing library: \(library.title)")
+                            do {
+                                // Create API client for this library
+                                let connection = PlexServerConnection(
+                                    url: server.url,
+                                    token: account.authToken,
+                                    identifier: server.id,
+                                    name: server.name
+                                )
+                                
+                                let librarySelection = PlexLibrarySelection(
+                                    key: library.key,
+                                    title: library.title
+                                )
+                                
+                                let apiClient = PlexAPIClient(
+                                    connection: connection,
+                                    librarySelection: librarySelection
+                                )
+                                
+                                // Fetch hubs
+                                print("🏠 Fetching hubs for \(library.title)...")
+                                let plexHubs = try await apiClient.getHubs(sectionKey: library.key)
+                                print("🏠 Received \(plexHubs.count) hubs")
+                                
+                                // Convert to domain models (limit to first 10 items per hub)
+                                let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                                
+                                for plexHub in plexHubs {
+                                    // Fetch items for this hub (limited)
+                                    let hubItems: [HubItem]
+                                    if let metadata = plexHub.metadata {
+                                        hubItems = Array(metadata.prefix(10)).map { 
+                                            HubItem(from: $0, sourceKey: sourceKey)
+                                        }
+                                        print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
+                                    } else {
+                                        hubItems = []
+                                        print("🏠 Hub '\(plexHub.title)': no metadata")
+                                    }
+                                    
+                                    let hub = Hub(
+                                        id: plexHub.hubIdentifier,
+                                        title: plexHub.title,
+                                        type: plexHub.type,
+                                        items: hubItems
+                                    )
+                                    
+                                    allHubs.append(hub)
+                                }
+                            } catch {
+                                print("❌ Error loading hubs for \(library.title): \(error.localizedDescription)")
+                                // Continue with other libraries even if one fails
+                            }
+                        }
+                    }
+                }
+                
+                print("🏠 Total hubs loaded: \(allHubs.count)")
+                return .success(allHubs)
+            }.value
+            
+            // Update UI on main actor with results
+            switch result {
+            case .success(let loadedHubs):
+                hubs = loadedHubs
+            case .failure(let loadError):
+                error = "Failed to load hubs: \(loadError.localizedDescription)"
+            }
+            
+            isLoading = false
+        }
+        
+        await loadTask?.value
     }
     
     /// Refresh hubs

@@ -610,6 +610,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.offline
         }
         
+        // Ensure the server connection is ready before attempting to get stream URL
+        do {
+            try await syncCoordinator.ensureServerConnection(for: track)
+        } catch {
+            print("❌ Failed to ensure server connection: \(error)")
+            throw PlaybackError.serverUnavailable
+        }
+        
         // Attempt to get stream URL
         do {
             let url = try await syncCoordinator.getStreamURL(for: track)

@@ -10,10 +10,12 @@ public final class ServerHealthChecker: ObservableObject {
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
     private var checkTasks: [String: Task<Void, Never>] = [:]
+    private var ongoingServerChecks: [String: Task<ServerConnectionState, Never>] = [:]
 
     public init(accountManager: AccountManager) {
         self.accountManager = accountManager
-        self.failoverManager = ConnectionFailoverManager()
+        // Use 3 second timeout for faster checks
+        self.failoverManager = ConnectionFailoverManager(timeout: 3.0)
     }
 
     // MARK: - Public Methods
@@ -22,48 +24,54 @@ public final class ServerHealthChecker: ObservableObject {
     public func checkAllServers() async {
         print("🏥 ServerHealthChecker: Checking all servers...")
 
-        // Cancel any ongoing checks
-        cancelAllChecks()
-
-        // Check each server concurrently
-        await withTaskGroup(of: (String, ServerConnectionState).self) { group in
+        // Check each server concurrently using the checkServer method
+        // This ensures we reuse any ongoing checks
+        await withTaskGroup(of: Void.self) { group in
             for account in accountManager.plexAccounts {
                 print("🏥   Account: \(account.username) (ID: \(account.id))")
                 for server in account.servers {
-                    let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
                     print("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
 
                     group.addTask {
-                        let state = await self.performServerCheck(
-                            accountId: account.id,
-                            serverId: server.id,
-                            server: server
-                        )
-                        return (serverKey, state)
+                        _ = await self.checkServer(accountId: account.id, serverId: server.id)
                     }
                 }
             }
-
-            // Collect results
-            for await (serverKey, state) in group {
-                serverStates[serverKey] = state
-            }
+            
+            await group.waitForAll()
         }
 
         print("🏥 ServerHealthChecker: Completed checking \(serverStates.count) servers")
     }
 
     /// Check a specific server and return its connection state
+    /// If a check is already in progress for this server, wait for it to complete
     public func checkServer(accountId: String, serverId: String) async -> ServerConnectionState {
+        let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
+        
+        // If there's an ongoing check for this server, wait for it
+        if let ongoingTask = ongoingServerChecks[serverKey] {
+            print("⏳ ServerHealthChecker: Waiting for ongoing check of server \(serverKey)")
+            return await ongoingTask.value
+        }
+        
         guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
             return .offline
         }
 
-        let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
-        let state = await performServerCheck(accountId: accountId, serverId: serverId, server: server)
-        serverStates[serverKey] = state
-        return state
+        // Create a task for this check
+        let checkTask = Task<ServerConnectionState, Never> {
+            let state = await performServerCheck(accountId: accountId, serverId: serverId, server: server)
+            await MainActor.run {
+                serverStates[serverKey] = state
+                ongoingServerChecks.removeValue(forKey: serverKey)
+            }
+            return state
+        }
+        
+        ongoingServerChecks[serverKey] = checkTask
+        return await checkTask.value
     }
 
     /// Cancel all ongoing health checks
@@ -108,8 +116,8 @@ public final class ServerHealthChecker: ObservableObject {
             print("  [\(index + 1)] \(url)")
         }
 
-        // Try to find a working connection
-        if let workingURL = await failoverManager.findWorkingConnection(
+        // Try to find the fastest working connection (tests in parallel for speed)
+        if let workingURL = await failoverManager.findFastestConnection(
             urls: connectionURLs,
             token: server.token
         ) {

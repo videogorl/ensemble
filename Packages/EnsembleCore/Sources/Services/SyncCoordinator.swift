@@ -225,6 +225,52 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    /// Ensure the server connection is ready for a given track
+    /// This ensures we have a working connection URL before attempting playback
+    public func ensureServerConnection(for track: Track) async throws {
+        guard let sourceKey = track.sourceCompositeKey else {
+            throw PlexAPIError.noServerSelected
+        }
+        
+        // Parse the composite key: format is "plex:accountId:serverId:libraryId"
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+        
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        
+        // Check if we already have a connected state
+        let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
+        
+        // If already connected or degraded, we're good
+        if case .connected = currentState {
+            return
+        }
+        if case .degraded = currentState {
+            return
+        }
+        
+        // Need to check server health
+        print("🔍 Checking server connection before playback...")
+        let newState = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+        
+        // Update the API client with the working URL
+        switch newState {
+        case .connected(let url), .degraded(let url):
+            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
+                await apiClient.updateCurrentServerURL(url)
+                print("✅ Server connection ready for playback: \(url)")
+            }
+        case .offline:
+            print("❌ Server is offline, cannot play track")
+            throw PlexAPIError.noServerSelected
+        case .connecting, .unknown:
+            print("⚠️ Server state uncertain, attempting playback anyway")
+        }
+    }
+    
     /// Get the stream URL for a track, routing to the correct provider
     public func getStreamURL(for track: Track) async throws -> URL {
         print("🔍 Getting stream URL for track: \(track.title)")
@@ -370,11 +416,20 @@ public final class SyncCoordinator: ObservableObject {
         switch state {
         case .online:
             isOffline = false
-            // Check server health when coming back online
-            await serverHealthChecker.checkAllServers()
-            updateSourceConnectionStates()
-            // Update API clients with new connection URLs
-            await refreshAPIClientConnections()
+            // Check server health when coming back online (non-blocking)
+            // Run in background to avoid blocking UI
+            Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self = self else { return }
+                await self.serverHealthChecker.checkAllServers()
+                
+                // Update states on main actor after checks complete
+                await MainActor.run {
+                    self.updateSourceConnectionStates()
+                }
+                
+                // Update API clients with new connection URLs
+                await self.refreshAPIClientConnections()
+            }
 
         case .offline, .limited:
             isOffline = true
