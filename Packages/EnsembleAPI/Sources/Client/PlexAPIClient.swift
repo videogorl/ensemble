@@ -454,7 +454,10 @@ public actor PlexAPIClient {
     public func getArtworkURL(path: String?, size: Int = 300) throws -> URL? {
         guard let path = path else { return nil }
 
-        var components = URLComponents(string: serverConnection.url)!
+        guard var components = URLComponents(string: currentServerURL) else {
+            return nil
+        }
+        
         components.path = "/photo/:/transcode"
         components.queryItems = [
             URLQueryItem(name: "url", value: path),

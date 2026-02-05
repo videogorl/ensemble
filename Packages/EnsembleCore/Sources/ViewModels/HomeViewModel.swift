@@ -72,9 +72,26 @@ public final class HomeViewModel: ObservableObject {
             
             print("🏠 HomeViewModel: Starting to load hubs...")
             
-            // Capture accounts on main actor BEFORE entering detached task
-            let accounts = accountManager.plexAccounts
-            print("🏠 Accounts count: \(accounts.count)")
+            // Capture clients and library info on main actor BEFORE entering detached task
+            // This ensures we reuse the cached API clients (with their active connections)
+            // instead of creating new ones that would have to re-negotiate failover
+            var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
+            
+            for account in accountManager.plexAccounts {
+                for server in account.servers {
+                    // Reuse cached client from AccountManager
+                    guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                        continue
+                    }
+                    
+                    for library in server.libraries where library.isEnabled {
+                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                        fetchTasks.append((sourceKey, client, library.key))
+                    }
+                }
+            }
+            
+            print("🏠 Prepared \(fetchTasks.count) fetch tasks")
             
             // Perform the actual loading in a detached task to avoid blocking UI
             print("🏠 HomeViewModel: Creating detached task for hub fetching...")
@@ -82,67 +99,39 @@ public final class HomeViewModel: ObservableObject {
                 print("🏠 HomeViewModel: Detached task started (off main actor)")
                 var allHubs: [Hub] = []
                 
-                // Fetch hubs from each Plex account (using captured accounts)
-                for account in accounts {
-                    print("🏠 Processing account: \(account.username)")
-                    for server in account.servers {
-                        print("🏠 Processing server: \(server.name)")
-                        for library in server.libraries where library.isEnabled {
-                            print("🏠 Processing library: \(library.title)")
-                            do {
-                                // Create API client for this library
-                                let connection = PlexServerConnection(
-                                    url: server.url,
-                                    token: account.authToken,
-                                    identifier: server.id,
-                                    name: server.name
-                                )
-                                
-                                let librarySelection = PlexLibrarySelection(
-                                    key: library.key,
-                                    title: library.title
-                                )
-                                
-                                let apiClient = PlexAPIClient(
-                                    connection: connection,
-                                    librarySelection: librarySelection
-                                )
-                                
-                                // Fetch hubs
-                                print("🏠 Fetching hubs for \(library.title)...")
-                                let plexHubs = try await apiClient.getHubs(sectionKey: library.key)
-                                print("🏠 Received \(plexHubs.count) hubs")
-                                
-                                // Convert to domain models (limit to first 10 items per hub)
-                                let sourceKey = "\(account.id):\(server.id):\(library.key)"
-                                
-                                for plexHub in plexHubs {
-                                    // Fetch items for this hub (limited)
-                                    let hubItems: [HubItem]
-                                    if let metadata = plexHub.metadata {
-                                        hubItems = Array(metadata.prefix(10)).map { 
-                                            HubItem(from: $0, sourceKey: sourceKey)
-                                        }
-                                        print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
-                                    } else {
-                                        hubItems = []
-                                        print("🏠 Hub '\(plexHub.title)': no metadata")
-                                    }
-                                    
-                                    let hub = Hub(
-                                        id: plexHub.hubIdentifier,
-                                        title: plexHub.title,
-                                        type: plexHub.type,
-                                        items: hubItems
-                                    )
-                                    
-                                    allHubs.append(hub)
+                // Process each fetch task
+                for task in fetchTasks {
+                    print("🏠 Fetching hubs for source: \(task.sourceKey)")
+                    do {
+                        // Fetch hubs using the reused client
+                        let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+                        print("🏠 Received \(plexHubs.count) hubs")
+                        
+                        for plexHub in plexHubs {
+                            // Fetch items for this hub (limited)
+                            let hubItems: [HubItem]
+                            if let metadata = plexHub.metadata {
+                                hubItems = Array(metadata.prefix(10)).map { 
+                                    HubItem(from: $0, sourceKey: task.sourceKey)
                                 }
-                            } catch {
-                                print("❌ Error loading hubs for \(library.title): \(error.localizedDescription)")
-                                // Continue with other libraries even if one fails
+                                print("🏠 Hub '\(plexHub.title)': \(hubItems.count) items")
+                            } else {
+                                hubItems = []
+                                print("🏠 Hub '\(plexHub.title)': no metadata")
                             }
+                            
+                            let hub = Hub(
+                                id: plexHub.hubIdentifier,
+                                title: plexHub.title,
+                                type: plexHub.type,
+                                items: hubItems
+                            )
+                            
+                            allHubs.append(hub)
                         }
+                    } catch {
+                        print("❌ Error loading hubs for \(task.sourceKey): \(error.localizedDescription)")
+                        // Continue with other libraries even if one fails
                     }
                 }
                 
