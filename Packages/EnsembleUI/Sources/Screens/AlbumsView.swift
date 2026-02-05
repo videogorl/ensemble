@@ -168,7 +168,7 @@ public struct AlbumsView: View {
             ZStack(alignment: .trailing) {
                 ScrollView {
                     if isSortIndexed {
-                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(albumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
@@ -208,7 +208,6 @@ public struct AlbumsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
             .padding(.vertical, 8)
-            .background(.regularMaterial)
     }
 }
 

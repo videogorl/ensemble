@@ -142,7 +142,7 @@ public struct ArtistsView: View {
             ZStack(alignment: .trailing) {
                 ScrollView {
                     if libraryVM.artistSortOption == .name {
-                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(artistSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     ArtistGrid(
@@ -190,7 +190,6 @@ public struct ArtistsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
             .padding(.vertical, 8)
-            .background(.regularMaterial)
     }
 }
 

@@ -206,17 +206,12 @@ struct SectionHeader: View {
         HStack {
             Text(title)
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(.secondary)
 
             Spacer()
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        #if canImport(UIKit)
-        .background(Color(.systemBackground).opacity(0.95))
-        #else
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
-        #endif
     }
 }
 
