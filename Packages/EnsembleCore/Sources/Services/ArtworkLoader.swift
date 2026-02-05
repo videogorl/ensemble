@@ -39,17 +39,39 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     }
 
     private func configurePipeline() {
-        let config = ImagePipeline.Configuration.withDataCache(
+        var config = ImagePipeline.Configuration.withDataCache(
             name: "com.ensemble.artwork",
-            sizeLimit: 100 * 1024 * 1024  // 100 MB cache
+            sizeLimit: 100 * 1024 * 1024  // 100 MB disk cache
         )
+        
+        // Limit memory cache to 50 MB (default can be 150+ MB)
+        // This is the decoded image cache in RAM - critical for 2GB devices
+        let memoryCache = ImageCache()
+        memoryCache.costLimit = 50 * 1024 * 1024  // 50 MB in memory
+        memoryCache.countLimit = 100  // Max 100 images in memory
+        config.imageCache = memoryCache
+        
+        // Enable aggressive memory cache trimming on warnings
+        #if canImport(UIKit)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            ImagePipeline.shared.cache.removeAll()
+            print("⚠️ Memory warning: Cleared artwork cache")
+        }
+        #endif
+        
         ImagePipeline.shared = ImagePipeline(configuration: config)
     }
 
     public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
         guard let path = path else { return nil }
 
-        let cacheKey = "\(sourceKey ?? ""):\(path):\(size)"
+        // Cap size at 1000px to avoid excessive memory usage
+        let cappedSize = min(size, 1000)
+        let cacheKey = "\(sourceKey ?? ""):\(path):\(cappedSize)"
         
         // Note: This method returns nil immediately on first call and triggers background fetch
         // This is a legacy pattern for UI components that can't wait for async.
@@ -62,7 +84,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 return
             }
             
-            if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size) {
+            if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
                 await urlCache.set(cacheKey, url: url)
             }
         }
@@ -82,6 +104,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         fallbackRatingKey: String? = nil,
         size: Int = 300
     ) async -> URL? {
+        // Cap size at 1000px to avoid excessive memory usage
+        let cappedSize = min(size, 1000)
         // Determine which path and ratingKey to use
         let actualPath: String?
         let actualRatingKey: String?
@@ -125,7 +149,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
         
         // Fall back to network
-        let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: size)
+        let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
             if usedFallback {
                 print("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")

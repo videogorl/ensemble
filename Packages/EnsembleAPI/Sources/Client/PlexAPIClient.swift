@@ -527,28 +527,38 @@ public actor PlexAPIClient {
     
     /// Fetch loudness timeline data for waveform visualization
     /// Returns nil if the server hasn't performed sonic analysis on this track yet
-    public func getLoudnessTimeline(for ratingKey: String) async throws -> PlexLoudnessTimeline? {
-        print("🎵 Fetching loudness timeline for track: \(ratingKey)")
-        
-        // Plex provides loudness data at /library/metadata/{ratingKey}/loudness
-        // This endpoint only exists if the server has performed sonic analysis
-        let path = "/library/metadata/\(ratingKey)/loudness"
-        
+    /// - Parameters:
+    ///   - streamId: The audio stream ID (from PlexTrack.media[0].part[0].stream[0].id where streamType == 2)
+    ///   - subsample: Number of loudness samples to return (default: 128, Plex supports up to ~200)
+    public func getLoudnessTimeline(forStreamId streamId: Int, subsample: Int = 128) async throws -> PlexLoudnessTimeline? {
+        print("🎵 Fetching loudness timeline for stream ID: \(streamId)")
+
+        // Correct Plex API endpoint: /library/streams/{stream_id}/levels?subsample={count}
+        // This returns loudness level data for waveform visualization
+        let path = "/library/streams/\(streamId)/levels"
+        let query = ["subsample": String(subsample)]
+
         do {
-            let data = try await serverRequest(path: path)
-            let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
-            
-            if let count = timeline.loudness?.count {
-                print("✅ Retrieved \(count) loudness samples for track \(ratingKey)")
-            } else {
-                print("⚠️ No loudness data available for track \(ratingKey)")
+            let data = try await serverRequest(path: path, query: query)
+
+            // Debug: Print raw response to understand format
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("🔍 Raw loudness response (first 500 chars): \(String(responseString.prefix(500)))")
             }
-            
+
+            let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
+
+            if let count = timeline.loudness?.count {
+                print("✅ Retrieved \(count) loudness samples for stream \(streamId)")
+            } else {
+                print("⚠️ No loudness data available for stream \(streamId)")
+            }
+
             return timeline
         } catch {
             // If the endpoint doesn't exist (404), the server hasn't analyzed this track yet
             // This is normal and not an error condition
-            print("ℹ️ Loudness timeline not available for track \(ratingKey): \(error.localizedDescription)")
+            print("ℹ️ Loudness timeline not available for stream \(streamId): \(error.localizedDescription)")
             return nil
         }
     }

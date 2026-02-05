@@ -312,6 +312,35 @@ public struct PlexMediaPart: Codable, Sendable {
     public let file: String?
     public let size: Int?
     public let container: String?
+    public let stream: [PlexStream]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case key
+        case duration
+        case file
+        case size
+        case container
+        case stream = "Stream"
+    }
+}
+
+public struct PlexStream: Codable, Sendable {
+    public let id: Int
+    public let streamType: Int?  // 1 = video, 2 = audio, 3 = subtitle
+    public let codec: String?
+    public let loudness: Double?  // Loudness value if analyzed
+    public let lra: Double?  // Loudness range if analyzed
+    public let peak: Double?  // Peak loudness if analyzed
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case streamType
+        case codec
+        case loudness
+        case lra
+        case peak
+    }
 }
 
 // MARK: - Loudness Timeline (Waveform Data)

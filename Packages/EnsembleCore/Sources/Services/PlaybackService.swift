@@ -206,44 +206,53 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     private func generateWaveform(for ratingKey: String) {
         print("🎵 Generating waveform for track: \(ratingKey)")
-        
-        // Try to fetch real waveform data from Plex server (if sonic analysis has been performed)
+
+        // Generate fallback waveform immediately for instant feedback
+        let fallbackWaveform = self.generateFallbackWaveform(for: ratingKey)
+        Task { @MainActor in
+            self.waveformHeights = fallbackWaveform
+            print("🎵 Using fallback waveform (\(fallbackWaveform.count) samples)")
+        }
+
+        // Try to fetch real waveform data from Plex server asynchronously (if sonic analysis has been performed)
         Task { @MainActor in
             guard let track = self.currentTrack else { return }
-            
+
+            // Check if we have a stream ID
+            guard let streamId = track.streamId else {
+                print("ℹ️ No stream ID available for track \(ratingKey), cannot fetch waveform")
+                return
+            }
+
             // Parse source composite key to get API client
             if let sourceKey = track.sourceCompositeKey {
                 let components = sourceKey.split(separator: ":")
                 if components.count >= 3 {
                     let accountId = String(components[1])
                     let serverId = String(components[2])
-                    
+
                     // Get API client from account manager
                     if let apiClient = self.syncCoordinator.accountManager.makeAPIClient(
                         accountId: accountId,
                         serverId: serverId
                     ) {
                         do {
-                            // Attempt to fetch loudness timeline from Plex
-                            if let timeline = try await apiClient.getLoudnessTimeline(for: ratingKey),
+                            // Attempt to fetch loudness timeline from Plex using correct endpoint
+                            if let timeline = try await apiClient.getLoudnessTimeline(forStreamId: streamId, subsample: 128),
                                let loudness = timeline.loudness,
                                !loudness.isEmpty {
                                 // Normalize loudness values to 0.0-1.0 range for visualization
                                 let normalizedHeights = self.normalizeLoudnessData(loudness)
                                 self.waveformHeights = normalizedHeights
-                                print("✅ Using real waveform data from Plex (\(normalizedHeights.count) samples)")
+                                print("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
                                 return
                             }
                         } catch {
-                            print("ℹ️ Could not fetch Plex waveform data: \(error.localizedDescription)")
+                            print("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
                         }
                     }
                 }
             }
-            
-            // Fallback: Generate pseudo-random waveform if Plex data is unavailable
-            self.waveformHeights = self.generateFallbackWaveform(for: ratingKey)
-            print("🎵 Using fallback waveform (\(self.waveformHeights.count) samples)")
         }
     }
     

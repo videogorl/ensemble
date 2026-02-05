@@ -37,6 +37,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let fallbackThumbPath: String?  // Album artwork as fallback
     public let fallbackRatingKey: String?  // Album ratingKey
     public let streamKey: String?
+    public let streamId: Int?  // Audio stream ID for fetching loudness timeline data
     public let localFilePath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
@@ -60,6 +61,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         fallbackThumbPath: String? = nil,
         fallbackRatingKey: String? = nil,
         streamKey: String? = nil,
+        streamId: Int? = nil,
         localFilePath: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
@@ -82,6 +84,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.fallbackThumbPath = fallbackThumbPath
         self.fallbackRatingKey = fallbackRatingKey
         self.streamKey = streamKey
+        self.streamId = streamId
         self.localFilePath = localFilePath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
