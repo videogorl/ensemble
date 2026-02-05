@@ -49,20 +49,22 @@ public struct ArtworkView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                } else if state.error != nil {
+                } else if let error = state.error {
                     // Show placeholder on error
+                    let _ = print("🎨 ArtworkView[\(size.rawValue)]: Load error - \(error.localizedDescription) for URL: \(artworkURL?.absoluteString ?? "nil")")
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
                 } else {
                     // Loading or no URL yet
+                    let _ = print("🎨 ArtworkView[\(size.rawValue)]: Loading state - URL: \(artworkURL?.absoluteString ?? "nil")")
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
                 }
             }
         }
-        .processors([.resize(size: size.cgSize, contentMode: .aspectFill)])
+        .processors([.resize(size: size.cgSize, contentMode: .aspectFill, upscale: true)])
         .priority(.high)
         .frame(width: size.cgSize.width, height: size.cgSize.height)
         .clipped()
@@ -78,8 +80,11 @@ public struct ArtworkView: View {
         let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
         
         guard actualPath != nil else {
+            print("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             return
         }
+        
+        print("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(path ?? "nil") fallback:\(fallbackPath ?? "nil") ratingKey:\(ratingKey ?? "nil")")
         
         let url = await dependencies.artworkLoader.artworkURLAsync(
             for: path,
@@ -92,7 +97,10 @@ public struct ArtworkView: View {
         
         // Only update if URL actually changed
         if url != artworkURL {
+            print("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
             artworkURL = url
+        } else {
+            print("🎨 ArtworkView[\(size.rawValue)]: URL unchanged")
         }
     }
 }
@@ -101,7 +109,15 @@ public struct ArtworkView: View {
 
 public extension ArtworkView {
     init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
-        self.init(path: track.thumbPath, sourceKey: track.sourceCompositeKey, ratingKey: track.id, size: size, cornerRadius: cornerRadius)
+        self.init(
+            path: track.thumbPath,
+            sourceKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            size: size,
+            cornerRadius: cornerRadius
+        )
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat = 8) {
