@@ -46,14 +46,6 @@ public struct MiniPlayer: View {
             }
 
             if let track = viewModel.currentTrack {
-                // Progress bar
-                GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: geometry.size.width * viewModel.progress)
-                }
-                .frame(height: 2)
-
                 // Content
                 HStack(spacing: 12) {
                     // Artwork
@@ -63,13 +55,14 @@ public struct MiniPlayer: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
                             .font(.subheadline)
-                            .fontWeight(.medium)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
                             .lineLimit(1)
 
                         if let artist = track.artistName {
                             Text(artist)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.white.opacity(0.8))
                                 .lineLimit(1)
                         }
                     }
@@ -134,29 +127,37 @@ public struct MiniPlayer: View {
                                 .font(.title3)
                         }
                     }
-                    .foregroundColor(.primary)
+                    .foregroundColor(.white)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 10)
+
+                // Progress bar at the bottom
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: geometry.size.width * viewModel.progress)
+                }
+                .frame(height: 3)
             } else {
                 // Nothing Playing state
                 HStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.secondary.opacity(0.2))
+                        .fill(Color.white.opacity(0.1))
                         .frame(width: 40, height: 40)
                         .overlay(
                             Image(systemName: "music.note")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.white.opacity(0.6))
                         )
 
                     Text("Nothing Playing")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.white.opacity(0.8))
 
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 12)
             }
         }
         .background(
@@ -165,20 +166,21 @@ public struct MiniPlayer: View {
                     BlurredArtworkBackground(
                         image: artworkImage,
                         blurRadius: 40,
-                        contrast: 1.4,
-                        saturation: 1.4,
+                        contrast: 2.0,
+                        saturation: 1.9,
                         brightness: -0.1,
                         topDimming: 0.1,
-                        bottomDimming: 0.1
+                        bottomDimming: 0.1,
+                        shouldIgnoreSafeArea: false
                     )
                 }
                 
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(.regularMaterial.opacity(0.8))
+                    .fill(.ultraThinMaterial.opacity(0.5))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .offset(y: verticalOffset)

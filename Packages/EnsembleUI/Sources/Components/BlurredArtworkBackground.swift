@@ -10,6 +10,7 @@ public struct BlurredArtworkBackground: View {
     let opacity: Double
     let topDimming: Double
     let bottomDimming: Double
+    let shouldIgnoreSafeArea: Bool
     
     public init(
         image: UIImage?,
@@ -19,7 +20,8 @@ public struct BlurredArtworkBackground: View {
         brightness: Double = -0.05,
         opacity: Double = 1.0,
         topDimming: Double = 0.1,
-        bottomDimming: Double = 0.5
+        bottomDimming: Double = 0.5,
+        shouldIgnoreSafeArea: Bool = true
     ) {
         self.image = image
         self.blurRadius = blurRadius
@@ -29,9 +31,20 @@ public struct BlurredArtworkBackground: View {
         self.opacity = opacity
         self.topDimming = topDimming
         self.bottomDimming = bottomDimming
+        self.shouldIgnoreSafeArea = shouldIgnoreSafeArea
     }
     
     public var body: some View {
+        Group {
+            if shouldIgnoreSafeArea {
+                content.ignoresSafeArea()
+            } else {
+                content
+            }
+        }
+    }
+    
+    private var content: some View {
         GeometryReader { geometry in
             ZStack {
                 if let image = image {
@@ -84,6 +97,5 @@ public struct BlurredArtworkBackground: View {
             }
             .clipped()
         }
-        .ignoresSafeArea()
     }
 }
