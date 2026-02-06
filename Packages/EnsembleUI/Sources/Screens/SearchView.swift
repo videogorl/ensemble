@@ -33,6 +33,11 @@ public struct SearchView: View {
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                isSearchFieldFocused = false
+            }
+        )
         .task {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
