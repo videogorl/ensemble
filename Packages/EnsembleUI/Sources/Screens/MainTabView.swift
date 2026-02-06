@@ -116,7 +116,10 @@ public struct MainTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                         customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
-                            .background(Color(uiColor: .systemBackground))
+                            .background(.ultraThinMaterial)
+                            .overlay(alignment: .top) {
+                                Divider()
+                            }
                     }
                     .ignoresSafeArea(edges: .bottom)
                 }

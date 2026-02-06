@@ -79,7 +79,7 @@ public struct GenresView: View {
         }
         .listStyle(.plain)
         .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 130)
+            Color.clear.frame(height: 140)
         }
     }
 }

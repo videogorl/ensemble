@@ -180,7 +180,7 @@ public struct AlbumsView: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 130)
+                    Color.clear.frame(height: 140)
                 }
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {

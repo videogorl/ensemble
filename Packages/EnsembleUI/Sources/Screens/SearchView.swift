@@ -35,7 +35,7 @@ public struct SearchView: View {
             await viewModel.loadExploreContentIfNeeded()
         }
         .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 130)
+            Color.clear.frame(height: 140)
         }
 
         if #available(iOS 18.0, macOS 15.0, *) {

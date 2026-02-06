@@ -99,7 +99,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 130)
+            Color.clear.frame(height: 140)
         }
         .task {
             await viewModel.loadTracks()
