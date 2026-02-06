@@ -29,9 +29,6 @@ public struct SearchView: View {
                 searchResultsView
             }
         }
-        #if canImport(UIKit)
-        .keyboardAware()
-        #endif
         .navigationTitle("Search")
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
