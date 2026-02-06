@@ -40,7 +40,16 @@ public final class HomeViewModel: ObservableObject {
         // Load cached hubs immediately for offline-first experience
         Task { @MainActor in
             if let cached = try? await hubRepository.fetchHubs(), !cached.isEmpty {
-                self.hubs = cached
+                // Apply saved custom order to cached hubs
+                updateCurrentSource()
+                if let sourceKey = currentSourceKey {
+                    let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
+                    let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                    self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
+                    print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
+                } else {
+                    self.hubs = cached
+                }
             }
         }
         
