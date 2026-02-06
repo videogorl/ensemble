@@ -167,7 +167,6 @@ public struct MainTabView: View {
                     destinationView(for: destination)
                 }
             }
-            }
         } else {
             NavigationView {
                 // iOS 15 Fallback: Support nested navigation by passing the remaining path
@@ -186,7 +185,6 @@ public struct MainTabView: View {
                         destinationBuilder: destinationView
                     )
                 )
-            }
             }
             #if os(iOS)
             .navigationViewStyle(.stack)
