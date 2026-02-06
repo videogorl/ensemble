@@ -52,6 +52,13 @@ public struct MainTabView: View {
                         UITabBar.appearance().standardAppearance = appearance
                         UITabBar.appearance().scrollEdgeAppearance = appearance
                         #endif
+
+                        // Sync visible tabs to NavigationCoordinator for fallback logic
+                        navigationCoordinator.visibleTabs = barTabs
+                    }
+                    .onChange(of: settingsManager.enabledTabs) { _ in
+                        // Keep visibleTabs in sync when user changes tab settings
+                        navigationCoordinator.visibleTabs = barTabs
                     }
 
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)
@@ -85,11 +92,14 @@ public struct MainTabView: View {
         .onChange(of: showingNowPlaying) { isShowing in
             // Handle pending navigation when NowPlaying dismisses
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                navigationCoordinator.selectedTab = pending.tab
-                
+                // Check if the target tab is visible in the tab bar
+                // If not (it's in "More"), fall back to Home tab
+                let targetTab = barTabs.contains(pending.tab) ? pending.tab : .home
+                navigationCoordinator.selectedTab = targetTab
+
                 // Small delay for tab switch animation before pushing
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    navigationCoordinator.push(pending.destination, in: pending.tab)
+                    navigationCoordinator.push(pending.destination, in: targetTab)
                     navigationCoordinator.pendingNavigation = nil
                 }
             }

@@ -13,7 +13,10 @@ public final class NavigationCoordinator: ObservableObject {
     
     /// The currently selected tab
     @Published public var selectedTab: TabItem = .home
-    
+
+    /// Visible tabs in the tab bar (first 4). Set by MainTabView to enable fallback logic.
+    public var visibleTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
     @Published public var homePath: [Destination] = []
     @Published public var artistsPath: [Destination] = []
@@ -100,18 +103,26 @@ public final class NavigationCoordinator: ObservableObject {
             return false
         }
         
+        // Resolve to visible tab (fallback to Home if target is hidden in "More")
+        let targetTab = resolveTab(tab)
+
         // Pop to root of the target tab first for a clean state
-        popToRoot(tab: tab)
-        
+        popToRoot(tab: targetTab)
+
         // Switch tab and push
-        selectedTab = tab
-        push(destination, in: tab)
+        selectedTab = targetTab
+        push(destination, in: targetTab)
         
         return true
     }
     
     // MARK: - Helper Methods
-    
+
+    /// Returns the target tab if visible, otherwise falls back to Home
+    private func resolveTab(_ tab: TabItem) -> TabItem {
+        visibleTabs.contains(tab) ? tab : .home
+    }
+
     private func path(for tab: TabItem) -> [Destination] {
         switch tab {
         case .home: return homePath
@@ -125,18 +136,21 @@ public final class NavigationCoordinator: ObservableObject {
     
     // Legacy mapping methods (to keep old code compiling during transition)
     public func navigateToArtist(_ artist: Artist) {
-        push(.artist(id: artist.id), in: .artists)
-        selectedTab = .artists
+        let tab = resolveTab(.artists)
+        push(.artist(id: artist.id), in: tab)
+        selectedTab = tab
     }
-    
+
     public func navigateToAlbum(_ album: Album) {
-        push(.album(id: album.id), in: .albums)
-        selectedTab = .albums
+        let tab = resolveTab(.albums)
+        push(.album(id: album.id), in: tab)
+        selectedTab = tab
     }
-    
+
     public func navigateToPlaylist(_ playlist: Playlist) {
-        push(.playlist(id: playlist.id), in: .playlists)
-        selectedTab = .playlists
+        let tab = resolveTab(.playlists)
+        push(.playlist(id: playlist.id), in: tab)
+        selectedTab = tab
     }
     
     public func clearDestination() {
