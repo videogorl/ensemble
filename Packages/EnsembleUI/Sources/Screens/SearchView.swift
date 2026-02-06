@@ -27,6 +27,9 @@ public struct SearchView: View {
             }
         }
         .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
+        .onSubmit(of: .search) {
+            viewModel.commitCurrentSearch()
+        }
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
@@ -58,27 +61,60 @@ public struct SearchView: View {
                 .padding(.top, 40)
             } else {
                 VStack(alignment: .leading, spacing: 32) {
-                    // Recently Played Artists
-                    if !viewModel.recentlyPlayedArtists.isEmpty {
-                        exploreSection(
-                            title: "Recently Played Artists",
-                            items: viewModel.recentlyPlayedArtists
-                        ) { artist in
-                            if #available(iOS 16.0, macOS 13.0, *) {
-                                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
-                                    ArtistCard(artist: artist)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                NavigationLink {
-                                    ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                    // Recent Searches
+                    if !viewModel.recentSearches.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Recent Searches")
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                
+                                Spacer()
+                                
+                                Button {
+                                    viewModel.clearRecentSearches()
                                 } label: {
-                                    ArtistCard(artist: artist)
+                                    Text("Clear")
+                                        .font(.subheadline)
+                                        .foregroundColor(.accentColor)
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .padding(.horizontal)
+                            
+                            VStack(spacing: 0) {
+                                ForEach(viewModel.recentSearches, id: \.self) { search in
+                                    Button {
+                                        viewModel.searchQuery = search
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "magnifyingglass")
+                                                .foregroundColor(.secondary)
+                                            Text(search)
+                                                .foregroundColor(.primary)
+                                            Spacer()
+                                            Image(systemName: "arrow.up.left")
+                                                .foregroundColor(.secondary)
+                                                .font(.caption)
+                                        }
+                                        .padding(.vertical, 12)
+                                        .padding(.horizontal)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    
+                                    if search != viewModel.recentSearches.last {
+                                        Divider()
+                                            .padding(.leading, 44)
+                                    }
+                                }
+                            }
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(10)
+                            .padding(.horizontal)
                         }
                     }
+
+                    // Recently Played Artists
                     
                     // Recently Played Albums
                     if !viewModel.recentlyPlayedAlbums.isEmpty {
@@ -298,6 +334,9 @@ public struct SearchView: View {
                             CompactArtistRow(artist: artist)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     } else {
                         NavigationLink {
                             ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
@@ -305,6 +344,9 @@ public struct SearchView: View {
                             CompactArtistRow(artist: artist)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     }
                 }
             }
@@ -321,6 +363,9 @@ public struct SearchView: View {
                             CompactAlbumRow(album: album)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     } else {
                         NavigationLink {
                             AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
@@ -328,6 +373,9 @@ public struct SearchView: View {
                             CompactAlbumRow(album: album)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     }
                 }
             }
@@ -344,6 +392,9 @@ public struct SearchView: View {
                             CompactPlaylistRow(playlist: playlist)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     } else {
                         NavigationLink {
                             PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
@@ -351,6 +402,9 @@ public struct SearchView: View {
                             CompactPlaylistRow(playlist: playlist)
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            viewModel.commitCurrentSearch()
+                        })
                     }
                 }
             }
@@ -366,6 +420,7 @@ public struct SearchView: View {
                         track: track,
                         isPlaying: track.id == nowPlayingVM.currentTrack?.id
                     ) {
+                        viewModel.commitCurrentSearch()
                         if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
                             nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
                         }

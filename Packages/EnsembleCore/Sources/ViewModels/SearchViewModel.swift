@@ -25,6 +25,7 @@ public final class SearchViewModel: ObservableObject {
     // MARK: - Search Results
     
     @Published public var searchQuery = ""
+    @Published public private(set) var recentSearches: [String] = []
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
     @Published public private(set) var albumResults: [Album] = []
@@ -57,6 +58,8 @@ public final class SearchViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
+    private let recentSearchesKey = "ensemble_recent_searches"
+    private var commitSearchTask: Task<Void, Never>?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -68,6 +71,9 @@ public final class SearchViewModel: ObservableObject {
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
         self.accountManager = accountManager
+        
+        // Load recent searches
+        self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
 
         // Debounced search
         $searchQuery
@@ -75,6 +81,15 @@ public final class SearchViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] query in
                 self?.performSearch(query: query)
+            }
+            .store(in: &cancellables)
+        
+        // Separate debouncer for committing to recent searches (longer delay)
+        $searchQuery
+            .debounce(for: .milliseconds(1500), scheduler: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] query in
+                self?.commitSearchToHistory(query: query)
             }
             .store(in: &cancellables)
         
@@ -139,6 +154,78 @@ public final class SearchViewModel: ObservableObject {
         }
 
         isSearching = false
+    }
+
+    public func commitCurrentSearch() {
+        commitSearchToHistory(query: searchQuery)
+    }
+
+    private func commitSearchToHistory(query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        // Only save if there were actual results in the last search
+        guard !trackResults.isEmpty || !artistResults.isEmpty || !albumResults.isEmpty || !playlistResults.isEmpty else {
+            return
+        }
+        
+        addToRecentSearches(trimmed)
+    }
+    
+    private func addToRecentSearches(_ query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        var current = recentSearches
+        
+        // Combine similar searches: if existing search is a prefix or contains the new search, 
+        // or if new search is a prefix of an existing one, consolidate.
+        // User specifically asked: "if I search for tricia, and then tricia brock, just save tricia"
+        if let existingIndex = current.firstIndex(where: { existing in
+            let e = existing.lowercased()
+            let q = trimmed.lowercased()
+            return e.contains(q) || q.contains(e)
+        }) {
+            // Found a similar search.
+            // Keep the longer (more specific) one.
+            let existing = current[existingIndex]
+            if trimmed.count > existing.count {
+                // New search is longer/more specific, replace existing
+                current.remove(at: existingIndex)
+                current.insert(trimmed, at: 0)
+            } else {
+                // Existing one is longer or equal, keep it but move to top
+                let item = current.remove(at: existingIndex)
+                current.insert(item, at: 0)
+            }
+        } else {
+            // Brand new search
+            current.insert(trimmed, at: 0)
+        }
+        
+        // Keep top 3 and remove duplicates just in case
+        var unique: [String] = []
+        for item in current {
+            if !unique.contains(where: { $0.lowercased() == item.lowercased() }) {
+                unique.append(item)
+            }
+            if unique.count >= 3 { break }
+        }
+        
+        recentSearches = unique
+        
+        // Persist
+        UserDefaults.standard.set(recentSearches, forKey: recentSearchesKey)
+    }
+    
+    public func removeRecentSearch(_ query: String) {
+        recentSearches.removeAll { $0 == query }
+        UserDefaults.standard.set(recentSearches, forKey: recentSearchesKey)
+    }
+    
+    public func clearRecentSearches() {
+        recentSearches = []
+        UserDefaults.standard.removeObject(forKey: recentSearchesKey)
     }
     
     /// Intelligently orders search sections based on match count (most results first)
