@@ -1,0 +1,66 @@
+import Foundation
+
+/// Manages hub section ordering per music source (account/server/library)
+/// Persists custom order to UserDefaults and applies it to fetched hubs
+public final class HubOrderManager: Sendable {
+    private let userDefaults: UserDefaults
+    
+    public init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+    
+    /// Generate a unique key for storing order per source
+    private func orderKey(for sourceKey: String) -> String {
+        "hub_order_\(sourceKey)"
+    }
+    
+    /// Save the current hub order for a specific source
+    public func saveOrder(_ hubIds: [String], for sourceKey: String) {
+        let key = orderKey(for: sourceKey)
+        userDefaults.set(hubIds, forKey: key)
+    }
+    
+    /// Load the saved order for a specific source
+    private func loadOrder(for sourceKey: String) -> [String]? {
+        let key = orderKey(for: sourceKey)
+        return userDefaults.array(forKey: key) as? [String]
+    }
+    
+    /// Apply saved order to fetched hubs
+    /// - Returns: Hubs reordered according to saved order, with any new hubs appended at the end
+    public func applyOrder(to hubs: [Hub], for sourceKey: String) -> [Hub] {
+        guard let savedOrder = loadOrder(for: sourceKey) else {
+            // No saved order, return hubs as-is
+            return hubs
+        }
+        
+        // Create a map of hub IDs to hubs for quick lookup
+        let hubMap = Dictionary(uniqueKeysWithValues: hubs.map { ($0.id, $0) })
+        
+        var reorderedHubs: [Hub] = []
+        var processedIds = Set<String>()
+        
+        // Add hubs in the saved order (which may no longer exist)
+        for savedId in savedOrder {
+            if let hub = hubMap[savedId] {
+                reorderedHubs.append(hub)
+                processedIds.insert(savedId)
+            }
+        }
+        
+        // Append any new hubs that weren't in the saved order
+        for hub in hubs {
+            if !processedIds.contains(hub.id) {
+                reorderedHubs.append(hub)
+            }
+        }
+        
+        return reorderedHubs
+    }
+    
+    /// Reset the saved order for a specific source
+    public func resetOrder(for sourceKey: String) {
+        let key = orderKey(for: sourceKey)
+        userDefaults.removeObject(forKey: key)
+    }
+}

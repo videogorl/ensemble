@@ -23,7 +23,18 @@ public struct HomeView: View {
                 hubsScrollView
             }
         }
-        .navigationTitle("Home")
+        .navigationTitle("Feed")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Edit") {
+                    viewModel.enterEditMode()
+                    viewModel.isEditingOrder = true
+                }
+            }
+        }
+        .sheet(isPresented: $viewModel.isEditingOrder) {
+            HubOrderingSheet(viewModel: viewModel)
+        }
         .task {
             // Load hubs in a detached task to avoid blocking UI
             Task.detached(priority: .userInitiated) { [viewModel] in

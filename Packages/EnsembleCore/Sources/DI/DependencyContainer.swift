@@ -35,6 +35,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let settingsManager: SettingsManager
     public let cacheManager: CacheManager
     public let navigationCoordinator: NavigationCoordinator
+    public let hubOrderManager: HubOrderManager
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -113,6 +114,9 @@ public final class DependencyContainer: @unchecked Sendable {
         navigationCoordinator = MainActor.assumeIsolated {
             NavigationCoordinator()
         }
+        
+        // Hub order manager
+        hubOrderManager = HubOrderManager()
     }
 
     // MARK: - View Model Factories
@@ -210,7 +214,8 @@ public final class DependencyContainer: @unchecked Sendable {
         HomeViewModel(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
-            hubRepository: hubRepository
+            hubRepository: hubRepository,
+            hubOrderManager: hubOrderManager
         )
     }
 }
