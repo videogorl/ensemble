@@ -128,6 +128,12 @@ public struct MainTabView: View {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            #if os(iOS)
+            .onTapGesture {
+                // Dismiss keyboard when tapping outside text fields
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+            #endif
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
