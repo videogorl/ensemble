@@ -13,11 +13,22 @@ public final class HubOrderManager: Sendable {
     private func orderKey(for sourceKey: String) -> String {
         "hub_order_\(sourceKey)"
     }
+
+    private func defaultOrderKey(for sourceKey: String) -> String {
+        "hub_default_order_\(sourceKey)"
+    }
     
     /// Save the current hub order for a specific source
     public func saveOrder(_ hubIds: [String], for sourceKey: String) {
         let key = orderKey(for: sourceKey)
         print("[HubOrder] Save order key=\(key) count=\(hubIds.count)")
+        userDefaults.set(hubIds, forKey: key)
+    }
+
+    /// Save the default (server) order for a specific source
+    public func saveDefaultOrder(_ hubIds: [String], for sourceKey: String) {
+        let key = defaultOrderKey(for: sourceKey)
+        print("[HubOrder] Save default order key=\(key) count=\(hubIds.count)")
         userDefaults.set(hubIds, forKey: key)
     }
     
@@ -26,6 +37,13 @@ public final class HubOrderManager: Sendable {
         let key = orderKey(for: sourceKey)
         let order = userDefaults.array(forKey: key) as? [String]
         print("[HubOrder] Load order key=\(key) count=\(order?.count ?? 0)")
+        return order
+    }
+
+    private func loadDefaultOrder(for sourceKey: String) -> [String]? {
+        let key = defaultOrderKey(for: sourceKey)
+        let order = userDefaults.array(forKey: key) as? [String]
+        print("[HubOrder] Load default order key=\(key) count=\(order?.count ?? 0)")
         return order
     }
     
@@ -60,6 +78,35 @@ public final class HubOrderManager: Sendable {
             }
         }
         
+        return reorderedHubs
+    }
+
+    /// Apply the default (server) order to the current hubs
+    /// - Returns: Hubs reordered according to the stored default order
+    public func applyDefaultOrder(to hubs: [Hub], for sourceKey: String) -> [Hub] {
+        guard let defaultOrder = loadDefaultOrder(for: sourceKey) else {
+            return hubs
+        }
+
+        print("[HubOrder] Apply default order sourceKey=\(sourceKey) hubs=\(hubs.count)")
+
+        let hubMap = Dictionary(uniqueKeysWithValues: hubs.map { ($0.id, $0) })
+        var reorderedHubs: [Hub] = []
+        var processedIds = Set<String>()
+
+        for savedId in defaultOrder {
+            if let hub = hubMap[savedId] {
+                reorderedHubs.append(hub)
+                processedIds.insert(savedId)
+            }
+        }
+
+        for hub in hubs {
+            if !processedIds.contains(hub.id) {
+                reorderedHubs.append(hub)
+            }
+        }
+
         return reorderedHubs
     }
     

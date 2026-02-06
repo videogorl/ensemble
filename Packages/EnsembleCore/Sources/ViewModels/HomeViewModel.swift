@@ -198,10 +198,14 @@ public final class HomeViewModel: ObservableObject {
                 return collectedHubs
             }.value
             
-            // Apply saved order (if available) to the fetched hubs
+            // Apply saved or default order to the fetched hubs
             let orderedHubs: [Hub]
-            if applySavedOrder, let sourceKey = currentSourceKey {
-                orderedHubs = hubOrderManager.applyOrder(to: fetchedHubs, for: sourceKey)
+            if let sourceKey = currentSourceKey {
+                if applySavedOrder {
+                    orderedHubs = hubOrderManager.applyOrder(to: fetchedHubs, for: sourceKey)
+                } else {
+                    orderedHubs = hubOrderManager.applyDefaultOrder(to: fetchedHubs, for: sourceKey)
+                }
             } else {
                 orderedHubs = fetchedHubs
             }
