@@ -51,9 +51,10 @@ public struct HubOrderingSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Reset order") {
+                    Button("Reset") {
                         handleReset()
                     }
+                    .foregroundColor(.red)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -84,7 +85,6 @@ public struct HubOrderingSheet: View {
     
     private func handleReset() {
         viewModel.resetOrder()
-        viewModel.isEditingOrder = false
     }
 }
 
