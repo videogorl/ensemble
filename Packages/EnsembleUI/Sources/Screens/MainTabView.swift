@@ -77,42 +77,38 @@ public struct MainTabView: View {
                 // Connection status banner at top
                 ConnectionStatusBanner(networkState: networkMonitor.networkState)
                 
-                ZStack(alignment: .bottom) {
-                    // Main content layer (TabView)
-                    TabView(selection: $navigationCoordinator.selectedTab) {
-                        // Dynamic Tabs
-                        ForEach(barTabs) { tab in
-                            tabRootView(for: tab)
-                                .tag(tab)
-                        }
-
-                        // Always show More as the 5th tab
-                        tabRootView(for: .settings, isMoreRoot: true)
-                            .tag(TabItem.settings)
-                    }
-                    // Hide the standard tab bar since we're using a custom one for layering
-                    .onAppear {
-                        #if os(iOS)
-                        let appearance = UITabBarAppearance()
-                        appearance.configureWithTransparentBackground()
-                        UITabBar.appearance().standardAppearance = appearance
-                        UITabBar.appearance().scrollEdgeAppearance = appearance
-                        #endif
-
-                        // Sync visible tabs to NavigationCoordinator for fallback logic
-                        navigationCoordinator.visibleTabs = barTabs
-
-                        if !didSetInitialTab {
-                            navigationCoordinator.selectedTab = barTabs.first ?? .home
-                            didSetInitialTab = true
-                        }
-                    }
-                    .onChange(of: settingsManager.enabledTabs) { _ in
-                        // Keep visibleTabs in sync when user changes tab settings
-                        navigationCoordinator.visibleTabs = barTabs
+                // Main content layer (TabView)
+                TabView(selection: $navigationCoordinator.selectedTab) {
+                    // Dynamic Tabs
+                    ForEach(barTabs) { tab in
+                        tabRootView(for: tab)
+                            .tag(tab)
                     }
 
-                    // Persistent UI Layer (MiniPlayer + Custom TabBar)
+                    // Always show More as the 5th tab
+                    tabRootView(for: .settings, isMoreRoot: true)
+                        .tag(TabItem.settings)
+                }
+                // Hide the standard tab bar since we're using a custom one
+                .onAppear {
+                    #if os(iOS)
+                    UITabBar.appearance().isHidden = true
+                    #endif
+
+                    // Sync visible tabs to NavigationCoordinator for fallback logic
+                    navigationCoordinator.visibleTabs = barTabs
+
+                    if !didSetInitialTab {
+                        navigationCoordinator.selectedTab = barTabs.first ?? .home
+                        didSetInitialTab = true
+                    }
+                }
+                .onChange(of: settingsManager.enabledTabs) { _ in
+                    // Keep visibleTabs in sync when user changes tab settings
+                    navigationCoordinator.visibleTabs = barTabs
+                }
+                .overlay(alignment: .bottom) {
+                    // Persistent UI Layer (MiniPlayer + Custom TabBar)  
                     VStack(spacing: 0) {
                         MiniPlayer(viewModel: nowPlayingVM) {
                             showingNowPlaying = true
@@ -120,16 +116,15 @@ public struct MainTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                         customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
-                            .background(
-                                Rectangle()
-                                    .fill(.regularMaterial)
-                                    .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
-                            )
+                            .background(.ultraThinMaterial)
+                            .overlay(alignment: .top) {
+                                Divider()
+                            }
                     }
-                    .zIndex(2)
+                    .ignoresSafeArea(edges: .bottom)
                 }
-                .ignoresSafeArea(.container, edges: .bottom)
             }
+            .ignoresSafeArea(edges: .bottom)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
@@ -168,9 +163,6 @@ public struct MainTabView: View {
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     destinationView(for: destination)
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 110)
-                }
             }
         } else {
             NavigationView {
@@ -190,16 +182,13 @@ public struct MainTabView: View {
                         destinationBuilder: destinationView
                     )
                 )
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 110)
-                }
             }
             #if os(iOS)
             .navigationViewStyle(.stack)
             #endif
         }
     }
-    
+
     private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
         switch tab {
         case .home: return $navigationCoordinator.homePath
@@ -211,7 +200,7 @@ public struct MainTabView: View {
         default: return .constant([])
         }
     }
-    
+
     private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
         switch tab {
         case .home: return navigationCoordinator.homePath
@@ -223,6 +212,9 @@ public struct MainTabView: View {
         default: return []
         }
     }
+
+
+
     
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
@@ -252,9 +244,9 @@ public struct MainTabView: View {
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)
         }
-        .padding(.horizontal, 4)
         .frame(height: 49)
-        .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 8)
+        .padding(.horizontal, 4)
+        .padding(.bottom, safeAreaBottom)
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {

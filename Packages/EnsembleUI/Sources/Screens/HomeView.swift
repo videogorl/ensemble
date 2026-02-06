@@ -123,7 +123,7 @@ public struct HomeView: View {
             .padding(.vertical)
         }
         .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 110)
+            Color.clear.frame(height: 140)
         }
     }
 }

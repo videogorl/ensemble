@@ -182,7 +182,11 @@ public struct MiniPlayer: View {
                 }
                 
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(.ultraThinMaterial.opacity(0.5))
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    )
             }
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))

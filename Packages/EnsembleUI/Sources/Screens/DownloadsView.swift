@@ -138,6 +138,9 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 140)
+        }
     }
 }
 

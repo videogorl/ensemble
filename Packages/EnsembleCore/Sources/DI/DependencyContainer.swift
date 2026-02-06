@@ -177,7 +177,10 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makeSearchViewModel() -> SearchViewModel {
         SearchViewModel(
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            hubRepository: hubRepository,
+            accountManager: accountManager
         )
     }
 

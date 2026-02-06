@@ -23,8 +23,10 @@ public struct ArtistCard: View {
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+        .if(onTap != nil) { view in
+            view.onTapGesture {
+                onTap?()
+            }
         }
     }
 }
@@ -56,8 +58,10 @@ public struct ArtistRow: View {
                 .foregroundColor(.secondary)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+        .if(onTap != nil) { view in
+            view.onTapGesture {
+                onTap?()
+            }
         }
     }
 }

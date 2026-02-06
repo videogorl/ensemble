@@ -11,7 +11,8 @@ As you make big architectural changes, please update this document and the READM
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
 
-Whenever you're done and are prepared to wait for me to test, commit your changes so we can roll them back if your context is cut off or if something breaks.
+When you're implementing a plan, please git commit after each "step".
+Whenever you're done and are prepared to wait for me to test, git commit your changes so we can roll them back if your context is cut off or if something breaks.
 
 If a problem is mentioned, interview to help hone in on where the problem is originating from. When troubleshooting, add logs to the appropriate files so debugging can be more efficient.
 
