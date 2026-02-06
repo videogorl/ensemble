@@ -40,8 +40,8 @@ public struct MainTabView: View {
                                 .tag(tab)
                         }
 
-                        // Always show More
-                        tabRootView(for: .settings)
+                        // Always show More as the 5th tab
+                        tabRootView(for: .settings, isMoreRoot: true)
                             .tag(TabItem.settings)
                     }
                     // Hide the standard tab bar since we're using a custom one for layering
@@ -97,10 +97,10 @@ public struct MainTabView: View {
     }
     
     @ViewBuilder
-    private func tabRootView(for tab: TabItem) -> some View {
+    private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         if #available(iOS 16.0, *) {
             NavigationStack(path: pathBinding(for: tab)) {
-                viewForTab(tab)
+                viewForTab(tab, isMoreRoot: isMoreRoot)
                     .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                         destinationView(for: destination)
                     }
@@ -110,7 +110,7 @@ public struct MainTabView: View {
             }
         } else {
             NavigationView {
-                viewForTab(tab)
+                viewForTab(tab, isMoreRoot: isMoreRoot)
                     // iOS 15 Fallback: Hidden NavigationLinks
                     .background(
                         Group {
@@ -228,28 +228,38 @@ public struct MainTabView: View {
     }
     
     @ViewBuilder
-    private func viewForTab(_ tab: TabItem) -> some View {
-        switch tab {
-        case .home:
-            HomeView(nowPlayingVM: nowPlayingVM)
-        case .songs:
-            SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .artists:
-            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .albums:
-            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .genres:
-            GenresView(libraryVM: libraryVM)
-        case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM)
-        case .favorites:
-            FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .search:
-            SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-        case .downloads:
-            DownloadsView(nowPlayingVM: nowPlayingVM)
-        case .settings:
-            SettingsView()
+    private func viewForTab(_ tab: TabItem, isMoreRoot: Bool = false) -> some View {
+        if isMoreRoot {
+            MoreView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onSyncTap: {
+                    showingSyncPanel = true
+                }
+            )
+        } else {
+            switch tab {
+            case .home:
+                HomeView(nowPlayingVM: nowPlayingVM)
+            case .songs:
+                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .artists:
+                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .albums:
+                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .genres:
+                GenresView(libraryVM: libraryVM)
+            case .playlists:
+                PlaylistsView(nowPlayingVM: nowPlayingVM)
+            case .favorites:
+                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .search:
+                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+            case .downloads:
+                DownloadsView(nowPlayingVM: nowPlayingVM)
+            case .settings:
+                SettingsView()
+            }
         }
     }
 }
