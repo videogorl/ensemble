@@ -93,10 +93,7 @@ public struct MainTabView: View {
                 // Hide the standard tab bar since we're using a custom one
                 .onAppear {
                     #if os(iOS)
-                    let appearance = UITabBarAppearance()
-                    appearance.configureWithTransparentBackground()
-                    UITabBar.appearance().standardAppearance = appearance
-                    UITabBar.appearance().scrollEdgeAppearance = appearance
+                    UITabBar.appearance().isHidden = true
                     #endif
 
                     // Sync visible tabs to NavigationCoordinator for fallback logic
@@ -111,6 +108,9 @@ public struct MainTabView: View {
                         didSetInitialTab = true
                     }
                 }
+                #if os(iOS)
+                .toolbar(.hidden, for: .tabBar)
+                #endif
                 .onChange(of: settingsManager.enabledTabs) { _ in
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
