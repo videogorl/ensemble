@@ -298,6 +298,8 @@ public extension HubItem {
                 year: plex.year,
                 thumbPath: plex.thumb,
                 artPath: plex.art,
+                dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: sourceKey
             )
         } else if type == "track" {
@@ -309,6 +311,9 @@ public extension HubItem {
                 albumName: plex.parentTitle,
                 duration: plex.duration.map { TimeInterval($0) / 1000.0 } ?? 0,
                 thumbPath: plex.parentThumb ?? plex.grandparentThumb,
+                dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: sourceKey
             )
         } else if type == "artist" {
@@ -318,6 +323,8 @@ public extension HubItem {
                 name: plex.title,
                 thumbPath: plex.thumb,
                 artPath: plex.art,
+                dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: sourceKey
             )
         } else if type == "playlist" {
@@ -325,6 +332,9 @@ public extension HubItem {
                 id: plex.ratingKey,
                 key: plex.key,
                 title: plex.title,
+                dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: sourceKey
             )
         }

@@ -132,7 +132,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
             
             // Proactively test connections to avoid waiting for timeout
             print("📚 Testing server connections before loading libraries...")
-            try await client.refreshConnection()
+            await client.refreshConnection()
             
             let sections = try await client.getMusicLibrarySections()
             libraries = sections.map { Library(from: $0) }
