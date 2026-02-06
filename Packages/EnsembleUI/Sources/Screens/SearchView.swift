@@ -203,10 +203,6 @@ public struct SearchView: View {
             // Pull-to-refresh explicitly loads fresh data
             await viewModel.loadExploreContent()
         }
-        .safeAreaInset(edge: .bottom) {
-            // Account for tab bar (49) + mini player (60) + padding
-            Color.clear.frame(height: 110)
-        }
     }
     
     private func exploreSection<T: Identifiable, Content: View>(
@@ -308,9 +304,6 @@ public struct SearchView: View {
                 }
             }
             .padding(.vertical)
-        }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 110)
         }
     }
     
