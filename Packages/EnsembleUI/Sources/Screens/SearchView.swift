@@ -203,6 +203,9 @@ public struct SearchView: View {
             // Pull-to-refresh explicitly loads fresh data
             await viewModel.loadExploreContent()
         }
+        #if canImport(UIKit)
+        .keyboardAware()
+        #endif
         .safeAreaInset(edge: .bottom) {
             // Account for tab bar (49) + mini player (60) + padding
             Color.clear.frame(height: 110)
@@ -309,6 +312,9 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
+        #if canImport(UIKit)
+        .keyboardAware()
+        #endif
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 110)
         }
