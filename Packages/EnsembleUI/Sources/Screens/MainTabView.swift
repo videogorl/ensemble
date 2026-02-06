@@ -163,59 +163,69 @@ public struct MainTabView: View {
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
                     searchVM: searchVM,
-                    onSyncTap: { showingSyncPanel = true },
-                    isMoreRoot: isMoreRoot
-                )
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    destinationView(for: destination)
-                }
-            }
-        } else {
-            NavigationView {
-                // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                TabViewFactory.view(
-                    for: tab,
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    searchVM: searchVM,
-                    onSyncTap: { showingSyncPanel = true },
-                    isMoreRoot: isMoreRoot
-                )
-                .background(
-                    NestedNavigationLink(
-                        path: pathForTab(tab),
-                        tab: tab,
-                        destinationBuilder: destinationView
-                    )
-                )
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
-    }
-    
-    private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
-        switch tab {
-        case .home: return $navigationCoordinator.homePath
-        case .artists: return $navigationCoordinator.artistsPath
-        case .albums: return $navigationCoordinator.albumsPath
-        case .playlists: return $navigationCoordinator.playlistsPath
-        case .search: return $navigationCoordinator.searchPath
-        case .settings: return $navigationCoordinator.settingsPath
-        default: return .constant([])
-        }
-    }
-    
-    private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
-        switch tab {
-        case .home: return navigationCoordinator.homePath
-        case .artists: return navigationCoordinator.artistsPath
-        case .albums: return navigationCoordinator.albumsPath
-        case .playlists: return navigationCoordinator.playlistsPath
-        case .search: return navigationCoordinator.searchPath
+                            tabContainer(geometry: geometry)
         case .settings: return navigationCoordinator.settingsPath
         default: return []
+        }
+    }
+
+    @ViewBuilder
+    private func tabContainer(geometry: GeometryProxy) -> some View {
+        if #available(iOS 16.0, *) {
+            baseTabView(geometry: geometry)
+                .toolbar(.hidden, for: .tabBar)
+        } else {
+            baseTabView(geometry: geometry)
+        }
+    }
+
+    private func baseTabView(geometry: GeometryProxy) -> some View {
+        TabView(selection: $navigationCoordinator.selectedTab) {
+            // Dynamic Tabs
+            ForEach(barTabs) { tab in
+                tabRootView(for: tab)
+                    .tag(tab)
+            }
+
+            // Always show More as the 5th tab
+            tabRootView(for: .settings, isMoreRoot: true)
+                .tag(TabItem.settings)
+        }
+        // Hide the standard tab bar since we're using a custom one
+        .onAppear {
+            #if os(iOS)
+            UITabBar.appearance().isHidden = true
+            #endif
+
+            // Sync visible tabs to NavigationCoordinator for fallback logic
+            navigationCoordinator.visibleTabs = barTabs
+
+            if baseSafeAreaBottom == 0 {
+                baseSafeAreaBottom = geometry.safeAreaInsets.bottom
+            }
+
+            if !didSetInitialTab {
+                navigationCoordinator.selectedTab = barTabs.first ?? .home
+                didSetInitialTab = true
+            }
+        }
+        .onChange(of: settingsManager.enabledTabs) { _ in
+            // Keep visibleTabs in sync when user changes tab settings
+            navigationCoordinator.visibleTabs = barTabs
+        }
+        .padding(.bottom, 110)
+        .overlay(alignment: .bottom) {
+            // Persistent UI Layer (MiniPlayer + Custom TabBar)
+            VStack(spacing: 0) {
+                MiniPlayer(viewModel: nowPlayingVM) {
+                    showingNowPlaying = true
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                customTabBar(safeAreaBottom: baseSafeAreaBottom)
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
     
