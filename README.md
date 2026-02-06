@@ -14,6 +14,10 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Content Discovery:**
 - **Hub-Based Home Screen** — Personalized sections: Recently Added, Recently Played, Most Played, etc.
+  - Horizontally—scrolling hub sections with type-specific card layouts
+  - Offline-first loading with cached hub data
+  - Async DetailLoader components for smooth navigation
+  - Intelligent fallback from section hubs to global hubs
 - **Favorites** — Quick access to your highly-rated tracks (4+ stars)
 - **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
 - **Search** — Fast search across your entire library
@@ -27,8 +31,9 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Playback Experience:**
 - **Now Playing** — Full-screen player with dynamic artwork gradients, waveform visualization, and mini player overlay
-- **Playback Tracking** — Automatic timeline reporting and scrobbling to Plex for accurate play counts and listening history
-- **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data with intelligent fallback
+- **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
+- **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
+- **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
@@ -101,8 +106,8 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 |---------|---------|----------------|
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
-| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, ViewModels |
-| **EnsembleUI** | User interface | `RootView`, `HomeView`, `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
+| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, ViewModels |
+| **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
@@ -114,6 +119,7 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 - **Network resilience** — Multi-layered connectivity monitoring with automatic failover
 - **Persistent artwork caching** — Two-tier caching (filesystem + memory) with local-first loading
 - **Performance optimizations** — Debouncing, background processing, memory-efficient design
+- **iOS 15 compatibility layer** — NestedNavigationLink pattern, traditional NavigationLink fallbacks, conditional feature checks
 
 ## Development
 
@@ -178,12 +184,14 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 **Completed:**
 - Multi-library Plex support with network resilience
-- Hub-based home screen and content discovery
+- Hub-based home screen with offline-first loading and DetailLoader pattern
+- Smart navigation with tab fallback logic from Now Playing
 - Advanced filtering and customization
-- Persistent artwork caching system
+- Persistent artwork caching system with hub support
 - Network monitoring and server health checks
-- Playback tracking (timeline reporting and scrobbling)
-- Waveform visualization with Plex sonic analysis integration
+- Playback tracking (timeline reporting every 10s and scrobbling at 90%)
+- Waveform visualization with Plex sonic analysis integration and deterministic fallback
+- iOS 15+ compatibility with NestedNavigationLink pattern
 
 **Next Steps:**
 - Complete offline playback wiring
