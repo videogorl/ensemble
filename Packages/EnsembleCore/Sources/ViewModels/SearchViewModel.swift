@@ -208,11 +208,8 @@ public final class SearchViewModel: ObservableObject {
         
         // Create a new load task
         exploreTask = Task { @MainActor in
-            isLoadingExplore = true
+            isLoadingExplore = false  // Show cached data immediately, don't block on loading state
             exploreError = nil
-            
-            // Return immediately to unblock the UI
-            // All loading happens in background tasks
         }
         
         // Load cached hubs in background (don't block MainActor)
@@ -341,7 +338,6 @@ public final class SearchViewModel: ObservableObject {
                 self.recentlyPlayedArtists = Array(recentArtists.prefix(6))
                 self.recentlyAddedAlbums = Array(addedAlbums.prefix(6))
                 self.recommendedItems = Array(recommendedHubItems.prefix(6))
-                self.isLoadingExplore = false
             }
         }
         
