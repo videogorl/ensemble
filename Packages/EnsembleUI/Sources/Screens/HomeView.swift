@@ -187,11 +187,12 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                size: .medium,
-                cornerRadius: isArtist ? 80 : 8
+                size: .small,
+                cornerRadius: isArtist ? 70 : 8
             )
-            .frame(width: 160, height: 160)
-            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            .frame(width: 140, height: 140)
+            .clipped()
+            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
             
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
@@ -216,7 +217,7 @@ struct HubItemCard: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(width: 160, alignment: isArtist ? .center : .leading)
+            .frame(width: 140, alignment: isArtist ? .center : .leading)
         }
     }
     
