@@ -45,8 +45,10 @@ public struct GenreCard: View {
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+        .if(onTap != nil) { view in
+            view.onTapGesture {
+                onTap?()
+            }
         }
     }
     

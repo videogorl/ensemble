@@ -25,6 +25,16 @@ extension View {
     func keyboardAware() -> some View {
         modifier(KeyboardAwareModifier())
     }
+    
+    /// Conditionally apply a modifier based on a condition
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, @ViewBuilder transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
 }
 
 struct KeyboardAwareModifier: ViewModifier {

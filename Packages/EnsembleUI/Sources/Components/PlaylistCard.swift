@@ -28,8 +28,10 @@ public struct PlaylistCard: View {
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+        .if(onTap != nil) { view in
+            view.onTapGesture {
+                onTap?()
+            }
         }
     }
 }
