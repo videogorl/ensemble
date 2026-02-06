@@ -134,7 +134,7 @@ public struct SearchView: View {
                 if !viewModel.artistResults.isEmpty {
                     searchSection(title: "Artists") {
                         ForEach(viewModel.artistResults) { artist in
-                            if #available(iOS 16.0, *) {
+                            if #available(iOS 16.0, macOS 13.0, *) {
                                 NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
                                     ArtistRow(artist: artist)
                                 }
@@ -159,7 +159,7 @@ public struct SearchView: View {
                 if !viewModel.albumResults.isEmpty {
                     searchSection(title: "Albums") {
                         ForEach(viewModel.albumResults) { album in
-                            if #available(iOS 16.0, *) {
+                            if #available(iOS 16.0, macOS 13.0, *) {
                                 NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
                                     albumRow(album)
                                 }

@@ -1,44 +1,57 @@
 import EnsembleCore
 import SwiftUI
 
-public struct ArtistDetailLoader: View {
+struct ArtistDetailLoader: View {
     let artistId: String
-    @Environment(\.dependencies) private var deps
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var artist: Artist?
     @State private var isLoading = true
+    @State private var error: Error?
     
-    public init(artistId: String, nowPlayingVM: NowPlayingViewModel) {
-        self.artistId = artistId
-        self.nowPlayingVM = nowPlayingVM
-    }
-
-    public var body: some View {
+    @Environment(\.dependencies) private var deps
+    
+    var body: some View {
         Group {
             if let artist = artist {
-                ArtistDetailView(
-                    artist: artist,
-                    nowPlayingVM: nowPlayingVM
-                )
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack {
+                    ProgressView()
+                    Text("Loading artist...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top)
+                }
+            } else if let error = error {
+                VStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.red)
+                    Text("Failed to load artist")
+                        .font(.headline)
+                    Text(error.localizedDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             } else {
                 Text("Artist not found")
                     .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
-            do {
-                if let cdArtist = try await deps.libraryRepository.fetchArtist(ratingKey: artistId) {
-                    artist = Artist(from: cdArtist)
-                }
-                isLoading = false
-            } catch {
-                print("❌ ArtistDetailLoader: Failed to fetch artist: \(error)")
-                isLoading = false
+            await loadArtist()
+        }
+    }
+    
+    private func loadArtist() async {
+        do {
+            if let cdArtist = try await deps.libraryRepository.fetchArtist(ratingKey: artistId) {
+                self.artist = Artist(from: cdArtist)
             }
+            self.isLoading = false
+        } catch {
+            self.error = error
+            self.isLoading = false
         }
     }
 }

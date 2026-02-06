@@ -14,7 +14,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// The currently selected tab
     @Published public var selectedTab: TabItem = .home
 
-    /// Visible tabs in the tab bar (first 4). Set by MainTabView to enable fallback logic.
+    /// Visible tabs in the tab bar (synced from MainTabView to enable fallback logic)
     public var visibleTabs: [TabItem] = [.home, .artists, .playlists, .search]
 
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
@@ -36,9 +36,6 @@ public final class NavigationCoordinator: ObservableObject {
     }
     
     @Published public var pendingNavigation: PendingNavigation?
-    
-    // Legacy support (maintained during transition, to be removed)
-    @Published public var pendingDestination: Destination?
     
     public init() {}
     
@@ -72,11 +69,18 @@ public final class NavigationCoordinator: ObservableObject {
     }
     
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)
-    public func navigateFromNowPlaying(to destination: Destination, in tab: TabItem) {
-        pendingNavigation = PendingNavigation(tab: tab, destination: destination)
+    /// Uses current tab (or first visible if currently in Search)
+    public func navigateFromNowPlaying(to destination: Destination) {
+        let targetTab: TabItem
+        if selectedTab == .search {
+            targetTab = visibleTabs.first ?? .home
+        } else {
+            targetTab = selectedTab
+        }
+        pendingNavigation = PendingNavigation(tab: targetTab, destination: destination)
     }
     
-    /// Handle deep links by popping to root and pushing the new destination
+    /// Handle deep links by popping to root of the first visible tab and pushing the new destination
     public func handleDeepLink(_ url: URL) -> Bool {
         guard url.scheme == "ensemble" else { return false }
         
@@ -87,24 +91,19 @@ public final class NavigationCoordinator: ObservableObject {
         let id = components[1]
         
         let destination: Destination
-        let tab: TabItem
-        
         switch type {
         case "artist":
             destination = .artist(id: id)
-            tab = .artists
         case "album":
             destination = .album(id: id)
-            tab = .albums
         case "playlist":
             destination = .playlist(id: id)
-            tab = .playlists
         default:
             return false
         }
         
-        // Resolve to visible tab (fallback to Home if target is hidden in "More")
-        let targetTab = resolveTab(tab)
+        // Deep links always go to the first visible tab
+        let targetTab = visibleTabs.first ?? .home
 
         // Pop to root of the target tab first for a clean state
         popToRoot(tab: targetTab)
@@ -118,11 +117,6 @@ public final class NavigationCoordinator: ObservableObject {
     
     // MARK: - Helper Methods
 
-    /// Returns the target tab if visible, otherwise falls back to Home
-    private func resolveTab(_ tab: TabItem) -> TabItem {
-        visibleTabs.contains(tab) ? tab : .home
-    }
-
     private func path(for tab: TabItem) -> [Destination] {
         switch tab {
         case .home: return homePath
@@ -132,28 +126,5 @@ public final class NavigationCoordinator: ObservableObject {
         case .search: return searchPath
         default: return []
         }
-    }
-    
-    // Legacy mapping methods (to keep old code compiling during transition)
-    public func navigateToArtist(_ artist: Artist) {
-        let tab = resolveTab(.artists)
-        push(.artist(id: artist.id), in: tab)
-        selectedTab = tab
-    }
-
-    public func navigateToAlbum(_ album: Album) {
-        let tab = resolveTab(.albums)
-        push(.album(id: album.id), in: tab)
-        selectedTab = tab
-    }
-
-    public func navigateToPlaylist(_ playlist: Playlist) {
-        let tab = resolveTab(.playlists)
-        push(.playlist(id: playlist.id), in: tab)
-        selectedTab = tab
-    }
-    
-    public func clearDestination() {
-        pendingDestination = nil
     }
 }

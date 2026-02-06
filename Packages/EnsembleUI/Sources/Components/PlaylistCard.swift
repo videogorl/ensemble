@@ -48,7 +48,7 @@ public struct PlaylistRow: View {
     }
 
     public var body: some View {
-        if #available(iOS 16.0, *) {
+        if #available(iOS 16.0, macOS 13.0, *) {
             NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
                 playlistRowContent
             }

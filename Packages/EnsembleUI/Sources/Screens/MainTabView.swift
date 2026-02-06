@@ -92,23 +92,19 @@ public struct MainTabView: View {
         .onChange(of: showingNowPlaying) { isShowing in
             // Handle pending navigation when NowPlaying dismisses
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                // Check if the target tab is visible in the tab bar
-                // If not (it's in "More"), fall back to Home tab
-                let targetTab = barTabs.contains(pending.tab) ? pending.tab : .home
-                navigationCoordinator.selectedTab = targetTab
-
-                // Small delay for tab switch animation before pushing
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    navigationCoordinator.push(pending.destination, in: targetTab)
-                    navigationCoordinator.pendingNavigation = nil
-                }
+                // The coordinator already determined the correct tab (current or fallback)
+                navigationCoordinator.selectedTab = pending.tab
+                
+                // Push onto the target tab stack
+                navigationCoordinator.push(pending.destination, in: pending.tab)
+                navigationCoordinator.pendingNavigation = nil
             }
         }
     }
     
     @ViewBuilder
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        if #available(iOS 16.0, *) {
+        if #available(iOS 16.0, macOS 13.0, *) {
             NavigationStack(path: pathBinding(for: tab)) {
                 viewForTab(tab, isMoreRoot: isMoreRoot)
                     .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
@@ -121,7 +117,7 @@ public struct MainTabView: View {
         } else {
             NavigationView {
                 viewForTab(tab, isMoreRoot: isMoreRoot)
-                    // iOS 15 Fallback: Hidden NavigationLinks
+                    // iOS 15 Fallback: Hidden NavigationLink driven by coordinator path
                     .background(
                         Group {
                             if let firstDest = pathForTab(tab).first {
@@ -141,7 +137,9 @@ public struct MainTabView: View {
                         Color.clear.frame(height: 110)
                     }
             }
+            #if os(iOS)
             .navigationViewStyle(.stack)
+            #endif
         }
     }
     

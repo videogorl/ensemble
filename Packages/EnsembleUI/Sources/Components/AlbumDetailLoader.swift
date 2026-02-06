@@ -1,44 +1,57 @@
 import EnsembleCore
 import SwiftUI
 
-public struct AlbumDetailLoader: View {
+struct AlbumDetailLoader: View {
     let albumId: String
-    @Environment(\.dependencies) private var deps
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var album: Album?
     @State private var isLoading = true
+    @State private var error: Error?
     
-    public init(albumId: String, nowPlayingVM: NowPlayingViewModel) {
-        self.albumId = albumId
-        self.nowPlayingVM = nowPlayingVM
-    }
-
-    public var body: some View {
+    @Environment(\.dependencies) private var deps
+    
+    var body: some View {
         Group {
             if let album = album {
-                AlbumDetailView(
-                    album: album,
-                    nowPlayingVM: nowPlayingVM
-                )
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
             } else if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack {
+                    ProgressView()
+                    Text("Loading album...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top)
+                }
+            } else if let error = error {
+                VStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.red)
+                    Text("Failed to load album")
+                        .font(.headline)
+                    Text(error.localizedDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             } else {
                 Text("Album not found")
                     .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
-            do {
-                if let cdAlbum = try await deps.libraryRepository.fetchAlbum(ratingKey: albumId) {
-                    album = Album(from: cdAlbum)
-                }
-                isLoading = false
-            } catch {
-                print("❌ AlbumDetailLoader: Failed to fetch album: \(error)")
-                isLoading = false
+            await loadAlbum()
+        }
+    }
+    
+    private func loadAlbum() async {
+        do {
+            if let cdAlbum = try await deps.libraryRepository.fetchAlbum(ratingKey: albumId) {
+                self.album = Album(from: cdAlbum)
             }
+            self.isLoading = false
+        } catch {
+            self.error = error
+            self.isLoading = false
         }
     }
 }

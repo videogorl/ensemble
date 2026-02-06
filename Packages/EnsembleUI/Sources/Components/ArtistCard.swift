@@ -87,7 +87,7 @@ public struct ArtistGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(artists) { artist in
-                if #available(iOS 16.0, *) {
+                if #available(iOS 16.0, macOS 13.0, *) {
                     NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
                         artistCardContent(artist)
                     }

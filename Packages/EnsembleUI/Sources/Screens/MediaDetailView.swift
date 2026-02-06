@@ -180,14 +180,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
                 if let subtitle = headerData.subtitle {
                     if let artistId = headerData.artistRatingKey {
-                        Button {
-                            deps.navigationCoordinator.push(.artist(id: artistId), in: deps.navigationCoordinator.selectedTab)
-                        } label: {
-                            Text(subtitle)
-                                .font(.title3)
-                                .foregroundColor(.accentColor)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
+                        Group {
+                            if #available(iOS 16.0, macOS 13.0, *) {
+                                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
+                                    Text(subtitle)
+                                        .font(.title3)
+                                        .foregroundColor(.accentColor)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                }
+                            } else {
+                                NavigationLink {
+                                    ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
+                                } label: {
+                                    Text(subtitle)
+                                        .font(.title3)
+                                        .foregroundColor(.accentColor)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                }
+                            }
                         }
                     } else {
                         Text(subtitle)

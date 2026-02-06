@@ -561,7 +561,7 @@ public struct NowPlayingView: View {
     // Helper: Navigate to artist
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId), in: .artists)
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
             dismiss()
         }
     }
@@ -569,7 +569,7 @@ public struct NowPlayingView: View {
     // Helper: Navigate to album
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId), in: .albums)
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
             dismiss()
         }
     }

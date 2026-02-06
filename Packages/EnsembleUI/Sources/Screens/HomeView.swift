@@ -159,76 +159,99 @@ struct HubItemCard: View {
     }
     
     var body: some View {
-        Button(action: handleTap) {
-            VStack(alignment: isArtist ? .center : .leading, spacing: 8) {
-                // Artwork with circular corners for artists, rounded for others
-                ArtworkView(
-                    path: item.thumbPath,
-                    sourceKey: item.sourceCompositeKey,
-                    ratingKey: item.id,
-                    size: .medium,
-                    cornerRadius: isArtist ? 80 : 8
-                )
-                .frame(width: 160, height: 160)
-                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
-                
-                // Text content
-                VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(2)
-                        .foregroundColor(.primary)
-                        .multilineTextAlignment(isArtist ? .center : .leading)
-                    
-                    if let subtitle = item.subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .multilineTextAlignment(isArtist ? .center : .leading)
-                    }
-                    
-                    if item.type == "album", let year = item.year {
-                        Text(String(year))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+        Group {
+            if item.type == "track" {
+                Button(action: handleTrackTap) {
+                    cardContent
                 }
-                .frame(width: 160, alignment: isArtist ? .center : .leading)
+            } else if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: destination) {
+                    cardContent
+                }
+            } else {
+                // iOS 15 fallback
+                NavigationLink {
+                    destinationView
+                } label: {
+                    cardContent
+                }
             }
         }
         .buttonStyle(.plain)
     }
     
-    private func handleTap() {
-        print("🎯 HubItemCard tapped: '\(item.title)' (type: \(item.type))")
-        
+    private var cardContent: some View {
+        VStack(alignment: isArtist ? .center : .leading, spacing: 8) {
+            // Artwork with circular corners for artists, rounded for others
+            ArtworkView(
+                path: item.thumbPath,
+                sourceKey: item.sourceCompositeKey,
+                ratingKey: item.id,
+                size: .medium,
+                cornerRadius: isArtist ? 80 : 8
+            )
+            .frame(width: 160, height: 160)
+            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            
+            // Text content
+            VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(isArtist ? .center : .leading)
+                
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .multilineTextAlignment(isArtist ? .center : .leading)
+                }
+                
+                if item.type == "album", let year = item.year {
+                    Text(String(year))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 160, alignment: isArtist ? .center : .leading)
+        }
+    }
+    
+    private var destination: NavigationCoordinator.Destination? {
+        switch item.type {
+        case "album": return .album(id: item.id)
+        case "artist": return .artist(id: item.id)
+        case "playlist": return .playlist(id: item.id)
+        default: return nil
+        }
+    }
+    
+    @ViewBuilder
+    private var destinationView: some View {
         switch item.type {
         case "album":
-            deps.navigationCoordinator.push(.album(id: item.id), in: deps.navigationCoordinator.selectedTab)
-            
+            AlbumDetailLoader(albumId: item.id, nowPlayingVM: nowPlayingVM)
         case "artist":
-            deps.navigationCoordinator.push(.artist(id: item.id), in: deps.navigationCoordinator.selectedTab)
-            
-        case "track":
-            let track = item.track ?? Track(
-                id: item.id,
-                key: item.id,
-                title: item.title,
-                artistName: item.subtitle,
-                thumbPath: item.thumbPath,
-                sourceCompositeKey: item.sourceCompositeKey
-            )
-            print("🎯 Calling play for track: \(track.title)")
-            nowPlayingVM.play(tracks: [track])
-            
+            ArtistDetailLoader(artistId: item.id, nowPlayingVM: nowPlayingVM)
         case "playlist":
-            deps.navigationCoordinator.push(.playlist(id: item.id), in: deps.navigationCoordinator.selectedTab)
-            
+            PlaylistDetailLoader(playlistId: item.id, nowPlayingVM: nowPlayingVM)
         default:
-            print("🎯 Unknown item type: \(item.type)")
-            break
+            EmptyView()
         }
+    }
+    
+    private func handleTrackTap() {
+        let track = item.track ?? Track(
+            id: item.id,
+            key: item.id,
+            title: item.title,
+            artistName: item.subtitle,
+            thumbPath: item.thumbPath,
+            sourceCompositeKey: item.sourceCompositeKey
+        )
+        nowPlayingVM.play(tracks: [track])
     }
 }
