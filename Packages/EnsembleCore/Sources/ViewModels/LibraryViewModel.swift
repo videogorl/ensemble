@@ -14,10 +14,18 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var hasAnySources = false
     
     // Sort preferences
-    @Published public var trackSortOption: TrackSortOption = .title
-    @Published public var artistSortOption: ArtistSortOption = .name
-    @Published public var albumSortOption: AlbumSortOption = .title
-    @Published public var genreSortOption: GenreSortOption = .title
+    @Published public var trackSortOption: TrackSortOption = .title {
+        didSet { tracksFilterOptions.sortBy = trackSortOption.rawValue }
+    }
+    @Published public var artistSortOption: ArtistSortOption = .name {
+        didSet { artistsFilterOptions.sortBy = artistSortOption.rawValue }
+    }
+    @Published public var albumSortOption: AlbumSortOption = .title {
+        didSet { albumsFilterOptions.sortBy = albumSortOption.rawValue }
+    }
+    @Published public var genreSortOption: GenreSortOption = .title {
+        didSet { genresFilterOptions.sortBy = genreSortOption.rawValue }
+    }
 
     // Filter options
     @Published public var tracksFilterOptions: FilterOptions
@@ -40,10 +48,21 @@ public final class LibraryViewModel: ObservableObject {
         self.accountManager = accountManager
 
         // Load saved filter options
-        self.tracksFilterOptions = FilterPersistence.load(for: "Songs")
-        self.artistsFilterOptions = FilterPersistence.load(for: "Artists")
-        self.albumsFilterOptions = FilterPersistence.load(for: "Albums")
-        self.genresFilterOptions = FilterPersistence.load(for: "Genres")
+        let savedTracks = FilterPersistence.load(for: "Songs")
+        let savedArtists = FilterPersistence.load(for: "Artists")
+        let savedAlbums = FilterPersistence.load(for: "Albums")
+        let savedGenres = FilterPersistence.load(for: "Genres")
+        
+        self.tracksFilterOptions = savedTracks
+        self.artistsFilterOptions = savedArtists
+        self.albumsFilterOptions = savedAlbums
+        self.genresFilterOptions = savedGenres
+        
+        // Load sort options from filters
+        if let saved = TrackSortOption(rawValue: savedTracks.sortBy) { self.trackSortOption = saved }
+        if let saved = ArtistSortOption(rawValue: savedArtists.sortBy) { self.artistSortOption = saved }
+        if let saved = AlbumSortOption(rawValue: savedAlbums.sortBy) { self.albumSortOption = saved }
+        if let saved = GenreSortOption(rawValue: savedGenres.sortBy) { self.genreSortOption = saved }
 
         // Observe sync state
         syncCoordinator.$isSyncing

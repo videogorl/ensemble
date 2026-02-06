@@ -7,7 +7,11 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public private(set) var playlists: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
-    @Published public var playlistSortOption: PlaylistSortOption = .title
+    @Published public var playlistSortOption: PlaylistSortOption = .title {
+        didSet {
+            filterOptions.sortBy = playlistSortOption.rawValue
+        }
+    }
     @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
@@ -17,7 +21,13 @@ public final class PlaylistViewModel: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol
     ) {
         self.playlistRepository = playlistRepository
-        self.filterOptions = FilterPersistence.load(for: "Playlists")
+        let savedFilters = FilterPersistence.load(for: "Playlists")
+        self.filterOptions = savedFilters
+        
+        // Load sort option from filters
+        if let savedSort = PlaylistSortOption(rawValue: savedFilters.sortBy) {
+            self.playlistSortOption = savedSort
+        }
         
         // Save filter options when they change
         setupFilterPersistence()
