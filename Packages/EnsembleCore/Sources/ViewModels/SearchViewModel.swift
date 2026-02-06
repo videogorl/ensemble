@@ -1,15 +1,47 @@
 import Combine
+import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+/// Search section types for intelligent ordering
+public enum SearchSection: String, CaseIterable {
+    case artists
+    case albums
+    case playlists
+    case songs
+    
+    public var displayTitle: String {
+        switch self {
+        case .artists: return "Artists"
+        case .albums: return "Albums"
+        case .playlists: return "Playlists"
+        case .songs: return "Songs"
+        }
+    }
+}
+
 @MainActor
 public final class SearchViewModel: ObservableObject {
+    // MARK: - Search Results
+    
     @Published public var searchQuery = ""
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
     @Published public private(set) var albumResults: [Album] = []
+    @Published public private(set) var playlistResults: [Playlist] = []
+    @Published public private(set) var orderedSections: [SearchSection] = []
     @Published public private(set) var isSearching = false
-    @Published public private(set) var error: String?
+    @Published public private(set) var searchError: String?
+    
+    // MARK: - Explore Content
+    
+    @Published public private(set) var recentlyPlayedAlbums: [Album] = []
+    @Published public private(set) var recentlyPlayedArtists: [Artist] = []
+    @Published public private(set) var recentlyAddedAlbums: [Album] = []
+    @Published public private(set) var recommendedItems: [HubItem] = []
+    @Published public private(set) var allGenres: [Genre] = []
+    @Published public private(set) var isLoadingExplore = false
+    @Published public private(set) var exploreError: String?
     
     // Legacy support
     public var results: [Track] { trackResults }
@@ -17,13 +49,22 @@ public final class SearchViewModel: ObservableObject {
     public let focusRequested = PassthroughSubject<Void, Never>()
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
+    private let accountManager: AccountManager
     private var searchTask: Task<Void, Never>?
+    private var exploreTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
+    private var lastExploreLoadTime: Date?
+    private let exploreDebounceInterval: TimeInterval = 2.0
 
     public init(
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
+        accountManager: AccountManager
     ) {
         self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
+        self.accountManager = accountManager
 
         // Debounced search
         $searchQuery
@@ -33,8 +74,21 @@ public final class SearchViewModel: ObservableObject {
                 self?.performSearch(query: query)
             }
             .store(in: &cancellables)
+        
+        // Reload explore content when accounts change
+        accountManager.$plexAccounts
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadExploreContent()
+                }
+            }
+            .store(in: &cancellables)
     }
 
+    // MARK: - Search
+    
     private func performSearch(query: String) {
         searchTask?.cancel()
 
@@ -44,6 +98,8 @@ public final class SearchViewModel: ObservableObject {
             trackResults = []
             artistResults = []
             albumResults = []
+            playlistResults = []
+            orderedSections = []
             return
         }
 
@@ -54,25 +110,52 @@ public final class SearchViewModel: ObservableObject {
 
     public func search(query: String) async {
         isSearching = true
-        error = nil
+        searchError = nil
 
         do {
             async let localTracks = libraryRepository.searchTracks(query: query)
             async let localArtists = libraryRepository.searchArtists(query: query)
             async let localAlbums = libraryRepository.searchAlbums(query: query)
+            async let localPlaylists = playlistRepository.searchPlaylists(query: query)
             
-            let (tracks, artists, albums) = try await (localTracks, localArtists, localAlbums)
+            let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
             
             trackResults = tracks.map { Track(from: $0) }
             artistResults = artists.map { Artist(from: $0) }
             albumResults = albums.map { Album(from: $0) }
+            playlistResults = playlists.map { Playlist(from: $0) }
+            
+            // Determine intelligent section ordering based on match count
+            determineSearchSectionOrder()
         } catch {
             if !Task.isCancelled {
-                self.error = error.localizedDescription
+                self.searchError = error.localizedDescription
             }
         }
 
         isSearching = false
+    }
+    
+    /// Intelligently orders search sections based on match count (most results first)
+    private func determineSearchSectionOrder() {
+        var sectionCounts: [(section: SearchSection, count: Int)] = [
+            (.artists, artistResults.count),
+            (.albums, albumResults.count),
+            (.playlists, playlistResults.count),
+            (.songs, trackResults.count)
+        ]
+        
+        // Sort by count descending, then by default order
+        sectionCounts.sort { lhs, rhs in
+            if lhs.count == rhs.count {
+                // Default order: Artists, Albums, Playlists, Songs
+                return SearchSection.allCases.firstIndex(of: lhs.section)! < SearchSection.allCases.firstIndex(of: rhs.section)!
+            }
+            return lhs.count > rhs.count
+        }
+        
+        // Only include sections with results
+        orderedSections = sectionCounts.filter { $0.count > 0 }.map { $0.section }
     }
 
     public func clearSearch() {
@@ -80,9 +163,157 @@ public final class SearchViewModel: ObservableObject {
         trackResults = []
         artistResults = []
         albumResults = []
+        playlistResults = []
+        orderedSections = []
     }
     
     public func requestFocus() {
         focusRequested.send()
+    }
+    
+    // MARK: - Explore Content
+    
+    /// Load explore content with debouncing to prevent rapid reloads
+    public func loadExploreContent() async {
+        // Check if we should debounce
+        if let lastLoad = lastExploreLoadTime,
+           Date().timeIntervalSince(lastLoad) < exploreDebounceInterval {
+            return
+        }
+        
+        // Cancel any existing load task
+        exploreTask?.cancel()
+        
+        // Record load time for debouncing
+        lastExploreLoadTime = Date()
+        
+        // Create a new load task
+        exploreTask = Task { @MainActor in
+            isLoadingExplore = true
+            exploreError = nil
+            
+            // Capture API clients on main actor before entering detached task
+            var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
+            
+            for account in accountManager.plexAccounts {
+                for server in account.servers {
+                    guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                        continue
+                    }
+                    
+                    let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                    
+                    for library in enabledLibraries {
+                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                        fetchTasks.append((sourceKey, client, library.key))
+                    }
+                }
+            }
+            
+            // Perform loading in detached task to avoid blocking UI
+            let (albums, artists, added, recommended) = await Task.detached(priority: .userInitiated) {
+                var recentAlbums: [Album] = []
+                var recentArtists: [Artist] = []
+                var addedAlbums: [Album] = []
+                var recommendedHubItems: [HubItem] = []
+                
+                // Fetch hubs from each source
+                for task in fetchTasks {
+                    do {
+                        let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+                        
+                        for plexHub in plexHubs {
+                            let title = plexHub.title.lowercased()
+                            
+                            // Extract metadata from hub
+                            var metadata: [PlexHubMetadata] = []
+                            if let existing = plexHub.metadata, !existing.isEmpty {
+                                metadata = existing
+                            } else if let key = plexHub.key ?? plexHub.hubKey {
+                                if let items = try? await task.client.getHubItems(hubKey: key) {
+                                    metadata = items
+                                }
+                            }
+                            
+                            // Filter to music-only content
+                            let filteredMetadata = metadata.filter { item in
+                                let type = item.type?.lowercased() ?? ""
+                                return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                            }
+                            
+                            // Categorize hubs
+                            if title.contains("recently played") || title.contains("recent plays") {
+                                // Extract albums and artists from Recently Played
+                                for item in filteredMetadata.prefix(12) {
+                                    let type = item.type?.lowercased() ?? ""
+                                    if type == "album", let ratingKey = item.ratingKey {
+                                        recentAlbums.append(Album(
+                                            id: ratingKey,
+                                            title: item.title ?? "Unknown Album",
+                                            artistName: item.parentTitle,
+                                            year: item.year,
+                                            artPath: item.thumb,
+                                            trackCount: 0,
+                                            duration: 0,
+                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
+                                        ))
+                                    } else if type == "artist", let ratingKey = item.ratingKey {
+                                        recentArtists.append(Artist(
+                                            id: ratingKey,
+                                            name: item.title ?? "Unknown Artist",
+                                            artPath: item.thumb,
+                                            albumCount: 0,
+                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
+                                        ))
+                                    }
+                                }
+                            } else if title.contains("recently added") || title.contains("recent additions") {
+                                // Recently Added albums
+                                for item in filteredMetadata.prefix(12) {
+                                    let type = item.type?.lowercased() ?? ""
+                                    if type == "album", let ratingKey = item.ratingKey {
+                                        addedAlbums.append(Album(
+                                            id: ratingKey,
+                                            title: item.title ?? "Unknown Album",
+                                            artistName: item.parentTitle,
+                                            year: item.year,
+                                            artPath: item.thumb,
+                                            trackCount: 0,
+                                            duration: 0,
+                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
+                                        ))
+                                    }
+                                }
+                            } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
+                                // Recommended content
+                                for item in filteredMetadata.prefix(12) {
+                                    recommendedHubItems.append(HubItem(from: item, sourceKey: task.sourceKey))
+                                }
+                            }
+                        }
+                    } catch {
+                        // Silently continue on error
+                    }
+                }
+                
+                return (recentAlbums, recentArtists, addedAlbums, recommendedHubItems)
+            }.value
+            
+            // Update UI on main actor
+            self.recentlyPlayedAlbums = Array(albums.prefix(6))
+            self.recentlyPlayedArtists = Array(artists.prefix(6))
+            self.recentlyAddedAlbums = Array(added.prefix(6))
+            self.recommendedItems = Array(recommended.prefix(6))
+            
+            // Fetch all genres from library
+            do {
+                let genreCDs = try await libraryRepository.fetchGenres()
+                self.allGenres = genreCDs.map { Genre(from: $0) }
+            } catch {
+                // Silently continue if genre fetch fails
+            }
+            
+            isLoadingExplore = false
+        }
     }
 }
