@@ -286,13 +286,20 @@ public final class HomeViewModel: ObservableObject {
     
     /// Reset the hub order to Plex's default for the current source
     public func resetOrder() {
+        updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
         hubOrderManager.resetOrder(for: sourceKey)
+
+        // Clear debounce and reload hubs to show the reset order
+        lastLoadTime = nil
         
         // Reload hubs to show the reset order
         Task {
             await loadHubs()
+            if isEditingOrder {
+                editableHubs = hubs
+            }
         }
     }
 }

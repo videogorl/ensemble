@@ -46,24 +46,13 @@ public struct HubOrderingSheet: View {
                 }
                 .listStyle(.inset)
                 
-                // Reset button
-                Button(action: handleReset) {
-                    Text("Reset order")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(.systemRed))
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-                .padding()
             }
             .navigationTitle("Edit Sections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        viewModel.isEditingOrder = false
+                    Button("Reset order") {
+                        handleReset()
                     }
                 }
                 
@@ -81,6 +70,9 @@ public struct HubOrderingSheet: View {
         }
         .onChange(of: reorderedHubs) { newValue in
             viewModel.editableHubs = newValue
+        }
+        .onChange(of: viewModel.editableHubs) { newValue in
+            reorderedHubs = newValue
         }
     }
     
