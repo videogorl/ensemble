@@ -108,13 +108,13 @@ public struct MainTabView: View {
                         didSetInitialTab = true
                     }
                 }
-                .onChange(of: settingsManager.enabledTabs) { _ in
+                .onChangeOf(settingsManager.enabledTabs) { _ in
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
-                }
-                .padding(.bottom, 113)
+                }\n                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: 113)\n                }
                 .overlay(alignment: .bottom) {
-                    // Persistent UI Layer (MiniPlayer + Custom TabBar)
+                    // Persistent UI Layer (MiniPlayer + Custom TabBar)  
                     VStack(spacing: 0) {
                         MiniPlayer(viewModel: nowPlayingVM) {
                             showingNowPlaying = true
@@ -123,8 +123,8 @@ public struct MainTabView: View {
 
                         customTabBar(safeAreaBottom: baseSafeAreaBottom)
                     }
-                    .ignoresSafeArea(.container, edges: .bottom)
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .background(Color(uiColor: .systemBackground))
+                    .ignoresSafeArea(edges: .bottom)
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -216,60 +216,7 @@ public struct MainTabView: View {
         }
     }
 
-    @ViewBuilder
-    private func tabContainer(geometry: GeometryProxy) -> some View {
-        baseTabView(geometry: geometry)
-    }
 
-    private func baseTabView(geometry: GeometryProxy) -> some View {
-        TabView(selection: $navigationCoordinator.selectedTab) {
-            // Dynamic Tabs
-            ForEach(barTabs) { tab in
-                tabRootView(for: tab)
-                    .tag(tab)
-            }
-
-            // Always show More as the 5th tab
-            tabRootView(for: .settings, isMoreRoot: true)
-                .tag(TabItem.settings)
-        }
-        // Hide the standard tab bar since we're using a custom one
-        .onAppear {
-            #if os(iOS)
-            UITabBar.appearance().isHidden = true
-            #endif
-
-            // Sync visible tabs to NavigationCoordinator for fallback logic
-            navigationCoordinator.visibleTabs = barTabs
-
-            if baseSafeAreaBottom == 0 {
-                baseSafeAreaBottom = geometry.safeAreaInsets.bottom
-            }
-
-            if !didSetInitialTab {
-                navigationCoordinator.selectedTab = barTabs.first ?? .home
-                didSetInitialTab = true
-            }
-        }
-        .onChange(of: settingsManager.enabledTabs) { _ in
-            // Keep visibleTabs in sync when user changes tab settings
-            navigationCoordinator.visibleTabs = barTabs
-        }
-        .padding(.bottom, 113)
-        .overlay(alignment: .bottom) {
-            // Persistent UI Layer (MiniPlayer + Custom TabBar)
-            VStack(spacing: 0) {
-                MiniPlayer(viewModel: nowPlayingVM) {
-                    showingNowPlaying = true
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                customTabBar(safeAreaBottom: baseSafeAreaBottom)
-            }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-        }
-    }
 
     
     @ViewBuilder
@@ -303,10 +250,6 @@ public struct MainTabView: View {
         .frame(height: 49)
         .padding(.horizontal, 4)
         .padding(.bottom, safeAreaBottom)
-        .background(
-            Color(uiColor: .systemBackground)
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
