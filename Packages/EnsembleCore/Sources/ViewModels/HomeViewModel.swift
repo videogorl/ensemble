@@ -70,7 +70,7 @@ public final class HomeViewModel: ObservableObject {
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
-    public func loadHubs() async {
+    public func loadHubs(applySavedOrder: Bool = true) async {
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -85,6 +85,7 @@ public final class HomeViewModel: ObservableObject {
         
         // Identify the primary source key and name for ordering
         updateCurrentSource()
+        print("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
         
         // Create a new load task
         loadTask = Task { @MainActor in
@@ -199,7 +200,7 @@ public final class HomeViewModel: ObservableObject {
             
             // Apply saved order (if available) to the fetched hubs
             let orderedHubs: [Hub]
-            if let sourceKey = currentSourceKey {
+            if applySavedOrder, let sourceKey = currentSourceKey {
                 orderedHubs = hubOrderManager.applyOrder(to: fetchedHubs, for: sourceKey)
             } else {
                 orderedHubs = fetchedHubs
@@ -256,6 +257,7 @@ public final class HomeViewModel: ObservableObject {
     
     /// Enter edit mode - prepare the hub list for reordering
     public func enterEditMode() {
+        updateCurrentSource()
         editableHubs = hubs
     }
     
@@ -278,6 +280,7 @@ public final class HomeViewModel: ObservableObject {
     
     /// Save the hub order for the current source
     private func saveHubOrder(_ orderedHubs: [Hub]) async {
+        updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
         let hubIds = orderedHubs.map { $0.id }
@@ -289,6 +292,7 @@ public final class HomeViewModel: ObservableObject {
         updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
+        print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Clear debounce and reload hubs to show the reset order
@@ -296,7 +300,7 @@ public final class HomeViewModel: ObservableObject {
         
         // Reload hubs to show the reset order
         Task {
-            await loadHubs()
+            await loadHubs(applySavedOrder: false)
             if isEditingOrder {
                 editableHubs = hubs
             }

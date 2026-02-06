@@ -17,13 +17,16 @@ public final class HubOrderManager: Sendable {
     /// Save the current hub order for a specific source
     public func saveOrder(_ hubIds: [String], for sourceKey: String) {
         let key = orderKey(for: sourceKey)
+        print("[HubOrder] Save order key=\(key) count=\(hubIds.count)")
         userDefaults.set(hubIds, forKey: key)
     }
     
     /// Load the saved order for a specific source
     private func loadOrder(for sourceKey: String) -> [String]? {
         let key = orderKey(for: sourceKey)
-        return userDefaults.array(forKey: key) as? [String]
+        let order = userDefaults.array(forKey: key) as? [String]
+        print("[HubOrder] Load order key=\(key) count=\(order?.count ?? 0)")
+        return order
     }
     
     /// Apply saved order to fetched hubs
@@ -33,6 +36,8 @@ public final class HubOrderManager: Sendable {
             // No saved order, return hubs as-is
             return hubs
         }
+
+        print("[HubOrder] Apply order sourceKey=\(sourceKey) hubs=\(hubs.count)")
         
         // Create a map of hub IDs to hubs for quick lookup
         let hubMap = Dictionary(uniqueKeysWithValues: hubs.map { ($0.id, $0) })
@@ -61,6 +66,7 @@ public final class HubOrderManager: Sendable {
     /// Reset the saved order for a specific source
     public func resetOrder(for sourceKey: String) {
         let key = orderKey(for: sourceKey)
+        print("[HubOrder] Reset order key=\(key)")
         userDefaults.removeObject(forKey: key)
     }
 }
