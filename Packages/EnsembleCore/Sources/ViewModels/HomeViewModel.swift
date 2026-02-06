@@ -230,18 +230,28 @@ public final class HomeViewModel: ObservableObject {
     
     // MARK: - Edit Mode
     
-    /// Determine the primary source key (first enabled library) and its display name
+    /// Determine the primary source key (first enabled server) and its display name
     private func updateCurrentSource() {
+        let servers = accountManager.plexAccounts.flatMap { $0.servers }
+        let hasMultipleServers = servers.count > 1
+
         for account in accountManager.plexAccounts {
             for server in account.servers {
                 let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                if let library = enabledLibraries.first {
-                    currentSourceKey = "\(account.id):\(server.id):\(library.key)"
-                    currentSourceName = "Editing Music (on \(library.title))"
+                if !enabledLibraries.isEmpty {
+                    currentSourceKey = "\(account.id):\(server.id)"
+                    if hasMultipleServers {
+                        currentSourceName = "Editing Music (on \(server.name))"
+                    } else {
+                        currentSourceName = "Editing Music"
+                    }
                     return
                 }
             }
         }
+
+        currentSourceKey = nil
+        currentSourceName = "Editing Music"
     }
     
     /// Enter edit mode - prepare the hub list for reordering

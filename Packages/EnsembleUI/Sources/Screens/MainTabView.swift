@@ -241,7 +241,7 @@ public struct MainTabView: View {
     private func customTabBar(safeAreaBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(barTabs) { tab in
-                tabItem(title: tab.rawValue, icon: tab.systemImage, tag: tab)
+                tabItem(title: tab.displayTitle, icon: tab.systemImage, tag: tab)
             }
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)

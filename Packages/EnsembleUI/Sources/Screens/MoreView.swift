@@ -43,7 +43,7 @@ public struct MoreView: View {
                         HStack {
                             Image(systemName: "line.3.horizontal")
                                 .foregroundColor(.secondary)
-                            Label(tab.rawValue, systemImage: tab.systemImage)
+                            Label(tab.displayTitle, systemImage: tab.systemImage)
                             Spacer()
                             Button {
                                 toggleTab(tab)
@@ -66,7 +66,7 @@ public struct MoreView: View {
                             toggleTab(tab)
                         } label: {
                             HStack {
-                                Label(tab.rawValue, systemImage: tab.systemImage)
+                                Label(tab.displayTitle, systemImage: tab.systemImage)
                                 Spacer()
                                 Image(systemName: "plus.circle.fill")
                                     .foregroundColor(.green)
@@ -81,7 +81,7 @@ public struct MoreView: View {
                     ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
                         if #available(iOS 16.0, macOS 13.0, *) {
                             NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                                Label(tab.rawValue, systemImage: tab.systemImage)
+                                Label(tab.displayTitle, systemImage: tab.systemImage)
                             }
                         } else {
                             // iOS 15 Fallback: Use manual push to coordinator to sync with NavigationView
@@ -89,7 +89,7 @@ public struct MoreView: View {
                                 deps.navigationCoordinator.push(.view(tab), in: .settings)
                             } label: {
                                 HStack {
-                                    Label(tab.rawValue, systemImage: tab.systemImage)
+                                    Label(tab.displayTitle, systemImage: tab.systemImage)
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
@@ -105,7 +105,7 @@ public struct MoreView: View {
                     ForEach(moreTabs.filter { !isLibraryTab($0) }) { tab in
                         if #available(iOS 16.0, macOS 13.0, *) {
                             NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                                Label(tab.rawValue, systemImage: tab.systemImage)
+                                Label(tab.displayTitle, systemImage: tab.systemImage)
                             }
                         } else {
                             // iOS 15 Fallback
@@ -113,7 +113,7 @@ public struct MoreView: View {
                                 deps.navigationCoordinator.push(.view(tab), in: .settings)
                             } label: {
                                 HStack {
-                                    Label(tab.rawValue, systemImage: tab.systemImage)
+                                    Label(tab.displayTitle, systemImage: tab.systemImage)
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
