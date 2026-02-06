@@ -115,7 +115,8 @@ public struct MainTabView: View {
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .padding(.bottom, 110)
+                .overlay(alignment: .bottom) {
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)
                     VStack(spacing: 0) {
                         MiniPlayer(viewModel: nowPlayingVM) {
@@ -130,9 +131,9 @@ public struct MainTabView: View {
                                     .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
                             )
                     }
+                    .ignoresSafeArea(.container, edges: .bottom)
                     .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
-                .ignoresSafeArea(.container, edges: .bottom)
             }
         }
         .sheet(isPresented: $showingNowPlaying) {
