@@ -14,7 +14,7 @@ public struct SearchView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        let content = VStack(spacing: 0) {
             // Content - either explore or search results
             if viewModel.searchQuery.isEmpty {
                 exploreView
@@ -27,13 +27,18 @@ public struct SearchView: View {
             }
         }
         .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
-        .searchFocused($isSearchFieldFocused)
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
         .task {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
+        }
+
+        if #available(iOS 18.0, macOS 15.0, *) {
+            content.searchFocused($isSearchFieldFocused)
+        } else {
+            content
         }
     }
 
