@@ -58,6 +58,7 @@ public struct MainTabView: View {
 
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
+    @State private var didSetInitialTab = false
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -100,6 +101,11 @@ public struct MainTabView: View {
 
                         // Sync visible tabs to NavigationCoordinator for fallback logic
                         navigationCoordinator.visibleTabs = barTabs
+
+                        if !didSetInitialTab {
+                            navigationCoordinator.selectedTab = barTabs.first ?? .home
+                            didSetInitialTab = true
+                        }
                     }
                     .onChange(of: settingsManager.enabledTabs) { _ in
                         // Keep visibleTabs in sync when user changes tab settings
@@ -241,7 +247,7 @@ public struct MainTabView: View {
     private func customTabBar(safeAreaBottom: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(barTabs) { tab in
-                tabItem(title: tab.rawValue, icon: tab.systemImage, tag: tab)
+                tabItem(title: tab.displayTitle, icon: tab.systemImage, tag: tab)
             }
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)

@@ -9,12 +9,19 @@ public final class HomeViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
     
+    // Edit mode state
+    @Published public var isEditingOrder = false
+    @Published public var editableHubs: [Hub] = []
+    @Published public private(set) var currentSourceName: String = ""
+    
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     private let hubRepository: HubRepositoryProtocol
+    private let hubOrderManager: HubOrderManager
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
+    private var currentSourceKey: String?
     
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
@@ -22,16 +29,27 @@ public final class HomeViewModel: ObservableObject {
     public init(
         accountManager: AccountManager,
         syncCoordinator: SyncCoordinator,
-        hubRepository: HubRepositoryProtocol
+        hubRepository: HubRepositoryProtocol,
+        hubOrderManager: HubOrderManager = HubOrderManager()
     ) {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         self.hubRepository = hubRepository
+        self.hubOrderManager = hubOrderManager
         
         // Load cached hubs immediately for offline-first experience
         Task { @MainActor in
             if let cached = try? await hubRepository.fetchHubs(), !cached.isEmpty {
-                self.hubs = cached
+                // Apply saved custom order to cached hubs
+                updateCurrentSource()
+                if let sourceKey = currentSourceKey {
+                    let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
+                    let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                    self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
+                    print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
+                } else {
+                    self.hubs = cached
+                }
             }
         }
         
@@ -61,7 +79,7 @@ public final class HomeViewModel: ObservableObject {
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
-    public func loadHubs() async {
+    public func loadHubs(applySavedOrder: Bool = true) async {
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -73,6 +91,10 @@ public final class HomeViewModel: ObservableObject {
         
         // Record load time for debouncing
         lastLoadTime = Date()
+        
+        // Identify the primary source key and name for ordering
+        updateCurrentSource()
+        print("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
         
         // Create a new load task
         loadTask = Task { @MainActor in
@@ -185,9 +207,40 @@ public final class HomeViewModel: ObservableObject {
                 return collectedHubs
             }.value
             
+            print("[HubOrder] Fetched hubs count=\(fetchedHubs.count)")
+            
+            // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
+            // This ensures reset always has a baseline to return to
+            if let sourceKey = currentSourceKey {
+                let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                print("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
+                hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
+            }
+            
+            // Apply saved or default order to the fetched hubs
+            let orderedHubs: [Hub]
+            if let sourceKey = currentSourceKey {
+                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                let orderedServerHubs: [Hub]
+                
+                if applySavedOrder {
+                    orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                } else {
+                    orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
+                }
+                
+                orderedHubs = mergeOrderedServerHubs(
+                    orderedServerHubs,
+                    sourceKey: sourceKey,
+                    into: fetchedHubs
+                )
+            } else {
+                orderedHubs = fetchedHubs
+            }
+            
             // Update UI all at once to avoid flickering
-            if !fetchedHubs.isEmpty {
-                self.hubs = fetchedHubs
+            if !orderedHubs.isEmpty {
+                self.hubs = orderedHubs
             }
             
             isLoading = false
@@ -207,4 +260,113 @@ public final class HomeViewModel: ObservableObject {
         lastLoadTime = nil
         await loadHubs()
     }
+    
+    // MARK: - Edit Mode
+    
+    private func serverKey(from hubId: String) -> String? {
+        let components = hubId.split(separator: ":")
+        guard components.count >= 2 else { return nil }
+        return "\(components[0]):\(components[1])"
+    }
+    
+    private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
+        hubs.filter { serverKey(from: $0.id) == sourceKey }
+    }
+    
+    private func mergeOrderedServerHubs(_ orderedServerHubs: [Hub], sourceKey: String, into hubs: [Hub]) -> [Hub] {
+        var iterator = orderedServerHubs.makeIterator()
+        return hubs.map { hub in
+            if serverKey(from: hub.id) == sourceKey {
+                return iterator.next() ?? hub
+            }
+            return hub
+        }
+    }
+    
+    /// Determine the primary source key (first enabled server) and its display name
+    private func updateCurrentSource() {
+        let servers = accountManager.plexAccounts.flatMap { $0.servers }
+        let hasMultipleServers = servers.count > 1
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                if !enabledLibraries.isEmpty {
+                    currentSourceKey = "\(account.id):\(server.id)"
+                    if hasMultipleServers {
+                        currentSourceName = "Editing Music (on \(server.name))"
+                    } else {
+                        currentSourceName = "Editing Music"
+                    }
+                    return
+                }
+            }
+        }
+
+        currentSourceKey = nil
+        currentSourceName = "Editing Music"
+    }
+    
+    /// Enter edit mode - prepare the hub list for reordering
+    public func enterEditMode() {
+        updateCurrentSource()
+        editableHubs = hubs
+    }
+    
+    /// Exit edit mode - either save the reordered hubs or discard changes
+    public func exitEditMode(save: Bool) {
+        guard save, !editableHubs.isEmpty else {
+            editableHubs = []
+            isEditingOrder = false
+            return
+        }
+        
+        // Save the new order and apply it to the displayed hubs
+        Task {
+            await saveHubOrder(editableHubs)
+            hubs = editableHubs
+            editableHubs = []
+            isEditingOrder = false
+        }
+    }
+    
+    /// Save the hub order for the current source
+    private func saveHubOrder(_ orderedHubs: [Hub]) async {
+        updateCurrentSource()
+        guard let sourceKey = currentSourceKey else { return }
+        
+        let hubIds = hubsForServer(sourceKey: sourceKey, in: orderedHubs).map { $0.id }
+        hubOrderManager.saveOrder(hubIds, for: sourceKey)
+    }
+    
+    /// Reset the hub order to Plex's default for the current source
+    public func resetOrder() {
+        updateCurrentSource()
+        guard let sourceKey = currentSourceKey else { return }
+        
+        print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
+        hubOrderManager.resetOrder(for: sourceKey)
+
+        // Apply cached default order immediately
+        let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        print("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
+        let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
+        hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
+        if isEditingOrder {
+            editableHubs = hubs
+        }
+
+        // Clear debounce and reload hubs to show the reset order
+        lastLoadTime = nil
+        
+        // Reload hubs to get fresh data from server
+        print("[HubOrder] Triggering background refresh from server")
+        Task {
+            await loadHubs(applySavedOrder: false)
+            if isEditingOrder {
+                editableHubs = hubs
+            }
+        }
+    }
 }
+

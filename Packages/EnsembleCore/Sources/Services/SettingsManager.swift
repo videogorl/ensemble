@@ -38,6 +38,15 @@ public enum TabItem: String, CaseIterable, Identifiable, Codable {
     case settings = "Settings"
     
     public var id: String { rawValue }
+
+    public var displayTitle: String {
+        switch self {
+        case .home:
+            return "Feed"
+        default:
+            return rawValue
+        }
+    }
     
     public var systemImage: String {
         switch self {

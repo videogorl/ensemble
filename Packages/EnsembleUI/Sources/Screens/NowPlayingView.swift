@@ -95,13 +95,14 @@ public struct NowPlayingView: View {
             dismissHandle
             
             // Artwork with generous padding above and below
-            let artworkSize = min(geometry.size.width * 0.65, geometry.size.height * 0.3)
+            let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
             ArtworkView(track: track, size: .medium, cornerRadius: 12)
                 .frame(width: artworkSize, height: artworkSize)
+                .clipped()
                 .contrast(1.1)
-                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
-                .padding(.top, 60)
-                .padding(.bottom, 80)
+                .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
+                .padding(.top, 40)
+                .padding(.bottom, 60)
             
             // Playback slider
             progressView(track: track)

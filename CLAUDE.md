@@ -220,6 +220,10 @@ Tests/
 - `AccountManager` (@MainActor) — Manages multiple Plex accounts, servers, and libraries
 - `SyncCoordinator` (@MainActor) — Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
 - `NavigationCoordinator` (@MainActor) — Manages cross-view navigation state (artist/album deep links from NowPlayingView)
+  - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
+  - `visibleTabs: [TabItem]` — Synced from MainTabView to enable fallback logic
+  - `navigateFromNowPlaying()` — Falls back to first visible tab when navigating from Search
+  - `pendingNavigation` — Deferred navigation executed after sheet dismissal
 - `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion)
 - `HubRepository` — Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
@@ -248,7 +252,9 @@ Sources/
 ├── Components/
 │   ├── AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 │   ├── AlbumCard.swift               # Grid card for albums
+│   ├── AlbumDetailLoader.swift       # Async loader for album detail with loading/error states
 │   ├── ArtistCard.swift              # Grid card for artists
+│   ├── ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 │   ├── ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 │   ├── ArtworkView.swift             # Lazy-loading artwork with Nuke
 │   ├── BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
@@ -260,6 +266,7 @@ Sources/
 │   ├── MediaTrackList.swift          # Reusable track list with context menu
 │   ├── MiniPlayer.swift              # Compact persistent player overlay
 │   ├── PlaylistCard.swift            # Grid card for playlists
+│   ├── PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
 │   ├── ScrollIndex.swift             # A-Z index for fast scrolling
 │   ├── TrackRow.swift                # Single track row with artwork
 │   └── WaveformView.swift            # Audio waveform visualization
@@ -293,8 +300,14 @@ Tests/
 - `MediaDetailView` — Unified detail view using `MediaDetailViewModelProtocol` (supports Artist, Album, Playlist, Favorites)
 - `ArtworkView` — Local-first artwork loading with automatic fallback to network
 - `HomeView` — Hub-based home screen with horizontally-scrolling sections (Recently Added, Recently Played, etc.)
+  - `HubSection` (inline) — Container for individual hub sections with title and horizontal scrolling items
+  - `HubItemCard` (inline) — Cards within hubs displaying albums/artists/tracks/playlists with artwork and navigation
 - `FavoritesView` — Displays tracks rated 4+ stars
 - `FilterSheet` — Advanced filtering UI with artist/genre multi-select, year ranges, downloaded-only filter
+- `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` — Async loading wrappers with loading/error states for detail views
+  - Used by HomeView's HubItemCard for smooth navigation from hubs to detail views
+  - Fetches full entity data from CoreData before showing detail view
+  - Displays loading spinner, error messages, or "not found" states
 - `ArtworkColorExtractor` — Actor-based color extraction from artwork images; determines dominant/accent colors and background lightness for dynamic gradients
 - `ConnectionStatusBanner` — Network connectivity status banner
 - `AirPlayButton` — Native AirPlay route picker integration
@@ -331,6 +344,10 @@ Tests/
   - Delayed network monitor start (500ms) to avoid blocking app launch
   - Task.detached for non-blocking background work
   - Blurred artwork background for efficient and beautiful visuals (replaces complex color extraction)
+- **iOS 15 Support** — Compatibility layer for older iOS versions
+  - `NestedNavigationLink` in MainTabView provides recursive navigation for iOS 15 (no NavigationStack)
+  - DetailLoader pattern with traditional NavigationLink for hub navigation
+  - Conditional @available checks throughout for iOS 16+ features
 
 ### Artwork Caching System
 
@@ -409,9 +426,17 @@ The app implements an intelligent waveform visualization system that displays au
 
 4. **PlaybackService.generateWaveform()** (`EnsembleCore`) — Waveform generation logic
    - **Primary:** Attempts to fetch real loudness data from Plex server using track's `streamId`
+     - Fetches from `/library/streams/{streamId}/levels` endpoint
+     - API method: `PlexAPIClient.getLoudnessTimeline(forStreamId:subsample:)`
+     - Returns `nil` gracefully if sonic analysis not yet performed
    - **Fallback:** Generates pseudo-random waveform if Plex data unavailable or `streamId` missing
-   - Normalizes loudness values to 0.3-1.0 range with contrast enhancement (power curve)
-   - Applies floor boosting for better visual prominence and contrast
+     - Deterministic generation seeded by track's `ratingKey`
+     - ~120 samples for smooth visualization
+     - Creates realistic patterns with multiple peaks
+   - **Normalization:** `normalizeLoudnessData()` method
+     - Maps loudness values to 0.1-1.0 range for visual impact
+     - Applies 1.5 exponent power curve for contrast enhancement
+     - Formula: `pow((value - minValue) / (maxValue - minValue), 1.5) * 0.9 + 0.1`
    - Runs asynchronously to avoid blocking playback
 
 5. **WaveformView** (`EnsembleUI`) — SwiftUI visualization component
@@ -479,26 +504,66 @@ The app features a dynamic home screen powered by Plex's hub system:
 **Architecture:**
 - `Hub` domain model — Represents content sections (Recently Added, Recently Played, Most Played, etc.)
 - `HubItem` domain model — Individual items within a hub (can be tracks, albums, artists, playlists)
+  - Includes `sourceCompositeKey` for offline-first artwork loading
+  - Contains `track` reference for direct track playback
+  - Supports `thumbPath` for artwork URLs
 - `HomeViewModel` — Loads hub data from Plex API with 2s debouncing to prevent rapid reloads
 - `HomeView` — Displays horizontally-scrolling sections with navigation to detail views
+  - `HubSection` (inline struct) — Individual hub section with title and horizontal scroll
+  - `HubItemCard` (inline struct) — Cards displaying hub items with type-specific styling
+    - Circular artwork for artists (cornerRadius: 70)
+    - Rounded artwork for albums/playlists (cornerRadius: 8)
+    - Shadow effects for depth (black.opacity(0.15), radius: 6)
+    - 140x140pt artwork size for consistency
 
 **Implementation Details:**
 - Uses `Task.detached` for non-blocking hub loading
-- Supports hub-specific navigation (tapping an item navigates to appropriate detail view)
-- Fetches from Plex API's `/hubs` endpoint
+- Supports hub-specific navigation:
+  - **iOS 16+:** Uses NavigationLink(value:) with NavigationCoordinator.Destination
+  - **iOS 15:** Uses traditional NavigationLink with DetailLoader components
+  - **Tracks:** Direct play via button action (no navigation)
+- Fetches from Plex API's `/hubs` endpoints:
+  - `getHubs(sectionKey:)` — Section-specific hubs with count and includeLibrary params
+  - `getGlobalHubs()` — Global hubs across all libraries with music-type filtering
+  - `getHubItems(hubKey:)` — Items for specific hub by key
 - Automatically refreshes when accounts change
+- **Fallback logic:** If fewer than 3 section hubs found, falls back to global hubs
 
 **User Experience:**
 - Provides personalized music discovery
 - Quick access to recently added content
 - Shows listening history and favorites
 - Mimics Plex's web/mobile interface patterns
+- Pull-to-refresh support for manual updates
+- Empty state with error messages and refresh button
 
 **Hub Persistence:**
 - `HubRepository` service (implements `HubRepositoryProtocol`)
 - Manages `CDHub` and `CDHubItem` CoreData entities
-- Methods: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()`
-- Used by `HomeViewModel` for caching hub data
+  - `CDHub` — Stores hub metadata with `order` field for sorting
+  - `CDHubItem` — Stores item data including sourceCompositeKey for offline support
+  - Ordered relationships preserve hub and item order
+- Methods: 
+  - `fetchHubs()` — Retrieves cached hubs sorted by order
+  - `saveHubs()` — Persists hubs to CoreData (clears existing first)
+  - `deleteAllHubs()` — Removes all cached hub data
+- Used by `HomeViewModel` for offline-first loading
+  - Loads cached hubs immediately on init
+  - Fetches fresh data in background
+  - Updates UI when fresh data arrives
+
+**DetailLoader Pattern:**
+The app uses async DetailLoader components for smooth hub-to-detail navigation:
+- `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader`
+- Async fetches full entity data from CoreData by ratingKey
+- Shows loading spinner while fetching
+- Displays error state if fetch fails
+- Renders actual detail view (AlbumDetailView, etc.) once loaded
+- This pattern enables:
+  - Offline-first hub item display (minimal data in HubItem)
+  - Smooth transitions with loading feedback
+  - Graceful error handling
+  - Separation of hub data from full entity data
 
 ### Timeline Reporting & Scrobbling
 
@@ -647,6 +712,111 @@ Quick access to highly-rated music:
 - Filtering and sorting like other library views
 - Real-time updates when ratings change
 
+### DetailLoader Pattern
+
+Async loading wrapper components for smooth hub-to-detail navigation:
+
+**Architecture:**
+Three specialized loader components in `EnsembleUI/Sources/Components/`:
+- `AlbumDetailLoader` — Loads full album data by ratingKey
+- `ArtistDetailLoader` — Loads full artist data by ratingKey
+- `PlaylistDetailLoader` — Loads full playlist data by ratingKey
+
+**Implementation:**
+Each DetailLoader follows the same pattern:
+```swift
+struct AlbumDetailLoader: View {
+    let albumId: String  // ratingKey from HubItem
+    @State private var album: Album?
+    @State private var isLoading = true
+    @State private var error: Error?
+    
+    var body: some View {
+        if let album = album {
+            AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+        } else if isLoading {
+            ProgressView() + "Loading album..."
+        } else if let error = error {
+            ErrorView(error: error)
+        } else {
+            "Album not found"
+        }
+    }
+    
+    .task {
+        // Async fetch from CoreData via libraryRepository
+        album = try await deps.libraryRepository.fetchAlbum(ratingKey: albumId)
+    }
+}
+```
+
+**Usage:**
+- Used by `HomeView`'s `HubItemCard` for iOS 15 navigation fallback
+- Enables offline-first hub display (HubItem contains minimal data)
+- Fetches full entity data only when user navigates to detail view
+- Provides loading/error states for better UX
+
+**Benefits:**
+- **Separation of concerns:** Hub data (lightweight) vs. full entity data (complete)
+- **Performance:** Hub items load instantly with minimal data
+- **Offline support:** Hubs display even when full sync hasn't completed
+- **Error handling:** Graceful degradation if entity not found in CoreData
+- **Smooth UX:** Loading spinner during fetch, not blocking navigation
+
+### iOS 15 Compatibility
+
+The app maintains compatibility with iOS 15 while leveraging iOS 16+ features where available:
+
+**Navigation System:**
+- **iOS 16+:** Uses `NavigationStack` with `NavigationLink(value:)` and typed paths
+- **iOS 15:** Uses traditional `NavigationLink` with destination views via `NestedNavigationLink`
+
+**NestedNavigationLink Pattern:**
+Located in `MainTabView.swift`, provides recursive navigation for iOS 15:
+```swift
+struct NestedNavigationLink<Content: View>: View {
+    let path: [NavigationCoordinator.Destination]
+    let content: Content
+    
+    var body: some View {
+        if let first = path.first {
+            NavigationLink(destination: nextView(for: first)) {
+                content
+            }
+        } else {
+            content
+        }
+    }
+    
+    private func nextView(for destination: Destination) -> some View {
+        NestedNavigationLink(path: Array(path.dropFirst())) {
+            // Render destination view (AlbumDetailLoader, etc.)
+        }
+    }
+}
+```
+
+**Feature Detection:**
+Throughout the codebase, features are conditionally enabled:
+```swift
+if #available(iOS 16.0, macOS 13.0, *) {
+    NavigationStack(path: $coordinator.homePath) { ... }
+} else {
+    NavigationView {
+        NestedNavigationLink(path: coordinator.homePath) { ... }
+    }
+}
+```
+
+**iOS 15 Limitations:**
+- No NavigationStack (use NestedNavigationLink instead)
+- Some SwiftUI features unavailable (graceful fallbacks provided)
+- DetailLoader pattern used more extensively for iOS 15 navigation
+
+**Testing Target:**
+- Primary: iOS 15.0+ on devices with 2GB RAM (iPhone 6s, iPad Air 2)
+- Optimal: iOS 16.0+ for full feature set
+
 ### App Targets
 
 - **Ensemble** (`Ensemble/Ensemble/`) — iOS/iPadOS/macOS app target
@@ -711,14 +881,19 @@ Quick access to highly-rated music:
 - ✅ **Legacy CocoaPods Cleanup** — Removed unused `ios/Pods/` directory (was leftover from earlier experimentation)
 
 ### Documentation
-- ✅ **Documentation Fully Updated** — CLAUDE.md now reflects all implemented features including:
-  - Hub-based home screen
+- ✅ **Documentation Fully Updated** — CLAUDE.md and README.md now reflect all implemented features including:
+  - Hub-based home screen with HubSection/HubItemCard components
+  - DetailLoader pattern for async navigation
+  - iOS 15 compatibility layer (NestedNavigationLink)
+  - NavigationCoordinator with visibleTabs synchronization
   - Advanced filtering system
   - Network state management
   - Customizable UI settings
   - Favorites system
-  - All new UI components
-  - Complete service layer documentation
+  - Waveform generation with normalization formulas
+  - Playback tracking (timeline reporting and scrobbling)
+  - HubRepository persistence layer
+  - All UI components and services
 
 ## Development Guidelines
 
@@ -775,4 +950,29 @@ Task {
     await deps.syncCoordinator.syncAll()
 }
 ```
+
+### Working with Hubs
+```swift
+// Load hubs from Plex API
+let hubs = try await deps.syncCoordinator.fetchHubs(for: sourceKey)
+
+// Save hubs to CoreData for offline access
+try await deps.hubRepository.saveHubs(hubs)
+
+// Load cached hubs
+let cachedHubs = try await deps.hubRepository.fetchHubs()
+
+// Clear all cached hubs
+try await deps.hubRepository.deleteAllHubs()
+```
+
+### Adding Hub Support to New Content Types
+If you need to add support for a new hub item type:
+1. Update `HubItem` domain model in `DomainModels.swift` with new type
+2. Add case to `HubItemCard.destination` computed property
+3. Add case to `HubItemCard.destinationView` ViewBuilder
+4. Create DetailLoader if needed (e.g., `GenreDetailLoader`)
+5. Update `PlexModels.swift` to decode new type from API
+6. Add mapper in `ModelMappers.swift` for Hub/HubItem if needed
+
 

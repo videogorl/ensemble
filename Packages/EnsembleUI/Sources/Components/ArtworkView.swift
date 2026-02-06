@@ -66,8 +66,8 @@ public struct ArtworkView: View {
         }
         .processors([.resize(size: size.cgSize, contentMode: .aspectFill, upscale: true)])
         .priority(.high)
-        .frame(width: size.cgSize.width, height: size.cgSize.height)
-        .clipped()
+        .aspectRatio(1, contentMode: .fill)
+        .frame(maxWidth: size.cgSize.width, maxHeight: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .id(loadID)  // Force view recreation only when artwork actually changes
         .task(id: loadID) {

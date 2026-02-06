@@ -23,7 +23,18 @@ public struct HomeView: View {
                 hubsScrollView
             }
         }
-        .navigationTitle("Home")
+        .navigationTitle("Feed")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Edit") {
+                    viewModel.enterEditMode()
+                    viewModel.isEditingOrder = true
+                }
+            }
+        }
+        .sheet(isPresented: $viewModel.isEditingOrder) {
+            HubOrderingSheet(viewModel: viewModel)
+        }
         .task {
             // Load hubs in a detached task to avoid blocking UI
             Task.detached(priority: .userInitiated) { [viewModel] in
@@ -134,7 +145,7 @@ struct HubSection: View {
             
             // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(hub.items) { item in
                         HubItemCard(item: item, nowPlayingVM: nowPlayingVM)
                     }
@@ -187,11 +198,12 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                size: .medium,
-                cornerRadius: isArtist ? 80 : 8
+                size: .small,
+                cornerRadius: isArtist ? 70 : 8
             )
-            .frame(width: 160, height: 160)
-            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            .frame(width: 140, height: 140)
+            .clipped()
+            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
             
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: 2) {
@@ -216,7 +228,7 @@ struct HubItemCard: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(width: 160, alignment: isArtist ? .center : .leading)
+            .frame(width: 140, alignment: isArtist ? .center : .leading)
         }
     }
     
