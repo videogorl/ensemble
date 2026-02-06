@@ -203,13 +203,13 @@ public final class SearchViewModel: ObservableObject {
             current.insert(trimmed, at: 0)
         }
         
-        // Keep top 3 and remove duplicates just in case
+        // Keep top 5 and remove duplicates just in case
         var unique: [String] = []
         for item in current {
             if !unique.contains(where: { $0.lowercased() == item.lowercased() }) {
                 unique.append(item)
             }
-            if unique.count >= 3 { break }
+            if unique.count >= 5 { break }
         }
         
         recentSearches = unique
