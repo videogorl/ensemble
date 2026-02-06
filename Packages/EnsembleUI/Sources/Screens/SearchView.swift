@@ -15,9 +15,6 @@ public struct SearchView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Search bar
-            searchBar
-
             // Content - either explore or search results
             if viewModel.searchQuery.isEmpty {
                 exploreView
@@ -29,49 +26,15 @@ public struct SearchView: View {
                 searchResultsView
             }
         }
-        .navigationTitle("Search")
+        .searchable(text: $viewModel.searchQuery, prompt: "Songs, artists, albums, playlists")
+        .searchFocused($isSearchFieldFocused)
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                isSearchFieldFocused = false
-            }
-        )
         .task {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
         }
-    }
-
-    // MARK: - Search Bar
-
-    private var searchBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-
-            TextField("Songs, artists, albums, playlists", text: $viewModel.searchQuery)
-                .textFieldStyle(.plain)
-                #if os(iOS)
-                .autocapitalization(.none)
-                #endif
-                .disableAutocorrection(true)
-                .focused($isSearchFieldFocused)
-
-            if !viewModel.searchQuery.isEmpty {
-                Button {
-                    viewModel.clearSearch()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
-        .padding()
     }
 
     // MARK: - Explore View (Empty State)
