@@ -188,9 +188,7 @@ public struct AlbumsView: View {
                         letters: albumSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
-                            withAnimation {
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
+                            proxy.scrollTo(letter, anchor: .top)
                         }
                     )
                 }

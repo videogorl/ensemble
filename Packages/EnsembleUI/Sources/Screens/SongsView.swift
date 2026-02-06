@@ -207,9 +207,7 @@ public struct SongsView: View {
                         letters: libraryVM.trackSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
-                            withAnimation {
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
+                            proxy.scrollTo(letter, anchor: .top)
                         }
                     )
                 }
