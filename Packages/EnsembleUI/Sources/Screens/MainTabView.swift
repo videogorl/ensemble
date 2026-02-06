@@ -107,9 +107,6 @@ public struct MainTabView: View {
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: 120 + geometry.safeAreaInsets.bottom)
-                }
                 .overlay(alignment: .bottom) {
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)  
                     VStack(spacing: 0) {
@@ -119,8 +116,8 @@ public struct MainTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                         customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
+                            .background(Color(uiColor: .systemBackground))
                     }
-                    .background(Color(uiColor: .systemBackground))
                     .ignoresSafeArea(edges: .bottom)
                 }
             }

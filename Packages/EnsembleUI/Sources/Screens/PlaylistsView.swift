@@ -107,6 +107,9 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 130)
+        }
     }
 }
 

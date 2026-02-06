@@ -98,6 +98,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 130)
+        }
         .task {
             await viewModel.loadTracks()
             if let path = headerData.artworkPath {

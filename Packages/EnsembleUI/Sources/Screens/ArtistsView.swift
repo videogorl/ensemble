@@ -159,6 +159,9 @@ public struct ArtistsView: View {
                         .padding(.vertical)
                     }
                 }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 130)
+                }
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(

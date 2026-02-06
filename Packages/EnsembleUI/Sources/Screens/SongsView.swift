@@ -158,16 +158,8 @@ public struct SongsView: View {
             // Build initial index map
             trackIndexMap = Dictionary(uniqueKeysWithValues: libraryVM.filteredTracks.enumerated().map { ($1.id, $0) })
         }
-        #else
-        List {
-            ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(
-                    track: track,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                ) {
-                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-                }
-            }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 130)
         }
         #endif
     }
@@ -236,6 +228,8 @@ struct IndexedTrackList: UIViewRepresentable {
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
         tableView.backgroundColor = .systemBackground
         tableView.contentInsetAdjustmentBehavior = .automatic
+        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 130, right: 0)
+        tableView.scrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 130, right: 0)
         return tableView
     }
     

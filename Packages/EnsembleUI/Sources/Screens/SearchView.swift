@@ -34,6 +34,9 @@ public struct SearchView: View {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
         }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 130)
+        }
 
         if #available(iOS 18.0, macOS 15.0, *) {
             content.searchFocused($isSearchFieldFocused)
