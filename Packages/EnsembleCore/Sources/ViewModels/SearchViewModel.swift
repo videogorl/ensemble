@@ -50,6 +50,7 @@ public final class SearchViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let hubRepository: HubRepositoryProtocol
     private let accountManager: AccountManager
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
@@ -60,10 +61,12 @@ public final class SearchViewModel: ObservableObject {
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
+        hubRepository: HubRepositoryProtocol,
         accountManager: AccountManager
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.hubRepository = hubRepository
         self.accountManager = accountManager
 
         // Debounced search
@@ -189,7 +192,7 @@ public final class SearchViewModel: ObservableObject {
         await loadExploreContent()
     }
     
-    /// Load explore content with debouncing to prevent rapid reloads
+    /// Load explore content with offline-first approach: load cached data, then fetch fresh
     public func loadExploreContent() async {
         // Check if we should debounce
         if let lastLoad = lastExploreLoadTime,
@@ -207,6 +210,19 @@ public final class SearchViewModel: ObservableObject {
         exploreTask = Task { @MainActor in
             isLoadingExplore = true
             exploreError = nil
+            
+            // Step 1: Load cached hubs for offline-first experience
+            do {
+                let cachedHubs = try await hubRepository.fetchHubs()
+                let (albums, artists, added, recommended) = extractContentFromHubs(cachedHubs)
+                self.recentlyPlayedAlbums = Array(albums.prefix(6))
+                self.recentlyPlayedArtists = Array(artists.prefix(6))
+                self.recentlyAddedAlbums = Array(added.prefix(6))
+                self.recommendedItems = Array(recommended.prefix(6))
+            } catch {
+                // Silently continue - no cached data available
+                print("ℹ️ No cached explore content available")
+            }
             
             // Capture API clients on main actor before entering detached task
             var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
@@ -226,14 +242,17 @@ public final class SearchViewModel: ObservableObject {
                 }
             }
             
-            // Perform loading in detached task to avoid blocking UI
-            let (albums, artists, added, recommended) = await Task.detached(priority: .userInitiated) {
+            // Step 2: Fetch fresh data from server in background and update cache
+            await Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self = self else { return }
+                
+                // Fetch hubs from each source
+                var freshHubs: [Hub] = []
                 var recentAlbums: [Album] = []
                 var recentArtists: [Artist] = []
                 var addedAlbums: [Album] = []
                 var recommendedHubItems: [HubItem] = []
                 
-                // Fetch hubs from each source
                 for task in fetchTasks {
                     do {
                         let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
@@ -257,46 +276,65 @@ public final class SearchViewModel: ObservableObject {
                                 return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
                             }
                             
-                            // Categorize hubs
+                            // Convert to HubItems and create Hub for caching
+                            let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                            freshHubs.append(Hub(
+                                id: plexHub.key ?? plexHub.hubKey ?? UUID().uuidString,
+                                title: plexHub.title,
+                                type: plexHub.type ?? "mixed",
+                                items: hubItems
+                            ))
+                            
+                            // Categorize hubs for UI display
                             if title.contains("recently played") || title.contains("recent plays") {
                                 // Extract albums and artists from Recently Played
-                                for item in filteredMetadata.prefix(12) {
-                                    let hubItem = HubItem(from: item, sourceKey: task.sourceKey)
-                                    if let album = hubItem.album {
+                                for item in hubItems.prefix(12) {
+                                    if let album = item.album {
                                         recentAlbums.append(album)
                                     }
-                                    if let artist = hubItem.artist {
+                                    if let artist = item.artist {
                                         recentArtists.append(artist)
                                     }
                                 }
                             } else if title.contains("recently added") || title.contains("recent additions") {
                                 // Recently Added albums
-                                for item in filteredMetadata.prefix(12) {
-                                    let hubItem = HubItem(from: item, sourceKey: task.sourceKey)
-                                    if let album = hubItem.album {
+                                for item in hubItems.prefix(12) {
+                                    if let album = item.album {
                                         addedAlbums.append(album)
                                     }
                                 }
                             } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
                                 // Recommended content
-                                for item in filteredMetadata.prefix(12) {
-                                    recommendedHubItems.append(HubItem(from: item, sourceKey: task.sourceKey))
+                                for item in hubItems.prefix(12) {
+                                    recommendedHubItems.append(item)
                                 }
                             }
                         }
                     } catch {
-                        // Silently continue on error
+                        // Silently continue on error - will use cached data
+                        print("⚠️ Failed to fetch hubs: \(error)")
                     }
                 }
                 
-                return (recentAlbums, recentArtists, addedAlbums, recommendedHubItems)
+                // Save fresh hubs to cache for offline use
+                if !freshHubs.isEmpty {
+                    do {
+                        try await self.hubRepository.saveHubs(freshHubs)
+                        print("✅ Cached \(freshHubs.count) hubs for offline use")
+                    } catch {
+                        print("⚠️ Failed to cache hubs: \(error)")
+                    }
+                }
+                
+                // Update UI on main actor with fresh data
+                await MainActor.run {
+                    self.recentlyPlayedAlbums = Array(recentAlbums.prefix(6))
+                    self.recentlyPlayedArtists = Array(recentArtists.prefix(6))
+                    self.recentlyAddedAlbums = Array(addedAlbums.prefix(6))
+                    self.recommendedItems = Array(recommendedHubItems.prefix(6))
+                    self.isLoadingExplore = false
+                }
             }.value
-            
-            // Update UI on main actor
-            self.recentlyPlayedAlbums = Array(albums.prefix(6))
-            self.recentlyPlayedArtists = Array(artists.prefix(6))
-            self.recentlyAddedAlbums = Array(added.prefix(6))
-            self.recommendedItems = Array(recommended.prefix(6))
             
             // Fetch all genres from library
             do {
@@ -305,8 +343,41 @@ public final class SearchViewModel: ObservableObject {
             } catch {
                 // Silently continue if genre fetch fails
             }
-            
-            isLoadingExplore = false
         }
+    }
+    
+    /// Extract albums, artists, and items from Hub array
+    private func extractContentFromHubs(_ hubs: [Hub]) -> (albums: [Album], artists: [Artist], addedAlbums: [Album], recommendedItems: [HubItem]) {
+        var recentAlbums: [Album] = []
+        var recentArtists: [Artist] = []
+        var addedAlbums: [Album] = []
+        var recommendedItems: [HubItem] = []
+        
+        for hub in hubs {
+            let title = hub.title.lowercased()
+            
+            if title.contains("recently played") || title.contains("recent plays") {
+                for item in hub.items.prefix(12) {
+                    if let album = item.album {
+                        recentAlbums.append(album)
+                    }
+                    if let artist = item.artist {
+                        recentArtists.append(artist)
+                    }
+                }
+            } else if title.contains("recently added") || title.contains("recent additions") {
+                for item in hub.items.prefix(12) {
+                    if let album = item.album {
+                        addedAlbums.append(album)
+                    }
+                }
+            } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
+                for item in hub.items.prefix(12) {
+                    recommendedItems.append(item)
+                }
+            }
+        }
+        
+        return (recentAlbums, recentArtists, addedAlbums, recommendedItems)
     }
 }

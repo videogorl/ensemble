@@ -179,6 +179,7 @@ public final class DependencyContainer: @unchecked Sendable {
         SearchViewModel(
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
+            hubRepository: hubRepository,
             accountManager: accountManager
         )
     }
