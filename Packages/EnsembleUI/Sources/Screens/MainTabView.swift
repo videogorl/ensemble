@@ -163,7 +163,57 @@ public struct MainTabView: View {
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
                     searchVM: searchVM,
-                            tabContainer(geometry: geometry)
+                    onSyncTap: { showingSyncPanel = true },
+                    isMoreRoot: isMoreRoot
+                )
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    destinationView(for: destination)
+                }
+            }
+        } else {
+            NavigationView {
+                // iOS 15 Fallback: Support nested navigation by passing the remaining path
+                TabViewFactory.view(
+                    for: tab,
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    searchVM: searchVM,
+                    onSyncTap: { showingSyncPanel = true },
+                    isMoreRoot: isMoreRoot
+                )
+                .background(
+                    NestedNavigationLink(
+                        path: pathForTab(tab),
+                        tab: tab,
+                        destinationBuilder: destinationView
+                    )
+                )
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
+        switch tab {
+        case .home: return $navigationCoordinator.homePath
+        case .artists: return $navigationCoordinator.artistsPath
+        case .albums: return $navigationCoordinator.albumsPath
+        case .playlists: return $navigationCoordinator.playlistsPath
+        case .search: return $navigationCoordinator.searchPath
+        case .settings: return $navigationCoordinator.settingsPath
+        default: return .constant([])
+        }
+    }
+
+    private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
+        switch tab {
+        case .home: return navigationCoordinator.homePath
+        case .artists: return navigationCoordinator.artistsPath
+        case .albums: return navigationCoordinator.albumsPath
+        case .playlists: return navigationCoordinator.playlistsPath
+        case .search: return navigationCoordinator.searchPath
         case .settings: return navigationCoordinator.settingsPath
         default: return []
         }
