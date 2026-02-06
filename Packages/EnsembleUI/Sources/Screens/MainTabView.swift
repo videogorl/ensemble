@@ -221,12 +221,7 @@ public struct MainTabView: View {
 
     @ViewBuilder
     private func tabContainer(geometry: GeometryProxy) -> some View {
-        if #available(iOS 16.0, *) {
-            baseTabView(geometry: geometry)
-                .modifier(TabBarHiddenModifier())
-        } else {
-            baseTabView(geometry: geometry)
-        }
+        baseTabView(geometry: geometry)
     }
 
     private func baseTabView(geometry: GeometryProxy) -> some View {
@@ -279,12 +274,6 @@ public struct MainTabView: View {
         }
     }
 
-    @available(iOS 16.0, *)
-    private struct TabBarHiddenModifier: ViewModifier {
-        func body(content: Content) -> some View {
-            content.toolbar(.hidden, for: .tabBar)
-        }
-    }
     
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
