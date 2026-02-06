@@ -1,6 +1,51 @@
 import EnsembleCore
 import SwiftUI
 
+// MARK: - Tab View Factory
+
+struct TabViewFactory {
+    @ViewBuilder
+    static func view(
+        for tab: TabItem,
+        libraryVM: LibraryViewModel,
+        nowPlayingVM: NowPlayingViewModel,
+        searchVM: SearchViewModel,
+        onSyncTap: @escaping () -> Void,
+        isMoreRoot: Bool = false
+    ) -> some View {
+        if isMoreRoot {
+            MoreView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                onSyncTap: onSyncTap
+            )
+        } else {
+            switch tab {
+            case .home:
+                HomeView(nowPlayingVM: nowPlayingVM)
+            case .songs:
+                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .artists:
+                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .albums:
+                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .genres:
+                GenresView(libraryVM: libraryVM)
+            case .playlists:
+                PlaylistsView(nowPlayingVM: nowPlayingVM)
+            case .favorites:
+                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .search:
+                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+            case .downloads:
+                DownloadsView(nowPlayingVM: nowPlayingVM)
+            case .settings:
+                SettingsView()
+            }
+        }
+    }
+}
+
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
@@ -106,36 +151,42 @@ public struct MainTabView: View {
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         if #available(iOS 16.0, macOS 13.0, *) {
             NavigationStack(path: pathBinding(for: tab)) {
-                viewForTab(tab, isMoreRoot: isMoreRoot)
-                    .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                        destinationView(for: destination)
-                    }
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
+                TabViewFactory.view(
+                    for: tab,
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    searchVM: searchVM,
+                    onSyncTap: { showingSyncPanel = true },
+                    isMoreRoot: isMoreRoot
+                )
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    destinationView(for: destination)
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 110)
+                }
             }
         } else {
             NavigationView {
-                viewForTab(tab, isMoreRoot: isMoreRoot)
-                    // iOS 15 Fallback: Hidden NavigationLink driven by coordinator path
-                    .background(
-                        Group {
-                            if let firstDest = pathForTab(tab).first {
-                                NavigationLink(
-                                    destination: destinationView(for: firstDest),
-                                    isActive: Binding(
-                                        get: { !pathForTab(tab).isEmpty },
-                                        set: { if !$0 { navigationCoordinator.popToRoot(tab: tab) } }
-                                    )
-                                ) {
-                                    EmptyView()
-                                }
-                            }
-                        }
+                // iOS 15 Fallback: Support nested navigation by passing the remaining path
+                TabViewFactory.view(
+                    for: tab,
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM,
+                    searchVM: searchVM,
+                    onSyncTap: { showingSyncPanel = true },
+                    isMoreRoot: isMoreRoot
+                )
+                .background(
+                    NestedNavigationLink(
+                        path: pathForTab(tab),
+                        tab: tab,
+                        destinationBuilder: destinationView
                     )
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
+                )
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 110)
+                }
             }
             #if os(iOS)
             .navigationViewStyle(.stack)
@@ -150,6 +201,7 @@ public struct MainTabView: View {
         case .albums: return $navigationCoordinator.albumsPath
         case .playlists: return $navigationCoordinator.playlistsPath
         case .search: return $navigationCoordinator.searchPath
+        case .settings: return $navigationCoordinator.settingsPath
         default: return .constant([])
         }
     }
@@ -161,6 +213,7 @@ public struct MainTabView: View {
         case .albums: return navigationCoordinator.albumsPath
         case .playlists: return navigationCoordinator.playlistsPath
         case .search: return navigationCoordinator.searchPath
+        case .settings: return navigationCoordinator.settingsPath
         default: return []
         }
     }
@@ -174,6 +227,14 @@ public struct MainTabView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id):
             PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .view(let tab):
+            TabViewFactory.view(
+                for: tab,
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                searchVM: searchVM,
+                onSyncTap: { showingSyncPanel = true }
+            )
         }
     }
     
@@ -234,39 +295,34 @@ public struct MainTabView: View {
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
     }
+}
+
+// MARK: - iOS 15 Navigation Helpers
+
+struct NestedNavigationLink<DestinationView: View>: View {
+    let path: [NavigationCoordinator.Destination]
+    let tab: TabItem
+    let destinationBuilder: (NavigationCoordinator.Destination) -> DestinationView
     
-    @ViewBuilder
-    private func viewForTab(_ tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onSyncTap: {
-                    showingSyncPanel = true
+    var body: some View {
+        if let first = path.first {
+            NavigationLink(
+                isActive: Binding(
+                    get: { !path.isEmpty },
+                    set: { if !$0 { DependencyContainer.shared.navigationCoordinator.popToRoot(tab: tab) } }
+                ),
+                destination: {
+                    destinationBuilder(first)
+                        .background(
+                            NestedNavigationLink(
+                                path: Array(path.dropFirst()),
+                                tab: tab,
+                                destinationBuilder: destinationBuilder
+                            )
+                        )
                 }
-            )
-        } else {
-            switch tab {
-            case .home:
-                HomeView(nowPlayingVM: nowPlayingVM)
-            case .songs:
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .artists:
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .albums:
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .genres:
-                GenresView(libraryVM: libraryVM)
-            case .playlists:
-                PlaylistsView(nowPlayingVM: nowPlayingVM)
-            case .favorites:
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-            case .downloads:
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            case .settings:
-                SettingsView()
+            ) {
+                EmptyView()
             }
         }
     }
@@ -366,58 +422,58 @@ public struct SidebarView: View {
             switch selection {
             case .home:
                 NavigationStack(path: $navigationCoordinator.homePath) {
-                    HomeView(nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .songs:
                 NavigationStack {
-                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
             case .artists:
                 NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .albums:
                 NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .genres:
                 NavigationStack {
-                    GenresView(libraryVM: libraryVM)
+                    TabViewFactory.view(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
             case .playlists:
                 NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    PlaylistsView(nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .favorites:
                 NavigationStack {
-                    FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
             case .search:
                 NavigationStack(path: $navigationCoordinator.searchPath) {
-                    SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+                    TabViewFactory.view(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .downloads:
                 NavigationStack {
-                    DownloadsView(nowPlayingVM: nowPlayingVM)
+                    TabViewFactory.view(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
             case .settings:
                 NavigationStack {
-                    SettingsView()
+                    TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
             case .none:
                 Text("Select a section")
@@ -438,6 +494,14 @@ public struct SidebarView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id):
             PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .view(let tab):
+            TabViewFactory.view(
+                for: tab,
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                searchVM: searchVM,
+                onSyncTap: { showingSyncPanel = true }
+            )
         }
     }
 }

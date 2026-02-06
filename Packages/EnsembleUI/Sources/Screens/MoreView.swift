@@ -79,20 +79,48 @@ public struct MoreView: View {
             } else {
                 Section("Library") {
                     ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
-                        NavigationLink {
-                            destinationForTab(tab)
-                        } label: {
-                            Label(tab.rawValue, systemImage: tab.systemImage)
+                        if #available(iOS 16.0, macOS 13.0, *) {
+                            NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
+                                Label(tab.rawValue, systemImage: tab.systemImage)
+                            }
+                        } else {
+                            // iOS 15 Fallback: Use manual push to coordinator to sync with NavigationView
+                            Button {
+                                deps.navigationCoordinator.push(.view(tab), in: .settings)
+                            } label: {
+                                HStack {
+                                    Label(tab.rawValue, systemImage: tab.systemImage)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .foregroundColor(.primary)
                         }
                     }
                 }
                 
                 Section("Other") {
                     ForEach(moreTabs.filter { !isLibraryTab($0) }) { tab in
-                        NavigationLink {
-                            destinationForTab(tab)
-                        } label: {
-                            Label(tab.rawValue, systemImage: tab.systemImage)
+                        if #available(iOS 16.0, macOS 13.0, *) {
+                            NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
+                                Label(tab.rawValue, systemImage: tab.systemImage)
+                            }
+                        } else {
+                            // iOS 15 Fallback
+                            Button {
+                                deps.navigationCoordinator.push(.view(tab), in: .settings)
+                            } label: {
+                                HStack {
+                                    Label(tab.rawValue, systemImage: tab.systemImage)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .foregroundColor(.primary)
                         }
                     }
                     
@@ -152,31 +180,5 @@ public struct MoreView: View {
             current.append(tab)
         }
         settingsManager.enabledTabs = current
-    }
-    
-    @ViewBuilder
-    private func destinationForTab(_ tab: TabItem) -> some View {
-        switch tab {
-        case .home:
-            HomeView(nowPlayingVM: nowPlayingVM)
-        case .songs:
-            SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .artists:
-            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .albums:
-            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .genres:
-            GenresView(libraryVM: libraryVM)
-        case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM)
-        case .favorites:
-            FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-        case .search:
-            SearchView(nowPlayingVM: nowPlayingVM)
-        case .downloads:
-            DownloadsView(nowPlayingVM: nowPlayingVM)
-        case .settings:
-            SettingsView()
-        }
     }
 }

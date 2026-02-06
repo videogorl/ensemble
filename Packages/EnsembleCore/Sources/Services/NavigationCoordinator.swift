@@ -9,6 +9,7 @@ public final class NavigationCoordinator: ObservableObject {
         case artist(id: String)
         case album(id: String)
         case playlist(id: String)
+        case view(TabItem) // For pushing library views from the More menu
     }
     
     /// The currently selected tab
@@ -23,6 +24,7 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var albumsPath: [Destination] = []
     @Published public var playlistsPath: [Destination] = []
     @Published public var searchPath: [Destination] = []
+    @Published public var settingsPath: [Destination] = []
     
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -52,6 +54,7 @@ public final class NavigationCoordinator: ObservableObject {
         case .albums: albumsPath.append(destination)
         case .playlists: playlistsPath.append(destination)
         case .search: searchPath.append(destination)
+        case .settings: settingsPath.append(destination)
         default: break
         }
     }
@@ -64,6 +67,7 @@ public final class NavigationCoordinator: ObservableObject {
         case .albums: albumsPath.removeAll()
         case .playlists: playlistsPath.removeAll()
         case .search: searchPath.removeAll()
+        case .settings: settingsPath.removeAll()
         default: break
         }
     }
@@ -124,6 +128,7 @@ public final class NavigationCoordinator: ObservableObject {
         case .albums: return albumsPath
         case .playlists: return playlistsPath
         case .search: return searchPath
+        case .settings: return settingsPath
         default: return []
         }
     }
