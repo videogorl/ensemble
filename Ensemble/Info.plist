@@ -18,7 +18,7 @@
 				<string>ensemble</string>
 			</array>
 			<key>CFBundleURLName</key>
-			<string>com.yourcompany.ensemble</string>
+			<string>com.videogorl.ensemble</string>
 		</dict>
 	</array>
 	<key>CFBundleInfoDictionaryVersion</key>
