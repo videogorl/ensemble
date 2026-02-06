@@ -200,8 +200,11 @@ public final class HomeViewModel: ObservableObject {
             
             print("[HubOrder] Fetched hubs count=\(fetchedHubs.count)")
             
+            // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
+            // This ensures reset always has a baseline to return to
             if let sourceKey = currentSourceKey {
                 let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                print("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
             
@@ -335,7 +338,9 @@ public final class HomeViewModel: ObservableObject {
         print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
         hubOrderManager.resetOrder(for: sourceKey)
 
+        // Apply cached default order immediately
         let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        print("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
         if isEditingOrder {
@@ -345,7 +350,8 @@ public final class HomeViewModel: ObservableObject {
         // Clear debounce and reload hubs to show the reset order
         lastLoadTime = nil
         
-        // Reload hubs to show the reset order
+        // Reload hubs to get fresh data from server
+        print("[HubOrder] Triggering background refresh from server")
         Task {
             await loadHubs(applySavedOrder: false)
             if isEditingOrder {
