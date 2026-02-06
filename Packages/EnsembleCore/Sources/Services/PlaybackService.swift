@@ -146,6 +146,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let networkMonitor: NetworkMonitor
     private let artworkLoader: ArtworkLoaderProtocol
     private var originalQueue: [QueueItem] = []  // For shuffle restore
+    private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
+    private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
 
     // MARK: - Initialization
 
@@ -185,17 +187,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if currentQueueIndex != index {
                     // Batch state updates to prevent multiple Combine publications
                     let newTrack = queue[index].track
-                    
+
                     // Update all state in a single transaction
                     Task { @MainActor in
                         self.currentQueueIndex = index
                         self.currentTrack = newTrack
-                        
+
+                        // Reset timeline tracking for new track
+                        self.lastTimelineReportTime = 0
+                        self.hasScrobbled = false
+
                         // Non-state-changing operations
                         self.generateWaveform(for: newTrack.id)
                         self.updateNowPlayingInfo()
                         self.savePlaybackState()
-                        
+
                         // Pre-fetch next item for gapless
                         await self.prefetchNextItem()
                     }
@@ -494,6 +500,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.pause()
         playbackState = .paused
         updateNowPlayingInfo()
+
+        // Report pause state to Plex
+        if let track = currentTrack {
+            Task {
+                await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
+            }
+        }
     }
 
     public func resume() {
@@ -501,9 +514,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.play()
         playbackState = .playing
         updateNowPlayingInfo()
+
+        // Report playing state to Plex
+        if let track = currentTrack {
+            Task {
+                await syncCoordinator.reportTimeline(track: track, state: "playing", time: currentTime)
+            }
+        }
     }
 
     public func stop() {
+        // Report stopped state to Plex before cleaning up
+        if let track = currentTrack {
+            Task {
+                await syncCoordinator.reportTimeline(track: track, state: "stopped", time: currentTime)
+            }
+        }
+
         cleanup()
         currentTrack = nil
         playbackState = .stopped
@@ -843,8 +870,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 1000),
             queue: .main
         ) { [weak self] time in
-            self?.currentTime = time.seconds
-            self?.updateNowPlayingProgress()
+            guard let self = self else { return }
+            self.currentTime = time.seconds
+            self.updateNowPlayingProgress()
+
+            // Report timeline to Plex every 10 seconds when playing
+            if self.playbackState == .playing,
+               let track = self.currentTrack,
+               time.seconds - self.lastTimelineReportTime >= 10.0 {
+                self.lastTimelineReportTime = time.seconds
+                Task {
+                    await self.syncCoordinator.reportTimeline(
+                        track: track,
+                        state: "playing",
+                        time: time.seconds
+                    )
+                }
+            }
+
+            // Scrobble track at 90% completion
+            if !self.hasScrobbled,
+               let track = self.currentTrack,
+               track.duration > 0,
+               time.seconds / track.duration >= 0.9 {
+                self.hasScrobbled = true
+                Task {
+                    await self.syncCoordinator.scrobbleTrack(track)
+                }
+            }
         }
     }
 

@@ -333,8 +333,51 @@ public final class SyncCoordinator: ObservableObject {
               let provider = syncProviders[sourceKey] else {
             throw PlexAPIError.noServerSelected
         }
-        
+
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
+    }
+
+    /// Report playback timeline to Plex server
+    /// This updates the server with current playback state and position
+    /// - Parameters:
+    ///   - track: The currently playing track
+    ///   - state: Playback state ("playing", "paused", or "stopped")
+    ///   - time: Current playback time in seconds
+    public func reportTimeline(track: Track, state: String, time: TimeInterval) async {
+        guard let sourceKey = track.sourceCompositeKey,
+              let provider = syncProviders[sourceKey] else {
+            return
+        }
+
+        do {
+            try await provider.reportTimeline(
+                ratingKey: track.id,
+                key: "/library/metadata/\(track.id)",
+                state: state,
+                time: Int(time * 1000),  // Convert to milliseconds
+                duration: Int(track.duration * 1000)  // Convert to milliseconds
+            )
+        } catch {
+            // Timeline reporting is non-critical, just log the error
+            print("⚠️ Failed to report timeline: \(error.localizedDescription)")
+        }
+    }
+
+    /// Scrobble a track (mark as played)
+    /// This should be called when a track reaches ~90% completion
+    /// - Parameter track: The track to scrobble
+    public func scrobbleTrack(_ track: Track) async {
+        guard let sourceKey = track.sourceCompositeKey,
+              let provider = syncProviders[sourceKey] else {
+            return
+        }
+
+        do {
+            try await provider.scrobble(ratingKey: track.id)
+        } catch {
+            // Scrobbling is non-critical, just log the error
+            print("⚠️ Failed to scrobble track: \(error.localizedDescription)")
+        }
     }
 
     /// Get tracks for an album from the music source

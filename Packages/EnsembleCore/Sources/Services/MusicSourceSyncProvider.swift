@@ -22,9 +22,15 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
-    
+
     /// Rate a track (0-10)
     func rateTrack(ratingKey: String, rating: Int?) async throws
+
+    /// Report playback timeline to the server
+    func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws
+
+    /// Scrobble a track (mark as played)
+    func scrobble(ratingKey: String) async throws
 
     /// Get tracks for an album directly from the source
     func getAlbumTracks(albumKey: String) async throws -> [Track]

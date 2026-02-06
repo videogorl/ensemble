@@ -412,20 +412,66 @@ public actor PlexAPIClient {
     /// Pass nil or 0 to remove rating
     public func rateTrack(ratingKey: String, rating: Int?) async throws {
         let ratingValue = rating ?? 0
-        
+
         // Validate rating is in range (0-10, even numbers only for stars)
         guard ratingValue >= 0 && ratingValue <= 10 else {
             throw PlexAPIError.invalidURL
         }
-        
+
         let path = "/:/rate"
         let query = [
             "key": ratingKey,
             "identifier": "com.plexapp.plugins.library",
             "rating": String(ratingValue)
         ]
-        
+
         _ = try await serverRequestPUT(path: path, query: query)
+    }
+
+    // MARK: - Timeline & Scrobbling
+
+    /// Report playback timeline to Plex server
+    /// This updates the server with current playback state and position
+    /// - Parameters:
+    ///   - ratingKey: The track's rating key
+    ///   - key: The track's key path (e.g., "/library/metadata/12345")
+    ///   - state: Playback state ("playing", "paused", or "stopped")
+    ///   - time: Current playback time in milliseconds
+    ///   - duration: Total track duration in milliseconds
+    public func reportTimeline(
+        ratingKey: String,
+        key: String,
+        state: String,
+        time: Int,
+        duration: Int
+    ) async throws {
+        let path = "/:/timeline"
+        let query = [
+            "ratingKey": ratingKey,
+            "key": key,
+            "state": state,
+            "time": String(time),
+            "duration": String(duration),
+            "playQueueItemID": ratingKey  // Use ratingKey as playQueueItemID
+        ]
+
+        _ = try await serverRequest(path: path, query: query)
+        print("📊 Timeline reported: \(state) at \(time)ms / \(duration)ms for track \(ratingKey)")
+    }
+
+    /// Scrobble a track (mark as played)
+    /// This should be called when a track reaches ~90% completion
+    /// Updates play count and "last played" timestamp on the server
+    /// - Parameter ratingKey: The track's rating key
+    public func scrobble(ratingKey: String) async throws {
+        let path = "/:/scrobble"
+        let query = [
+            "key": ratingKey,
+            "identifier": "com.plexapp.plugins.library"
+        ]
+
+        _ = try await serverRequest(path: path, query: query)
+        print("✅ Scrobbled track: \(ratingKey)")
     }
 
     // MARK: - URL Generation
