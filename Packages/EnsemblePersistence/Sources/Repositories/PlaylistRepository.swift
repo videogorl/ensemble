@@ -4,7 +4,7 @@ import Foundation
 public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists() async throws -> [CDPlaylist]
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
-        func searchPlaylists(query: String) async throws -> [CDPlaylist]
+    func searchPlaylists(query: String) async throws -> [CDPlaylist]
     func upsertPlaylist(
         ratingKey: String,
         key: String,
@@ -33,7 +33,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
 
     public func fetchPlaylists() async throws -> [CDPlaylist] {
         try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
+            let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
@@ -42,23 +42,23 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     continuation.resume(returning: playlists)
                 } catch {
                     continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 
-                    public func searchPlaylists(query: String) async throws -> [CDPlaylist] {
-                        try await withCheckedThrowingContinuation { continuation in
-                            let context = coreDataStack.viewContext
-                            context.perform {
-                                let request = CDPlaylist.fetchRequest()
-                                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@", query)
-                                request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
-                                do {
-                                    let playlists = try context.fetch(request)
-                                    continuation.resume(returning: playlists)
-                                } catch {
-                                    continuation.resume(throwing: error)
-                                }
-                            }
-                        }
-                    }
+    public func searchPlaylists(query: String) async throws -> [CDPlaylist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = self.coreDataStack.viewContext
+            context.perform {
+                let request = CDPlaylist.fetchRequest()
+                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@", query)
+                request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                do {
+                    let playlists = try context.fetch(request)
+                    continuation.resume(returning: playlists)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
             }
         }
@@ -66,7 +66,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
 
     public func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? {
         try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
+            let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
                 request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
@@ -96,7 +96,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         sourceCompositeKey: String? = nil
     ) async throws -> CDPlaylist {
         try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
+            self.coreDataStack.performBackgroundTask { context in
                 let request = CDPlaylist.fetchRequest()
                 if let sourceKey = sourceCompositeKey {
                     request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
@@ -153,7 +153,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
 
     public func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String? = nil) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
+            self.coreDataStack.performBackgroundTask { context in
                 do {
                     let playlistRequest = CDPlaylist.fetchRequest()
                     if let sourceKey = sourceCompositeKey {
@@ -202,7 +202,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
 
     public func deletePlaylist(ratingKey: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
+            self.coreDataStack.performBackgroundTask { context in
                 let request = CDPlaylist.fetchRequest()
                 request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
 
@@ -221,7 +221,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     
     public func removeDuplicatePlaylists() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
+            self.coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDPlaylist.fetchRequest()
                     request.sortDescriptors = [

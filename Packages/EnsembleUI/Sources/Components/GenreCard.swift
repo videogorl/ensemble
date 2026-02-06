@@ -18,8 +18,8 @@ public struct GenreCard: View {
                 // Generate a deterministic color based on genre name
                 LinearGradient(
                     colors: [
-                        genreColor(for: genre.name).opacity(0.8),
-                        genreColor(for: genre.name).opacity(0.4)
+                        genreColor(for: genre.title).opacity(0.8),
+                        genreColor(for: genre.title).opacity(0.4)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -34,7 +34,7 @@ public struct GenreCard: View {
             .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 2)
             
             // Genre name
-            Text(genre.name)
+            Text(genre.title)
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .lineLimit(2)

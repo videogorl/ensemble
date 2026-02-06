@@ -95,6 +95,8 @@ public final class SearchViewModel: ObservableObject {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
+            isSearching = false
+            searchError = nil
             trackResults = []
             artistResults = []
             albumResults = []
@@ -245,43 +247,20 @@ public final class SearchViewModel: ObservableObject {
                             if title.contains("recently played") || title.contains("recent plays") {
                                 // Extract albums and artists from Recently Played
                                 for item in filteredMetadata.prefix(12) {
-                                    let type = item.type?.lowercased() ?? ""
-                                    if type == "album", let ratingKey = item.ratingKey {
-                                        recentAlbums.append(Album(
-                                            id: ratingKey,
-                                            title: item.title ?? "Unknown Album",
-                                            artistName: item.parentTitle,
-                                            year: item.year,
-                                            artPath: item.thumb,
-                                            trackCount: 0,
-                                            duration: 0,
-                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
-                                        ))
-                                    } else if type == "artist", let ratingKey = item.ratingKey {
-                                        recentArtists.append(Artist(
-                                            id: ratingKey,
-                                            name: item.title ?? "Unknown Artist",
-                                            artPath: item.thumb,
-                                            albumCount: 0,
-                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
-                                        ))
+                                    let hubItem = HubItem(from: item, sourceKey: task.sourceKey)
+                                    if let album = hubItem.album {
+                                        recentAlbums.append(album)
+                                    }
+                                    if let artist = hubItem.artist {
+                                        recentArtists.append(artist)
                                     }
                                 }
                             } else if title.contains("recently added") || title.contains("recent additions") {
                                 // Recently Added albums
                                 for item in filteredMetadata.prefix(12) {
-                                    let type = item.type?.lowercased() ?? ""
-                                    if type == "album", let ratingKey = item.ratingKey {
-                                        addedAlbums.append(Album(
-                                            id: ratingKey,
-                                            title: item.title ?? "Unknown Album",
-                                            artistName: item.parentTitle,
-                                            year: item.year,
-                                            artPath: item.thumb,
-                                            trackCount: 0,
-                                            duration: 0,
-                                            musicSourceIdentifier: MusicSourceIdentifier(rawValue: task.sourceKey)
-                                        ))
+                                    let hubItem = HubItem(from: item, sourceKey: task.sourceKey)
+                                    if let album = hubItem.album {
+                                        addedAlbums.append(album)
                                     }
                                 }
                             } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {

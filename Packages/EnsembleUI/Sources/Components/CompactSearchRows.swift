@@ -165,11 +165,9 @@ public struct CompactTrackRow: View {
 
             Spacer()
 
-            if let duration = track.duration {
-                Text(formatDuration(duration))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text(formatDuration(track.duration))
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -178,9 +176,10 @@ public struct CompactTrackRow: View {
         }
     }
     
-    private func formatDuration(_ seconds: Int) -> String {
-        let mins = seconds / 60
-        let secs = seconds % 60
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let mins = totalSeconds / 60
+        let secs = totalSeconds % 60
         return String(format: "%d:%02d", mins, secs)
     }
 }
