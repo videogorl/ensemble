@@ -330,7 +330,7 @@ public struct SidebarView: View {
             // Main split view
             NavigationSplitView {
                 List(selection: $selection) {
-                    Section("Library") {
+                    Section(header: Text("Library").foregroundColor(.accentColor).textCase(nil)) {
                         Label("Home", systemImage: "house")
                             .tag(SidebarSection.home)
                         
@@ -353,7 +353,7 @@ public struct SidebarView: View {
                             .tag(SidebarSection.favorites)
                     }
 
-                    Section("Other") {
+                    Section(header: Text("Other").foregroundColor(.accentColor).textCase(nil)) {
                         Label("Search", systemImage: "magnifyingglass")
                             .tag(SidebarSection.search)
 

@@ -40,6 +40,8 @@ public struct SettingsView: View {
                 }
             } header: {
                 Text("Music Sources")
+                    .foregroundColor(.accentColor)
+                    .textCase(nil)
             } footer: {
                 if accountManager.enabledMusicSources().isEmpty {
                     Text("Add a Plex server to access your music library.")
@@ -70,10 +72,12 @@ public struct SettingsView: View {
                 .padding(.vertical, 4)
             } header: {
                 Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
+                    .foregroundColor(.accentColor)
+                    .textCase(nil)
             }
 
             // Playback section
-            Section("Playback") {
+            Section(header: Text("Playback").foregroundColor(.accentColor).textCase(nil)) {
                 NavigationLink {
                     AudioQualitySettingsView()
                 } label: {
@@ -86,7 +90,7 @@ public struct SettingsView: View {
             }
 
             // Storage section
-            Section("Storage") {
+            Section(header: Text("Storage").foregroundColor(.accentColor).textCase(nil)) {
                 NavigationLink {
                     StorageSettingsView()
                 } label: {
@@ -110,7 +114,7 @@ public struct SettingsView: View {
             }
             
             // Debug section
-            Section("Reset") {
+            Section(header: Text("Reset").foregroundColor(.accentColor).textCase(nil)) {
                 Button(role: .destructive) {
                     // Clear all accounts from keychain
                     for account in accountManager.plexAccounts {
@@ -127,7 +131,7 @@ public struct SettingsView: View {
             }
 
             // About section
-            Section("About") {
+            Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
                 HStack {
                     Image(systemName: "info.circle")
                         .frame(width: 44)
@@ -244,6 +248,8 @@ struct AudioQualitySettingsView: View {
                 }
             } header: {
                 Text("Streaming")
+                    .foregroundColor(.accentColor)
+                    .textCase(nil)
             } footer: {
                 Text("Lower quality uses less data when streaming over cellular.")
             }
@@ -256,6 +262,8 @@ struct AudioQualitySettingsView: View {
                 }
             } header: {
                 Text("Downloads")
+                    .foregroundColor(.accentColor)
+                    .textCase(nil)
             } footer: {
                 Text("Higher quality downloads use more storage space.")
             }

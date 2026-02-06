@@ -441,6 +441,7 @@ public struct NowPlayingView: View {
                 Text("Up Next")
                     .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(.accentColor)
                 
                 Spacer()
                 

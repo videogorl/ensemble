@@ -11,11 +11,34 @@ public struct RootView: View {
     public var body: some View {
         mainContentView
             .accentColor(settingsManager.accentColor.color)
+            .onAppear {
+                updateAppearance()
+            }
+            .onChange(of: settingsManager.accentColor) { _ in
+                updateAppearance()
+            }
             .task {
                 let deps = DependencyContainer.shared
                 deps.accountManager.loadAccounts()
                 deps.syncCoordinator.refreshProviders()
             }
+    }
+
+    private func updateAppearance() {
+        #if canImport(UIKit)
+        let color = UIColor(settingsManager.accentColor.color)
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        
+        // Target only large titles as requested ("when not in toolbar")
+        // but also update standard title for consistency if desired
+        appearance.largeTitleTextAttributes = [.foregroundColor: color]
+        appearance.titleTextAttributes = [.foregroundColor: color]
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+        #endif
     }
 
     @ViewBuilder
