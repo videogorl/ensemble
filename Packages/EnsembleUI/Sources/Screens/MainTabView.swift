@@ -108,9 +108,6 @@ public struct MainTabView: View {
                         didSetInitialTab = true
                     }
                 }
-                #if os(iOS)
-                .toolbar(.hidden, for: .tabBar)
-                #endif
                 .onChange(of: settingsManager.enabledTabs) { _ in
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
