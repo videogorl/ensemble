@@ -198,14 +198,30 @@ public final class HomeViewModel: ObservableObject {
                 return collectedHubs
             }.value
             
+            print("[HubOrder] Fetched hubs count=\(fetchedHubs.count)")
+            
+            if let sourceKey = currentSourceKey {
+                let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
+            }
+            
             // Apply saved or default order to the fetched hubs
             let orderedHubs: [Hub]
             if let sourceKey = currentSourceKey {
+                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                let orderedServerHubs: [Hub]
+                
                 if applySavedOrder {
-                    orderedHubs = hubOrderManager.applyOrder(to: fetchedHubs, for: sourceKey)
+                    orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
                 } else {
-                    orderedHubs = hubOrderManager.applyDefaultOrder(to: fetchedHubs, for: sourceKey)
+                    orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
                 }
+                
+                orderedHubs = mergeOrderedServerHubs(
+                    orderedServerHubs,
+                    sourceKey: sourceKey,
+                    into: fetchedHubs
+                )
             } else {
                 orderedHubs = fetchedHubs
             }
@@ -234,6 +250,26 @@ public final class HomeViewModel: ObservableObject {
     }
     
     // MARK: - Edit Mode
+    
+    private func serverKey(from hubId: String) -> String? {
+        let components = hubId.split(separator: ":")
+        guard components.count >= 2 else { return nil }
+        return "\(components[0]):\(components[1])"
+    }
+    
+    private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
+        hubs.filter { serverKey(from: $0.id) == sourceKey }
+    }
+    
+    private func mergeOrderedServerHubs(_ orderedServerHubs: [Hub], sourceKey: String, into hubs: [Hub]) -> [Hub] {
+        var iterator = orderedServerHubs.makeIterator()
+        return hubs.map { hub in
+            if serverKey(from: hub.id) == sourceKey {
+                return iterator.next() ?? hub
+            }
+            return hub
+        }
+    }
     
     /// Determine the primary source key (first enabled server) and its display name
     private func updateCurrentSource() {
@@ -287,7 +323,7 @@ public final class HomeViewModel: ObservableObject {
         updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
-        let hubIds = orderedHubs.map { $0.id }
+        let hubIds = hubsForServer(sourceKey: sourceKey, in: orderedHubs).map { $0.id }
         hubOrderManager.saveOrder(hubIds, for: sourceKey)
     }
     
@@ -298,6 +334,13 @@ public final class HomeViewModel: ObservableObject {
         
         print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
         hubOrderManager.resetOrder(for: sourceKey)
+
+        let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
+        hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
+        if isEditingOrder {
+            editableHubs = hubs
+        }
 
         // Clear debounce and reload hubs to show the reset order
         lastLoadTime = nil
