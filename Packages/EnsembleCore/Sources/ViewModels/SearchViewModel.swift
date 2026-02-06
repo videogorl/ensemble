@@ -175,6 +175,20 @@ public final class SearchViewModel: ObservableObject {
     
     // MARK: - Explore Content
     
+    /// Load explore content only if data is empty (avoids reloading on each navigation)
+    public func loadExploreContentIfNeeded() async {
+        // Don't reload if we already have data
+        guard recentlyPlayedAlbums.isEmpty &&
+              recentlyPlayedArtists.isEmpty &&
+              recentlyAddedAlbums.isEmpty &&
+              recommendedItems.isEmpty &&
+              allGenres.isEmpty else {
+            return
+        }
+        
+        await loadExploreContent()
+    }
+    
     /// Load explore content with debouncing to prevent rapid reloads
     public func loadExploreContent() async {
         // Check if we should debounce

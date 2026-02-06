@@ -30,14 +30,12 @@ public struct SearchView: View {
             }
         }
         .navigationTitle("Search")
-        #if canImport(UIKit)
-        .keyboardAware()  // Fix: Use existing keyboard handling modifier
-        #endif
         .onReceive(viewModel.focusRequested) {
             isSearchFieldFocused = true
         }
         .task {
-            await viewModel.loadExploreContent()
+            // Only load if data is empty (first time)
+            await viewModel.loadExploreContentIfNeeded()
         }
     }
 
@@ -202,9 +200,11 @@ public struct SearchView: View {
             }
         }
         .refreshable {
+            // Pull-to-refresh explicitly loads fresh data
             await viewModel.loadExploreContent()
         }
         .safeAreaInset(edge: .bottom) {
+            // Account for tab bar (49) + mini player (60) + padding
             Color.clear.frame(height: 110)
         }
     }
