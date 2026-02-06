@@ -126,12 +126,11 @@ public struct MainTabView: View {
                                     .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
                             )
                     }
-                    #if canImport(UIKit)
-                    .keyboardAware()
-                    #endif
-                    .zIndex(2)
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
+                #if canImport(UIKit)
+                .keyboardAware()
+                #endif
             }
         }
         .sheet(isPresented: $showingNowPlaying) {
