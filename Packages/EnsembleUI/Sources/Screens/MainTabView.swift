@@ -59,6 +59,7 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var didSetInitialTab = false
+    @State private var baseSafeAreaBottom: CGFloat = 0
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -101,6 +102,10 @@ public struct MainTabView: View {
                     // Sync visible tabs to NavigationCoordinator for fallback logic
                     navigationCoordinator.visibleTabs = barTabs
 
+                    if baseSafeAreaBottom == 0 {
+                        baseSafeAreaBottom = geometry.safeAreaInsets.bottom
+                    }
+
                     if !didSetInitialTab {
                         navigationCoordinator.selectedTab = barTabs.first ?? .home
                         didSetInitialTab = true
@@ -118,13 +123,14 @@ public struct MainTabView: View {
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
-                        customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
+                        customTabBar(safeAreaBottom: baseSafeAreaBottom)
                             .background(
                                 Rectangle()
                                     .fill(.regularMaterial)
                                     .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
                             )
                     }
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
             }
