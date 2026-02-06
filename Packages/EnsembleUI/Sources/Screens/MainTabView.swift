@@ -55,6 +55,7 @@ public struct MainTabView: View {
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
+    @StateObject private var keyboard = KeyboardObserver()
 
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
@@ -78,7 +79,7 @@ public struct MainTabView: View {
                 ConnectionStatusBanner(networkState: networkMonitor.networkState)
                 
                 // Main content layer (TabView)
-                TabView(selection: $navigationCoordinator.selectedTab) {
+                TabView(selection: tabBinding) {
                     // Dynamic Tabs
                     ForEach(barTabs) { tab in
                         tabRootView(for: tab)
@@ -113,7 +114,7 @@ public struct MainTabView: View {
             }
 
             // Persistent MiniPlayer (Floating above native TabBar)
-            if nowPlayingVM.currentTrack != nil {
+            if nowPlayingVM.currentTrack != nil && !keyboard.isVisible {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }
@@ -150,6 +151,30 @@ public struct MainTabView: View {
         }
         #endif
         return .automatic
+    }
+    
+    private var tabBinding: Binding<TabItem> {
+        Binding(
+            get: { navigationCoordinator.selectedTab },
+            set: { handleTabTap($0) }
+        )
+    }
+    
+    private func handleTabTap(_ tag: TabItem) {
+        if navigationCoordinator.selectedTab == tag {
+            // Already on this tab
+            if !pathForTab(tag).isEmpty {
+                navigationCoordinator.popToRoot(tab: tag)
+            } else if tag == .search {
+                searchVM.requestFocus()
+            }
+        } else {
+            navigationCoordinator.selectedTab = tag
+        }
+        
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
     
     @ViewBuilder

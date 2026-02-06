@@ -20,6 +20,21 @@ extension Publishers {
     }
 }
 
+/// Observable object to track keyboard visibility
+public class KeyboardObserver: ObservableObject {
+    @Published public var isVisible = false
+    private var cancellables = Set<AnyCancellable>()
+    
+    public init() {
+        Publishers.keyboardHeight
+            .map { $0 > 0 }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .assign(to: \.isVisible, on: self)
+            .store(in: &cancellables)
+    }
+}
+
 // View extension to track keyboard height
 extension View {
     func keyboardAware() -> some View {
