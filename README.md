@@ -26,7 +26,9 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Customizable UI** — 7 accent colors, customizable tabs (enable/disable any tab)
 
 **Playback Experience:**
-- **Now Playing** — Full-screen player with dynamic artwork gradients and mini player overlay
+- **Now Playing** — Full-screen player with dynamic artwork gradients, waveform visualization, and mini player overlay
+- **Playback Tracking** — Automatic timeline reporting and scrobbling to Plex for accurate play counts and listening history
+- **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data with intelligent fallback
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
@@ -97,10 +99,10 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 
 | Package | Purpose | Key Components |
 |---------|---------|----------------|
-| **EnsembleAPI** | Plex networking & auth | `PlexAPIClient`, `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
-| **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `DownloadManager`, `ArtworkDownloadManager` |
-| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, ViewModels |
-| **EnsembleUI** | User interface | `RootView`, `HomeView`, `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `ArtworkColorExtractor` |
+| **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
+| **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
+| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, ViewModels |
+| **EnsembleUI** | User interface | `RootView`, `HomeView`, `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
@@ -172,7 +174,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Development Status
 
-**Current Phase:** Feature-rich MVP with advanced functionality
+**Current Phase:** Feature-rich MVP with advanced functionality and Plex ecosystem integration
 
 **Completed:**
 - Multi-library Plex support with network resilience
@@ -180,12 +182,14 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Advanced filtering and customization
 - Persistent artwork caching system
 - Network monitoring and server health checks
+- Playback tracking (timeline reporting and scrobbling)
+- Waveform visualization with Plex sonic analysis integration
 
 **Next Steps:**
 - Complete offline playback wiring
 - Fix watchOS authentication
 - Add automatic artwork pre-caching during sync
-- Implement queue reordering
+- Implement queue reordering and waveform seeking
 - Prepare for beta testing
 
 ## Roadmap
@@ -221,11 +225,13 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] **Network Resilience** — Multi-layered connectivity monitoring with automatic failover
 - [x] **Server Health Monitoring** — Concurrent health checks with connection priority (Local → Direct → Relay)
 - [x] **Network State UI** — Connectivity banner and status indicators
+- [x] **Playback Tracking** — Timeline reporting (every 10s) and scrobbling (at 90% completion) for accurate play counts
+- [x] **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data with intelligent fallback
 - [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
 - [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
 - [ ] **Background Sync** — Use iOS background refresh to keep library updated
 - [ ] Queue reordering and persistence
-- [ ] Playback history
+- [ ] Waveform seeking (jump to specific parts of track)
 
 ### Phase 5: Ecosystem Integration
 - [ ] Apple Music support

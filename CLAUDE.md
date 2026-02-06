@@ -131,8 +131,11 @@ Tests/
 **Key Types:**
 - `PlexAuthService` (actor) — PIN-based OAuth authentication
 - `PlexAPIClient` (actor) — Thread-safe API requests with automatic failover
+  - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
+  - Playback tracking: `reportTimeline()`, `scrobble()`
+  - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
 - `KeychainService` — Token persistence using KeychainAccess library
-- `PlexModels.swift` — Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, etc.)
+- `PlexModels.swift` — Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
 
 #### EnsemblePersistence (Data Layer)
 - **Location:** `Packages/EnsemblePersistence/`
@@ -215,9 +218,10 @@ Tests/
 **Key Services:**
 - `DependencyContainer` (singleton) — Wires all services, creates ViewModels, injected via SwiftUI environment
 - `AccountManager` (@MainActor) — Manages multiple Plex accounts, servers, and libraries
-- `SyncCoordinator` (@MainActor) — Orchestrates library syncing across all enabled sources
+- `SyncCoordinator` (@MainActor) — Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
 - `NavigationCoordinator` (@MainActor) — Manages cross-view navigation state (artist/album deep links from NowPlayingView)
-- `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls
+- `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion)
+- `HubRepository` — Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) — Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) — Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
@@ -226,9 +230,11 @@ Tests/
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
+  - `Track` includes `streamId: Int?` — Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` — Multi-account source tracking
 - `PlexAccountConfig` — Account/server/library hierarchy for configuration
 - `FilterOptions` — Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
+  - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
 - `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` — Network state management models
 
 #### EnsembleUI (Presentation Layer)
@@ -243,11 +249,14 @@ Sources/
 │   ├── AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 │   ├── AlbumCard.swift               # Grid card for albums
 │   ├── ArtistCard.swift              # Grid card for artists
-│   ├── BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
+│   ├── ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 │   ├── ArtworkView.swift             # Lazy-loading artwork with Nuke
+│   ├── BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
 │   ├── ConnectionStatusBanner.swift  # Network status UI indicator
 │   ├── EmptyLibraryView.swift        # Empty state with sync prompt
 │   ├── FilterSheet.swift             # Advanced filtering UI with persistence
+│   ├── KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
+│   ├── MarqueeText.swift             # Auto-scrolling text component for long titles
 │   ├── MediaTrackList.swift          # Reusable track list with context menu
 │   ├── MiniPlayer.swift              # Compact persistent player overlay
 │   ├── PlaylistCard.swift            # Grid card for playlists
@@ -286,10 +295,12 @@ Tests/
 - `HomeView` — Hub-based home screen with horizontally-scrolling sections (Recently Added, Recently Played, etc.)
 - `FavoritesView` — Displays tracks rated 4+ stars
 - `FilterSheet` — Advanced filtering UI with artist/genre multi-select, year ranges, downloaded-only filter
-- `ArtworkColorExtractor` — Actor-based background color extraction for dynamic gradients on detail views
+- `ArtworkColorExtractor` — Actor-based color extraction from artwork images; determines dominant/accent colors and background lightness for dynamic gradients
 - `ConnectionStatusBanner` — Network connectivity status banner
 - `AirPlayButton` — Native AirPlay route picker integration
 - `WaveformView` — Audio waveform visualization with real Plex loudness data or fallback generation
+- `MarqueeText` — Auto-scrolling text component for long titles that exceed container width
+- `KeyboardObserver` — iOS-specific keyboard height tracking with `.keyboardAware()` modifier for automatic bottom padding
 
 ### Key Architectural Patterns
 
@@ -391,13 +402,14 @@ The app implements an intelligent waveform visualization system that displays au
    - Field: `loudness: [Double]?` — Array of loudness values
 
 3. **PlexAPIClient.getLoudnessTimeline()** (`EnsembleAPI`) — API method to fetch waveform data
-   - Asynchronously fetches loudness timeline for a track
+   - Asynchronously fetches loudness timeline for a track using `streamId`
+   - `streamId` identifies the audio stream for the track (stored in `Track.streamId`)
    - Returns `nil` if server hasn't performed sonic analysis yet
    - Non-blocking and fails gracefully (missing data is normal, not an error)
 
 4. **PlaybackService.generateWaveform()** (`EnsembleCore`) — Waveform generation logic
-   - **Primary:** Attempts to fetch real loudness data from Plex server
-   - **Fallback:** Generates pseudo-random waveform if Plex data unavailable
+   - **Primary:** Attempts to fetch real loudness data from Plex server using track's `streamId`
+   - **Fallback:** Generates pseudo-random waveform if Plex data unavailable or `streamId` missing
    - Normalizes loudness values to 0.3-1.0 range with contrast enhancement (power curve)
    - Applies floor boosting for better visual prominence and contrast
    - Runs asynchronously to avoid blocking playback
@@ -481,6 +493,54 @@ The app features a dynamic home screen powered by Plex's hub system:
 - Quick access to recently added content
 - Shows listening history and favorites
 - Mimics Plex's web/mobile interface patterns
+
+**Hub Persistence:**
+- `HubRepository` service (implements `HubRepositoryProtocol`)
+- Manages `CDHub` and `CDHubItem` CoreData entities
+- Methods: `fetchHubs()`, `saveHubs()`, `deleteAllHubs()`
+- Used by `HomeViewModel` for caching hub data
+
+### Timeline Reporting & Scrobbling
+
+The app reports playback activity back to Plex servers for accurate tracking and personalized recommendations:
+
+**Architecture:**
+
+**Timeline Reporting:**
+- **Purpose:** Informs Plex servers about current playback state (playing/paused/stopped) and progress
+- **Frequency:** Every 10 seconds during active playback
+- **Implementation:**
+  - `PlaybackService` tracks `lastTimelineReportTime` to control reporting interval
+  - Calls `SyncCoordinator.reportTimeline()` which delegates to appropriate provider
+  - `PlexMusicSourceSyncProvider` passes through to `PlexAPIClient.reportTimeline()`
+  - HTTP POST to `/:/timeline` with state, time, duration, and track metadata
+
+**Scrobbling:**
+- **Purpose:** Marks a track as "played" in Plex's database for play counts and Recently Played hubs
+- **Trigger:** Automatically at 90% track completion
+- **Implementation:**
+  - `PlaybackService` tracks `hasScrobbled` flag to ensure one scrobble per track
+  - Calls `SyncCoordinator.scrobbleTrack()` which delegates to appropriate provider
+  - `PlexMusicSourceSyncProvider` passes through to `PlexAPIClient.scrobble()`
+  - HTTP POST to `/:/scrobble` with track's `ratingKey`
+
+**Protocol Integration:**
+- `MusicSourceSyncProvider` protocol includes:
+  - `reportTimeline(ratingKey:key:state:time:duration:)` — Required for timeline reporting
+  - `scrobble(ratingKey:)` — Required for scrobbling
+- Enables multi-source architecture support (future Apple Music, Spotify integration)
+
+**State Management:**
+- Both tracking fields reset automatically when changing tracks
+- Non-blocking async implementation to avoid playback interruption
+- Gracefully handles network failures without disrupting playback
+
+**Benefits:**
+- Accurate play counts and listening history
+- Populates "Recently Played" and "Most Played" hubs
+- Enables Plex's recommendation algorithms
+- Syncs listening activity across all Plex clients
+- Maintains compatibility with Plex ecosystem features
 
 ### Advanced Filtering System
 
