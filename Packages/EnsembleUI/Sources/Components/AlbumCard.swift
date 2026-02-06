@@ -17,6 +17,7 @@ public struct AlbumCard: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(1)
+                    .foregroundColor(.primary)
 
                 if let artist = album.artistName {
                     Text(artist)
@@ -33,6 +34,7 @@ public struct AlbumCard: View {
             }
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .multilineTextAlignment(.leading)
     }
 }
 
@@ -56,14 +58,20 @@ public struct AlbumGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(albums) { album in
-                NavigationLink {
-                    AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                } label: {
-                    AlbumCard(album: album)
+                if #available(iOS 16.0, *) {
+                    NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                        AlbumCard(album: album)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    // iOS 15 fallback
+                    NavigationLink {
+                        AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                    } label: {
+                        AlbumCard(album: album)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .simultaneousGesture(TapGesture().onEnded {
-                    onAlbumTap?(album)
-                })
             }
         }
         .padding(.horizontal)

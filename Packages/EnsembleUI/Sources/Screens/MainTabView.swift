@@ -11,28 +11,12 @@ public struct MainTabView: View {
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
 
-    @State private var selectedTab: TabItem = .home
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
-    @State private var showingDetailView = false
-    
-    // IDs to trigger pop-to-root by resetting NavigationViews
-    @State private var tabRootIDs: [TabItem: Int] = [:]
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(settingsManager.enabledTabs.prefix(4))
-    }
-
-    // Helper to dismiss the detail view overlay
-    private func dismissDetailView() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            showingDetailView = false
-        }
-        // Clear destination after animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            navigationCoordinator.clearDestination()
-        }
     }
 
     public init() {
@@ -49,75 +33,44 @@ public struct MainTabView: View {
                 
                 ZStack(alignment: .bottom) {
                     // Main content layer (TabView)
-                    TabView(selection: $selectedTab) {
-                    // Dynamic Tabs
-                    ForEach(barTabs) { tab in
-                        NavigationView {
-                            viewForTab(tab)
+                    TabView(selection: $navigationCoordinator.selectedTab) {
+                        // Dynamic Tabs
+                        ForEach(barTabs) { tab in
+                            tabRootView(for: tab)
+                                .tag(tab)
                         }
-                        .id(tabRootIDs[tab, default: 0])
+
+                        // Always show More
+                        tabRootView(for: .settings)
+                            .tag(TabItem.settings)
+                    }
+                    // Hide the standard tab bar since we're using a custom one for layering
+                    .onAppear {
                         #if os(iOS)
-                        .navigationViewStyle(.stack)
+                        let appearance = UITabBarAppearance()
+                        appearance.configureWithTransparentBackground()
+                        UITabBar.appearance().standardAppearance = appearance
+                        UITabBar.appearance().scrollEdgeAppearance = appearance
                         #endif
-                        .safeAreaInset(edge: .bottom) {
-                            Color.clear.frame(height: 110)
+                    }
+
+                    // Persistent UI Layer (MiniPlayer + Custom TabBar)
+                    VStack(spacing: 0) {
+                        MiniPlayer(viewModel: nowPlayingVM) {
+                            showingNowPlaying = true
                         }
-                        .tag(tab)
-                    }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
 
-                    // Always show More
-                    NavigationView {
-                        MoreView(
-                            libraryVM: libraryVM,
-                            nowPlayingVM: nowPlayingVM,
-                            onSyncTap: {
-                                showingSyncPanel = true
-                            }
-                        )
+                        customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
+                            .background(
+                                Rectangle()
+                                    .fill(.regularMaterial)
+                                    .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
+                            )
                     }
-                    .id(tabRootIDs[.settings, default: 0])
-                    #if os(iOS)
-                    .navigationViewStyle(.stack)
-                    #endif
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 110)
-                    }
-                    .tag(TabItem.settings) // Using settings as a proxy tag for More
+                    .zIndex(2)
                 }
-                // Hide the standard tab bar since we're using a custom one for layering
-                .onAppear {
-                    #if os(iOS)
-                    let appearance = UITabBarAppearance()
-                    appearance.configureWithTransparentBackground()
-                    UITabBar.appearance().standardAppearance = appearance
-                    UITabBar.appearance().scrollEdgeAppearance = appearance
-                    #endif
-                }
-
-                // Sliding detail view overlay
-                if showingDetailView, let destination = navigationCoordinator.pendingDestination {
-                    detailViewForDestination(destination: destination)
-                        .transition(.move(edge: .trailing))
-                        .zIndex(1)
-                }
-
-                // Persistent UI Layer (MiniPlayer + Custom TabBar)
-                VStack(spacing: 0) {
-                    MiniPlayer(viewModel: nowPlayingVM) {
-                        showingNowPlaying = true
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                    customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
-                        .background(
-                            Rectangle()
-                                .fill(.regularMaterial)
-                                .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
-                        )
-                }
-                .zIndex(2)
-            }
-            .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.container, edges: .bottom)
             }
         }
         .sheet(isPresented: $showingNowPlaying) {
@@ -129,25 +82,90 @@ public struct MainTabView: View {
         .task {
             await libraryVM.refresh()
         }
-        .onChange(of: navigationCoordinator.pendingDestination) { destination in
-            print("🎬 MainTabView: onChange fired! destination = \(String(describing: destination))")
-            // Show detail view when navigation is requested
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showingDetailView = destination != nil
-                print("🎬 MainTabView: showingDetailView = \(showingDetailView)")
+        .onChange(of: showingNowPlaying) { isShowing in
+            // Handle pending navigation when NowPlaying dismisses
+            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                navigationCoordinator.selectedTab = pending.tab
+                
+                // Small delay for tab switch animation before pushing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    navigationCoordinator.push(pending.destination, in: pending.tab)
+                    navigationCoordinator.pendingNavigation = nil
+                }
             }
         }
-        .onChange(of: selectedTab) { newTab in
-            // Dismiss detail view when switching tabs
-            if showingDetailView {
-                dismissDetailView()
+    }
+    
+    @ViewBuilder
+    private func tabRootView(for tab: TabItem) -> some View {
+        if #available(iOS 16.0, *) {
+            NavigationStack(path: pathBinding(for: tab)) {
+                viewForTab(tab)
+                    .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                        destinationView(for: destination)
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: 110)
+                    }
             }
+        } else {
+            NavigationView {
+                viewForTab(tab)
+                    // iOS 15 Fallback: Hidden NavigationLinks
+                    .background(
+                        Group {
+                            if let firstDest = pathForTab(tab).first {
+                                NavigationLink(
+                                    destination: destinationView(for: firstDest),
+                                    isActive: Binding(
+                                        get: { !pathForTab(tab).isEmpty },
+                                        set: { if !$0 { navigationCoordinator.popToRoot(tab: tab) } }
+                                    )
+                                ) {
+                                    EmptyView()
+                                }
+                            }
+                        }
+                    )
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: 110)
+                    }
+            }
+            .navigationViewStyle(.stack)
         }
-        .onChange(of: showingSyncPanel) { isShowing in
-            // Dismiss detail view when opening sync panel
-            if isShowing && showingDetailView {
-                dismissDetailView()
-            }
+    }
+    
+    private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
+        switch tab {
+        case .home: return $navigationCoordinator.homePath
+        case .artists: return $navigationCoordinator.artistsPath
+        case .albums: return $navigationCoordinator.albumsPath
+        case .playlists: return $navigationCoordinator.playlistsPath
+        case .search: return $navigationCoordinator.searchPath
+        default: return .constant([])
+        }
+    }
+    
+    private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
+        switch tab {
+        case .home: return navigationCoordinator.homePath
+        case .artists: return navigationCoordinator.artistsPath
+        case .albums: return navigationCoordinator.albumsPath
+        case .playlists: return navigationCoordinator.playlistsPath
+        case .search: return navigationCoordinator.searchPath
+        default: return []
+        }
+    }
+    
+    @ViewBuilder
+    private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
+        switch destination {
+        case .artist(let id):
+            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+        case .album(let id):
+            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id):
+            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
         }
     }
     
@@ -165,7 +183,7 @@ public struct MainTabView: View {
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
-        let isSelected = selectedTab == tag
+        let isSelected = navigationCoordinator.selectedTab == tag
         
         return VStack(spacing: 2) {
             Image(systemName: icon)
@@ -193,18 +211,15 @@ public struct MainTabView: View {
     }
     
     private func handleTabTap(_ tag: TabItem) {
-        if selectedTab == tag {
+        if navigationCoordinator.selectedTab == tag {
             // Already on this tab
-            if showingDetailView {
-                dismissDetailView()
+            if !pathForTab(tag).isEmpty {
+                navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
                 searchVM.requestFocus()
-            } else {
-                // Pop to root by incrementing ID
-                tabRootIDs[tag, default: 0] += 1
             }
         } else {
-            selectedTab = tag
+            navigationCoordinator.selectedTab = tag
         }
         
         #if os(iOS)
@@ -216,45 +231,17 @@ public struct MainTabView: View {
     private func viewForTab(_ tab: TabItem) -> some View {
         switch tab {
         case .home:
-            HomeView(
-                nowPlayingVM: nowPlayingVM,
-                onAlbumTap: { album in
-                    deps.navigationCoordinator.navigateToAlbum(album)
-                },
-                onArtistTap: { artist in
-                    deps.navigationCoordinator.navigateToArtist(artist)
-                },
-                onPlaylistTap: { playlist in
-                    deps.navigationCoordinator.navigateToPlaylist(playlist)
-                }
-            )
+            HomeView(nowPlayingVM: nowPlayingVM)
         case .songs:
             SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artists:
-            ArtistsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onArtistTap: { artist in
-                    deps.navigationCoordinator.navigateToArtist(artist)
-                }
-            )
+            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .albums:
-            AlbumsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onAlbumTap: { album in
-                    deps.navigationCoordinator.navigateToAlbum(album)
-                }
-            )
+            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .genres:
-            GenresView(libraryVM: libraryVM) { _ in }
+            GenresView(libraryVM: libraryVM)
         case .playlists:
-            PlaylistsView(
-                nowPlayingVM: nowPlayingVM,
-                onPlaylistTap: { playlist in
-                    deps.navigationCoordinator.navigateToPlaylist(playlist)
-                }
-            )
+            PlaylistsView(nowPlayingVM: nowPlayingVM)
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:
@@ -263,69 +250,6 @@ public struct MainTabView: View {
             DownloadsView(nowPlayingVM: nowPlayingVM)
         case .settings:
             SettingsView()
-        }
-    }
-    
-    @ViewBuilder
-    private func detailViewForDestination(destination: NavigationCoordinator.Destination) -> some View {
-        // Wrap in NavigationView so detail views have a navigation bar
-        NavigationView {
-            Group {
-                switch destination {
-                case .artist(let artist):
-                    ArtistDetailView(
-                        artist: artist,
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { album in
-                            deps.navigationCoordinator.navigateToAlbum(album)
-                        }
-                    )
-                case .album(let album):
-                    AlbumDetailView(
-                        album: album,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                case .playlist(let playlist):
-                    PlaylistDetailView(
-                        playlist: playlist,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 110)
-            }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismissDetailView()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                }
-                #else
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        dismissDetailView()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                }
-                #endif
-            }
-        }
-        #if os(iOS)
-        .navigationViewStyle(.stack)
-        #endif
-    }
-
-    private var syncButton: some View {
-        Button {
-            showingSyncPanel = true
-        } label: {
-            Image(systemName: "arrow.triangle.2.circlepath")
         }
     }
 }
@@ -337,23 +261,12 @@ public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
 
     @State private var selection: SidebarSection? = .home
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
-    @State private var showingDetailView = false
-    
-    // Helper to dismiss the detail view overlay
-    private func dismissDetailView() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            showingDetailView = false
-        }
-        // Clear destination after animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            deps.navigationCoordinator.clearDestination()
-        }
-    }
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -412,13 +325,6 @@ public struct SidebarView: View {
                 detailView
             }
 
-            // Sliding detail view overlay
-            if showingDetailView, let destination = deps.navigationCoordinator.pendingDestination {
-                detailViewForSidebar(destination: destination)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(1)
-            }
-
             // Mini player overlay (always on top)
             MiniPlayer(viewModel: nowPlayingVM) {
                 showingNowPlaying = true
@@ -434,144 +340,58 @@ public struct SidebarView: View {
         .task {
             await libraryVM.refresh()
         }
-        .onChange(of: deps.navigationCoordinator.pendingDestination) { destination in
-            // Show detail view when navigation is requested
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showingDetailView = destination != nil
-            }
-        }
-        .onChange(of: selection) { _ in
-            // Dismiss detail view when switching sidebar sections
-            if showingDetailView {
-                dismissDetailView()
-            }
-        }
-        .onChange(of: showingSyncPanel) { isShowing in
-            // Dismiss detail view when opening sync panel
-            if isShowing && showingDetailView {
-                dismissDetailView()
-            }
-        }
     }
     
-    @ViewBuilder
-    private func detailViewForSidebar(destination: NavigationCoordinator.Destination) -> some View {
-        // Wrap in NavigationView so detail views have a navigation bar
-        NavigationView {
-            Group {
-                switch destination {
-                case .artist(let artist):
-                    ArtistDetailView(
-                        artist: artist,
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { album in
-                            deps.navigationCoordinator.navigateToAlbum(album)
-                        }
-                    )
-                case .album(let album):
-                    AlbumDetailView(
-                        album: album,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                case .playlist(let playlist):
-                    PlaylistDetailView(
-                        playlist: playlist,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 60)
-            }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismissDetailView()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                }
-                #else
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        dismissDetailView()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                }
-                #endif
-            }
-        }
-        #if os(iOS)
-        .navigationViewStyle(.stack)
-        #endif
-    }
-
     @ViewBuilder
     private var detailView: some View {
         Group {
             switch selection {
             case .home:
-                NavigationStack {
-                    HomeView(
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { album in
-                            deps.navigationCoordinator.navigateToAlbum(album)
-                        },
-                        onArtistTap: { artist in
-                            deps.navigationCoordinator.navigateToArtist(artist)
-                        },
-                        onPlaylistTap: { playlist in
-                            deps.navigationCoordinator.navigateToPlaylist(playlist)
+                NavigationStack(path: $navigationCoordinator.homePath) {
+                    HomeView(nowPlayingVM: nowPlayingVM)
+                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                            destinationView(for: destination)
                         }
-                    )
                 }
             case .songs:
                 NavigationStack {
                     SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
                 }
             case .artists:
-                NavigationStack {
-                    ArtistsView(
-                        libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM
-                    ) { artist in
-                        deps.navigationCoordinator.navigateToArtist(artist)
-                    }
+                NavigationStack(path: $navigationCoordinator.artistsPath) {
+                    ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                            destinationView(for: destination)
+                        }
                 }
             case .albums:
-                NavigationStack {
-                    AlbumsView(
-                        libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM
-                    ) { album in
-                        deps.navigationCoordinator.navigateToAlbum(album)
-                    }
+                NavigationStack(path: $navigationCoordinator.albumsPath) {
+                    AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                            destinationView(for: destination)
+                        }
                 }
             case .genres:
                 NavigationStack {
-                    GenresView(libraryVM: libraryVM) { genre in
-                        // Handle navigation if needed, or just let it be for now
-                    }
+                    GenresView(libraryVM: libraryVM)
                 }
             case .playlists:
-                NavigationStack {
-                    PlaylistsView(
-                        nowPlayingVM: nowPlayingVM,
-                        onPlaylistTap: { playlist in
-                            deps.navigationCoordinator.navigateToPlaylist(playlist)
+                NavigationStack(path: $navigationCoordinator.playlistsPath) {
+                    PlaylistsView(nowPlayingVM: nowPlayingVM)
+                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                            destinationView(for: destination)
                         }
-                    )
                 }
             case .favorites:
                 NavigationStack {
                     FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
                 }
             case .search:
-                NavigationStack {
+                NavigationStack(path: $navigationCoordinator.searchPath) {
                     SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                            destinationView(for: destination)
+                        }
                 }
             case .downloads:
                 NavigationStack {
@@ -590,9 +410,21 @@ public struct SidebarView: View {
             Color.clear.frame(height: 64)
         }
     }
+    
+    @ViewBuilder
+    private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
+        switch destination {
+        case .artist(let id):
+            ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+        case .album(let id):
+            AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id):
+            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        }
+    }
 }
 
-enum SidebarSection: Hashable {
+public enum SidebarSection: Hashable {
     case home
     case songs
     case artists

@@ -71,6 +71,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Search
     func searchTracks(query: String) async throws -> [CDTrack]
+    func searchArtists(query: String) async throws -> [CDArtist]
+    func searchAlbums(query: String) async throws -> [CDAlbum]
 
     // Source management
     func fetchMusicSources() async throws -> [CDMusicSource]
@@ -619,6 +621,40 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func searchArtists(query: String) async throws -> [CDArtist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                request.predicate = NSPredicate(format: "name CONTAINS[cd] %@", query)
+                request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+                do {
+                    let artists = try context.fetch(request)
+                    continuation.resume(returning: artists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func searchAlbums(query: String) async throws -> [CDAlbum] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDAlbum.fetchRequest()
+                request.predicate = NSPredicate(format: "title CONTAINS[cd] %@ OR artistName CONTAINS[cd] %@", query, query)
+                request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+                do {
+                    let albums = try context.fetch(request)
+                    continuation.resume(returning: albums)
                 } catch {
                     continuation.resume(throwing: error)
                 }

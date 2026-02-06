@@ -3,27 +3,29 @@ import SwiftUI
 
 public struct ArtistCard: View {
     let artist: Artist
-    let onTap: () -> Void
+    let onTap: (() -> Void)?
 
-    public init(artist: Artist, onTap: @escaping () -> Void) {
+    public init(artist: Artist, onTap: (() -> Void)? = nil) {
         self.artist = artist
         self.onTap = onTap
     }
 
     public var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 8) {
-                ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
+        VStack(spacing: 8) {
+            ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
 
-                Text(artist.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(width: ArtworkSize.thumbnail.cgSize.width)
+            Text(artist.name)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.primary)
         }
-        .buttonStyle(.plain)
+        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
+        }
     }
 }
 
@@ -31,31 +33,32 @@ public struct ArtistCard: View {
 
 public struct ArtistRow: View {
     let artist: Artist
-    let onTap: () -> Void
+    let onTap: (() -> Void)?
 
-    public init(artist: Artist, onTap: @escaping () -> Void) {
+    public init(artist: Artist, onTap: (() -> Void)? = nil) {
         self.artist = artist
         self.onTap = onTap
     }
 
     public var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
+        HStack(spacing: 12) {
+            ArtworkView(artist: artist, size: .tiny, cornerRadius: 22)
 
-                Text(artist.name)
-                    .font(.body)
-                    .lineLimit(1)
+            Text(artist.name)
+                .font(.body)
+                .lineLimit(1)
+                .foregroundColor(.primary)
 
-                Spacer()
+            Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .contentShape(Rectangle())
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
+        }
     }
 }
 
@@ -65,6 +68,7 @@ public struct ArtistGrid: View {
     let artists: [Artist]
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
+    @Environment(\.dependencies) private var deps
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
@@ -83,32 +87,36 @@ public struct ArtistGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(artists) { artist in
-                NavigationLink {
-                    ArtistDetailView(
-                        artist: artist,
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: { album in
-                            // Album navigation will be handled by AlbumDetailView
-                        }
-                    )
-                } label: {
-                    VStack(spacing: 8) {
-                        ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
-
-                        Text(artist.name)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .lineLimit(1)
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.primary)
+                if #available(iOS 16.0, *) {
+                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                        artistCardContent(artist)
                     }
-                    .frame(width: ArtworkSize.thumbnail.cgSize.width)
+                    .buttonStyle(.plain)
+                } else {
+                    // iOS 15 fallback: using legacy NavigationLink for nested navigation support
+                    NavigationLink {
+                        ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                    } label: {
+                        artistCardContent(artist)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .simultaneousGesture(TapGesture().onEnded {
-                    onArtistTap?(artist)
-                })
             }
         }
         .padding(.horizontal)
+    }
+    
+    private func artistCardContent(_ artist: Artist) -> some View {
+        VStack(spacing: 8) {
+            ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
+
+            Text(artist.name)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.primary)
+        }
+        .frame(width: ArtworkSize.thumbnail.cgSize.width)
     }
 }

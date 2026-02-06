@@ -4,12 +4,10 @@ import SwiftUI
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onPlaylistTap: (Playlist) -> Void
 
-    public init(nowPlayingVM: NowPlayingViewModel, onPlaylistTap: @escaping (Playlist) -> Void) {
+    public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self.nowPlayingVM = nowPlayingVM
-        self.onPlaylistTap = onPlaylistTap
     }
 
     public var body: some View {
@@ -105,9 +103,7 @@ public struct PlaylistsView: View {
     private var playlistListView: some View {
         List {
             ForEach(viewModel.filteredPlaylists) { playlist in
-                PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM) {
-                    onPlaylistTap(playlist)
-                }
+                PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM)
             }
         }
         .listStyle(.plain)

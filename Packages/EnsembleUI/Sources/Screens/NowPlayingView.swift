@@ -560,19 +560,17 @@ public struct NowPlayingView: View {
     
     // Helper: Navigate to artist
     private func handleArtistTap(track: Track) {
-        dismiss()
-        // Delay navigation until after the sheet dismisses
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            viewModel.navigateToArtist()
+        if let artistId = track.artistRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId), in: .artists)
+            dismiss()
         }
     }
     
     // Helper: Navigate to album
     private func handleAlbumTap(track: Track) {
-        dismiss()
-        // Delay navigation until after the sheet dismisses
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            viewModel.navigateToAlbum()
+        if let albumId = track.albumRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId), in: .albums)
+            dismiss()
         }
     }
     
@@ -711,6 +709,3 @@ struct RoundedCorner: Shape {
     }
 }
 #endif
-
-
-

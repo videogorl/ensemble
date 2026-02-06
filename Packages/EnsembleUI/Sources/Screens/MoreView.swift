@@ -158,45 +158,17 @@ public struct MoreView: View {
     private func destinationForTab(_ tab: TabItem) -> some View {
         switch tab {
         case .home:
-            HomeView(
-                nowPlayingVM: nowPlayingVM,
-                onAlbumTap: { album in
-                    deps.navigationCoordinator.navigateToAlbum(album)
-                },
-                onArtistTap: { artist in
-                    deps.navigationCoordinator.navigateToArtist(artist)
-                },
-                onPlaylistTap: { playlist in
-                    deps.navigationCoordinator.navigateToPlaylist(playlist)
-                }
-            )
+            HomeView(nowPlayingVM: nowPlayingVM)
         case .songs:
             SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artists:
-            ArtistsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onArtistTap: { artist in
-                    deps.navigationCoordinator.navigateToArtist(artist)
-                }
-            )
+            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .albums:
-            AlbumsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onAlbumTap: { album in
-                    deps.navigationCoordinator.navigateToAlbum(album)
-                }
-            )
+            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .genres:
-            GenresView(libraryVM: libraryVM) { _ in }
+            GenresView(libraryVM: libraryVM)
         case .playlists:
-            PlaylistsView(
-                nowPlayingVM: nowPlayingVM,
-                onPlaylistTap: { playlist in
-                    deps.navigationCoordinator.navigateToPlaylist(playlist)
-                }
-            )
+            PlaylistsView(nowPlayingVM: nowPlayingVM)
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:

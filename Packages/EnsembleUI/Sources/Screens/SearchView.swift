@@ -23,7 +23,7 @@ public struct SearchView: View {
                 emptySearchView
             } else if viewModel.isSearching {
                 loadingView
-            } else if viewModel.results.isEmpty {
+            } else if viewModel.trackResults.isEmpty && viewModel.artistResults.isEmpty && viewModel.albumResults.isEmpty {
                 noResultsView
             } else {
                 resultsView
@@ -129,36 +129,130 @@ public struct SearchView: View {
 
     private var resultsView: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(
-                        track: track,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                    ) {
-                        nowPlayingVM.play(tracks: viewModel.results, startingAt: index)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .contextMenu {
-                        Button {
-                            nowPlayingVM.playNext(track)
-                        } label: {
-                            Label("Play Next", systemImage: "text.insert")
+            VStack(alignment: .leading, spacing: 24) {
+                // Artists
+                if !viewModel.artistResults.isEmpty {
+                    searchSection(title: "Artists") {
+                        ForEach(viewModel.artistResults) { artist in
+                            if #available(iOS 16.0, *) {
+                                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                                    ArtistRow(artist: artist)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink {
+                                    ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                                } label: {
+                                    ArtistRow(artist: artist)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            
+                            if artist.id != viewModel.artistResults.last?.id {
+                                Divider().padding(.leading, 68)
+                            }
                         }
-
-                        Button {
-                            nowPlayingVM.addToQueue(track)
-                        } label: {
-                            Label("Add to Queue", systemImage: "text.badge.plus")
+                    }
+                }
+                
+                // Albums
+                if !viewModel.albumResults.isEmpty {
+                    searchSection(title: "Albums") {
+                        ForEach(viewModel.albumResults) { album in
+                            if #available(iOS 16.0, *) {
+                                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                                    albumRow(album)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink {
+                                    AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                                } label: {
+                                    albumRow(album)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            
+                            if album.id != viewModel.albumResults.last?.id {
+                                Divider().padding(.leading, 68)
+                            }
                         }
                     }
+                }
+                
+                // Songs
+                if !viewModel.trackResults.isEmpty {
+                    searchSection(title: "Songs") {
+                        ForEach(Array(viewModel.trackResults.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                            ) {
+                                nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
+                            }
+                            .contextMenu {
+                                Button {
+                                    nowPlayingVM.playNext(track)
+                                } label: {
+                                    Label("Play Next", systemImage: "text.insert")
+                                }
 
-                    if index < viewModel.results.count - 1 {
-                        Divider()
-                            .padding(.leading, 68)
+                                Button {
+                                    nowPlayingVM.addToQueue(track)
+                                } label: {
+                                    Label("Add to Queue", systemImage: "text.badge.plus")
+                                }
+                            }
+
+                            if index < viewModel.trackResults.count - 1 {
+                                Divider()
+                                    .padding(.leading, 68)
+                            }
+                        }
                     }
                 }
             }
+            .padding(.vertical)
         }
+    }
+    
+    private func searchSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            VStack(spacing: 0) {
+                content()
+            }
+            .padding(.horizontal)
+        }
+    }
+    
+    private func albumRow(_ album: Album) -> some View {
+        HStack(spacing: 12) {
+            ArtworkView(album: album, size: .tiny, cornerRadius: 4)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(album.title)
+                    .font(.body)
+                    .lineLimit(1)
+                    .foregroundColor(.primary)
+                
+                Text(album.artistName ?? "Unknown Artist")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }

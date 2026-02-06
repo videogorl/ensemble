@@ -249,38 +249,6 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.cycleRepeatMode()
     }
 
-    // MARK: - Navigation
-
-    public func navigateToArtist() {
-        guard let track = currentTrack else { return }
-        Task {
-            // Get the album artist by fetching the album first
-            if let albumId = track.albumRatingKey,
-               let cdAlbum = try? await libraryRepository.fetchAlbum(ratingKey: albumId),
-               let cdArtist = cdAlbum.artist {
-                let artist = Artist(from: cdArtist)
-                navigationCoordinator.navigateToArtist(artist)
-            }
-            // Fallback to track artist if album artist is not available
-            else if let artistId = track.artistRatingKey,
-                    let cdArtist = try? await libraryRepository.fetchArtist(ratingKey: artistId) {
-                let artist = Artist(from: cdArtist)
-                navigationCoordinator.navigateToArtist(artist)
-            }
-        }
-    }
-
-    public func navigateToAlbum() {
-        guard let track = currentTrack, let albumId = track.albumRatingKey else { return }
-        Task {
-            // Fetch the full album object
-            if let cdAlbum = try? await libraryRepository.fetchAlbum(ratingKey: albumId) {
-                let album = Album(from: cdAlbum)
-                navigationCoordinator.navigateToAlbum(album)
-            }
-        }
-    }
-
     // MARK: - Rating Management
     
     /// Toggle rating through three states: none → loved → disliked → none

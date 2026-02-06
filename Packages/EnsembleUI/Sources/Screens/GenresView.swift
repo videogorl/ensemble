@@ -3,12 +3,10 @@ import SwiftUI
 
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    let onGenreTap: (Genre) -> Void
     @State private var searchText = ""
 
-    public init(libraryVM: LibraryViewModel, onGenreTap: @escaping (Genre) -> Void) {
+    public init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
-        self.onGenreTap = onGenreTap
     }
     
     private var filteredGenres: [Genre] {
@@ -66,26 +64,17 @@ public struct GenresView: View {
     private var genreListView: some View {
         List {
             ForEach(filteredGenres) { genre in
-                Button {
-                    onGenreTap(genre)
-                } label: {
-                    HStack {
-                        Image(systemName: "guitars.fill")
-                            .font(.title2)
-                            .foregroundColor(.accentColor)
-                            .frame(width: 44)
+                HStack {
+                    Image(systemName: "guitars.fill")
+                        .font(.title2)
+                        .foregroundColor(.accentColor)
+                        .frame(width: 44)
 
-                        Text(genre.title)
-                            .font(.body)
+                    Text(genre.title)
+                        .font(.body)
 
-                        Spacer()
-
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                    Spacer()
                 }
-                .buttonStyle(.plain)
             }
         }
         .listStyle(.plain)

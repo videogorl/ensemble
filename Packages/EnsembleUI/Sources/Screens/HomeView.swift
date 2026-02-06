@@ -6,21 +6,11 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: (Album) -> Void
-    let onArtistTap: (Artist) -> Void
-    let onPlaylistTap: (Playlist) -> Void
+    @Environment(\.dependencies) private var deps
     
-    public init(
-        nowPlayingVM: NowPlayingViewModel,
-        onAlbumTap: @escaping (Album) -> Void,
-        onArtistTap: @escaping (Artist) -> Void,
-        onPlaylistTap: @escaping (Playlist) -> Void
-    ) {
+    public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self.nowPlayingVM = nowPlayingVM
-        self.onAlbumTap = onAlbumTap
-        self.onArtistTap = onArtistTap
-        self.onPlaylistTap = onPlaylistTap
     }
     
     public var body: some View {
@@ -116,13 +106,7 @@ public struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 ForEach(viewModel.hubs) { hub in
-                    HubSection(
-                        hub: hub,
-                        nowPlayingVM: nowPlayingVM,
-                        onAlbumTap: onAlbumTap,
-                        onArtistTap: onArtistTap,
-                        onPlaylistTap: onPlaylistTap
-                    )
+                    HubSection(hub: hub, nowPlayingVM: nowPlayingVM)
                 }
             }
             .padding(.vertical)
@@ -139,9 +123,6 @@ public struct HomeView: View {
 struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: (Album) -> Void
-    let onArtistTap: (Artist) -> Void
-    let onPlaylistTap: (Playlist) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -155,13 +136,7 @@ struct HubSection: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(hub.items) { item in
-                        HubItemCard(
-                            item: item,
-                            nowPlayingVM: nowPlayingVM,
-                            onAlbumTap: onAlbumTap,
-                            onArtistTap: onArtistTap,
-                            onPlaylistTap: onPlaylistTap
-                        )
+                        HubItemCard(item: item, nowPlayingVM: nowPlayingVM)
                     }
                 }
                 .padding(.horizontal)
@@ -177,9 +152,7 @@ struct HubSection: View {
 struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: (Album) -> Void
-    let onArtistTap: (Artist) -> Void
-    let onPlaylistTap: (Playlist) -> Void
+    @Environment(\.dependencies) private var deps
     
     private var isArtist: Bool {
         item.type == "artist"
@@ -233,28 +206,10 @@ struct HubItemCard: View {
         
         switch item.type {
         case "album":
-            let album = item.album ?? Album(
-                id: item.id,
-                key: item.id,
-                title: item.title,
-                artistName: item.subtitle,
-                year: item.year,
-                thumbPath: item.thumbPath,
-                sourceCompositeKey: item.sourceCompositeKey
-            )
-            print("🎯 Calling onAlbumTap for: \(album.title)")
-            onAlbumTap(album)
+            deps.navigationCoordinator.push(.album(id: item.id), in: deps.navigationCoordinator.selectedTab)
             
         case "artist":
-            let artist = item.artist ?? Artist(
-                id: item.id,
-                key: item.id,
-                name: item.title,
-                thumbPath: item.thumbPath,
-                sourceCompositeKey: item.sourceCompositeKey
-            )
-            print("🎯 Calling onArtistTap for: \(artist.name)")
-            onArtistTap(artist)
+            deps.navigationCoordinator.push(.artist(id: item.id), in: deps.navigationCoordinator.selectedTab)
             
         case "track":
             let track = item.track ?? Track(
@@ -269,14 +224,7 @@ struct HubItemCard: View {
             nowPlayingVM.play(tracks: [track])
             
         case "playlist":
-            let playlist = item.playlist ?? Playlist(
-                id: item.id,
-                key: item.id,
-                title: item.title,
-                sourceCompositeKey: item.sourceCompositeKey
-            )
-            print("🎯 Calling onPlaylistTap for: \(playlist.title)")
-            onPlaylistTap(playlist)
+            deps.navigationCoordinator.push(.playlist(id: item.id), in: deps.navigationCoordinator.selectedTab)
             
         default:
             print("🎯 Unknown item type: \(item.type)")

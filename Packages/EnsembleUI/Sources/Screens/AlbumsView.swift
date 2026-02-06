@@ -4,17 +4,14 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: (Album) -> Void
     @State private var showFilterSheet = false
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        onAlbumTap: @escaping (Album) -> Void
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self.onAlbumTap = onAlbumTap
     }
     
     // Get unique artist names for filter
@@ -171,14 +168,14 @@ public struct AlbumsView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(albumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
-                                    AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+                                    AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
                                         .id(section.letter)
                                 }
                             }
                         }
                         .padding(.vertical)
                     } else {
-                        AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+                        AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
                             .padding(.vertical)
                     }
                 }
@@ -254,7 +251,8 @@ public struct AlbumDetailView: View {
             metadataLine: metadataParts.joined(separator: " · "),
             artworkPath: album.thumbPath,
             sourceKey: album.sourceCompositeKey,
-            ratingKey: album.id
+            ratingKey: album.id,
+            artistRatingKey: album.artistRatingKey
         )
     }
 }

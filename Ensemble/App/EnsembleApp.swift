@@ -14,6 +14,9 @@ struct EnsembleApp: App {
         WindowGroup {
             RootView()
                 .environment(\.dependencies, DependencyContainer.shared)
+                .onOpenURL { url in
+                    _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                }
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)

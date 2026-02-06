@@ -5,9 +5,14 @@ import Foundation
 @MainActor
 public final class SearchViewModel: ObservableObject {
     @Published public var searchQuery = ""
-    @Published public private(set) var results: [Track] = []
+    @Published public private(set) var trackResults: [Track] = []
+    @Published public private(set) var artistResults: [Artist] = []
+    @Published public private(set) var albumResults: [Album] = []
     @Published public private(set) var isSearching = false
     @Published public private(set) var error: String?
+    
+    // Legacy support
+    public var results: [Track] { trackResults }
     
     public let focusRequested = PassthroughSubject<Void, Never>()
 
@@ -36,7 +41,9 @@ public final class SearchViewModel: ObservableObject {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            results = []
+            trackResults = []
+            artistResults = []
+            albumResults = []
             return
         }
 
@@ -50,8 +57,15 @@ public final class SearchViewModel: ObservableObject {
         error = nil
 
         do {
-            let localResults = try await libraryRepository.searchTracks(query: query)
-            results = localResults.map { Track(from: $0) }
+            async let localTracks = libraryRepository.searchTracks(query: query)
+            async let localArtists = libraryRepository.searchArtists(query: query)
+            async let localAlbums = libraryRepository.searchAlbums(query: query)
+            
+            let (tracks, artists, albums) = try await (localTracks, localArtists, localAlbums)
+            
+            trackResults = tracks.map { Track(from: $0) }
+            artistResults = artists.map { Artist(from: $0) }
+            albumResults = albums.map { Album(from: $0) }
         } catch {
             if !Task.isCancelled {
                 self.error = error.localizedDescription
@@ -63,7 +77,9 @@ public final class SearchViewModel: ObservableObject {
 
     public func clearSearch() {
         searchQuery = ""
-        results = []
+        trackResults = []
+        artistResults = []
+        albumResults = []
     }
     
     public func requestFocus() {

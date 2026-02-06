@@ -5,17 +5,14 @@ import Nuke
 public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onArtistTap: (Artist) -> Void
     @State private var showFilterSheet = false
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        onArtistTap: @escaping (Artist) -> Void
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self.onArtistTap = onArtistTap
     }
 
     public var body: some View {
@@ -147,8 +144,7 @@ public struct ArtistsView: View {
                                 Section(header: sectionHeader(section.letter)) {
                                     ArtistGrid(
                                         artists: section.artists,
-                                        nowPlayingVM: nowPlayingVM,
-                                        onArtistTap: onArtistTap
+                                        nowPlayingVM: nowPlayingVM
                                     )
                                     .id(section.letter)
                                 }
@@ -158,8 +154,7 @@ public struct ArtistsView: View {
                     } else {
                         ArtistGrid(
                             artists: libraryVM.filteredArtists,
-                            nowPlayingVM: nowPlayingVM,
-                            onArtistTap: onArtistTap
+                            nowPlayingVM: nowPlayingVM
                         )
                         .padding(.vertical)
                     }
@@ -198,7 +193,6 @@ public struct ArtistsView: View {
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: (Album) -> Void
 
     @Environment(\.dependencies) private var dependencies
     @State private var isBioExpanded = false
@@ -206,12 +200,10 @@ public struct ArtistDetailView: View {
 
     public init(
         artist: Artist,
-        nowPlayingVM: NowPlayingViewModel,
-        onAlbumTap: @escaping (Album) -> Void
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
         self.nowPlayingVM = nowPlayingVM
-        self.onAlbumTap = onAlbumTap
     }
 
     public var body: some View {
@@ -432,7 +424,7 @@ public struct ArtistDetailView: View {
                 .fontWeight(.bold)
                 .padding(.horizontal)
 
-            AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM, onAlbumTap: onAlbumTap)
+            AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM)
         }
     }
 }

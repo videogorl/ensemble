@@ -11,6 +11,7 @@ public struct MediaHeaderData {
     let artworkPath: String?
     let sourceKey: String?
     let ratingKey: String?
+    let artistRatingKey: String? // Added for cross-navigation
 
     public init(
         title: String,
@@ -18,7 +19,8 @@ public struct MediaHeaderData {
         metadataLine: String,
         artworkPath: String?,
         sourceKey: String?,
-        ratingKey: String? = nil
+        ratingKey: String? = nil,
+        artistRatingKey: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -26,6 +28,7 @@ public struct MediaHeaderData {
         self.artworkPath = artworkPath
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
+        self.artistRatingKey = artistRatingKey
     }
 }
 
@@ -158,7 +161,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    private var headerView: some View {        VStack(spacing: 16) {
+    private var headerView: some View {
+        VStack(spacing: 16) {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
@@ -172,13 +176,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
+                    .foregroundColor(.primary)
 
                 if let subtitle = headerData.subtitle {
-                    Text(subtitle)
-                        .font(.title3)
-                        .foregroundColor(.accentColor)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
+                    if let artistId = headerData.artistRatingKey {
+                        Button {
+                            deps.navigationCoordinator.push(.artist(id: artistId), in: deps.navigationCoordinator.selectedTab)
+                        } label: {
+                            Text(subtitle)
+                                .font(.title3)
+                                .foregroundColor(.accentColor)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                        }
+                    } else {
+                        Text(subtitle)
+                            .font(.title3)
+                            .foregroundColor(.accentColor)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    }
                 }
 
                 Text(headerData.metadataLine)
