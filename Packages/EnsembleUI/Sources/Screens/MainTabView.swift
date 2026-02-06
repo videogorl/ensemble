@@ -135,6 +135,7 @@ public struct MainTabView: View {
                     .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
             }
+            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
