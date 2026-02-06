@@ -210,6 +210,8 @@ public struct SongsView: View {
                             proxy.scrollTo(letter, anchor: .top)
                         }
                     )
+                    .frame(maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: .top)
                 }
             }
         }
