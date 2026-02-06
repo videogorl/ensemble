@@ -134,7 +134,7 @@ struct HubSection: View {
             
             // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(hub.items) { item in
                         HubItemCard(item: item, nowPlayingVM: nowPlayingVM)
                     }
