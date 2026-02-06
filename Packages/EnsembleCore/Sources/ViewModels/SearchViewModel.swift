@@ -334,9 +334,10 @@ public final class SearchViewModel: ObservableObject {
                     self.recommendedItems = Array(recommendedHubItems.prefix(6))
                     self.isLoadingExplore = false
                 }
-            }.value
+            }
+            // Don't await the detached task - let it run independently
             
-            // Fetch all genres from library
+            // Fetch all genres from library in parallel (don't wait for background task)
             do {
                 let genreCDs = try await libraryRepository.fetchGenres()
                 self.allGenres = genreCDs.map { Genre(from: $0) }
