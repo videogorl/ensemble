@@ -112,7 +112,7 @@ public struct MainTabView: View {
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
                 }
-                .padding(.bottom, 110)
+                .padding(.bottom, 113)
                 .overlay(alignment: .bottom) {
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)
                     VStack(spacing: 0) {
@@ -255,7 +255,7 @@ public struct MainTabView: View {
             // Keep visibleTabs in sync when user changes tab settings
             navigationCoordinator.visibleTabs = barTabs
         }
-        .padding(.bottom, 110)
+        .padding(.bottom, 113)
         .overlay(alignment: .bottom) {
             // Persistent UI Layer (MiniPlayer + Custom TabBar)
             VStack(spacing: 0) {
@@ -300,9 +300,13 @@ public struct MainTabView: View {
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)
         }
-        .padding(.horizontal, 4)
         .frame(height: 49)
-        .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 8)
+        .padding(.horizontal, 4)
+        .padding(.bottom, safeAreaBottom)
+        .background(
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea(edges: .bottom)
+        )
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
