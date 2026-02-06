@@ -55,6 +55,7 @@ public struct MainTabView: View {
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
+    @Namespace private var tabNamespace
 
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
@@ -109,17 +110,13 @@ public struct MainTabView: View {
                 }
                 .overlay(alignment: .bottom) {
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)  
-                    VStack(spacing: 0) {
+                    VStack(spacing: 8) {
                         MiniPlayer(viewModel: nowPlayingVM) {
                             showingNowPlaying = true
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                         customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
-                            .background(.ultraThinMaterial)
-                            .overlay(alignment: .top) {
-                                Divider()
-                            }
                     }
                     .ignoresSafeArea(edges: .bottom)
                 }
@@ -244,31 +241,56 @@ public struct MainTabView: View {
             
             tabItem(title: "More", icon: "ellipsis", tag: .settings)
         }
-        .frame(height: 49)
-        .padding(.horizontal, 4)
-        .padding(.bottom, safeAreaBottom)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+                .overlay {
+                    Capsule()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, safeAreaBottom > 0 ? safeAreaBottom : 12)
     }
     
     private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
         let isSelected = navigationCoordinator.selectedTab == tag
         
-        return VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.system(size: 23))
-                .frame(height: 26)
+        return VStack(spacing: 4) {
+            ZStack {
+                if isSelected {
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.15))
+                        .frame(width: 44, height: 28)
+                        .matchedGeometryEffect(id: "tabHighlight", in: tabNamespace)
+                }
+                
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+            .frame(height: 28)
+            
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                .foregroundColor(isSelected ? .accentColor : .secondary)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .foregroundColor(isSelected ? .accentColor : .secondary)
         .onTapGesture {
-            handleTabTap(tag)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                handleTabTap(tag)
+            }
         }
         .onLongPressGesture(minimumDuration: 0.5) {
             if tag == .search {
-                handleTabTap(.search)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    handleTabTap(.search)
+                }
                 searchVM.requestFocus()
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
