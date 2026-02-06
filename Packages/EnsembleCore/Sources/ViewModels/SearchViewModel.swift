@@ -211,136 +211,147 @@ public final class SearchViewModel: ObservableObject {
             isLoadingExplore = true
             exploreError = nil
             
-            // Step 1: Load cached hubs for offline-first experience
+            // Return immediately to unblock the UI
+            // All loading happens in background tasks
+        }
+        
+        // Load cached hubs in background (don't block MainActor)
+        Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let cachedHubs = try await hubRepository.fetchHubs()
-                let (albums, artists, added, recommended) = extractContentFromHubs(cachedHubs)
-                self.recentlyPlayedAlbums = Array(albums.prefix(6))
-                self.recentlyPlayedArtists = Array(artists.prefix(6))
-                self.recentlyAddedAlbums = Array(added.prefix(6))
-                self.recommendedItems = Array(recommended.prefix(6))
+                let cachedHubs = try await self?.hubRepository.fetchHubs() ?? []
+                let (albums, artists, added, recommended) = self?.extractContentFromHubs(cachedHubs) ?? ([], [], [], [])
+                await MainActor.run {
+                    self?.recentlyPlayedAlbums = Array(albums.prefix(6))
+                    self?.recentlyPlayedArtists = Array(artists.prefix(6))
+                    self?.recentlyAddedAlbums = Array(added.prefix(6))
+                    self?.recommendedItems = Array(recommended.prefix(6))
+                }
             } catch {
-                // Silently continue - no cached data available
                 print("ℹ️ No cached explore content available")
             }
+        }
+        
+        // Fetch fresh data from Plex in separate background task
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             
             // Capture API clients on main actor before entering detached task
             var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
             
-            for account in accountManager.plexAccounts {
-                for server in account.servers {
-                    guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                        continue
-                    }
-                    
-                    let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                    
-                    for library in enabledLibraries {
-                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
-                        fetchTasks.append((sourceKey, client, library.key))
+            await MainActor.run {
+                for account in self.accountManager.plexAccounts {
+                    for server in account.servers {
+                        guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                            continue
+                        }
+                        
+                        let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                        
+                        for library in enabledLibraries {
+                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            fetchTasks.append((sourceKey, client, library.key))
+                        }
                     }
                 }
             }
             
-            // Step 2: Fetch fresh data from server in background and update cache
-            await Task.detached(priority: .userInitiated) { [weak self] in
-                guard let self = self else { return }
-                
-                // Fetch hubs from each source
-                var freshHubs: [Hub] = []
-                var recentAlbums: [Album] = []
-                var recentArtists: [Artist] = []
-                var addedAlbums: [Album] = []
-                var recommendedHubItems: [HubItem] = []
-                
-                for task in fetchTasks {
-                    do {
-                        let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+            // Fetch hubs from each source
+            var freshHubs: [Hub] = []
+            var recentAlbums: [Album] = []
+            var recentArtists: [Artist] = []
+            var addedAlbums: [Album] = []
+            var recommendedHubItems: [HubItem] = []
+            
+            for task in fetchTasks {
+                do {
+                    let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+                    
+                    for plexHub in plexHubs {
+                        let title = plexHub.title.lowercased()
                         
-                        for plexHub in plexHubs {
-                            let title = plexHub.title.lowercased()
-                            
-                            // Extract metadata from hub
-                            var metadata: [PlexHubMetadata] = []
-                            if let existing = plexHub.metadata, !existing.isEmpty {
-                                metadata = existing
-                            } else if let key = plexHub.key ?? plexHub.hubKey {
-                                if let items = try? await task.client.getHubItems(hubKey: key) {
-                                    metadata = items
-                                }
-                            }
-                            
-                            // Filter to music-only content
-                            let filteredMetadata = metadata.filter { item in
-                                let type = item.type?.lowercased() ?? ""
-                                return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                            }
-                            
-                            // Convert to HubItems and create Hub for caching
-                            let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
-                            freshHubs.append(Hub(
-                                id: plexHub.key ?? plexHub.hubKey ?? UUID().uuidString,
-                                title: plexHub.title,
-                                type: plexHub.type ?? "mixed",
-                                items: hubItems
-                            ))
-                            
-                            // Categorize hubs for UI display
-                            if title.contains("recently played") || title.contains("recent plays") {
-                                // Extract albums and artists from Recently Played
-                                for item in hubItems.prefix(12) {
-                                    if let album = item.album {
-                                        recentAlbums.append(album)
-                                    }
-                                    if let artist = item.artist {
-                                        recentArtists.append(artist)
-                                    }
-                                }
-                            } else if title.contains("recently added") || title.contains("recent additions") {
-                                // Recently Added albums
-                                for item in hubItems.prefix(12) {
-                                    if let album = item.album {
-                                        addedAlbums.append(album)
-                                    }
-                                }
-                            } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
-                                // Recommended content
-                                for item in hubItems.prefix(12) {
-                                    recommendedHubItems.append(item)
-                                }
+                        // Extract metadata from hub
+                        var metadata: [PlexHubMetadata] = []
+                        if let existing = plexHub.metadata, !existing.isEmpty {
+                            metadata = existing
+                        } else if let key = plexHub.key ?? plexHub.hubKey {
+                            if let items = try? await task.client.getHubItems(hubKey: key) {
+                                metadata = items
                             }
                         }
-                    } catch {
-                        // Silently continue on error - will use cached data
-                        print("⚠️ Failed to fetch hubs: \(error)")
+                        
+                        // Filter to music-only content
+                        let filteredMetadata = metadata.filter { item in
+                            let type = item.type?.lowercased() ?? ""
+                            return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                        }
+                        
+                        // Convert to HubItems and create Hub for caching
+                        let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                        freshHubs.append(Hub(
+                            id: plexHub.key ?? plexHub.hubKey ?? UUID().uuidString,
+                            title: plexHub.title,
+                            type: plexHub.type ?? "mixed",
+                            items: hubItems
+                        ))
+                        
+                        // Categorize hubs for UI display
+                        if title.contains("recently played") || title.contains("recent plays") {
+                            // Extract albums and artists from Recently Played
+                            for item in hubItems.prefix(12) {
+                                if let album = item.album {
+                                    recentAlbums.append(album)
+                                }
+                                if let artist = item.artist {
+                                    recentArtists.append(artist)
+                                }
+                            }
+                        } else if title.contains("recently added") || title.contains("recent additions") {
+                            // Recently Added albums
+                            for item in hubItems.prefix(12) {
+                                if let album = item.album {
+                                    addedAlbums.append(album)
+                                }
+                            }
+                        } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
+                            // Recommended content
+                            for item in hubItems.prefix(12) {
+                                recommendedHubItems.append(item)
+                            }
+                        }
                     }
-                }
-                
-                // Save fresh hubs to cache for offline use
-                if !freshHubs.isEmpty {
-                    do {
-                        try await self.hubRepository.saveHubs(freshHubs)
-                        print("✅ Cached \(freshHubs.count) hubs for offline use")
-                    } catch {
-                        print("⚠️ Failed to cache hubs: \(error)")
-                    }
-                }
-                
-                // Update UI on main actor with fresh data
-                await MainActor.run {
-                    self.recentlyPlayedAlbums = Array(recentAlbums.prefix(6))
-                    self.recentlyPlayedArtists = Array(recentArtists.prefix(6))
-                    self.recentlyAddedAlbums = Array(addedAlbums.prefix(6))
-                    self.recommendedItems = Array(recommendedHubItems.prefix(6))
-                    self.isLoadingExplore = false
+                } catch {
+                    // Silently continue on error - will use cached data
+                    print("⚠️ Failed to fetch hubs: \(error)")
                 }
             }
-            // Don't await the detached task - let it run independently
             
-            // Fetch all genres from library in parallel (don't wait for background task)
+            // Save fresh hubs to cache for offline use
+            if !freshHubs.isEmpty {
+                do {
+                    try await self.hubRepository.saveHubs(freshHubs)
+                    print("✅ Cached \(freshHubs.count) hubs for offline use")
+                } catch {
+                    print("⚠️ Failed to cache hubs: \(error)")
+                }
+            }
+            
+            // Update UI on main actor with fresh data
+            await MainActor.run {
+                self.recentlyPlayedAlbums = Array(recentAlbums.prefix(6))
+                self.recentlyPlayedArtists = Array(recentArtists.prefix(6))
+                self.recentlyAddedAlbums = Array(addedAlbums.prefix(6))
+                self.recommendedItems = Array(recommendedHubItems.prefix(6))
+                self.isLoadingExplore = false
+            }
+        }
+        
+        // Fetch all genres from library in background (non-blocking)
+        Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let genreCDs = try await libraryRepository.fetchGenres()
-                self.allGenres = genreCDs.map { Genre(from: $0) }
+                let genreCDs = try await self?.libraryRepository.fetchGenres() ?? []
+                await MainActor.run {
+                    self?.allGenres = genreCDs.map { Genre(from: $0) }
+                }
             } catch {
                 // Silently continue if genre fetch fails
             }
@@ -348,7 +359,7 @@ public final class SearchViewModel: ObservableObject {
     }
     
     /// Extract albums, artists, and items from Hub array
-    private func extractContentFromHubs(_ hubs: [Hub]) -> (albums: [Album], artists: [Artist], addedAlbums: [Album], recommendedItems: [HubItem]) {
+    nonisolated private func extractContentFromHubs(_ hubs: [Hub]) -> (albums: [Album], artists: [Artist], addedAlbums: [Album], recommendedItems: [HubItem]) {
         var recentAlbums: [Album] = []
         var recentArtists: [Artist] = []
         var addedAlbums: [Album] = []
