@@ -55,7 +55,10 @@ public struct MainTabView: View {
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
+    
+    #if os(iOS)
     @StateObject private var keyboard = KeyboardObserver()
+    #endif
 
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
@@ -70,6 +73,14 @@ public struct MainTabView: View {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+    }
+
+    private var isKeyboardVisible: Bool {
+        #if os(iOS)
+        return keyboard.isVisible
+        #else
+        return false
+        #endif
     }
 
     public var body: some View {
@@ -114,7 +125,7 @@ public struct MainTabView: View {
             }
 
             // Persistent MiniPlayer (Floating above native TabBar)
-            if nowPlayingVM.currentTrack != nil && !keyboard.isVisible {
+            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }

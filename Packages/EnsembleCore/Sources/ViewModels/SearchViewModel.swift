@@ -301,14 +301,16 @@ public final class SearchViewModel: ObservableObject {
         
         // Load cached hubs in background (don't block MainActor)
         Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             do {
-                let cachedHubs = try await self?.hubRepository.fetchHubs() ?? []
-                let (albums, artists, added, recommended) = self?.extractContentFromHubs(cachedHubs) ?? ([], [], [], [])
-                await MainActor.run {
-                    self?.recentlyPlayedAlbums = Array(albums.prefix(6))
-                    self?.recentlyPlayedArtists = Array(artists.prefix(6))
-                    self?.recentlyAddedAlbums = Array(added.prefix(6))
-                    self?.recommendedItems = Array(recommended.prefix(6))
+                let cachedHubs = try await self.hubRepository.fetchHubs()
+                let results = self.extractContentFromHubs(cachedHubs)
+                
+                await MainActor.run { [weak self] in
+                    self?.recentlyPlayedAlbums = Array(results.albums.prefix(6))
+                    self?.recentlyPlayedArtists = Array(results.artists.prefix(6))
+                    self?.recentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
+                    self?.recommendedItems = Array(results.recommendedItems.prefix(6))
                 }
             } catch {
                 print("ℹ️ No cached explore content available")
@@ -320,9 +322,8 @@ public final class SearchViewModel: ObservableObject {
             guard let self = self else { return }
             
             // Capture API clients on main actor before entering detached task
-            var fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
-            
-            await MainActor.run {
+            let fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = await MainActor.run {
+                var tasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
                 for account in self.accountManager.plexAccounts {
                     for server in account.servers {
                         guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
@@ -333,10 +334,11 @@ public final class SearchViewModel: ObservableObject {
                         
                         for library in enabledLibraries {
                             let sourceKey = "\(account.id):\(server.id):\(library.key)"
-                            fetchTasks.append((sourceKey, client, library.key))
+                            tasks.append((sourceKey, client, library.key))
                         }
                     }
                 }
+                return tasks
             }
             
             // Fetch hubs from each source
@@ -420,20 +422,27 @@ public final class SearchViewModel: ObservableObject {
             }
             
             // Update UI on main actor with fresh data
-            await MainActor.run {
-                self.recentlyPlayedAlbums = Array(recentAlbums.prefix(6))
-                self.recentlyPlayedArtists = Array(recentArtists.prefix(6))
-                self.recentlyAddedAlbums = Array(addedAlbums.prefix(6))
-                self.recommendedItems = Array(recommendedHubItems.prefix(6))
+            let finalRecentAlbums = Array(recentAlbums.prefix(6))
+            let finalRecentArtists = Array(recentArtists.prefix(6))
+            let finalAddedAlbums = Array(addedAlbums.prefix(6))
+            let finalRecommendedItems = Array(recommendedHubItems.prefix(6))
+            
+            await MainActor.run { [weak self] in
+                self?.recentlyPlayedAlbums = finalRecentAlbums
+                self?.recentlyPlayedArtists = finalRecentArtists
+                self?.recentlyAddedAlbums = finalAddedAlbums
+                self?.recommendedItems = finalRecommendedItems
             }
         }
         
         // Fetch all genres from library in background (non-blocking)
         Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             do {
-                let genreCDs = try await self?.libraryRepository.fetchGenres() ?? []
-                await MainActor.run {
-                    self?.allGenres = genreCDs.map { Genre(from: $0) }
+                let genreCDs = try await self.libraryRepository.fetchGenres()
+                let genres = genreCDs.map { Genre(from: $0) }
+                await MainActor.run { [weak self] in
+                    self?.allGenres = genres
                 }
             } catch {
                 // Silently continue if genre fetch fails

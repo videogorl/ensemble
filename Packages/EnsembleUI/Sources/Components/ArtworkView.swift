@@ -79,12 +79,12 @@ public struct ArtworkView: View {
         let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
         let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
         
-        guard actualPath != nil else {
+        guard let finalPath = actualPath else {
             print("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             return
         }
         
-        print("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(path ?? "nil") fallback:\(fallbackPath ?? "nil") ratingKey:\(ratingKey ?? "nil")")
+        print("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(finalPath) ratingKey:\(actualRatingKey ?? "nil")")
         
         let url = await dependencies.artworkLoader.artworkURLAsync(
             for: path,

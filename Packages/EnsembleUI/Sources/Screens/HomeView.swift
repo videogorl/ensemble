@@ -25,7 +25,7 @@ public struct HomeView: View {
         }
         .navigationTitle("Feed")
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .primaryActionIfAvailable) {
                 Button("Edit") {
                     viewModel.enterEditMode()
                     viewModel.isEditingOrder = true

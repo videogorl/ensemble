@@ -243,6 +243,24 @@ public final class LibraryViewModel: ObservableObject {
         applyFilters(to: sortedGenres, with: genresFilterOptions)
     }
 
+    // MARK: - Sections
+
+    public struct TrackSection: Identifiable {
+        public let letter: String
+        public let tracks: [Track]
+        public var id: String { letter }
+    }
+
+    public var trackSections: [TrackSection] {
+        let grouped = Dictionary(grouping: filteredTracks) { $0.title.indexingLetter }
+        return grouped.map { TrackSection(letter: $0.key, tracks: $0.value) }
+            .sorted { left, right in
+                if left.letter == "#" { return true }
+                if right.letter == "#" { return false }
+                return left.letter < right.letter
+            }
+    }
+
     // MARK: - Filter Application
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
