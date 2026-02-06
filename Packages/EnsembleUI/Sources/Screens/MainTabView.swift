@@ -223,7 +223,7 @@ public struct MainTabView: View {
     private func tabContainer(geometry: GeometryProxy) -> some View {
         if #available(iOS 16.0, *) {
             baseTabView(geometry: geometry)
-                .toolbar(.hidden, for: .tabBar)
+                .modifier(TabBarHiddenModifier())
         } else {
             baseTabView(geometry: geometry)
         }
@@ -276,6 +276,13 @@ public struct MainTabView: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)
             .ignoresSafeArea(.keyboard, edges: .bottom)
+        }
+    }
+
+    @available(iOS 16.0, *)
+    private struct TabBarHiddenModifier: ViewModifier {
+        func body(content: Content) -> some View {
+            content.toolbar(.hidden, for: .tabBar)
         }
     }
     
