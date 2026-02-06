@@ -125,11 +125,6 @@ public struct MainTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
                         customTabBar(safeAreaBottom: baseSafeAreaBottom)
-                            .background(
-                                Rectangle()
-                                    .fill(.regularMaterial)
-                                    .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
-                            )
                     }
                     .ignoresSafeArea(.container, edges: .bottom)
                     .ignoresSafeArea(.keyboard, edges: .bottom)
