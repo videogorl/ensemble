@@ -59,7 +59,6 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var didSetInitialTab = false
-    @State private var baseSafeAreaBottom: CGFloat = 0
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -99,20 +98,18 @@ public struct MainTabView: View {
                     // Sync visible tabs to NavigationCoordinator for fallback logic
                     navigationCoordinator.visibleTabs = barTabs
 
-                    if baseSafeAreaBottom == 0 {
-                        baseSafeAreaBottom = geometry.safeAreaInsets.bottom
-                    }
-
                     if !didSetInitialTab {
                         navigationCoordinator.selectedTab = barTabs.first ?? .home
                         didSetInitialTab = true
                     }
                 }
-                .onChangeOf(settingsManager.enabledTabs) { _ in
+                .onChange(of: settingsManager.enabledTabs) { _ in
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
-                }\n                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: 113)\n                }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: 120 + geometry.safeAreaInsets.bottom)
+                }
                 .overlay(alignment: .bottom) {
                     // Persistent UI Layer (MiniPlayer + Custom TabBar)  
                     VStack(spacing: 0) {
@@ -121,13 +118,13 @@ public struct MainTabView: View {
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
 
-                        customTabBar(safeAreaBottom: baseSafeAreaBottom)
+                        customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
                     }
                     .background(Color(uiColor: .systemBackground))
                     .ignoresSafeArea(edges: .bottom)
                 }
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .ignoresSafeArea(edges: .bottom)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)

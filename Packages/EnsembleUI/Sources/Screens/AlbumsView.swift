@@ -179,9 +179,6 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 110)
-                }
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(
