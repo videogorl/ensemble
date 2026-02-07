@@ -28,13 +28,15 @@ struct CoverFlowItemView: View {
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
                 
                 if let subtitle = subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .lineLimit(1)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.gray)
+                        .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
                 }
             }
             .frame(maxWidth: .infinity)

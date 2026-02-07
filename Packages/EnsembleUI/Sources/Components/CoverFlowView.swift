@@ -2,106 +2,214 @@ import SwiftUI
 
 /// A 3D carousel view that displays items in a CoverFlow-style layout
 /// with perspective rotation and scaling based on distance from center.
-/// Includes an inline content area below for displaying details of the selected item.
+/// Tapping an item zooms it in and flips it to reveal details.
 struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     let items: [Item]
     let itemView: (Item) -> ItemView
     let detailContent: (Item?) -> AnyView
     @Binding var selectedItem: Item?
     
-    private let perspectiveAngle: Double = 45
-    
-    @State private var scrollOffset: CGFloat = 0
+    // Zoom/Flip State
+    @State private var isFlipped = false
+    @State private var zoomedItem: Item? = nil
     @Namespace private var animation
+    
+    private let perspectiveAngle: Double = 45
     
     var body: some View {
         GeometryReader { geometry in
-            // Calculate responsive sizes based on available space
-            let isLandscape = geometry.size.width > geometry.size.height
-            let carouselHeightFraction: CGFloat = isLandscape ? 0.55 : 0.6
-            let carouselHeight = geometry.size.height * carouselHeightFraction
-            
-            // Item size scales with available carousel height
-            let itemHeight = max(120, min(carouselHeight * 0.85, 220))
-            let itemWidth = itemHeight
-            let spacing = itemHeight * 0.15
-            
-            VStack(spacing: 0) {
-                // Center vertically when no item is selected
-                if selectedItem == nil {
-                    Spacer()
-                }
+            ZStack {
+                // Background Carousel Layer
+                carouselLayer(geometry: geometry)
+                    .blur(radius: zoomedItem != nil ? 20 : 0)
+                    .opacity(zoomedItem != nil ? 0.3 : 1)
+                    .allowsHitTesting(zoomedItem == nil)
                 
-                // CoverFlow carousel
-                ScrollView(.horizontal, showsIndicators: false) {
-                    // Disable vertical scrolling bounce
-                    Color.clear
-                        .frame(height: 0)
-                        .allowsHitTesting(false)
-                    ScrollViewReader { proxy in
-                        HStack(spacing: spacing) {
-                            // Leading spacer to center first item
-                            Color.clear
-                                .frame(width: (geometry.size.width - itemWidth) / 2)
-                            
-                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                GeometryReader { itemGeometry in
-                                    itemView(item)
-                                        .frame(width: itemWidth, height: itemHeight)
-                                        .modifier(
-                                            CoverFlowItemModifier(
-                                                progress: calculateProgress(
-                                                    itemGeometry: itemGeometry,
-                                                    parentGeometry: geometry,
-                                                    itemWidth: itemWidth,
-                                                    spacing: spacing
-                                                ),
-                                                angle: perspectiveAngle
-                                            )
-                                        )
-                                        .onTapGesture {
-                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                                selectedItem = (selectedItem?.id == item.id) ? nil : item
-                                                proxy.scrollTo(item.id, anchor: .center)
-                                            }
-                                        }
-                                        .id(item.id)
-                                }
-                                .frame(width: itemWidth, height: itemHeight)
-                            }
-                            
-                            // Trailing spacer to center last item
-                            Color.clear
-                                .frame(width: (geometry.size.width - itemWidth) / 2)
-                        }
-                        .onAppear {
-                            // Scroll to first item on appear
-                            if let firstItem = items.first {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    proxy.scrollTo(firstItem.id, anchor: .center)
-                                }
-                            }
-                        }
-                    }
-                }
-                .frame(height: carouselHeight)
-                .simultaneousGesture(
-                    // Prevent vertical scrolling from affecting carousel
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in }
-                )
-                
-                // Detail content area (inline track list)
-                if selectedItem != nil {
-                    detailContent(selectedItem)
-                        .frame(maxHeight: geometry.size.height * 0.4)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    Spacer()
+                // Zoomed Card Layer
+                if let item = zoomedItem {
+                    zoomedCardLayer(item: item, geometry: geometry)
                 }
             }
         }
         .edgesIgnoringSafeArea(.all)
+        .onChange(of: selectedItem?.id) { _ in
+            // Sync external selection with internal zoom state
+            if let selected = selectedItem, zoomedItem?.id != selected.id {
+                print("CoverFlow: Selection changed externally, triggering zoom")
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    zoomedItem = selected
+                    // Small delay for flip to allow zoom to start
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                         withAnimation(.easeInOut(duration: 0.6)) {
+                             isFlipped = true
+                         }
+                    }
+                }
+            } else if selectedItem == nil && zoomedItem != nil {
+                closeZoom()
+            }
+        }
+    }
+    
+    // MARK: - Carousel Layer
+    
+    private func carouselLayer(geometry: GeometryProxy) -> some View {
+        let isLandscape = geometry.size.width > geometry.size.height
+        let carouselHeightFraction: CGFloat = isLandscape ? 0.55 : 0.6
+        let carouselHeight = geometry.size.height * carouselHeightFraction
+        
+        let itemHeight = max(120, min(carouselHeight * 0.85, 220))
+        let itemWidth = itemHeight
+        let spacing = itemHeight * 0.15
+        
+        return VStack(spacing: 0) {
+            Spacer()
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                Color.clear.frame(height: 0).allowsHitTesting(false)
+                
+                ScrollViewReader { proxy in
+                    HStack(spacing: spacing) {
+                        Color.clear.frame(width: (geometry.size.width - itemWidth) / 2)
+                        
+                        ForEach(items) { item in
+                            GeometryReader { itemGeometry in
+                                itemView(item)
+                                    .frame(width: itemWidth, height: itemHeight)
+                                    .modifier(
+                                        CoverFlowItemModifier(
+                                            progress: calculateProgress(
+                                                itemGeometry: itemGeometry,
+                                                parentGeometry: geometry,
+                                                itemWidth: itemWidth,
+                                                spacing: spacing
+                                            ),
+                                            angle: perspectiveAngle
+                                        )
+                                    )
+                                    .opacity(zoomedItem?.id == item.id ? 0 : 1) // Hide source item when zoomed
+                                    .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
+                                    .onTapGesture {
+                                        selectAndZoom(item, proxy: proxy)
+                                    }
+                            }
+                            .frame(width: itemWidth, height: itemHeight)
+                        }
+                        
+                        Color.clear.frame(width: (geometry.size.width - itemWidth) / 2)
+                    }
+                    .onAppear {
+                        if let first = items.first {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                proxy.scrollTo(first.id, anchor: .center)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(height: carouselHeight)
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in })
+            
+            Spacer()
+        }
+    }
+    
+    // MARK: - Zoomed Card Layer
+    
+    private func zoomedCardLayer(item: Item, geometry: GeometryProxy) -> some View {
+        // Card size in zoomed state (85% of screen height)
+        let zoomedHeight = geometry.size.height * 0.85
+        let zoomedWidth = zoomedHeight // Keep centered aspect ratio for front, expand for back if needed
+        
+        return ZStack {
+            Color.black.opacity(0.01) // Invisible dismiss tap area
+                .onTapGesture {
+                    closeZoom()
+                }
+            
+            ZStack {
+                // Front (Artwork)
+                if !isFlipped {
+                    itemView(item)
+                        .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
+                        .frame(width: zoomedWidth, height: zoomedHeight)
+                        .transition(.identity)
+                }
+                
+                // Back (Details)
+                if isFlipped {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(UIColor.secondarySystemBackground))
+                            .shadow(radius: 20)
+                        
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Spacer()
+                                Button(action: { closeZoom() }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.title)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding()
+                            }
+                            
+                            detailContent(item)
+                                .padding(.horizontal)
+                                .padding(.bottom)
+                        }
+                    }
+                    // Widen the card for track list
+                    .frame(width: zoomedWidth * 1.5, height: zoomedHeight)
+                    .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                }
+            }
+            .rotation3DEffect(
+                .degrees(isFlipped ? 180 : 0),
+                axis: (x: 0, y: 1, z: 0),
+                perspective: 0.8
+            )
+            .onTapGesture {
+                // Toggle flip on card tap
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    isFlipped.toggle()
+                }
+            }
+        }
+        .zIndex(100)
+    }
+
+    // MARK: - Helpers
+    
+    private func selectAndZoom(_ item: Item, proxy: ScrollViewProxy) {
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            selectedItem = item
+            zoomedItem = item
+            proxy.scrollTo(item.id, anchor: .center)
+        }
+        
+        // Auto-flip after zoom completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                if zoomedItem?.id == item.id {
+                    isFlipped = true
+                }
+            }
+        }
+    }
+    
+    private func closeZoom() {
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            isFlipped = false
+        }
+        
+        // Wait for flip back before zooming out
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                zoomedItem = nil
+                selectedItem = nil
+            }
+        }
     }
     
     /// Calculate the progress of an item (-1 = left, 0 = center, 1 = right)
