@@ -10,7 +10,21 @@ public extension View {
             self
         }
     }
+    
+    @ViewBuilder
+    func hideTabBarIfAvailable(isHidden: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
 }
+
 
 public extension ToolbarItemPlacement {
     /// Returns primaryAction on macOS and navigationBarTrailing on other platforms

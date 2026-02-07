@@ -44,6 +44,7 @@ public struct SongsView: View {
                     trackListView
                 }
             }
+            .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
             #endif

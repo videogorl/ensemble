@@ -27,6 +27,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             let spacing = itemHeight * 0.15
             
             VStack(spacing: 0) {
+                // Center vertically when no item is selected
+                if selectedItem == nil {
+                    Spacer()
+                }
+                
                 // CoverFlow carousel
                 ScrollView(.horizontal, showsIndicators: false) {
                     // Disable vertical scrolling bounce
