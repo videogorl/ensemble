@@ -38,8 +38,10 @@ public struct SongsView: View {
                     emptyView
                 } else if isLandscape {
                     albumCoverFlowView
+                        #if os(iOS)
                         .navigationBarHidden(true)
                         .statusBar(hidden: true)
+                        #endif
                 } else {
                     trackListView
                 }

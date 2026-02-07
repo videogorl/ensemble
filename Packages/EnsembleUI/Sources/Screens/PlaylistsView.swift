@@ -22,8 +22,10 @@ public struct PlaylistsView: View {
                     emptyView
                 } else if isLandscape {
                     coverFlowView
+                        #if os(iOS)
                         .navigationBarHidden(true)
                         .statusBar(hidden: true)
+                        #endif
                 } else {
                     playlistListView
                 }
