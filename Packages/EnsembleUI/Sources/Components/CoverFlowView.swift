@@ -21,8 +21,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             ZStack {
                 // Background Carousel Layer
                 carouselLayer(geometry: geometry)
-                    .blur(radius: zoomedItem != nil ? 20 : 0)
-                    .opacity(zoomedItem != nil ? 0.3 : 1)
+                    .blur(radius: zoomedItem != nil ? 15 : 0) // Reduced blur slightly
+                    .opacity(zoomedItem != nil ? 0 : 1) // Fade out completely to avoid ghosting behind zoomed card
+                    .animation(.easeInOut(duration: 0.3), value: zoomedItem != nil)
                     .allowsHitTesting(zoomedItem == nil)
                 
                 // Zoomed Card Layer
@@ -35,15 +36,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         .onChange(of: selectedItem?.id) { _ in
             // Sync external selection with internal zoom state
             if let selected = selectedItem, zoomedItem?.id != selected.id {
-                print("CoverFlow: Selection changed externally, triggering zoom")
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                // Trigger Zoom AND Flip simultaneously
+                print("CoverFlow: Selection triggering simultaneous zoom & flip")
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                     zoomedItem = selected
-                    // Small delay for flip to allow zoom to start
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                         withAnimation(.easeInOut(duration: 0.6)) {
-                             isFlipped = true
-                         }
-                    }
+                    isFlipped = true
                 }
             } else if selectedItem == nil && zoomedItem != nil {
                 closeZoom()
@@ -55,12 +52,18 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     
     private func carouselLayer(geometry: GeometryProxy) -> some View {
         let isLandscape = geometry.size.width > geometry.size.height
-        let carouselHeightFraction: CGFloat = isLandscape ? 0.55 : 0.6
+        // Increase fraction to make items larger (was 0.55 -> 0.65)
+        let carouselHeightFraction: CGFloat = isLandscape ? 0.65 : 0.7
         let carouselHeight = geometry.size.height * carouselHeightFraction
         
-        let itemHeight = max(120, min(carouselHeight * 0.85, 220))
-        let itemWidth = itemHeight
-        let spacing = itemHeight * 0.15
+        // Remove 220 cap, allow scaling up to 400 or just based on screen
+        // Calculate item size based on Artwork 1:1 + Text space
+        // Let's target artwork height = 70% of carousel height
+        let artworkSize = carouselHeight * 0.75
+        let itemWidth = artworkSize
+        let itemHeight = artworkSize + 60 // Add fixed space for text below artwork
+        
+        let spacing = itemWidth * 0.2
         
         return VStack(spacing: 0) {
             Spacer()
@@ -108,6 +111,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
             }
             .frame(height: carouselHeight)
+            // .background(Color.red.opacity(0.1)) // Debug frame
             .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in })
             
             Spacer()
@@ -119,7 +123,13 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     private func zoomedCardLayer(item: Item, geometry: GeometryProxy) -> some View {
         // Card size in zoomed state (85% of screen height)
         let zoomedHeight = geometry.size.height * 0.85
-        let zoomedWidth = zoomedHeight // Keep centered aspect ratio for front, expand for back if needed
+        // Width should match the expanded track list card width
+        // If we use square initially, the flip transition stretches the width if we aren't careful.
+        // Let's use a width that works for both or animate width.
+        // Track list card is wide (aspect 1.5). Artwork is square (aspect 1.0).
+        // Best approach: Animate width during flip?
+        // Or just keep the container wide and center the square artwork?
+        let zoomedWidth = zoomedHeight * 1.5 // Target width for the "Back" chart
         
         return ZStack {
             Color.black.opacity(0.01) // Invisible dismiss tap area
@@ -127,42 +137,45 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     closeZoom()
                 }
             
+            // The Flipping Container
             ZStack {
                 // Front (Artwork)
-                if !isFlipped {
-                    itemView(item)
-                        .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
-                        .frame(width: zoomedWidth, height: zoomedHeight)
-                        .transition(.identity)
-                }
+                // Visible when NOT flipped (0-90 deg)
+                itemView(item)
+                    // We need to force the frame here to match the "Carousel Item" aspect/layout
+                    // But simpler: just show the artwork big and square?
+                    // Re-using 'itemView' includes text.
+                    // matchedGeometry moves the whole 'itemView'.
+                    .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
+                    .frame(width: zoomedHeight, height: zoomedHeight + 60) // Maintain aspectish
+                    .opacity(isFlipped ? 0 : 1) // Cross-fade out
                 
                 // Back (Details)
-                if isFlipped {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(UIColor.secondarySystemBackground))
-                            .shadow(radius: 20)
-                        
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Spacer()
-                                Button(action: { closeZoom() }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding()
+                // Visible when flipped (90-180 deg)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(UIColor.secondarySystemBackground))
+                        .shadow(radius: 20)
+                    
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Spacer()
+                            Button(action: { closeZoom() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title)
+                                    .foregroundColor(.secondary)
                             }
-                            
-                            detailContent(item)
-                                .padding(.horizontal)
-                                .padding(.bottom)
+                            .padding()
                         }
+                        
+                        detailContent(item)
+                            .padding(.horizontal)
+                            .padding(.bottom)
                     }
-                    // Widen the card for track list
-                    .frame(width: zoomedWidth * 1.5, height: zoomedHeight)
-                    .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                 }
+                .frame(width: zoomedWidth, height: zoomedHeight)
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(isFlipped ? 1 : 0) // Cross-fade in
             }
             .rotation3DEffect(
                 .degrees(isFlipped ? 180 : 0),
@@ -182,33 +195,20 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Helpers
     
     private func selectAndZoom(_ item: Item, proxy: ScrollViewProxy) {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
             selectedItem = item
             zoomedItem = item
+            // Simultaneous Flip
+            isFlipped = true
             proxy.scrollTo(item.id, anchor: .center)
-        }
-        
-        // Auto-flip after zoom completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                if zoomedItem?.id == item.id {
-                    isFlipped = true
-                }
-            }
         }
     }
     
     private func closeZoom() {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
             isFlipped = false
-        }
-        
-        // Wait for flip back before zooming out
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                zoomedItem = nil
-                selectedItem = nil
-            }
+            zoomedItem = nil
+            selectedItem = nil
         }
     }
     

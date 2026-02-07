@@ -11,38 +11,42 @@ struct CoverFlowItemView: View {
     let isAlbum: Bool
     
     var body: some View {
-        VStack(spacing: 12) {
-            // Artwork - responsive to parent frame
-            ArtworkView(
-                path: thumbPath,
-                sourceKey: sourceCompositeKey,
-                ratingKey: ratingKey,
-                size: .large
-            )
-            .cornerRadius(8)
-            .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
-            
-            // Title and subtitle
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+        GeometryReader { geometry in
+            VStack(spacing: 8) {
+                // Artwork - responsive to parent width, forced 1:1 aspect ratio
+                ArtworkView(
+                    path: thumbPath,
+                    sourceKey: sourceCompositeKey,
+                    ratingKey: ratingKey,
+                    size: .large
+                )
+                .aspectRatio(1, contentMode: .fill)
+                .frame(width: geometry.size.width, height: geometry.size.width)
+                .cornerRadius(12)
+                .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 5)
                 
-                if let subtitle = subtitle {
-                    Text(subtitle)
-                        .font(.caption)
+                // Title and subtitle
+                VStack(spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .bold)) // Slightly larger title
                         .lineLimit(1)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+                    
+                    if let subtitle = subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .lineLimit(1)
+                            .foregroundColor(Color(white: 0.8))
+                            .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
     }
 }
+
 
 // MARK: - Convenience Initializers
 
