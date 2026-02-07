@@ -9,42 +9,37 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     let detailContent: (Item?) -> AnyView
     @Binding var selectedItem: Item?
     
+    // Scroll & Drag State
+    @State private var offset: CGFloat = 0
+    @State private var lastOffset: CGFloat = 0 // Tracks offset before current drag
+    @GestureState private var dragOffset: CGFloat = 0
+    
     // Zoom/Flip State
     @State private var flipAngle: Double = 0
     @State private var zoomedItem: Item? = nil
     @Namespace private var animation
     
-    private let perspectiveAngle: Double = 45
+    // Configuration
+    private let rotationMax: Double = 55
     
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 // Background Carousel Layer
                 carouselLayer(geometry: geometry)
-                    .blur(radius: zoomedItem != nil ? 15 : 0) // Reduced blur slightly
-                    .opacity(zoomedItem != nil ? 0 : 1) // Fade out completely to avoid ghosting behind zoomed card
-                    .animation(.easeInOut(duration: 0.3), value: zoomedItem != nil)
+                    .blur(radius: zoomedItem != nil ? 15 : 0)
+                    .opacity(zoomedItem != nil ? 0 : 1)
                     .allowsHitTesting(zoomedItem == nil)
                 
                 // Zoomed Card Layer
                 if let item = zoomedItem {
-                    zoomedCardLayer(item: item, geometry: geometry)
+                   zoomedCardLayer(item: item, geometry: geometry)
                 }
             }
         }
         .edgesIgnoringSafeArea(.all)
         .onChange(of: selectedItem?.id) { _ in
-            // Sync external selection with internal zoom state
-            if let selected = selectedItem, zoomedItem?.id != selected.id {
-                // Trigger Zoom AND Flip simultaneously
-                print("CoverFlow: Selection triggering simultaneous zoom & flip")
-                withAnimation(.easeInOut(duration: 0.6)) {
-                    zoomedItem = selected
-                    flipAngle = 180
-                }
-            } else if selectedItem == nil && zoomedItem != nil {
-                closeZoom()
-            }
+            handleExternalSelectionChange()
         }
     }
     
@@ -52,106 +47,106 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     
     private func carouselLayer(geometry: GeometryProxy) -> some View {
         let isLandscape = geometry.size.width > geometry.size.height
-        // Increase fraction to make items larger (was 0.55 -> 0.65 -> 0.8)
-        let carouselHeightFraction: CGFloat = isLandscape ? 0.8 : 0.85
-        let carouselHeight = geometry.size.height * carouselHeightFraction
+        let carouselHeight = geometry.size.height * (isLandscape ? 0.8 : 0.85)
         
-        // Remove 220 cap, allow scaling up to 400 or just based on screen
-        // Calculate item size based on Artwork 1:1 + Text space
-        // Let's target artwork height = 75% of carousel height
-        let artworkSize = carouselHeight * 0.75
-        let itemWidth = artworkSize
-        let itemHeight = artworkSize + 60 // Add fixed space for text below artwork
+        // Item Sizing
+        let itemSize = carouselHeight * 0.70
+        let itemWidth = itemSize
+        let itemHeight = itemSize + 60 // Fixed space for text
         
-        let spacing = itemWidth * 0.2
+        // Spacing: Classic iPod style has tight stacking (~30-40% of width)
+        let spacing = itemWidth * 0.45
         
-        return VStack(spacing: 0) {
-            Spacer()
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                Color.clear.frame(height: 0).allowsHitTesting(false)
-                
-                ScrollViewReader { proxy in
-                    HStack(spacing: spacing) {
-                        Color.clear.frame(width: (geometry.size.width - itemWidth) / 2)
-                        
-                        ForEach(items) { item in
-                            GeometryReader { itemGeometry in
-                                itemView(item)
-                                    .frame(width: itemWidth, height: itemHeight)
-                                    .modifier(
-                                        CoverFlowItemModifier(
-                                            progress: calculateProgress(
-                                                itemGeometry: itemGeometry,
-                                                parentGeometry: geometry,
-                                                itemWidth: itemWidth,
-                                                spacing: spacing
-                                            ),
-                                            angle: perspectiveAngle
-                                        )
-                                    )
-                                    .opacity(zoomedItem?.id == item.id ? 0 : 1) // Hide source item when zoomed
-                                    .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
-                                    .onTapGesture {
-                                        selectAndZoom(item, proxy: proxy)
-                                    }
-                            }
-                            .frame(width: itemWidth, height: itemHeight)
+        // Current virtual scroll position (including active drag)
+        let currentScrollOffset = offset + dragOffset
+        
+        // Calculate current index for Z-index optimization
+        let centerIndex = -currentScrollOffset / spacing
+        
+        return ZStack {
+            // Background touch area for gesture
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .updating($dragOffset) { value, state, _ in
+                            state = value.translation.width
                         }
-                        
-                        Color.clear.frame(width: (geometry.size.width - itemWidth) / 2)
+                        .onEnded { value in
+                            handleDragEnd(value: value, spacing: spacing)
+                        }
+                )
+            
+            // Render visible items
+            // We use a simplified ZStack with manual offsets + Z-Index
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                // Optimization: window rendering (render only items close to center)
+                // Expanding window to 20 to be safe
+                if abs(Double(index) - centerIndex) < 20 {
+                    // Position calculation
+                    let itemPosition = (CGFloat(index) * spacing) + currentScrollOffset
+                    let progress = itemPosition / spacing
+                    
+                    ZStack {
+                        itemView(item)
+                            .frame(width: itemWidth, height: itemHeight)
                     }
-                    .onAppear {
-                        if let first = items.first {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                proxy.scrollTo(first.id, anchor: .center)
+                    .frame(width: itemWidth, height: itemHeight)
+                    .modifier(
+                        CoverFlowRotationModifier(
+                            progress: progress,
+                            rotationMax: rotationMax
+                        )
+                    )
+                    // STABILITY: Opacity handles visibility for zoom logic, keep view in hierarchy
+                    .opacity(zoomedItem?.id == item.id ? 0 : 1)
+                    .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
+                    .offset(x: itemPosition) // Manual placement
+                    .zIndex(zIndex(for: progress)) // Ensure center items are on top
+                    .onTapGesture {
+                        if round(centerIndex) == Double(index) {
+                            selectAndZoom(item)
+                        } else {
+                            // Tap neighbor to scroll to it
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+                                offset = CGFloat(-index) * spacing
+                                lastOffset = offset
+                                selectedItem = item
                             }
                         }
                     }
                 }
             }
-            .frame(height: carouselHeight)
-            // .background(Color.red.opacity(0.1)) // Debug frame
-            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in })
-            
-            Spacer()
+        }
+        .frame(height: carouselHeight)
+        .position(x: geometry.size.width / 2, y: geometry.size.height / 2) // Center the track
+        .onAppear {
+            // Layout initialization
+            scrollToSelection(spacing: spacing)
         }
     }
     
     // MARK: - Zoomed Card Layer
     
     private func zoomedCardLayer(item: Item, geometry: GeometryProxy) -> some View {
-        // Card size in zoomed state (85% of screen height)
         let zoomedHeight = geometry.size.height * 0.85
-        // Width should match the expanded track list card width
-        // If we use square initially, the flip transition stretches the width if we aren't careful.
-        // Let's use a width that works for both or animate width.
-        // Track list card is wide (aspect 1.5). Artwork is square (aspect 1.0).
-        // Best approach: Animate width during flip?
-        // Or just keep the container wide and center the square artwork?
-        let zoomedWidth = zoomedHeight * 1.5 // Target width for the "Back" chart
+        let zoomedWidth = zoomedHeight * 1.5
         
         return ZStack {
-            Color.black.opacity(0.01) // Invisible dismiss tap area
-                .onTapGesture {
-                    closeZoom()
-                }
+            Color.black.opacity(0.01)
+                .onTapGesture { closeZoom() }
             
-            // The Flipping Container
             ZStack {
                 // Front (Artwork)
-                // Visible when NOT flipped (0-90 deg)
                 itemView(item)
-                    // We need to force the frame here to match the "Carousel Item" aspect/layout
-                    // But simpler: just show the artwork big and square?
-                    // Re-using 'itemView' includes text.
-                    // matchedGeometry moves the whole 'itemView'.
+                    // .matchedGeometryEffect with isSource: false makes this view fly from carousel position
+                    // BUT we only want it to animate the position transition, not lock it
+                    // Using simple matchedGeometryEffect works but requires careful implementation
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
-                    .frame(width: zoomedHeight, height: zoomedHeight + 60) // Maintain aspectish
-                    .flipOpacity(angle: flipAngle, type: .front) // Use custom modifier
+                    .frame(width: zoomedHeight, height: zoomedHeight + 60)
+                    .modifier(FlipOpacity(angle: flipAngle, type: .front))
                 
                 // Back (Details)
-                // Visible when flipped (90-180 deg)
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color(UIColor.secondarySystemBackground))
@@ -175,7 +170,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
                 .frame(width: zoomedWidth, height: zoomedHeight)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
-                .flipOpacity(angle: flipAngle, type: .back) // Use custom modifier
+                .modifier(FlipOpacity(angle: flipAngle, type: .back))
             }
             .rotation3DEffect(
                 .degrees(flipAngle),
@@ -183,7 +178,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 perspective: 0.8
             )
             .onTapGesture {
-                // Toggle flip on card tap
                 withAnimation(.easeInOut(duration: 0.6)) {
                     flipAngle = (flipAngle == 180) ? 0 : 180
                 }
@@ -192,15 +186,55 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         .zIndex(100)
     }
 
-    // MARK: - Helpers
+    // MARK: - Logic Helpers
     
-    private func selectAndZoom(_ item: Item, proxy: ScrollViewProxy) {
+    private func handleDragEnd(value: DragGesture.Value, spacing: CGFloat) {
+        // momentum prediction logic
+        let predictedEndOffset = offset + value.translation.width + (value.predictedEndTranslation.width * 0.5)
+        let exactIndex = -predictedEndOffset / spacing
+        
+        // Clamp to valid indices
+        let clampedIndex = max(0, min(Double(items.count - 1), round(exactIndex)))
+        
+        // Snap
+        let targetOffset = CGFloat(-clampedIndex) * spacing
+        
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            offset = targetOffset
+            lastOffset = offset
+        }
+        
+        // Update selection if we snapped to a new item
+        let index = Int(clampedIndex)
+        if index >= 0 && index < items.count {
+            selectedItem = items[index]
+        }
+    }
+    
+    private func handleExternalSelectionChange() {
+        if let selected = selectedItem, zoomedItem?.id != selected.id {
+            // Trigger Zoom AND Flip simultaneously if not already zoomed
+            withAnimation(.easeInOut(duration: 0.6)) {
+                zoomedItem = selected
+                flipAngle = 180
+            }
+        } else if selectedItem == nil && zoomedItem != nil {
+            closeZoom()
+        }
+    }
+    
+    private func scrollToSelection(spacing: CGFloat) {
+        if let selected = selectedItem, let index = items.firstIndex(where: { $0.id == selected.id }) {
+            offset = CGFloat(-index) * spacing
+            lastOffset = offset
+        }
+    }
+    
+    private func selectAndZoom(_ item: Item) {
         withAnimation(.easeInOut(duration: 0.6)) {
             selectedItem = item
             zoomedItem = item
-            // Simultaneous Flip
             flipAngle = 180
-            proxy.scrollTo(item.id, anchor: .center)
         }
     }
     
@@ -212,99 +246,37 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
     }
     
-    /// Calculate the progress of an item (-1 = left, 0 = center, 1 = right)
-    private func calculateProgress(
-        itemGeometry: GeometryProxy,
-        parentGeometry: GeometryProxy,
-        itemWidth: CGFloat,
-        spacing: CGFloat
-    ) -> CGFloat {
-        let itemCenter = itemGeometry.frame(in: .global).midX
-        let parentCenter = parentGeometry.frame(in: .global).midX
-        let distance = itemCenter - parentCenter
-        let normalizedDistance = distance / (itemWidth + spacing)
-        return normalizedDistance
+    private func zIndex(for progress: CGFloat) -> Double {
+        // Items closer to center (progress 0) should be on top
+        // ZIndex = -|distance|
+        return -abs(Double(progress))
     }
 }
 
-/// Modifier that applies 3D rotation and scaling based on distance from center
-struct CoverFlowItemModifier: ViewModifier {
+// MARK: - Rotation Modifier
+
+struct CoverFlowRotationModifier: ViewModifier {
     let progress: CGFloat
-    let angle: Double
+    let rotationMax: Double
     
     func body(content: Content) -> some View {
-        let absProgress = abs(progress)
+        // Rotation Logic based on Store Shelf style
+        // Center (0): 0 degrees
+        // Transition: Steep clamp around 0.5 distance
         
-        // Scale down items as they move away from center
-        let scale = 1.0 - (absProgress * 0.3)
+        let direction = max(-1, min(1, progress * 2.5))
         
-        // Rotate items based on position (left items rotate right, right items rotate left)
-        let rotation = progress * angle
+        // If direction is negative (left), we want POSITIVE rotation (+55).
+        // If direction is positive (right), we want NEGATIVE rotation (-55).
+        let rotationAngle = -rotationMax * Double(direction)
         
-        // Fade out items far from center
-        let opacity = 1.0 - (absProgress * 0.5)
-        
-        // Z-axis offset for 3D perspective
-        let zOffset = absProgress * -100
+        // Optional: Push neighbors back in Z space
         
         return content
-            .scaleEffect(max(0.7, scale))
             .rotation3DEffect(
-                .degrees(rotation),
+                .degrees(rotationAngle),
                 axis: (x: 0, y: 1, z: 0),
                 perspective: 0.5
             )
-            .opacity(max(0.3, opacity))
-            .zIndex(1.0 - Double(absProgress))
-            .transformEffect(CGAffineTransform(translationX: 0, y: zOffset * 0.1))
-    }
-}
-
-// MARK: - Preview
-
-struct CoverFlowView_Previews: PreviewProvider {
-    struct PreviewItem: Identifiable {
-        let id = UUID()
-        let title: String
-        let color: Color
-    }
-    
-    static var previews: some View {
-        CoverFlowView(
-            items: [
-                PreviewItem(title: "Album 1", color: .red),
-                PreviewItem(title: "Album 2", color: .blue),
-                PreviewItem(title: "Album 3", color: .green),
-                PreviewItem(title: "Album 4", color: .orange),
-                PreviewItem(title: "Album 5", color: .purple),
-            ],
-            itemView: { item in
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(item.color)
-                    .overlay(
-                        Text(item.title)
-                            .foregroundColor(.white)
-                            .bold()
-                    )
-            },
-            detailContent: { item in
-                if let item = item {
-                    AnyView(
-                        VStack {
-                            Text("Selected: \(item.title)")
-                                .font(.headline)
-                                .padding()
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity)
-                        .background(Color.black.opacity(0.1))
-                    )
-                } else {
-                    AnyView(Color.clear.frame(height: 0))
-                }
-            },
-            selectedItem: .constant(nil)
-        )
-        .background(Color.black)
     }
 }
