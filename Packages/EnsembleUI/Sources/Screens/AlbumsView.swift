@@ -5,6 +5,7 @@ public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
+    @State private var selectedAlbum: Album?
 
     public init(
         libraryVM: LibraryViewModel,
@@ -21,89 +22,95 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        Group {
-            if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                loadingView
-            } else if libraryVM.albums.isEmpty {
-                emptyView
-            } else {
-                albumGridView
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            
+            Group {
+                if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                    loadingView
+                } else if libraryVM.albums.isEmpty {
+                    emptyView
+                } else if isLandscape {
+                    coverFlowView
+                } else {
+                    albumGridView
+                }
             }
-        }
-        .navigationTitle("Albums")
-        .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
-        .refreshable {
-            await libraryVM.refresh()
-        }
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.albums.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                
-                                // Badge indicator when filters are active
-                                if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                                Button {
-                                    libraryVM.albumSortOption = option
-                                } label: {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if libraryVM.albumSortOption == option {
-                                            Image(systemName: "checkmark")
-                                        }
+            .navigationTitle("Albums")
+            .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            .refreshable {
+                await libraryVM.refresh()
+            }
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !libraryVM.albums.isEmpty {
+                        HStack(spacing: 16) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    
+                                    // Badge indicator when filters are active
+                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
                                     }
                                 }
                             }
-                        } label: {
-                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+
+                            Menu {
+                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        libraryVM.albumSortOption = option
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.albumSortOption == option {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !libraryVM.albums.isEmpty {
-                    HStack(spacing: 16) {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                if libraryVM.albumsFilterOptions.hasActiveFilters {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !libraryVM.albums.isEmpty {
+                        HStack(spacing: 16) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    if libraryVM.albumsFilterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                #endif
             }
-            #endif
-        }
-        .sheet(isPresented: $showFilterSheet) {
-            FilterSheet(
-                filterOptions: $libraryVM.albumsFilterOptions,
-                availableArtists: availableArtists,
-                showYearFilter: true,
-                showArtistFilter: true
-            )
+            .sheet(isPresented: $showFilterSheet) {
+                FilterSheet(
+                    filterOptions: $libraryVM.albumsFilterOptions,
+                    availableArtists: availableArtists,
+                    showYearFilter: true,
+                    showArtistFilter: true
+                )
+            }
         }
     }
 
@@ -205,6 +212,29 @@ public struct AlbumsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
             .padding(.vertical, 8)
+    }
+    
+    private var coverFlowView: some View {
+        CoverFlowView(
+            items: libraryVM.filteredAlbums,
+            itemView: { album in
+                CoverFlowItemView(album: album)
+            },
+            detailContent: { selectedAlbum in
+                if let selectedAlbum = selectedAlbum {
+                    AnyView(
+                        CoverFlowDetailView(
+                            contentType: .album(selectedAlbum.id),
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    )
+                } else {
+                    AnyView(Color.clear.frame(height: 0))
+                }
+            },
+            selectedItem: $selectedAlbum
+        )
+        .background(Color.black)
     }
 }
 

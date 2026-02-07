@@ -12,6 +12,7 @@ public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
+    @State private var selectedAlbum: Album?
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -27,21 +28,26 @@ public struct SongsView: View {
     }
 
     public var body: some View {
-        Group {
-            if libraryVM.isLoading && libraryVM.tracks.isEmpty {
-                loadingView
-            } else if libraryVM.tracks.isEmpty {
-                emptyView
-            } else {
-                trackListView
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            
+            Group {
+                if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+                    loadingView
+                } else if libraryVM.tracks.isEmpty {
+                    emptyView
+                } else if isLandscape {
+                    albumCoverFlowView
+                } else {
+                    trackListView
+                }
             }
-        }
-        .navigationTitle("Songs")
-        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
-        .refreshable {
-            await libraryVM.refresh()
-        }
-        .toolbar {
+            .navigationTitle("Songs")
+            .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+            .refreshable {
+                await libraryVM.refresh()
+            }
+            .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.tracks.isEmpty {
@@ -125,6 +131,7 @@ public struct SongsView: View {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions
             )
+        }
         }
     }
 
@@ -225,5 +232,28 @@ public struct SongsView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(backgroundColor.opacity(0.9))
+    }
+    
+    private var albumCoverFlowView: some View {
+        CoverFlowView(
+            items: libraryVM.albums,
+            itemView: { album in
+                CoverFlowItemView(album: album)
+            },
+            detailContent: { selectedAlbum in
+                if let selectedAlbum = selectedAlbum {
+                    AnyView(
+                        CoverFlowDetailView(
+                            contentType: .album(selectedAlbum.id),
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    )
+                } else {
+                    AnyView(Color.clear.frame(height: 0))
+                }
+            },
+            selectedItem: $selectedAlbum
+        )
+        .background(Color.black)
     }
 }
