@@ -12,32 +12,32 @@ struct CoverFlowItemView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Artwork
+            // Artwork - responsive to parent frame
             ArtworkView(
                 path: thumbPath,
                 sourceKey: sourceCompositeKey,
                 ratingKey: ratingKey,
                 size: .large
             )
-            .frame(width: 260, height: 260)
             .cornerRadius(8)
             .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
             
             // Title and subtitle
             VStack(spacing: 4) {
                 Text(title)
-                    .font(.headline)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
                     .lineLimit(1)
                     .foregroundColor(.primary)
                 
                 if let subtitle = subtitle {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.caption)
                         .lineLimit(1)
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(width: 260)
+            .frame(maxWidth: .infinity)
         }
     }
 }

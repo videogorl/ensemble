@@ -9,10 +9,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     let detailContent: (Item?) -> AnyView
     @Binding var selectedItem: Item?
     
-    // Layout configuration
-    private let itemWidth: CGFloat = 280
-    private let itemHeight: CGFloat = 280
-    private let spacing: CGFloat = 40
     private let perspectiveAngle: Double = 45
     
     @State private var scrollOffset: CGFloat = 0
@@ -20,6 +16,16 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     
     var body: some View {
         GeometryReader { geometry in
+            // Calculate responsive sizes based on available space
+            let isLandscape = geometry.size.width > geometry.size.height
+            let carouselHeightFraction: CGFloat = isLandscape ? 0.5 : 0.6
+            let carouselHeight = geometry.size.height * carouselHeightFraction
+            
+            // Item size scales with available carousel height
+            let itemHeight = max(120, min(carouselHeight * 0.85, 220))
+            let itemWidth = itemHeight
+            let spacing = itemHeight * 0.15
+            
             VStack(spacing: 0) {
                 // CoverFlow carousel
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -37,7 +43,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                                             CoverFlowItemModifier(
                                                 progress: calculateProgress(
                                                     itemGeometry: itemGeometry,
-                                                    parentGeometry: geometry
+                                                    parentGeometry: geometry,
+                                                    itemWidth: itemWidth,
+                                                    spacing: spacing
                                                 ),
                                                 angle: perspectiveAngle
                                             )
@@ -67,19 +75,27 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         }
                     }
                 }
-                .frame(height: itemHeight + 100) // Extra space for 3D rotation
+                .frame(height: carouselHeight)
                 
                 // Detail content area (inline track list)
                 if selectedItem != nil {
                     detailContent(selectedItem)
+                        .frame(maxHeight: geometry.size.height * 0.4)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    Spacer()
                 }
             }
         }
     }
     
     /// Calculate the progress of an item (-1 = left, 0 = center, 1 = right)
-    private func calculateProgress(itemGeometry: GeometryProxy, parentGeometry: GeometryProxy) -> CGFloat {
+    private func calculateProgress(
+        itemGeometry: GeometryProxy,
+        parentGeometry: GeometryProxy,
+        itemWidth: CGFloat,
+        spacing: CGFloat
+    ) -> CGFloat {
         let itemCenter = itemGeometry.frame(in: .global).midX
         let parentCenter = parentGeometry.frame(in: .global).midX
         let distance = itemCenter - parentCenter
