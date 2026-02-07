@@ -143,6 +143,8 @@ public struct PlaylistsView: View {
                     AnyView(Color.clear.frame(height: 0))
                 }
             },
+            titleContent: { $0.title },
+            subtitleContent: { "\($0.trackCount) tracks" },
             selectedItem: $selectedPlaylist
         )
         .background(Color.black)

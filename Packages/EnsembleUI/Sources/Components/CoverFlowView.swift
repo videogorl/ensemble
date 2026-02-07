@@ -7,6 +7,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     let items: [Item]
     let itemView: (Item) -> ItemView
     let detailContent: (Item?) -> AnyView
+    let titleContent: (Item) -> String
+    let subtitleContent: (Item) -> String?
     @Binding var selectedItem: Item?
     
     // Scroll & Drag State
@@ -31,6 +33,29 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     .opacity(zoomedItem != nil ? 0 : 1)
                     .allowsHitTesting(zoomedItem == nil)
                 
+                // Static Footer Text Layer (Only visible when not zoomed)
+                if zoomedItem == nil, let selected = selectedItem {
+                    VStack(spacing: 4) {
+                        Spacer()
+                        Text(titleContent(selected))
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(1)
+                        
+                        if let subtitle = subtitleContent(selected) {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.bottom, 20)
+                    .padding(.horizontal)
+                    .transition(.opacity)
+                }
+                
                 // Zoomed Card Layer
                 if let item = zoomedItem {
                    zoomedCardLayer(item: item, geometry: geometry)
@@ -50,9 +75,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let carouselHeight = geometry.size.height * (isLandscape ? 0.8 : 0.85)
         
         // Item Sizing
-        let itemSize = carouselHeight * 0.70
-        let itemWidth = itemSize
-        let itemHeight = itemSize + 60 // Fixed space for text
+        let baseItemSize = carouselHeight * 0.60 
+        let itemWidth = baseItemSize
+        let itemHeight = baseItemSize // Keep it square-ish for the base frame
         
         // Spacing: Classic iPod style has tight stacking (~30-40% of width)
         let spacing = itemWidth * 0.45
@@ -86,12 +111,19 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     // Position calculation
                     let itemPosition = (CGFloat(index) * spacing) + currentScrollOffset
                     let progress = itemPosition / spacing
+                    let absProgress = abs(progress)
+                    
+                    // Scale Logic: Center item is 33% bigger
+                    // Interpolate from 1.33 down to 1.0 based on distance
+                    // We clamp the distance to 1.0 so only the immediate neighbors transition scale
+                    let scale = 1.0 + (0.33 * max(0, 1 - absProgress))
                     
                     ZStack {
                         itemView(item)
                             .frame(width: itemWidth, height: itemHeight)
                     }
                     .frame(width: itemWidth, height: itemHeight)
+                    .scaleEffect(scale) // Apply scale before rotation/offset
                     .modifier(
                         CoverFlowRotationModifier(
                             progress: progress,
@@ -140,8 +172,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 // Front (Artwork)
                 itemView(item)
                     // .matchedGeometryEffect with isSource: false makes this view fly from carousel position
-                    // BUT we only want it to animate the position transition, not lock it
-                    // Using simple matchedGeometryEffect works but requires careful implementation
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
                     .frame(width: zoomedHeight, height: zoomedHeight + 60)
                     .modifier(FlipOpacity(angle: flipAngle, type: .front))
@@ -213,11 +243,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     
     private func handleExternalSelectionChange() {
         if let selected = selectedItem, zoomedItem?.id != selected.id {
-            // Trigger Zoom AND Flip simultaneously if not already zoomed
-            withAnimation(.easeInOut(duration: 0.6)) {
-                zoomedItem = selected
-                flipAngle = 180
-            }
+           if zoomedItem != nil {
+               closeZoom()
+           }
         } else if selectedItem == nil && zoomedItem != nil {
             closeZoom()
         }
@@ -242,7 +270,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         withAnimation(.easeInOut(duration: 0.5)) {
             flipAngle = 0
             zoomedItem = nil
-            selectedItem = nil
         }
     }
     
@@ -269,8 +296,6 @@ struct CoverFlowRotationModifier: ViewModifier {
         // If direction is negative (left), we want POSITIVE rotation (+55).
         // If direction is positive (right), we want NEGATIVE rotation (-55).
         let rotationAngle = -rotationMax * Double(direction)
-        
-        // Optional: Push neighbors back in Z space
         
         return content
             .rotation3DEffect(

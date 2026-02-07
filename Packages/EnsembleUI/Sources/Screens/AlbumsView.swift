@@ -238,6 +238,8 @@ public struct AlbumsView: View {
                     AnyView(Color.clear.frame(height: 0))
                 }
             },
+            titleContent: { $0.title },
+            subtitleContent: { $0.artistName },
             selectedItem: $selectedAlbum
         )
         .background(Color.black)

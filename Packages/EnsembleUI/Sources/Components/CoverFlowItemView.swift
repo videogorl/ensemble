@@ -24,24 +24,6 @@ struct CoverFlowItemView: View {
                 .frame(width: geometry.size.width, height: geometry.size.width)
                 .cornerRadius(12)
                 .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 5)
-                
-                // Title and subtitle
-                VStack(spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .bold)) // Slightly larger title
-                        .lineLimit(1)
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
-                    
-                    if let subtitle = subtitle {
-                        Text(subtitle)
-                            .font(.system(size: 14, weight: .medium))
-                            .lineLimit(1)
-                            .foregroundColor(Color(white: 0.8))
-                            .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
-                    }
-                }
-                .frame(maxWidth: .infinity)
             }
         }
     }
