@@ -81,11 +81,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let itemHeight = baseItemSize
         
         // Spacing Constants
-        let wingSpacing = itemWidth * 0.43 // Tighter stacking for wings
-        let centerGap = itemWidth * 0.50   // Reduced gap for seamless spotlight transition
+        let wingSpacing = itemWidth * 0.39 // Even tighter stacking
+        let centerGap = itemWidth * 0.30   // Much closer to center
         
         // Configuration
-        let rotationMax: Double = 65 // Steeper angle for classic look
+        let rotationMax: Double = 60 // Slightly reduced angle
         let currentIndex = scrollIndex + dragIndexDelta
         
         return ZStack {
@@ -300,7 +300,8 @@ struct CoverFlowRotationModifier: ViewModifier {
     
     func body(content: Content) -> some View {
         // Rotation Logic
-        let direction = max(-1, min(1, progress * 2.5))
+        // Transition: Scaled by 1.25 so it starts rotating as soon as it's within 0.8 distance
+        let direction = max(-1, min(1, progress * 1.25))
         let rotationAngle = -rotationMax * direction
         
         return content
