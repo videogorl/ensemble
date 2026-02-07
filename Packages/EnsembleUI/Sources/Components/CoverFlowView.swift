@@ -18,7 +18,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         GeometryReader { geometry in
             // Calculate responsive sizes based on available space
             let isLandscape = geometry.size.width > geometry.size.height
-            let carouselHeightFraction: CGFloat = isLandscape ? 0.5 : 0.6
+            let carouselHeightFraction: CGFloat = isLandscape ? 0.55 : 0.6
             let carouselHeight = geometry.size.height * carouselHeightFraction
             
             // Item size scales with available carousel height
@@ -29,6 +29,10 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             VStack(spacing: 0) {
                 // CoverFlow carousel
                 ScrollView(.horizontal, showsIndicators: false) {
+                    // Disable vertical scrolling bounce
+                    Color.clear
+                        .frame(height: 0)
+                        .allowsHitTesting(false)
                     ScrollViewReader { proxy in
                         HStack(spacing: spacing) {
                             // Leading spacer to center first item
@@ -76,6 +80,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     }
                 }
                 .frame(height: carouselHeight)
+                .simultaneousGesture(
+                    // Prevent vertical scrolling from affecting carousel
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in }
+                )
                 
                 // Detail content area (inline track list)
                 if selectedItem != nil {
@@ -87,6 +96,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
             }
         }
+        .edgesIgnoringSafeArea(.all)
     }
     
     /// Calculate the progress of an item (-1 = left, 0 = center, 1 = right)

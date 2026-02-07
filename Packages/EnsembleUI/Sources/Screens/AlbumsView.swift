@@ -32,16 +32,19 @@ public struct AlbumsView: View {
                     emptyView
                 } else if isLandscape {
                     coverFlowView
+                        .navigationBarHidden(true)
+                        .statusBar(hidden: true)
                 } else {
                     albumGridView
                 }
             }
-            .navigationTitle("Albums")
+            .navigationTitle(isLandscape ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
                 await libraryVM.refresh()
             }
             .toolbar {
+                if !isLandscape {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !libraryVM.albums.isEmpty {
@@ -102,6 +105,7 @@ public struct AlbumsView: View {
                     }
                 }
                 #endif
+                }
             }
             .sheet(isPresented: $showFilterSheet) {
                 FilterSheet(

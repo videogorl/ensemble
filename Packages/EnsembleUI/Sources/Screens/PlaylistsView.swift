@@ -22,11 +22,13 @@ public struct PlaylistsView: View {
                     emptyView
                 } else if isLandscape {
                     coverFlowView
+                        .navigationBarHidden(true)
+                        .statusBar(hidden: true)
                 } else {
                     playlistListView
                 }
             }
-            .navigationTitle("Playlists")
+            .navigationTitle(isLandscape ? "" : "Playlists")
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {
                 await viewModel.loadPlaylists()
@@ -35,6 +37,7 @@ public struct PlaylistsView: View {
                 await viewModel.loadPlaylists()
             }
             .toolbar {
+                if !isLandscape {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.playlists.isEmpty {
@@ -78,6 +81,7 @@ public struct PlaylistsView: View {
                 }
             }
             #endif
+                }
             }
         }
     }

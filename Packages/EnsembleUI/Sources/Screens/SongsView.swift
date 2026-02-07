@@ -38,16 +38,19 @@ public struct SongsView: View {
                     emptyView
                 } else if isLandscape {
                     albumCoverFlowView
+                        .navigationBarHidden(true)
+                        .statusBar(hidden: true)
                 } else {
                     trackListView
                 }
             }
-            .navigationTitle("Songs")
+            .navigationTitle(isLandscape ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {
                 await libraryVM.refresh()
             }
             .toolbar {
+                if !isLandscape {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !libraryVM.tracks.isEmpty {
@@ -126,6 +129,7 @@ public struct SongsView: View {
                 }
             }
             #endif
+                }
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
