@@ -10,7 +10,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     @Binding var selectedItem: Item?
     
     // Zoom/Flip State
-    @State private var isFlipped = false
+    @State private var flipAngle: Double = 0
     @State private var zoomedItem: Item? = nil
     @Namespace private var animation
     
@@ -38,9 +38,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             if let selected = selectedItem, zoomedItem?.id != selected.id {
                 // Trigger Zoom AND Flip simultaneously
                 print("CoverFlow: Selection triggering simultaneous zoom & flip")
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                withAnimation(.easeInOut(duration: 0.6)) {
                     zoomedItem = selected
-                    isFlipped = true
+                    flipAngle = 180
                 }
             } else if selectedItem == nil && zoomedItem != nil {
                 closeZoom()
@@ -52,13 +52,13 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     
     private func carouselLayer(geometry: GeometryProxy) -> some View {
         let isLandscape = geometry.size.width > geometry.size.height
-        // Increase fraction to make items larger (was 0.55 -> 0.65)
-        let carouselHeightFraction: CGFloat = isLandscape ? 0.65 : 0.7
+        // Increase fraction to make items larger (was 0.55 -> 0.65 -> 0.8)
+        let carouselHeightFraction: CGFloat = isLandscape ? 0.8 : 0.85
         let carouselHeight = geometry.size.height * carouselHeightFraction
         
         // Remove 220 cap, allow scaling up to 400 or just based on screen
         // Calculate item size based on Artwork 1:1 + Text space
-        // Let's target artwork height = 70% of carousel height
+        // Let's target artwork height = 75% of carousel height
         let artworkSize = carouselHeight * 0.75
         let itemWidth = artworkSize
         let itemHeight = artworkSize + 60 // Add fixed space for text below artwork
@@ -148,7 +148,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     // matchedGeometry moves the whole 'itemView'.
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
                     .frame(width: zoomedHeight, height: zoomedHeight + 60) // Maintain aspectish
-                    .opacity(isFlipped ? 0 : 1) // Cross-fade out
+                    .flipOpacity(angle: flipAngle, type: .front) // Use custom modifier
                 
                 // Back (Details)
                 // Visible when flipped (90-180 deg)
@@ -175,17 +175,17 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
                 .frame(width: zoomedWidth, height: zoomedHeight)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
-                .opacity(isFlipped ? 1 : 0) // Cross-fade in
+                .flipOpacity(angle: flipAngle, type: .back) // Use custom modifier
             }
             .rotation3DEffect(
-                .degrees(isFlipped ? 180 : 0),
+                .degrees(flipAngle),
                 axis: (x: 0, y: 1, z: 0),
                 perspective: 0.8
             )
             .onTapGesture {
                 // Toggle flip on card tap
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                    isFlipped.toggle()
+                withAnimation(.easeInOut(duration: 0.6)) {
+                    flipAngle = (flipAngle == 180) ? 0 : 180
                 }
             }
         }
@@ -195,18 +195,18 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Helpers
     
     private func selectAndZoom(_ item: Item, proxy: ScrollViewProxy) {
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+        withAnimation(.easeInOut(duration: 0.6)) {
             selectedItem = item
             zoomedItem = item
             // Simultaneous Flip
-            isFlipped = true
+            flipAngle = 180
             proxy.scrollTo(item.id, anchor: .center)
         }
     }
     
     private func closeZoom() {
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-            isFlipped = false
+        withAnimation(.easeInOut(duration: 0.5)) {
+            flipAngle = 0
             zoomedItem = nil
             selectedItem = nil
         }

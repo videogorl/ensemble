@@ -5,6 +5,7 @@
 		"xcodebuild": true,
 		"git add": true,
 		"git commit": true,
-		"swift": true
+		"swift": true,
+		"FlipOpacity": true
 	}
 }
