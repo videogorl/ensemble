@@ -44,10 +44,9 @@ public struct AlbumsView: View {
                 await libraryVM.refresh()
             }
             .toolbar {
-                if !isLandscape {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty {
+                    if !libraryVM.albums.isEmpty && !isLandscape {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -86,7 +85,7 @@ public struct AlbumsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.albums.isEmpty {
+                    if !libraryVM.albums.isEmpty && !isLandscape {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -105,7 +104,6 @@ public struct AlbumsView: View {
                     }
                 }
                 #endif
-                }
             }
             .sheet(isPresented: $showFilterSheet) {
                 FilterSheet(

@@ -37,10 +37,9 @@ public struct PlaylistsView: View {
                 await viewModel.loadPlaylists()
             }
             .toolbar {
-                if !isLandscape {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.playlists.isEmpty {
+                if !viewModel.playlists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -61,7 +60,7 @@ public struct PlaylistsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !viewModel.playlists.isEmpty {
+                if !viewModel.playlists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -81,7 +80,6 @@ public struct PlaylistsView: View {
                 }
             }
             #endif
-                }
             }
         }
     }

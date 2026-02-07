@@ -50,11 +50,10 @@ public struct SongsView: View {
                 await libraryVM.refresh()
             }
             .toolbar {
-                if !isLandscape {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty {
-                    HStack(spacing: 16) {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                        HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
@@ -107,10 +106,10 @@ public struct SongsView: View {
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !libraryVM.tracks.isEmpty {
+                }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !libraryVM.tracks.isEmpty && !isLandscape {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -129,8 +128,7 @@ public struct SongsView: View {
                 }
             }
             #endif
-                }
-        }
+            }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions
