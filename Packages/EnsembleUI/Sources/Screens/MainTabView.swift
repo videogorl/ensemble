@@ -63,6 +63,7 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var didSetInitialTab = false
+    @State private var isImmersiveMode = false
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -87,10 +88,13 @@ public struct MainTabView: View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 // Connection status banner at top
-                ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                if !isImmersiveMode {
+                    ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                }
                 
                 // Main content layer (TabView)
-                TabView(selection: tabBinding) {
+                tabBarVisibility(
+                    TabView(selection: tabBinding) {
                     // Dynamic Tabs
                     ForEach(barTabs) { tab in
                         tabRootView(for: tab)
@@ -106,7 +110,9 @@ public struct MainTabView: View {
                         .tabItem {
                             Label("More", systemImage: "ellipsis")
                         }
-                }
+                },
+                    isHidden: isImmersiveMode
+                )
                 // Use the new native floating style if available (iOS 18+)
                 .tabViewStyle(sidebarAdaptableIfAvailable())
                 .onAppear {
@@ -125,7 +131,7 @@ public struct MainTabView: View {
             }
 
             // Persistent MiniPlayer (Floating above native TabBar)
-            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible {
+            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible && !isImmersiveMode {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }
@@ -153,6 +159,27 @@ public struct MainTabView: View {
                 navigationCoordinator.pendingNavigation = nil
             }
         }
+        .onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+            if isImmersiveMode != isHidden {
+                isImmersiveMode = isHidden
+                #if os(iOS)
+                UITabBar.appearance().isHidden = isHidden
+                #endif
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tabBarVisibility<Content: View>(_ content: Content, isHidden: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
     
     private func sidebarAdaptableIfAvailable() -> some TabViewStyle {

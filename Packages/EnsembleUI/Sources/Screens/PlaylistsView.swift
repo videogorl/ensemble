@@ -28,6 +28,9 @@ public struct PlaylistsView: View {
                     playlistListView
                 }
             }
+            #if os(iOS)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            #endif
             .navigationTitle(isLandscape ? "" : "Playlists")
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {

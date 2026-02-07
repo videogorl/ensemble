@@ -44,6 +44,9 @@ public struct SongsView: View {
                     trackListView
                 }
             }
+            #if os(iOS)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            #endif
             .navigationTitle(isLandscape ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {

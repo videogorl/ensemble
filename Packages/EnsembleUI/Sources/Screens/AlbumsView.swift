@@ -38,6 +38,9 @@ public struct AlbumsView: View {
                     albumGridView
                 }
             }
+            #if os(iOS)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            #endif
             .navigationTitle(isLandscape ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
