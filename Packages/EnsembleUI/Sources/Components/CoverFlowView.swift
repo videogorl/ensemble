@@ -12,9 +12,10 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     @Binding var selectedItem: Item?
     
     // Scroll & Drag State
-    @State private var offset: CGFloat = 0
-    @State private var lastOffset: CGFloat = 0 // Tracks offset before current drag
-    @GestureState private var dragOffset: CGFloat = 0
+    // offset now represents the "Virtual Index" (Float), not pixels.
+    @State private var scrollIndex: Double = 0
+    @State private var lastScrollIndex: Double = 0
+    @GestureState private var dragIndexDelta: Double = 0
     
     // Zoom/Flip State
     @State private var flipAngle: Double = 0
@@ -22,7 +23,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     @Namespace private var animation
     
     // Configuration
-    private let rotationMax: Double = 55
+    private let rotationMax: Double = 65
     
     var body: some View {
         GeometryReader { geometry in
@@ -75,18 +76,17 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let carouselHeight = geometry.size.height * (isLandscape ? 0.8 : 0.85)
         
         // Item Sizing
-        let baseItemSize = carouselHeight * 0.60 
+        let baseItemSize = carouselHeight * 0.60
         let itemWidth = baseItemSize
-        let itemHeight = baseItemSize // Keep it square-ish for the base frame
+        let itemHeight = baseItemSize
         
-        // Spacing: Classic iPod style has tight stacking (~30-40% of width)
-        let spacing = itemWidth * 0.45
+        // Spacing Constants
+        let wingSpacing = itemWidth * 0.43 // Tighter stacking for wings
+        let centerGap = itemWidth * 0.50   // Reduced gap for seamless spotlight transition
         
-        // Current virtual scroll position (including active drag)
-        let currentScrollOffset = offset + dragOffset
-        
-        // Calculate current index for Z-index optimization
-        let centerIndex = -currentScrollOffset / spacing
+        // Configuration
+        let rotationMax: Double = 65 // Steeper angle for classic look
+        let currentIndex = scrollIndex + dragIndexDelta
         
         return ZStack {
             // Background touch area for gesture
@@ -94,55 +94,61 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture()
-                        .updating($dragOffset) { value, state, _ in
-                            state = value.translation.width
+                        .updating($dragIndexDelta) { value, state, _ in
+                            // Sensitivity: 1 full swipe width = moves 3 items?
+                            // dragTranslation / (total gap + spacing)
+                            let sensitivity = 1.0 / (wingSpacing + centerGap)
+                            state = -value.translation.width * sensitivity
                         }
                         .onEnded { value in
-                            handleDragEnd(value: value, spacing: spacing)
+                            handleDragEnd(value: value, spacing: wingSpacing + centerGap)
                         }
                 )
             
             // Render visible items
-            // We use a simplified ZStack with manual offsets + Z-Index
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                // Optimization: window rendering (render only items close to center)
-                // Expanding window to 20 to be safe
-                if abs(Double(index) - centerIndex) < 20 {
-                    // Position calculation
-                    let itemPosition = (CGFloat(index) * spacing) + currentScrollOffset
-                    let progress = itemPosition / spacing
-                    let absProgress = abs(progress)
+                let i = Double(index)
+                let relativeIndex = i - currentIndex
+                
+                // Optimization: render only items reasonably close
+                if abs(relativeIndex) < 20 {
+                    
+                    // Non-Linear Position Logic
+                    // Base: i * wingSpacing
+                    // Shift: + Gap if i > 0, - Gap if i < 0
+                    // Smooth transition using clamp
+                    
+                    let linearX = relativeIndex * wingSpacing
+                    let gapShift = clamp(relativeIndex, -1, 1) * centerGap
+                    let finalX = linearX + gapShift
                     
                     // Scale Logic: Center item is 33% bigger
-                    // Interpolate from 1.33 down to 1.0 based on distance
-                    // We clamp the distance to 1.0 so only the immediate neighbors transition scale
-                    let scale = 1.0 + (0.33 * max(0, 1 - absProgress))
+                    let scale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
                     
                     ZStack {
                         itemView(item)
                             .frame(width: itemWidth, height: itemHeight)
                     }
                     .frame(width: itemWidth, height: itemHeight)
-                    .scaleEffect(scale) // Apply scale before rotation/offset
+                    .scaleEffect(scale)
                     .modifier(
                         CoverFlowRotationModifier(
-                            progress: progress,
+                            progress: relativeIndex,
                             rotationMax: rotationMax
                         )
                     )
-                    // STABILITY: Opacity handles visibility for zoom logic, keep view in hierarchy
                     .opacity(zoomedItem?.id == item.id ? 0 : 1)
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
-                    .offset(x: itemPosition) // Manual placement
-                    .zIndex(zIndex(for: progress)) // Ensure center items are on top
+                    .offset(x: finalX)
+                    .zIndex(zIndex(for: relativeIndex))
                     .onTapGesture {
-                        if round(centerIndex) == Double(index) {
+                        if round(currentIndex) == i {
                             selectAndZoom(item)
                         } else {
                             // Tap neighbor to scroll to it
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
-                                offset = CGFloat(-index) * spacing
-                                lastOffset = offset
+                                scrollIndex = i
+                                lastScrollIndex = scrollIndex
                                 selectedItem = item
                             }
                         }
@@ -153,8 +159,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         .frame(height: carouselHeight)
         .position(x: geometry.size.width / 2, y: geometry.size.height / 2) // Center the track
         .onAppear {
-            // Layout initialization
-            scrollToSelection(spacing: spacing)
+            scrollToSelection()
         }
     }
     
@@ -169,14 +174,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 .onTapGesture { closeZoom() }
             
             ZStack {
-                // Front (Artwork)
                 itemView(item)
-                    // .matchedGeometryEffect with isSource: false makes this view fly from carousel position
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: false)
                     .frame(width: zoomedHeight, height: zoomedHeight + 60)
                     .modifier(FlipOpacity(angle: flipAngle, type: .front))
                 
-                // Back (Details)
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color(UIColor.secondarySystemBackground))
@@ -219,19 +221,20 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Logic Helpers
     
     private func handleDragEnd(value: DragGesture.Value, spacing: CGFloat) {
-        // momentum prediction logic
-        let predictedEndOffset = offset + value.translation.width + (value.predictedEndTranslation.width * 0.5)
-        let exactIndex = -predictedEndOffset / spacing
+        // spacing passed here is (wing + gap) = roughly the pixel distance 1 index moves at center
+        let sensitivity = 1.0 / spacing
+        
+        let dragDelta = -value.translation.width * sensitivity
+        let predictedDelta = -value.predictedEndTranslation.width * sensitivity * 0.5
+        
+        let targetIndex = scrollIndex + dragDelta + predictedDelta
         
         // Clamp to valid indices
-        let clampedIndex = max(0, min(Double(items.count - 1), round(exactIndex)))
-        
-        // Snap
-        let targetOffset = CGFloat(-clampedIndex) * spacing
+        let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
         
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            offset = targetOffset
-            lastOffset = offset
+            scrollIndex = clampedIndex
+            lastScrollIndex = scrollIndex
         }
         
         // Update selection if we snapped to a new item
@@ -249,12 +252,17 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         } else if selectedItem == nil && zoomedItem != nil {
             closeZoom()
         }
+        
+        // Optionally scroll to selection if triggered externally (e.g. search)
+        // Check if we are far off?
+        // Let's rely on scroll gesture mostly, but if significantly different:
+        // scrollToSelection()
     }
     
-    private func scrollToSelection(spacing: CGFloat) {
+    private func scrollToSelection() {
         if let selected = selectedItem, let index = items.firstIndex(where: { $0.id == selected.id }) {
-            offset = CGFloat(-index) * spacing
-            lastOffset = offset
+            scrollIndex = Double(index)
+            lastScrollIndex = scrollIndex
         }
     }
     
@@ -273,29 +281,27 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
     }
     
-    private func zIndex(for progress: CGFloat) -> Double {
-        // Items closer to center (progress 0) should be on top
-        // ZIndex = -|distance|
-        return -abs(Double(progress))
+    private func zIndex(for relativeIndex: Double) -> Double {
+        return -abs(relativeIndex)
+    }
+    
+    private func clamp(_ value: Double, _ min: Double, _ max: Double) -> Double {
+        if value < min { return min }
+        if value > max { return max }
+        return value
     }
 }
 
 // MARK: - Rotation Modifier
 
 struct CoverFlowRotationModifier: ViewModifier {
-    let progress: CGFloat
+    let progress: Double // relativeIndex
     let rotationMax: Double
     
     func body(content: Content) -> some View {
-        // Rotation Logic based on Store Shelf style
-        // Center (0): 0 degrees
-        // Transition: Steep clamp around 0.5 distance
-        
+        // Rotation Logic
         let direction = max(-1, min(1, progress * 2.5))
-        
-        // If direction is negative (left), we want POSITIVE rotation (+55).
-        // If direction is positive (right), we want NEGATIVE rotation (-55).
-        let rotationAngle = -rotationMax * Double(direction)
+        let rotationAngle = -rotationMax * direction
         
         return content
             .rotation3DEffect(
