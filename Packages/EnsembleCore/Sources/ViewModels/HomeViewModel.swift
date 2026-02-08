@@ -120,192 +120,198 @@ public final class HomeViewModel: ObservableObject {
                 }
             }
             
-            // Perform loading in detached task to avoid blocking UI
-            let fetchedHubs = await Task.detached(priority: .userInitiated) { 
-                var collectedHubs: [Hub] = []
-                
-                // Fetch section-specific hubs
+            // Perform loading with parallel fetching and progressive UI updates
+            // Use TaskGroup for parallel fetching of hubs
+            var collectedHubs: [Hub] = []
+
+            await withTaskGroup(of: [Hub].self) { group in
+                // Fetch section-specific hubs in parallel
                 for task in fetchTasks {
-                    do {
-                        let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
-                        
-                        for plexHub in plexHubs {
-                            let hubId = "\(task.sourceKey):\(plexHub.id)"
-                            var hubItems: [HubItem] = []
-                            
-                            if let metadata = plexHub.metadata, !metadata.isEmpty {
-                                let filteredMetadata = metadata.filter { item in
-                                    let type = item.type?.lowercased() ?? ""
-                                    return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                                }
-                                hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
-                            } else if let key = plexHub.key ?? plexHub.hubKey {
-                                if let metadata = try? await task.client.getHubItems(hubKey: key) {
-                                    let filteredMetadata = metadata.filter { item in
-                                        let type = item.type?.lowercased() ?? ""
-                                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                                    }
-                                    hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
-                                }
-                            }
-                            
-                            if !hubItems.isEmpty {
-                                collectedHubs.append(Hub(
-                                    id: hubId,
-                                    title: plexHub.title,
-                                    type: plexHub.type ?? "mixed",
-                                    items: hubItems
-                                ))
-                            }
-                        }
-                    } catch {
-                        // Silently continue on error
-                    }
-                }
-                
-                // Fallback to global hubs if few section hubs found
-                if collectedHubs.count < 3 {
-                    var handledServers = Set<String>()
-                    for task in fetchTasks {
-                        let serverId = task.sourceKey.split(separator: ":").prefix(2).joined(separator: ":")
-                        if handledServers.contains(serverId) { continue }
-                        handledServers.insert(serverId)
-                        
+                    group.addTask {
+                        var hubs: [Hub] = []
                         do {
-                            let globalHubs = try await task.client.getGlobalHubs()
-                            for plexHub in globalHubs {
-                                let hubType = plexHub.type?.lowercased() ?? ""
-                                let isMusic = hubType.contains("artist") || hubType.contains("album") || hubType.contains("track") || hubType.contains("playlist") || hubType.contains("music")
-                                if !isMusic { continue }
-                                
-                                let hubId = "\(task.sourceKey):global:\(plexHub.id)"
-                                var hubItems: [HubItem] = []
-                                
-                                if let metadata = plexHub.metadata, !metadata.isEmpty {
-                                    let filteredMetadata = metadata.filter { item in
-                                        let type = item.type?.lowercased() ?? ""
-                                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+
+                            // Process hub items in parallel
+                            await withTaskGroup(of: Hub?.self) { hubGroup in
+                                for plexHub in plexHubs {
+                                    hubGroup.addTask {
+                                        let hubId = "\(task.sourceKey):\(plexHub.id)"
+                                        var hubItems: [HubItem] = []
+
+                                        if let metadata = plexHub.metadata, !metadata.isEmpty {
+                                            let filteredMetadata = metadata.filter { item in
+                                                let type = item.type?.lowercased() ?? ""
+                                                return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                                            }
+                                            hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                        } else if let key = plexHub.key ?? plexHub.hubKey {
+                                            if let metadata = try? await task.client.getHubItems(hubKey: key) {
+                                                let filteredMetadata = metadata.filter { item in
+                                                    let type = item.type?.lowercased() ?? ""
+                                                    return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                                                }
+                                                hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                            }
+                                        }
+
+                                        if !hubItems.isEmpty {
+                                            return Hub(
+                                                id: hubId,
+                                                title: plexHub.title,
+                                                type: plexHub.type ?? "mixed",
+                                                items: hubItems
+                                            )
+                                        }
+                                        return nil
                                     }
-                                    hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
                                 }
-                                
-                                if !hubItems.isEmpty {
-                                    collectedHubs.append(Hub(
-                                        id: hubId,
-                                        title: plexHub.title,
-                                        type: plexHub.type ?? "mixed",
-                                        items: hubItems
-                                    ))
+
+                                for await hub in hubGroup {
+                                    if let hub = hub {
+                                        hubs.append(hub)
+                                    }
                                 }
                             }
                         } catch {
                             // Silently continue on error
                         }
+                        return hubs
                     }
-                }
-                
-                // Helper to get server key
-                func getServerKey(_ hubId: String) -> String {
-                    let components = hubId.split(separator: ":")
-                    if components.count >= 2 {
-                        return "\(components[0]):\(components[1])"
-                    }
-                    return "global"
                 }
 
-                // Group hubs by server and normalized title to merge libraries on the same server
-                var hubGroups: [String: [Hub]] = [:]
-                var groupOrder: [String] = []
-                
-                for hub in collectedHubs {
-                    let serverKey = getServerKey(hub.id)
-                    let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
-                    let groupingKey = "\(serverKey)|\(normalizedTitle)"
-                    
-                    if hubGroups[groupingKey] == nil {
-                        hubGroups[groupingKey] = []
-                        groupOrder.append(groupingKey)
+                // Collect hubs progressively and update UI
+                for await hubs in group {
+                    collectedHubs.append(contentsOf: hubs)
+
+                    // Progressive UI update: merge and display hubs as they arrive
+                    await MainActor.run {
+                        if !hubs.isEmpty {
+                            // Merge collected hubs so far
+                            let progressiveResult = self.mergeAndGroupHubs(collectedHubs)
+
+                            // Apply ordering if needed
+                            let displayHubs: [Hub]
+                            if let sourceKey = currentSourceKey {
+                                let serverHubs = hubsForServer(sourceKey: sourceKey, in: progressiveResult)
+                                let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                                displayHubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: progressiveResult)
+                            } else {
+                                displayHubs = progressiveResult
+                            }
+
+                            self.hubs = displayHubs
+                        }
                     }
-                    hubGroups[groupingKey]?.append(hub)
                 }
-                
-                var mergedResults: [Hub] = []
-                for key in groupOrder {
-                    guard let group = hubGroups[key] else { continue }
-                    
-                    let firstHub = group[0]
-                    let serverKey = getServerKey(firstHub.id)
-                    let normalizedTitle = HomeViewModel.normalizeHubTitle(firstHub.title)
-                    
-                    if group.count == 1 {
-                        // Even if not merged, use normalized title for consistency
-                        mergedResults.append(Hub(
-                            id: firstHub.id,
-                            title: normalizedTitle,
-                            type: firstHub.type,
-                            items: firstHub.items
-                        ))
-                    } else {
-                        // Merge items from all hubs in group
-                        var allItems: [HubItem] = []
-                        var seenItems = Set<String>()
-                        
-                        for hub in group {
-                            for item in hub.items {
-                                let itemKey = "\(item.id):\(item.sourceCompositeKey)"
-                                if !seenItems.contains(itemKey) {
-                                    allItems.append(item)
-                                    seenItems.insert(itemKey)
+            }
+
+            let fetchedHubs = collectedHubs
+
+            // Fallback to global hubs if few section hubs found
+            let finalHubs: [Hub]
+            if fetchedHubs.count < 3 {
+                finalHubs = await Task.detached(priority: .userInitiated) {
+                    var allHubs = fetchedHubs
+
+                    // Get unique server IDs
+                    var handledServers = Set<String>()
+                    var serverTasks: [(sourceKey: String, client: PlexAPIClient)] = []
+                    for task in fetchTasks {
+                        let serverId = task.sourceKey.split(separator: ":").prefix(2).joined(separator: ":")
+                        if !handledServers.contains(serverId) {
+                            handledServers.insert(serverId)
+                            serverTasks.append((task.sourceKey, task.client))
+                        }
+                    }
+
+                    // Fetch global hubs in parallel
+                    let globalHubs = await withTaskGroup(of: [Hub].self) { group in
+                        var collected: [Hub] = []
+
+                        for task in serverTasks {
+                            group.addTask {
+                                var hubs: [Hub] = []
+                                do {
+                                    let globalHubs = try await task.client.getGlobalHubs()
+                                    for plexHub in globalHubs {
+                                        let hubType = plexHub.type?.lowercased() ?? ""
+                                        let isMusic = hubType.contains("artist") || hubType.contains("album") || hubType.contains("track") || hubType.contains("playlist") || hubType.contains("music")
+                                        if !isMusic { continue }
+
+                                        let hubId = "\(task.sourceKey):global:\(plexHub.id)"
+                                        var hubItems: [HubItem] = []
+
+                                        if let metadata = plexHub.metadata, !metadata.isEmpty {
+                                            let filteredMetadata = metadata.filter { item in
+                                                let type = item.type?.lowercased() ?? ""
+                                                return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                                            }
+                                            hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                        }
+
+                                        if !hubItems.isEmpty {
+                                            hubs.append(Hub(
+                                                id: hubId,
+                                                title: plexHub.title,
+                                                type: plexHub.type ?? "mixed",
+                                                items: hubItems
+                                            ))
+                                        }
+                                    }
+                                } catch {
+                                    // Silently continue on error
                                 }
+                                return hubs
                             }
                         }
-                        
-                        // Sort merged items by dateAdded descending
-                        allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
-                        
-                        // Create merged hub with a stable ID for ordering
-                        let mergedHub = Hub(
-                            id: "\(serverKey):merged:\(normalizedTitle)",
-                            title: normalizedTitle,
-                            type: firstHub.type,
-                            items: Array(allItems.prefix(40)) // Higher limit for merged hubs
-                        )
-                        mergedResults.append(mergedHub)
+
+                        for await hubs in group {
+                            collected.append(contentsOf: hubs)
+                        }
+
+                        return collected
                     }
-                }
-                
-                return mergedResults
-            }.value
-            
-            print("[HubOrder] Fetched hubs count=\(fetchedHubs.count)")
-            
+
+                    allHubs.append(contentsOf: globalHubs)
+                    return allHubs
+                }.value
+            } else {
+                finalHubs = fetchedHubs
+            }
+
+            // Merge and group hubs
+            let fetchedHubsResult = mergeAndGroupHubs(finalHubs)
+
+            print("[HubOrder] Fetched hubs count=\(fetchedHubsResult.count)")
+
             // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
             // This ensures reset always has a baseline to return to
             if let sourceKey = currentSourceKey {
-                let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
                 print("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
-            
+
             // Apply saved or default order to the fetched hubs
             let orderedHubs: [Hub]
             if let sourceKey = currentSourceKey {
-                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubs)
+                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
                 let orderedServerHubs: [Hub]
-                
+
                 if applySavedOrder {
                     orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
                 } else {
                     orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
                 }
-                
+
                 orderedHubs = mergeOrderedServerHubs(
                     orderedServerHubs,
                     sourceKey: sourceKey,
-                    into: fetchedHubs
+                    into: fetchedHubsResult
                 )
             } else {
-                orderedHubs = fetchedHubs
+                orderedHubs = fetchedHubsResult
             }
             
             // Update UI all at once to avoid flickering
@@ -334,13 +340,88 @@ public final class HomeViewModel: ObservableObject {
     /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
     private static nonisolated func normalizeHubTitle(_ title: String) -> String {
         var normalized = title
-        
+
         // Remove " in [Library Name]" pattern (e.g. "Recently Added in Music")
         if let range = normalized.range(of: " in ", options: .backwards) {
             normalized = String(normalized[..<range.lowerBound])
         }
-        
+
         return normalized
+    }
+
+    /// Merge and group hubs by server and normalized title
+    private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
+        // Helper to get server key
+        func getServerKey(_ hubId: String) -> String {
+            let components = hubId.split(separator: ":")
+            if components.count >= 2 {
+                return "\(components[0]):\(components[1])"
+            }
+            return "global"
+        }
+
+        // Group hubs by server and normalized title to merge libraries on the same server
+        var hubGroups: [String: [Hub]] = [:]
+        var groupOrder: [String] = []
+
+        for hub in hubs {
+            let serverKey = getServerKey(hub.id)
+            let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
+            let groupingKey = "\(serverKey)|\(normalizedTitle)"
+
+            if hubGroups[groupingKey] == nil {
+                hubGroups[groupingKey] = []
+                groupOrder.append(groupingKey)
+            }
+            hubGroups[groupingKey]?.append(hub)
+        }
+
+        var mergedResults: [Hub] = []
+        for key in groupOrder {
+            guard let group = hubGroups[key] else { continue }
+
+            let firstHub = group[0]
+            let serverKey = getServerKey(firstHub.id)
+            let normalizedTitle = HomeViewModel.normalizeHubTitle(firstHub.title)
+
+            if group.count == 1 {
+                // Even if not merged, use normalized title for consistency
+                mergedResults.append(Hub(
+                    id: firstHub.id,
+                    title: normalizedTitle,
+                    type: firstHub.type,
+                    items: firstHub.items
+                ))
+            } else {
+                // Merge items from all hubs in group
+                var allItems: [HubItem] = []
+                var seenItems = Set<String>()
+
+                for hub in group {
+                    for item in hub.items {
+                        let itemKey = "\(item.id):\(item.sourceCompositeKey)"
+                        if !seenItems.contains(itemKey) {
+                            allItems.append(item)
+                            seenItems.insert(itemKey)
+                        }
+                    }
+                }
+
+                // Sort merged items by dateAdded descending
+                allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+
+                // Create merged hub with a stable ID for ordering
+                let mergedHub = Hub(
+                    id: "\(serverKey):merged:\(normalizedTitle)",
+                    title: normalizedTitle,
+                    type: firstHub.type,
+                    items: Array(allItems.prefix(40)) // Higher limit for merged hubs
+                )
+                mergedResults.append(mergedHub)
+            }
+        }
+
+        return mergedResults
     }
     
     // MARK: - Edit Mode
