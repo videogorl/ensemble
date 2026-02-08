@@ -292,6 +292,8 @@ public struct ArtistDetailView: View {
 
     private var heroBanner: some View {
         GeometryReader { geometry in
+            let bannerHeight = geometry.size.width * 4 / 3 // 3:4 aspect ratio (width:height)
+            
             ZStack(alignment: .bottom) {
                 // Artist artwork with aspect fill
                 ArtworkView(
@@ -300,7 +302,7 @@ public struct ArtistDetailView: View {
                     cornerRadius: 0
                 )
                 .aspectRatio(contentMode: .fill)
-                .frame(width: geometry.size.width, height: 250 + geometry.safeAreaInsets.top)
+                .frame(width: geometry.size.width, height: bannerHeight + geometry.safeAreaInsets.top)
                 .clipped()
                 .offset(y: -geometry.safeAreaInsets.top)
 
@@ -313,7 +315,7 @@ public struct ArtistDetailView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 250 + geometry.safeAreaInsets.top)
+                .frame(height: bannerHeight + geometry.safeAreaInsets.top)
                 .offset(y: -geometry.safeAreaInsets.top)
 
                 // Artist info overlay
@@ -343,7 +345,7 @@ public struct ArtistDetailView: View {
                 .padding()
             }
         }
-        .frame(height: 250)
+        .frame(height: UIScreen.main.bounds.width * 4 / 3) // 3:4 aspect ratio based on screen width
     }
 
     // MARK: - Action Buttons
