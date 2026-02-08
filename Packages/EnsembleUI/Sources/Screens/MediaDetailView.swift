@@ -46,6 +46,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
+    @State private var showFilterSheet = false
     @Environment(\.dependencies) private var deps
 
     public init(
@@ -98,6 +99,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showFilterSheet = true
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+
+                        // Badge indicator when filters are active
+                        if viewModel.filterOptions.hasActiveFilters {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 2, y: -2)
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(
+                filterOptions: $viewModel.filterOptions
+            )
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
