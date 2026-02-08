@@ -179,7 +179,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.accentColor)
 
                 if let subtitle = headerData.subtitle {
                     if let artistId = headerData.artistRatingKey {
@@ -188,7 +187,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
                                     Text(subtitle)
                                         .font(.title3)
-                                        .foregroundColor(.accentColor)
                                         .multilineTextAlignment(.center)
                                         .lineLimit(2)
                                 }
@@ -198,7 +196,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 } label: {
                                     Text(subtitle)
                                         .font(.title3)
-                                        .foregroundColor(.accentColor)
                                         .multilineTextAlignment(.center)
                                         .lineLimit(2)
                                 }
@@ -207,7 +204,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } else {
                         Text(subtitle)
                             .font(.title3)
-                            .foregroundColor(.accentColor)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                     }

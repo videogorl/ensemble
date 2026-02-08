@@ -323,7 +323,6 @@ public struct ArtistDetailView: View {
                     Text(viewModel.artist.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
-                        .foregroundColor(.accentColor)
 
                     if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
                         HStack(spacing: 8) {
