@@ -30,6 +30,108 @@ As you make big architectural changes, please be sure to update this document an
 
 Do not use emojis (except in debugging).
 
+## UI/UX Design Principles & Conventions
+
+These are core design decisions that should be maintained throughout the app. When implementing new features or making changes, adhere to these principles:
+
+### Navigation Behavior
+
+**Tab Navigation:**
+- **Pop-to-root on re-tap:** When a tab button is tapped while already selected, the app should pop to root if there's a navigation stack, otherwise request focus (for Search tab)
+- **Implementation:** See `MainTabView.handleTabTap()` for reference implementation
+- **Haptic feedback:** Tab taps trigger `UISelectionFeedbackGenerator` for tactile response
+- **More tab support:** The app displays first 4 enabled tabs in the tab bar, with remaining tabs accessible via "More" tab (5th position)
+- **Tab customization:** Users can enable/disable tabs via Settings; disabled tabs are hidden from the tab bar
+- **Visible tabs synchronization:** `NavigationCoordinator.visibleTabs` is synced from MainTabView to enable fallback logic when navigating from Now Playing
+
+**Deep Linking:**
+- **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
+- **Pending navigation:** When navigating from sheets (like Now Playing), set `pendingNavigation` to defer navigation until sheet dismisses
+- **Tab fallback:** If navigating from Search tab (or hidden tab), fall back to first visible tab via `visibleTabs.first ?? .home`
+
+**iOS 15 Compatibility:**
+- **iOS 16+:** Use `NavigationStack` with `NavigationLink(value:)` and typed paths
+- **iOS 15:** Use `NestedNavigationLink` recursive pattern in `MainTabView.swift` for multi-level navigation
+- **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
+
+### Native UI Components
+
+**Tab Bar:**
+- **Stay native:** The tab bar uses SwiftUI's native `TabView` and should remain that way unless there's a compelling reason to change
+- **Immersive mode:** Tab bar can be hidden via `ChromeVisibilityPreferenceKey` preference (used in CoverFlow and full-screen experiences)
+- **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available for modern iOS appearance
+- **Mini player offset:** Mini player sits 56pt above tab bar on iPhone to avoid overlap
+
+**System Integration:**
+- **Use pre-existing elements:** Leverage native SwiftUI components and iOS system features where possible (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen controls)
+- **Platform adaptivity:** Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
+- **Safe area respect:** Content should respect safe areas unless deliberately edge-to-edge (like CoverFlow)
+
+### Visual Design
+
+**Artwork Display:**
+- **Consistent sizing:** Hub items use 140x140pt artwork; detail views adapt based on context
+- **Corner radius:** Albums/playlists use 8pt radius; artists use 70pt (circular)
+- **Shadows:** Use `Color.black.opacity(0.15)` with radius 6 for card depth
+- **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground` for efficient, beautiful backgrounds
+
+**Typography & Spacing:**
+- **System fonts:** Use SF Pro (system default) with semantic font styles (.headline, .subheadline, etc.)
+- **Line limits:** Truncate long text with `.lineLimit(1)` or use `MarqueeText` for auto-scrolling
+- **Information density:** Aim for information-dense layouts without clutter
+
+### Loading & Error States
+
+**Async Loading:**
+- **DetailLoader pattern:** Use `AlbumDetailLoader`, `ArtistDetailLoader`, `PlaylistDetailLoader` for hub-to-detail navigation
+- **Loading indicators:** Show `ProgressView` with descriptive text during async operations
+- **Error handling:** Display error messages with retry options; never crash or show empty screens without explanation
+- **Offline-first:** Load cached data immediately, then fetch fresh data in background
+
+**Hub Loading:**
+- **2-second debouncing:** Hub fetches are debounced to prevent rapid successive loads
+- **Fallback logic:** If fewer than 3 section hubs, fall back to global hubs
+- **Empty states:** Use `EmptyLibraryView` with clear sync prompts when no data available
+
+### Performance Optimization
+
+**Memory Efficiency (iOS 15 / 2GB RAM):**
+- **Lazy loading:** Use `LazyVGrid`, `LazyVStack`, and lazy image loading via Nuke
+- **Background contexts:** Heavy CoreData operations use background contexts via `CoreDataStack.performBackgroundTask`
+- **Image caching:** Artwork uses two-tier caching (filesystem + Nuke's in-memory cache) with 100MB disk cache limit
+- **Task.detached:** Use for non-blocking background work to avoid main thread stalls
+
+**Debouncing:**
+- **Network monitor:** 1s debouncing to reduce unnecessary UI updates
+- **Home screen loading:** 2s debouncing to prevent rapid reloads
+- **App launch:** Network monitor starts with 500ms delay to avoid blocking launch
+
+### Code Documentation
+
+**Comment Guidelines:**
+- **"What" not "how":** Comment on what each logical section does, not how Swift works
+- **Class/function headers:** Include doc comments (`///`) for all public types and methods
+- **Complex logic:** Explain non-obvious algorithms, formulas, or architectural decisions
+- **Avoid over-commenting:** Self-documenting code is preferred; don't comment the obvious
+
+**Change Documentation:**
+- **Update CLAUDE.md:** When making architectural changes, update this file with new patterns and conventions
+- **Update README.md:** Keep user-facing documentation in sync with implemented features
+- **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
+- **Code comments:** Leave comments in the code itself so future developers (including AI assistants) understand the design
+
+### Feature Philosophy
+
+**Preserve Existing Functionality:**
+- **Don't remove features:** When refactoring, preserve existing functionality unless explicitly directed to remove it
+- **Backward compatibility:** Maintain iOS 15 support; use feature detection for newer OS features
+- **User preferences:** Respect user settings (accent colors, enabled tabs, filter preferences)
+
+**Incremental Enhancement:**
+- **Build on existing code:** Extend rather than replace working components
+- **Reuse patterns:** Use established patterns (DetailLoader, HubRepository, FilterOptions) for consistency
+- **Test on target devices:** iOS 15 devices with 2GB RAM are the minimum target
+
 ## Project Structure
 
 ```
@@ -197,7 +299,9 @@ Sources/
 │   ├── CacheManager.swift             # Cache size tracking & management (MainActor)
 │   ├── NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
 │   ├── ServerHealthChecker.swift      # Concurrent server health checks
-│   └── SettingsManager.swift          # App settings (accent colors, customizable tabs)
+│   ├── SettingsManager.swift          # App settings (accent colors, customizable tabs)
+│   ├── HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
+│   └── HubOrderManager.swift          # User-customizable hub section ordering
 ├── ViewModels/
 │   ├── AddPlexAccountViewModel.swift
 │   ├── AlbumDetailViewModel.swift
@@ -227,6 +331,11 @@ Tests/
   - `pendingNavigation` — Deferred navigation executed after sheet dismissal
 - `PlaybackService` — AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion)
 - `HubRepository` — Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
+- `HubOrderManager` — Manages user-customizable hub section ordering per music source
+  - Persists custom order to UserDefaults with per-source keys
+  - `applyOrder(to:for:)` — Reorders fetched hubs according to saved preferences
+  - `saveOrder(_:for:)` / `saveDefaultOrder(_:for:)` — Stores custom and default orders
+  - `resetToDefaultOrder(for:)` — Restores server's original hub order
 - `ArtworkLoader` — Persistent artwork caching with local-first loading strategy
 - `CacheManager` (@MainActor) — Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) — Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
@@ -259,9 +368,17 @@ Sources/
 │   ├── ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 │   ├── ArtworkView.swift             # Lazy-loading artwork with Nuke
 │   ├── BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
+│   ├── ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
+│   ├── CompactSearchRows.swift       # Compact row layouts for search results
 │   ├── ConnectionStatusBanner.swift  # Network status UI indicator
+│   ├── CoverFlowView.swift           # 3D carousel with perspective rotation and scaling
+│   ├── CoverFlowItemView.swift       # Individual item in CoverFlow carousel
+│   ├── CoverFlowDetailView.swift     # Flipped detail view for CoverFlow items
 │   ├── EmptyLibraryView.swift        # Empty state with sync prompt
 │   ├── FilterSheet.swift             # Advanced filtering UI with persistence
+│   ├── FlipOpacity.swift             # View modifier for flip animations
+│   ├── GenreCard.swift               # Grid card for genres
+│   ├── HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 │   ├── KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 │   ├── MarqueeText.swift             # Auto-scrolling text component for long titles
 │   ├── MediaTrackList.swift          # Reusable track list with context menu
@@ -270,6 +387,7 @@ Sources/
 │   ├── PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
 │   ├── ScrollIndex.swift             # A-Z index for fast scrolling
 │   ├── TrackRow.swift                # Single track row with artwork
+│   ├── View+Extensions.swift         # SwiftUI view extensions and helpers
 │   └── WaveformView.swift            # Audio waveform visualization
 ├── Screens/
 │   ├── AddPlexAccountView.swift      # Account setup flow
@@ -315,6 +433,13 @@ Tests/
 - `WaveformView` — Audio waveform visualization with real Plex loudness data or fallback generation
 - `MarqueeText` — Auto-scrolling text component for long titles that exceed container width
 - `KeyboardObserver` — iOS-specific keyboard height tracking with `.keyboardAware()` modifier for automatic bottom padding
+- `HubOrderingSheet` — Drag-to-reorder interface for customizing hub section order per music source
+- `CoverFlowView` — 3D carousel view with perspective rotation, scaling, and tap-to-zoom/flip interactions
+  - `CoverFlowItemView` — Individual carousel items with 3D transforms
+  - `CoverFlowDetailView` — Flipped card detail view for zoomed items
+- `ChromeVisibilityPreferenceKey` — SwiftUI preference key for hiding tab bar in immersive experiences (CoverFlow, etc.)
+- `CompactSearchRows` — Compact result layouts for search interface
+- `GenreCard` — Grid card component for genre browsing
 
 ### Key Architectural Patterns
 
