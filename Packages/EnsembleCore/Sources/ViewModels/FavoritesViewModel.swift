@@ -2,12 +2,15 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+/// ViewModel for Favorites view - displays tracks rated 4/5 or 5/5 stars
+/// This is an offline-first hub that pulls data directly from CoreData without server requests
+/// Spans all configured servers and libraries
 @MainActor
 public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var tracks: [Track] = []
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
+    @Published public private(set) var isLoading: Bool = false
+    @Published public private(set) var error: String?
 
     private let libraryRepository: LibraryRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -15,10 +18,15 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     public init(libraryRepository: LibraryRepositoryProtocol) {
         self.libraryRepository = libraryRepository
         self.filterOptions = FilterPersistence.load(for: "Favorites")
-        
+
         setupFilterPersistence()
+
+        // Initial load
+        Task {
+            await loadTracks()
+        }
     }
-    
+
     private func setupFilterPersistence() {
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
@@ -26,6 +34,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             .store(in: &cancellables)
     }
 
+    /// Loads favorite tracks directly from CoreData (offline-first)
+    /// Fetches all tracks with rating >= 8 (4+ stars) across all sources
     public func loadTracks() async {
         isLoading = true
         error = nil
@@ -34,7 +44,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
             tracks = favoriteTracks.map { Track(from: $0) }
         } catch {
+            // Silently fail - offline-first means we show what we have
             self.error = error.localizedDescription
+            tracks = []
         }
 
         isLoading = false
@@ -47,7 +59,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             let searchLower = filterOptions.searchText.lowercased()
             filtered = filtered.filter {
                 $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false)
+                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
+                ($0.albumName?.lowercased().contains(searchLower) ?? false)
             }
         }
         
