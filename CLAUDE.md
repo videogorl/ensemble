@@ -2,11 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-If you are a multi-model agent (such as Copilot), please use the best model for the job:
-- Back end structure and architecture: Claude (Preferrably Opus, but Sonnet can work)
-- Front-end design and finesse: Google Gemini (preferably Pro 3 or above)
-- Decision making: Any model
-
 
 ## Coding style
 
