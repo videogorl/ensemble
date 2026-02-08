@@ -77,7 +77,7 @@ public struct SettingsView: View {
             }
 
             // Playback section
-            Section(header: Text("Playback").foregroundColor(.accentColor).textCase(nil)) {
+            Section(header: Text("Playback").textCase(nil)) {
                 NavigationLink {
                     AudioQualitySettingsView()
                 } label: {
@@ -90,7 +90,7 @@ public struct SettingsView: View {
             }
 
             // Storage section
-            Section(header: Text("Storage").foregroundColor(.accentColor).textCase(nil)) {
+            Section(header: Text("Storage").textCase(nil)) {
                 NavigationLink {
                     StorageSettingsView()
                 } label: {
@@ -114,7 +114,7 @@ public struct SettingsView: View {
             }
             
             // Debug section
-            Section(header: Text("Reset").foregroundColor(.accentColor).textCase(nil)) {
+            Section(header: Text("Reset").textCase(nil)) {
                 Button(role: .destructive) {
                     // Clear all accounts from keychain
                     for account in accountManager.plexAccounts {
@@ -131,7 +131,7 @@ public struct SettingsView: View {
             }
 
             // About section
-            Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
+            Section(header: Text("About").textCase(nil)) {
                 HStack {
                     Image(systemName: "info.circle")
                         .frame(width: 44)

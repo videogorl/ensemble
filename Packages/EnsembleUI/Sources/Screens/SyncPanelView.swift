@@ -31,7 +31,7 @@ public struct SyncPanelView: View {
                     .disabled(viewModel.isSyncing)
                 }
 
-                Section(header: Text("Music Sources").foregroundColor(.accentColor).textCase(nil)) {
+                Section(header: Text("Music Sources").textCase(nil)) {
                     if viewModel.sources.isEmpty {
                         Text("No music sources configured")
                             .foregroundColor(.secondary)
