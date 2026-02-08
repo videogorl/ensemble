@@ -2,11 +2,25 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @State private var trackIndexMap: [String: Int] = [:]
     @State private var showFilterSheet = false
+    @State private var selectedAlbum: Album?
+    
+    private var backgroundColor: Color {
+        #if os(macOS)
+        return Color(NSColor.windowBackgroundColor)
+        #else
+        return Color(UIColor.systemBackground)
+        #endif
+    }
 
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
@@ -14,25 +28,36 @@ public struct SongsView: View {
     }
 
     public var body: some View {
-        Group {
-            if libraryVM.isLoading && libraryVM.tracks.isEmpty {
-                loadingView
-            } else if libraryVM.tracks.isEmpty {
-                emptyView
-            } else {
-                trackListView
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            
+            Group {
+                if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+                    loadingView
+                } else if libraryVM.tracks.isEmpty {
+                    emptyView
+                } else if isLandscape {
+                    albumCoverFlowView
+                        .navigationBarHidden(true)
+                        .statusBar(hidden: true)
+                } else {
+                    trackListView
+                }
             }
-        }
-        .navigationTitle("Songs")
-        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
-        .refreshable {
-            await libraryVM.refresh()
-        }
-        .toolbar {
+            .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty {
-                    HStack(spacing: 16) {
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            #endif
+            .navigationTitle(isLandscape ? "" : "Songs")
+            .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+            .refreshable {
+                await libraryVM.refresh()
+            }
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                        HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
@@ -85,10 +110,10 @@ public struct SongsView: View {
                         }
                     }
                 }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if !libraryVM.tracks.isEmpty {
+                }
+                #else
+                ToolbarItem(placement: .automatic) {
+                    if !libraryVM.tracks.isEmpty && !isLandscape {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -103,16 +128,16 @@ public struct SongsView: View {
                                 }
                             }
                         }
-                        // Add Sort Menu for macOS here if needed
                     }
                 }
             }
             #endif
-        }
+            }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions
             )
+        }
         }
     }
 
@@ -140,206 +165,103 @@ public struct SongsView: View {
     }
 
     private var trackListView: some View {
-        #if canImport(UIKit)
-        IndexedTrackList(
-            groupedTracks: groupedTracks,
-            sectionTitles: sectionIndexTitles,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
-            onTrackTap: { track in
-                let globalIndex = trackIndexMap[track.id] ?? 0
-                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
-            }
-        )
-        .onChange(of: libraryVM.filteredTracks) { tracks in
-            // Rebuild index map when tracks change
-            trackIndexMap = Dictionary(uniqueKeysWithValues: tracks.enumerated().map { ($1.id, $0) })
-        }
-        .onAppear {
-            // Build initial index map
-            trackIndexMap = Dictionary(uniqueKeysWithValues: libraryVM.filteredTracks.enumerated().map { ($1.id, $0) })
-        }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
-        #endif
-    }
-    
-    private var groupedTracks: [(letter: String, tracks: [Track])] {
-        let grouped = Dictionary(grouping: libraryVM.filteredTracks) { track in
-            track.title.indexingLetter
-        }
-        
-        // Sort keys with # at the top
-        let sortedKeys = grouped.keys.sorted { left, right in
-            if left == "#" { return true }
-            if right == "#" { return false }
-            return left < right
-        }
-        
-        return sortedKeys.map { key in
-            (letter: key, tracks: grouped[key] ?? [])
-        }
-    }
-    
-    private var sectionIndexTitles: [String] {
-        groupedTracks.map { $0.letter }
-    }
-}
-
-// MARK: - Section Header
-
-struct SectionHeader: View {
-    let title: String
-
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.secondary)
-
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
-}
-
-#if canImport(UIKit)
-import UIKit
-
-// MARK: - Indexed Track List with Native Scrollbar
-
-struct IndexedTrackList: UIViewRepresentable {
-    let groupedTracks: [(letter: String, tracks: [Track])]
-    let sectionTitles: [String]
-    let currentTrackId: String?
-    let onTrackTap: (Track) -> Void
-    
-    @Environment(\.dependencies) private var dependencies
-    
-    func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .plain)
-        tableView.delegate = context.coordinator
-        tableView.dataSource = context.coordinator
-        tableView.sectionIndexColor = .label
-        tableView.sectionIndexBackgroundColor = .clear
-        tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
-        tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
-        tableView.backgroundColor = .systemBackground
-        tableView.contentInsetAdjustmentBehavior = .automatic
-        return tableView
-    }
-    
-    func updateUIView(_ tableView: UITableView, context: Context) {
-        // Check if data actually changed before reloading
-        let dataChanged = context.coordinator.groupedTracks.count != groupedTracks.count ||
-            !zip(context.coordinator.groupedTracks, groupedTracks).allSatisfy { old, new in
-                old.letter == new.letter && old.tracks.count == new.tracks.count &&
-                zip(old.tracks, new.tracks).allSatisfy { $0.id == $1.id }
-            }
-        
-        let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
-        
-        // Update coordinator state
-        context.coordinator.groupedTracks = groupedTracks
-        context.coordinator.currentTrackId = currentTrackId
-        context.coordinator.onTrackTap = onTrackTap
-        context.coordinator.artworkLoader = dependencies.artworkLoader
-        
-        // Only reload if data actually changed
-        if dataChanged {
-            tableView.reloadData()
-        } else if currentTrackChanged {
-            // Only update visible cells instead of full reload
-            tableView.visibleCells.forEach { cell in
-                if let trackCell = cell as? TrackTableViewCell,
-                   let indexPath = tableView.indexPath(for: cell) {
-                    let track = groupedTracks[indexPath.section].tracks[indexPath.row]
-                    let isPlaying = track.id == currentTrackId
-                    trackCell.configure(
-                        with: track,
-                        showArtwork: true,
-                        showTrackNumber: false,
-                        isPlaying: isPlaying,
-                        artworkLoader: dependencies.artworkLoader
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    if libraryVM.trackSortOption == .title {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(libraryVM.trackSections) { section in
+                                Section(header: sectionHeader(section.letter)) {
+                                    VStack(spacing: 0) {
+                                        ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                                            TrackRow(
+                                                track: track,
+                                                showArtwork: true,
+                                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                                            ) {
+                                                // Find global index for the track
+                                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                                                }
+                                            }
+                                            .id(track.id)
+                                            .padding(.horizontal)
+                                            .padding(.vertical, 8)
+                                            
+                                            if index < section.tracks.count - 1 {
+                                                Divider()
+                                                    .padding(.leading, 68)
+                                            }
+                                        }
+                                    }
+                                }
+                                .id(section.letter)
+                            }
+                        }
+                        .padding(.vertical)
+                    } else {
+                        TrackListView(
+                            tracks: libraryVM.filteredTracks,
+                            showArtwork: true,
+                            showTrackNumbers: false,
+                            currentTrackId: nowPlayingVM.currentTrack?.id
+                        ) { track, index in
+                            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+                        }
+                        .padding(.vertical)
+                    }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 140)
+                }
+                
+                if libraryVM.trackSortOption == .title && !libraryVM.filteredTracks.isEmpty {
+                    ScrollIndex(
+                        letters: libraryVM.trackSections.map { $0.letter },
+                        currentLetter: .constant(nil),
+                        onLetterTap: { letter in
+                            proxy.scrollTo(letter, anchor: .top)
+                        }
                     )
+                    .frame(maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: .top)
                 }
             }
         }
     }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            groupedTracks: groupedTracks,
-            sectionTitles: sectionTitles,
-            currentTrackId: currentTrackId,
-            onTrackTap: onTrackTap,
-            artworkLoader: dependencies.artworkLoader
-        )
+
+    private func sectionHeader(_ letter: String) -> some View {
+        Text(letter)
+            .font(.headline)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(backgroundColor.opacity(0.9))
     }
     
-    class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource {
-        var groupedTracks: [(letter: String, tracks: [Track])]
-        let sectionTitles: [String]
-        var currentTrackId: String?
-        var onTrackTap: (Track) -> Void
-        var artworkLoader: ArtworkLoaderProtocol
-        
-        init(groupedTracks: [(letter: String, tracks: [Track])], sectionTitles: [String], currentTrackId: String?, onTrackTap: @escaping (Track) -> Void, artworkLoader: ArtworkLoaderProtocol) {
-            self.groupedTracks = groupedTracks
-            self.sectionTitles = sectionTitles
-            self.currentTrackId = currentTrackId
-            self.onTrackTap = onTrackTap
-            self.artworkLoader = artworkLoader
-        }
-        
-        func numberOfSections(in tableView: UITableView) -> Int {
-            groupedTracks.count
-        }
-        
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            groupedTracks[section].tracks.count
-        }
-        
-        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
-            let isPlaying = track.id == currentTrackId
-            cell.configure(
-                with: track,
-                showArtwork: true,
-                showTrackNumber: false,
-                isPlaying: isPlaying,
-                artworkLoader: artworkLoader
-            )
-            return cell
-        }
-        
-        func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-            groupedTracks[section].letter
-        }
-        
-        func sectionIndexTitles(for tableView: UITableView) -> [String]? {
-            sectionTitles
-        }
-        
-        func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
-            index
-        }
-        
-        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-            tableView.deselectRow(at: indexPath, animated: true)
-            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
-            onTrackTap(track)
-        }
-        
-        func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            68
-        }
+    private var albumCoverFlowView: some View {
+        CoverFlowView(
+            items: libraryVM.albums,
+            itemView: { album in
+                CoverFlowItemView(album: album)
+            },
+            detailContent: { selectedAlbum in
+                if let selectedAlbum = selectedAlbum {
+                    AnyView(
+                        CoverFlowDetailView(
+                            contentType: .album(selectedAlbum.id),
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    )
+                } else {
+                    AnyView(Color.clear.frame(height: 0))
+                }
+            },
+            titleContent: { $0.title },
+            subtitleContent: { $0.artistName },
+            selectedItem: $selectedAlbum
+        )
+        .background(Color.black)
     }
 }
-#endif
-
-
-

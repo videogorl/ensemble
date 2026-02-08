@@ -55,10 +55,15 @@ public struct MainTabView: View {
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
+    
+    #if os(iOS)
+    @StateObject private var keyboard = KeyboardObserver()
+    #endif
 
     @State private var showingNowPlaying = false
     @State private var showingSyncPanel = false
     @State private var didSetInitialTab = false
+    @State private var isImmersiveMode = false
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -71,30 +76,46 @@ public struct MainTabView: View {
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
+    private var isKeyboardVisible: Bool {
+        #if os(iOS)
+        return keyboard.isVisible
+        #else
+        return false
+        #endif
+    }
+
     public var body: some View {
-        GeometryReader { geometry in
+        ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 // Connection status banner at top
-                ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                if !isImmersiveMode {
+                    ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                }
                 
                 // Main content layer (TabView)
-                TabView(selection: $navigationCoordinator.selectedTab) {
+                tabBarVisibility(
+                    TabView(selection: tabBinding) {
                     // Dynamic Tabs
                     ForEach(barTabs) { tab in
                         tabRootView(for: tab)
                             .tag(tab)
+                            .tabItem {
+                                Label(tab.displayTitle, systemImage: tab.systemImage)
+                            }
                     }
 
                     // Always show More as the 5th tab
                     tabRootView(for: .settings, isMoreRoot: true)
                         .tag(TabItem.settings)
-                }
-                // Hide the standard tab bar since we're using a custom one
+                        .tabItem {
+                            Label("More", systemImage: "ellipsis")
+                        }
+                },
+                    isHidden: isImmersiveMode
+                )
+                // Use the new native floating style if available (iOS 18+)
+                .tabViewStyle(sidebarAdaptableIfAvailable())
                 .onAppear {
-                    #if os(iOS)
-                    UITabBar.appearance().isHidden = true
-                    #endif
-
                     // Sync visible tabs to NavigationCoordinator for fallback logic
                     navigationCoordinator.visibleTabs = barTabs
 
@@ -107,24 +128,16 @@ public struct MainTabView: View {
                     // Keep visibleTabs in sync when user changes tab settings
                     navigationCoordinator.visibleTabs = barTabs
                 }
-                .overlay(alignment: .bottom) {
-                    // Persistent UI Layer (MiniPlayer + Custom TabBar)  
-                    VStack(spacing: 0) {
-                        MiniPlayer(viewModel: nowPlayingVM) {
-                            showingNowPlaying = true
-                        }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                        customTabBar(safeAreaBottom: geometry.safeAreaInsets.bottom)
-                            .background(.ultraThinMaterial)
-                            .overlay(alignment: .top) {
-                                Divider()
-                            }
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                }
             }
-            .ignoresSafeArea(edges: .bottom)
+
+            // Persistent MiniPlayer (Floating above native TabBar)
+            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible && !isImmersiveMode {
+                MiniPlayer(viewModel: nowPlayingVM) {
+                    showingNowPlaying = true
+                }
+                .padding(.bottom, 56) // Offset to sit above native TabBar on iPhone
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
@@ -146,6 +159,60 @@ public struct MainTabView: View {
                 navigationCoordinator.pendingNavigation = nil
             }
         }
+        .onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+            if isImmersiveMode != isHidden {
+                isImmersiveMode = isHidden
+                #if os(iOS)
+                UITabBar.appearance().isHidden = isHidden
+                #endif
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tabBarVisibility<Content: View>(_ content: Content, isHidden: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+    
+    private func sidebarAdaptableIfAvailable() -> some TabViewStyle {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            return .sidebarAdaptable
+        }
+        #endif
+        return .automatic
+    }
+    
+    private var tabBinding: Binding<TabItem> {
+        Binding(
+            get: { navigationCoordinator.selectedTab },
+            set: { handleTabTap($0) }
+        )
+    }
+    
+    private func handleTabTap(_ tag: TabItem) {
+        if navigationCoordinator.selectedTab == tag {
+            // Already on this tab
+            if !pathForTab(tag).isEmpty {
+                navigationCoordinator.popToRoot(tab: tag)
+            } else if tag == .search {
+                searchVM.requestFocus()
+            }
+        } else {
+            navigationCoordinator.selectedTab = tag
+        }
+        
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
     
     @ViewBuilder
@@ -213,9 +280,6 @@ public struct MainTabView: View {
         }
     }
 
-
-
-    
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
@@ -234,64 +298,6 @@ public struct MainTabView: View {
                 onSyncTap: { showingSyncPanel = true }
             )
         }
-    }
-    
-    private func customTabBar(safeAreaBottom: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            ForEach(barTabs) { tab in
-                tabItem(title: tab.displayTitle, icon: tab.systemImage, tag: tab)
-            }
-            
-            tabItem(title: "More", icon: "ellipsis", tag: .settings)
-        }
-        .frame(height: 49)
-        .padding(.horizontal, 4)
-        .padding(.bottom, safeAreaBottom)
-    }
-    
-    private func tabItem(title: String, icon: String, tag: TabItem) -> some View {
-        let isSelected = navigationCoordinator.selectedTab == tag
-        
-        return VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.system(size: 23))
-                .frame(height: 26)
-            Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .foregroundColor(isSelected ? .accentColor : .secondary)
-        .onTapGesture {
-            handleTabTap(tag)
-        }
-        .onLongPressGesture(minimumDuration: 0.5) {
-            if tag == .search {
-                handleTabTap(.search)
-                searchVM.requestFocus()
-                #if os(iOS)
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                #endif
-            }
-        }
-    }
-    
-    private func handleTabTap(_ tag: TabItem) {
-        if navigationCoordinator.selectedTab == tag {
-            // Already on this tab
-            if !pathForTab(tag).isEmpty {
-                navigationCoordinator.popToRoot(tab: tag)
-            } else if tag == .search {
-                searchVM.requestFocus()
-            }
-        } else {
-            navigationCoordinator.selectedTab = tag
-        }
-        
-        #if os(iOS)
-        UISelectionFeedbackGenerator().selectionChanged()
-        #endif
     }
 }
 
@@ -351,7 +357,7 @@ public struct SidebarView: View {
             // Main split view
             NavigationSplitView {
                 List(selection: $selection) {
-                    Section("Library") {
+                    Section(header: Text("Library").foregroundColor(.accentColor).textCase(nil)) {
                         Label("Home", systemImage: "house")
                             .tag(SidebarSection.home)
                         
@@ -374,7 +380,7 @@ public struct SidebarView: View {
                             .tag(SidebarSection.favorites)
                     }
 
-                    Section("Other") {
+                    Section(header: Text("Other").foregroundColor(.accentColor).textCase(nil)) {
                         Label("Search", systemImage: "magnifyingglass")
                             .tag(SidebarSection.search)
 

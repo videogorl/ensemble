@@ -88,10 +88,6 @@ public struct PlaylistRow: View {
             }
 
             Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
         .contentShape(Rectangle())
     }

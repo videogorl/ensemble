@@ -4,6 +4,7 @@ import SwiftUI
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @State private var selectedPlaylist: Playlist?
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -11,27 +12,38 @@ public struct PlaylistsView: View {
     }
 
     public var body: some View {
-        Group {
-            if viewModel.isLoading && viewModel.playlists.isEmpty {
-                loadingView
-            } else if viewModel.playlists.isEmpty {
-                emptyView
-            } else {
-                playlistListView
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            
+            Group {
+                if viewModel.isLoading && viewModel.playlists.isEmpty {
+                    loadingView
+                } else if viewModel.playlists.isEmpty {
+                    emptyView
+                } else if isLandscape {
+                    coverFlowView
+                        .navigationBarHidden(true)
+                        .statusBar(hidden: true)
+                } else {
+                    playlistListView
+                }
             }
-        }
-        .navigationTitle("Playlists")
-        .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
-        .task {
-            await viewModel.loadPlaylists()
-        }
-        .refreshable {
-            await viewModel.loadPlaylists()
-        }
-        .toolbar {
+            .hideTabBarIfAvailable(isHidden: isLandscape)
+            #if os(iOS)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            #endif
+            .navigationTitle(isLandscape ? "" : "Playlists")
+            .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
+            .task {
+                await viewModel.loadPlaylists()
+            }
+            .refreshable {
+                await viewModel.loadPlaylists()
+            }
+            .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.playlists.isEmpty {
+                if !viewModel.playlists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -52,7 +64,7 @@ public struct PlaylistsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !viewModel.playlists.isEmpty {
+                if !viewModel.playlists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -72,6 +84,7 @@ public struct PlaylistsView: View {
                 }
             }
             #endif
+            }
         }
     }
 
@@ -110,6 +123,31 @@ public struct PlaylistsView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
+    }
+    
+    private var coverFlowView: some View {
+        CoverFlowView(
+            items: viewModel.filteredPlaylists,
+            itemView: { playlist in
+                CoverFlowItemView(playlist: playlist)
+            },
+            detailContent: { selectedPlaylist in
+                if let selectedPlaylist = selectedPlaylist {
+                    AnyView(
+                        CoverFlowDetailView(
+                            contentType: .playlist(selectedPlaylist.id),
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    )
+                } else {
+                    AnyView(Color.clear.frame(height: 0))
+                }
+            },
+            titleContent: { $0.title },
+            subtitleContent: { "\($0.trackCount) tracks" },
+            selectedItem: $selectedPlaylist
+        )
+        .background(Color.black)
     }
 }
 

@@ -365,10 +365,33 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-            if let disc = groupedTracks[section].disc {
-                return "Disc \(disc)"
-            }
             return nil
+        }
+        
+        public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+            guard let disc = groupedTracks[section].disc else { return nil }
+            
+            let headerView = UIView()
+            headerView.backgroundColor = .systemBackground
+            
+            let label = UILabel()
+            label.text = "Disc \(disc)"
+            label.font = .systemFont(ofSize: 14, weight: .bold)
+            label.textColor = .secondaryLabel
+            label.translatesAutoresizingMaskIntoConstraints = false
+            
+            headerView.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+                label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
+            ])
+            
+            return headerView
+        }
+        
+        public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+            return groupedTracks[section].disc != nil ? 40 : 0
         }
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

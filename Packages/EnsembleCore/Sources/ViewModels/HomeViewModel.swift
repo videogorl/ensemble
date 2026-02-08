@@ -204,7 +204,77 @@ public final class HomeViewModel: ObservableObject {
                     }
                 }
                 
-                return collectedHubs
+                // Helper to get server key
+                func getServerKey(_ hubId: String) -> String {
+                    let components = hubId.split(separator: ":")
+                    if components.count >= 2 {
+                        return "\(components[0]):\(components[1])"
+                    }
+                    return "global"
+                }
+
+                // Group hubs by server and normalized title to merge libraries on the same server
+                var hubGroups: [String: [Hub]] = [:]
+                var groupOrder: [String] = []
+                
+                for hub in collectedHubs {
+                    let serverKey = getServerKey(hub.id)
+                    let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
+                    let groupingKey = "\(serverKey)|\(normalizedTitle)"
+                    
+                    if hubGroups[groupingKey] == nil {
+                        hubGroups[groupingKey] = []
+                        groupOrder.append(groupingKey)
+                    }
+                    hubGroups[groupingKey]?.append(hub)
+                }
+                
+                var mergedResults: [Hub] = []
+                for key in groupOrder {
+                    guard let group = hubGroups[key] else { continue }
+                    
+                    let firstHub = group[0]
+                    let serverKey = getServerKey(firstHub.id)
+                    let normalizedTitle = HomeViewModel.normalizeHubTitle(firstHub.title)
+                    
+                    if group.count == 1 {
+                        // Even if not merged, use normalized title for consistency
+                        mergedResults.append(Hub(
+                            id: firstHub.id,
+                            title: normalizedTitle,
+                            type: firstHub.type,
+                            items: firstHub.items
+                        ))
+                    } else {
+                        // Merge items from all hubs in group
+                        var allItems: [HubItem] = []
+                        var seenItems = Set<String>()
+                        
+                        for hub in group {
+                            for item in hub.items {
+                                let itemKey = "\(item.id):\(item.sourceCompositeKey)"
+                                if !seenItems.contains(itemKey) {
+                                    allItems.append(item)
+                                    seenItems.insert(itemKey)
+                                }
+                            }
+                        }
+                        
+                        // Sort merged items by dateAdded descending
+                        allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+                        
+                        // Create merged hub with a stable ID for ordering
+                        let mergedHub = Hub(
+                            id: "\(serverKey):merged:\(normalizedTitle)",
+                            title: normalizedTitle,
+                            type: firstHub.type,
+                            items: Array(allItems.prefix(40)) // Higher limit for merged hubs
+                        )
+                        mergedResults.append(mergedHub)
+                    }
+                }
+                
+                return mergedResults
             }.value
             
             print("[HubOrder] Fetched hubs count=\(fetchedHubs.count)")
@@ -259,6 +329,18 @@ public final class HomeViewModel: ObservableObject {
     public func refresh() async {
         lastLoadTime = nil
         await loadHubs()
+    }
+    
+    /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
+    private static nonisolated func normalizeHubTitle(_ title: String) -> String {
+        var normalized = title
+        
+        // Remove " in [Library Name]" pattern (e.g. "Recently Added in Music")
+        if let range = normalized.range(of: " in ", options: .backwards) {
+            normalized = String(normalized[..<range.lowerBound])
+        }
+        
+        return normalized
     }
     
     // MARK: - Edit Mode

@@ -14,56 +14,15 @@ public struct HubOrderingSheet: View {
     public var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Source info banner
-                VStack(spacing: 8) {
-                    Text(viewModel.currentSourceName)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    Text("Changes made here are unique for each source")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color(.systemGray6))
-                
-                // Hub list with reordering
-                List {
-                    ForEach(reorderedHubs.indices, id: \.self) { index in
-                        HStack(spacing: 12) {
-                            // Drag handle
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 16))
-                            
-                            // Hub title
-                            Text(reorderedHubs[index].title)
-                                .lineLimit(1)
-                        }
-                    }
-                    .onMove(perform: moveHub)
-                }
-                .listStyle(.inset)
-                
+                headerBanner
+                hubList
             }
             .navigationTitle("Edit Sections")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Reset") {
-                        handleReset()
-                    }
-                    .foregroundColor(.red)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        Task {
-                            await viewModel.exitEditMode(save: true)
-                        }
-                    }
-                }
+                toolbarContent
             }
         }
         .onAppear {
@@ -77,6 +36,78 @@ public struct HubOrderingSheet: View {
         }
     }
     
+    private var headerBanner: some View {
+        VStack(spacing: 8) {
+            Text(viewModel.currentSourceName)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            Text("Changes made here are unique for each source")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(headerBackgroundColor)
+    }
+    
+    private var headerBackgroundColor: Color {
+        #if os(iOS)
+        return Color(UIColor.systemGray6)
+        #else
+        return Color.secondary.opacity(0.1)
+        #endif
+    }
+    
+    private var hubList: some View {
+        List {
+            ForEach(reorderedHubs.indices, id: \.self) { index in
+                HStack(spacing: 12) {
+                    // Drag handle
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 16))
+                    
+                    // Hub title
+                    Text(reorderedHubs[index].title)
+                        .lineLimit(1)
+                }
+            }
+            .onMove(perform: moveHub)
+        }
+        .listStyle(.inset)
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .navigationBarLeading) {
+            Button("Reset") {
+                handleReset()
+            }
+            .foregroundColor(.red)
+        }
+        
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button("Done") {
+                viewModel.exitEditMode(save: true)
+            }
+        }
+        #else
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Reset") {
+                handleReset()
+            }
+        }
+        
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+                viewModel.exitEditMode(save: true)
+            }
+        }
+        #endif
+    }
+    
     // MARK: - Actions
     
     private func moveHub(from source: IndexSet, to destination: Int) {
@@ -85,11 +116,5 @@ public struct HubOrderingSheet: View {
     
     private func handleReset() {
         viewModel.resetOrder()
-    }
-}
-
-#Preview {
-    VStack {
-        Text("HubOrderingSheet Preview")
     }
 }

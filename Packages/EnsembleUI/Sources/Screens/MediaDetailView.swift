@@ -179,7 +179,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.accentColor)
 
                 if let subtitle = headerData.subtitle {
                     if let artistId = headerData.artistRatingKey {

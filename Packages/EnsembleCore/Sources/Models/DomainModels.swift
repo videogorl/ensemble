@@ -506,6 +506,11 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let artist: Artist?
     public let playlist: Playlist?
     
+    /// Helper to get the date added from the underlying media object
+    public var dateAdded: Date? {
+        album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
+    }
+    
     public init(
         id: String,
         type: String,
