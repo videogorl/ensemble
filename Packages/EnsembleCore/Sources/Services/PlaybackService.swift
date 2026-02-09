@@ -592,22 +592,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         await playCurrentQueueItem()
                         savePlaybackState()
                     }
-                } else if isAutoplayEnabled && !autoplayTracks.isEmpty {
-                    // Switch to autoplay mode
-                    print("🎵 Queue ended, starting autoplay...")
-                    isAutoplayActive = true
-                    let nextTrack = autoplayTracks.removeFirst()
-                    addToQueue(nextTrack)
-                    // Advance to the newly added track
-                    currentQueueIndex = queue.count - 1
+                } else if isAutoplayEnabled && radioMode == .trackRadio {
+                    // Radio mode: refresh to get more recommendations
+                    print("🎙️ Queue ended while in radio mode, refreshing for more tracks...")
                     Task {
-                        await playCurrentQueueItem()
-                        savePlaybackState()
-                        // Fetch more autoplay tracks in background
                         await refreshAutoplayQueue()
                     }
                 } else {
-                    // No autoplay, stop playback
+                    // No radio/autoplay, stop playback
                     stop()
                 }
             } else {
@@ -616,9 +608,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await playCurrentQueueItem()
                     savePlaybackState()
                     // Proactively refresh autoplay queue if radio is enabled and queue is running low
-                    if isAutoplayEnabled && radioMode == .trackRadio && autoplayTracks.count < 10 {
-                        print("🎙️ Autoplay queue low (\(autoplayTracks.count)), refreshing...")
-                        await refreshAutoplayQueue()
+                    if isAutoplayEnabled && radioMode == .trackRadio {
+                        let remainingTracksInQueue = queue.count - currentQueueIndex
+                        if remainingTracksInQueue < 5 {
+                            print("🎙️ Running low on queued tracks (\(remainingTracksInQueue) remaining), refreshing...")
+                            await refreshAutoplayQueue()
+                        }
                     }
                 }
             }
@@ -844,19 +839,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } else {
                 // Show first few recommended tracks
                 for track in tracks.prefix(3) {
-                    print("  ✅ Queued for autoplay: \(track.title) by \(track.artistName ?? "Unknown")")
+                    print("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
                 }
                 if tracks.count > 3 {
                     print("  ... and \(tracks.count - 3) more tracks")
                 }
+                
+                // Add recommended tracks directly to the queue so they're visible and playable
+                print("\n🔄 Adding \(tracks.count) recommended tracks to queue...")
+                for track in tracks {
+                    addToQueue(track)
+                }
+                print("✅ Queue now has \(queue.count) total tracks")
             }
+            
+            // Also keep autoplayTracks as a buffer for continuous playback
             autoplayTracks = tracks
+            
             // Ensure we're in trackRadio mode for continuous playback
             if radioMode == .off {
                 radioMode = .trackRadio
                 print("  - Set radioMode to trackRadio")
             }
-            print("\n✅ SUCCESS - autoplayTracks buffer populated with \(autoplayTracks.count) tracks")
+            print("\n✅ SUCCESS - \(tracks.count) recommended tracks added to queue")
         } else {
             print("\n❌ provider.getRecommendedTracks() returned nil")
             print("   This could mean:")
