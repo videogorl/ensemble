@@ -5,7 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Coding style
 
-Begin your work in a git worktree (located in `../ensemble-worktrees/`). Please ask the user for a branch name before committing any work. Branch from `develop`, and create a PR that merges back into `develop`.
+Begin your work in a git worktree (located in `../ensemble-worktrees/`). Please generate a branch name based on what work is being done. 
+Branch from `develop`, name it in this kind of format: `feat/{branch-name}`, where `feat` is for feature, `fix` for bug fixes, and so on.
+Store the branch in a similarly named folder in the worktrees folder mentioned above.
+Fromt here, create a PR that merges back into `develop`.
+
+
 When you're implementing a plan, please git commit after each "step".
 Whenever you're done and are prepared to wait for me to test, git commit your changes so we can roll them back if your context is cut off or if something breaks.
 
