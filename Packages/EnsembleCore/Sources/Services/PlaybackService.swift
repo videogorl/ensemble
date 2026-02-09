@@ -1599,6 +1599,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - State Restoration
     
     private let queueKey = "com.ensemble.playback.queue"
+    private let historyKey = "com.ensemble.playback.history"
     private let currentIndexKey = "com.ensemble.playback.currentIndex"
     private let currentTimeKey = "com.ensemble.playback.currentTime"
     
@@ -1606,31 +1607,44 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func savePlaybackState() {
         print("💾 savePlaybackState() called, queue.count: \(queue.count)")
 
-        guard !queue.isEmpty else {
-            print("💾 Queue is empty, clearing saved state")
+        guard !queue.isEmpty || !playbackHistory.isEmpty else {
+            print("💾 Queue and history are empty, clearing saved state")
             UserDefaults.standard.removeObject(forKey: queueKey)
+            UserDefaults.standard.removeObject(forKey: historyKey)
             UserDefaults.standard.removeObject(forKey: currentIndexKey)
             UserDefaults.standard.removeObject(forKey: currentTimeKey)
             return
         }
 
-        print("💾 Encoding \(queue.count) queue items, current index: \(currentQueueIndex), time: \(currentTime)s")
+        print("💾 Encoding \(queue.count) queue items, \(playbackHistory.count) history items, current index: \(currentQueueIndex), time: \(currentTime)s")
+
+        let encoder = JSONEncoder()
 
         // Encode full QueueItem array (includes source tags)
-        if let encoded = try? JSONEncoder().encode(queue) {
-            print("💾 Successfully encoded \(encoded.count) bytes")
-            UserDefaults.standard.set(encoded, forKey: queueKey)
-            UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
-            UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
-            print("💾 Saved to UserDefaults")
-        } else {
-            print("💾 Failed to encode queue items")
+        if let encodedQueue = try? encoder.encode(queue) {
+            UserDefaults.standard.set(encodedQueue, forKey: queueKey)
         }
+        
+        // Encode history
+        if let encodedHistory = try? encoder.encode(playbackHistory) {
+            UserDefaults.standard.set(encodedHistory, forKey: historyKey)
+        }
+
+        UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
+        UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
+        print("💾 Saved to UserDefaults")
     }
     
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
         print("🔄 restorePlaybackState() called")
+
+        // Load History
+        if let historyData = UserDefaults.standard.data(forKey: historyKey),
+           let historyItems = try? JSONDecoder().decode([QueueItem].self, from: historyData) {
+            playbackHistory = historyItems
+            print("🔄 Restored \(playbackHistory.count) history items")
+        }
 
         guard let data = UserDefaults.standard.data(forKey: queueKey) else {
             print("🔄 No queue data found in UserDefaults")

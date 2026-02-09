@@ -338,7 +338,7 @@ public struct QueueTableView: UIViewRepresentable {
                 
                 var title: String {
                     switch self {
-                    case .history: return "Previously Played"
+                    case .history: return "History"
                     case .upNext: return "Up Next"
                     case .continuePlaying: return "Continue Playing"
                     case .autoplay: return "Autoplay"
@@ -463,6 +463,12 @@ public struct QueueTableView: UIViewRepresentable {
                 chevron.translatesAutoresizingMaskIntoConstraints = false
                 headerView.addSubview(chevron)
                 
+                let clockIcon = UIImageView(image: UIImage(systemName: "clock"))
+                clockIcon.tintColor = .secondaryLabel
+                clockIcon.contentMode = .scaleAspectFit
+                clockIcon.translatesAutoresizingMaskIntoConstraints = false
+                headerView.addSubview(clockIcon)
+                
                 // Rotate chevron if expanded
                 chevron.transform = isHistoryExpanded ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
                 
@@ -472,7 +478,12 @@ public struct QueueTableView: UIViewRepresentable {
                     chevron.widthAnchor.constraint(equalToConstant: 12),
                     chevron.heightAnchor.constraint(equalToConstant: 12),
                     
-                    label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+                    clockIcon.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+                    clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+                    clockIcon.widthAnchor.constraint(equalToConstant: 14),
+                    clockIcon.heightAnchor.constraint(equalToConstant: 14),
+                    
+                    label.leadingAnchor.constraint(equalTo: clockIcon.trailingAnchor, constant: 6),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
                 ])
