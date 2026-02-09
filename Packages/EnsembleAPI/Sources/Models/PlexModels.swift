@@ -349,31 +349,26 @@ public struct PlexStream: Codable, Sendable {
         streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
         codec = try container.decodeIfPresent(String.self, forKey: .codec)
         
-        // Handle loudness as either Double or String
-        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .loudness) {
-            loudness = doubleValue
-        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .loudness) {
-            loudness = Double(stringValue)
-        } else {
-            loudness = nil
-        }
+        // For fields that might be Double or String, manually handle both
+        loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
+        lra = try PlexStream.decodeDoubleOrString(container: container, forKey: .lra)
+        peak = try PlexStream.decodeDoubleOrString(container: container, forKey: .peak)
+    }
+    
+    private static func decodeDoubleOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double? {
+        guard container.contains(key) else { return nil }
         
-        // Handle lra as either Double or String
-        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .lra) {
-            lra = doubleValue
-        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .lra) {
-            lra = Double(stringValue)
-        } else {
-            lra = nil
-        }
-        
-        // Handle peak as either Double or String
-        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .peak) {
-            peak = doubleValue
-        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .peak) {
-            peak = Double(stringValue)
-        } else {
-            peak = nil
+        do {
+            return try container.decode(Double.self, forKey: key)
+        } catch DecodingError.typeMismatch {
+            // If it's not a Double, try String
+            do {
+                let stringValue = try container.decode(String.self, forKey: key)
+                return Double(stringValue)
+            } catch {
+                // If both fail, return nil
+                return nil
+            }
         }
     }
 }
