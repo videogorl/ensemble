@@ -35,6 +35,38 @@ public extension Track {
         )
     }
 
+    /// Initialize from PlexTrack with explicit sourceKey for radio providers
+    init(from plex: PlexTrack, sourceKey: String) {
+        // Extract audio stream ID for loudness timeline fetching
+        let audioStreamId: Int? = plex.media?.first?.part?.first?.stream?
+            .first(where: { $0.streamType == 2 })?.id  // streamType 2 = audio
+
+        self.init(
+            id: plex.ratingKey,
+            key: plex.key,
+            title: plex.title,
+            artistName: plex.grandparentTitle,
+            albumName: plex.parentTitle,
+            albumRatingKey: plex.parentRatingKey,
+            artistRatingKey: plex.grandparentRatingKey,
+            trackNumber: plex.index ?? 0,
+            discNumber: plex.parentIndex ?? 1,
+            duration: plex.durationSeconds,
+            thumbPath: plex.thumb ?? plex.parentThumb ?? plex.grandparentThumb,
+            fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
+            fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
+            streamKey: plex.streamURL,
+            streamId: audioStreamId,
+            localFilePath: nil,
+            dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0,
+            playCount: plex.viewCount ?? 0,
+            sourceCompositeKey: sourceKey
+        )
+    }
+
     init(from cd: CDTrack) {
         self.init(
             id: cd.ratingKey,

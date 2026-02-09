@@ -1,0 +1,146 @@
+import EnsembleAPI
+import EnsemblePersistence
+import Foundation
+
+/// Radio provider for Plex music sources
+/// Implements radio features using Plex's sonic analysis and recommendation APIs
+public final class PlexRadioProvider: RadioProviderProtocol {
+    public let sourceKey: String
+    private let apiClient: PlexAPIClient
+    private let libraryRepository: LibraryRepositoryProtocol
+    private let sectionKey: String
+
+    public init(
+        sourceKey: String,
+        apiClient: PlexAPIClient,
+        libraryRepository: LibraryRepositoryProtocol,
+        sectionKey: String
+    ) {
+        self.sourceKey = sourceKey
+        self.apiClient = apiClient
+        self.libraryRepository = libraryRepository
+        self.sectionKey = sectionKey
+    }
+
+    // MARK: - RadioProviderProtocol
+
+    public func getRecommendedTracks(
+        basedOn track: Track,
+        limit: Int
+    ) async -> [Track]? {
+        do {
+            // Use Plex's /nearest endpoint for sonic recommendations
+            guard let plexTracks = try await apiClient.getSimilarTracks(
+                ratingKey: track.id,
+                limit: limit,
+                maxDistance: 0.25  // Lower = more similar (0.0-1.0)
+            ) else {
+                print("ℹ️ PlexRadioProvider: No similar tracks available for \(track.title)")
+                return nil
+            }
+
+            // Convert PlexTrack to Track domain models
+            let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
+            print("✅ PlexRadioProvider: Got \(tracks.count) recommended tracks")
+            return tracks
+        } catch {
+            print("❌ PlexRadioProvider.getRecommendedTracks error: \(error)")
+            return nil
+        }
+    }
+
+    public func getArtistRadio(for artist: Artist) async -> [Track]? {
+        do {
+            // Get artist radio station playlist from Plex
+            guard let station = try await apiClient.getArtistRadioStation(artistKey: artist.id) else {
+                print("ℹ️ PlexRadioProvider: No artist radio available for \(artist.name)")
+                return nil
+            }
+
+            // Fetch tracks from the playlist
+            let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
+            let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
+            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for artist radio")
+            return tracks
+        } catch {
+            print("❌ PlexRadioProvider.getArtistRadio error: \(error)")
+            return nil
+        }
+    }
+
+    public func getAlbumRadio(for album: Album) async -> [Track]? {
+        do {
+            // Get album radio station playlist from Plex
+            guard let station = try await apiClient.getAlbumRadioStation(albumKey: album.id) else {
+                print("ℹ️ PlexRadioProvider: No album radio available for \(album.title)")
+                return nil
+            }
+
+            // Fetch tracks from the playlist
+            let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
+            let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
+            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for album radio")
+            return tracks
+        } catch {
+            print("❌ PlexRadioProvider.getAlbumRadio error: \(error)")
+            return nil
+        }
+    }
+
+    public func getLibraryRadio(limit: Int) async -> [Track]? {
+        do {
+            // Library Radio: Get popular tracks (based on play count or rating)
+            let plexTracks = try await apiClient.getTracks(sectionKey: sectionKey)
+
+            // Filter for tracks with high play counts or ratings
+            let popularTracks = plexTracks.filter { track in
+                let viewCount = track.viewCount ?? 0
+                let rating = track.userRating ?? 0.0
+                return viewCount > 3 || rating >= 8.0  // 4+ stars or 3+ plays
+            }
+
+            // Shuffle and limit
+            let shuffled = popularTracks.shuffled().prefix(limit)
+            let tracks = shuffled.map { Track(from: $0, sourceKey: sourceKey) }
+
+            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for library radio")
+            return Array(tracks)
+        } catch {
+            print("❌ PlexRadioProvider.getLibraryRadio error: \(error)")
+            return nil
+        }
+    }
+
+    public func getTimeTravelRadio(limit: Int) async -> [Track]? {
+        do {
+            // Time Travel Radio: Chronological playback by release year
+            let plexTracks = try await apiClient.getTracks(sectionKey: sectionKey)
+
+            // Sort by year ascending (oldest first)
+            let sortedByYear = plexTracks.sorted { track1, track2 in
+                let year1 = track1.parentYear ?? track1.year ?? 9999
+                let year2 = track2.parentYear ?? track2.year ?? 9999
+                return year1 < year2
+            }
+
+            // Take first N tracks
+            let timeTravelTracks = sortedByYear.prefix(limit)
+            let tracks = timeTravelTracks.map { Track(from: $0, sourceKey: sourceKey) }
+
+            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for time travel radio")
+            return Array(tracks)
+        } catch {
+            print("❌ PlexRadioProvider.getTimeTravelRadio error: \(error)")
+            return nil
+        }
+    }
+
+    public var isAvailable: Bool {
+        get async {
+            // Radio features require Plex Pass and sonic analysis
+            // We can check if sonic similar tracks API works as a proxy
+            // For now, assume available (will fail gracefully if not)
+            return true
+        }
+    }
+}
