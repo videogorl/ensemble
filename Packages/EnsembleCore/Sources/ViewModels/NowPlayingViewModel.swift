@@ -89,11 +89,11 @@ public final class NowPlayingViewModel: ObservableObject {
 
         playbackService.queuePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] queue in
-                self?.queue = queue
-                self?.currentQueueIndex = self?.playbackService.currentQueueIndex ?? -1
-            }
-            .store(in: &cancellables)
+            .assign(to: &$queue)
+
+        playbackService.currentQueueIndexPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$currentQueueIndex)
 
         playbackService.shufflePublisher
             .receive(on: DispatchQueue.main)

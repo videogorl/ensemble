@@ -89,6 +89,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
+    var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
     var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
     var waveformPublisher: AnyPublisher<[Double], Never> { get }
@@ -147,6 +148,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
+    public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
     public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
@@ -236,6 +238,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                         // Pre-fetch next item for gapless
                         await self.prefetchNextItem()
+                        
+                        // Check if we need to refresh autoplay queue
+                        await self.checkAndRefreshAutoplayQueue()
                     }
                 }
             }
@@ -696,6 +701,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queue.append(item)
         originalQueue.append(item)
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func addToQueue(_ tracks: [Track]) {
@@ -703,6 +713,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queue.append(contentsOf: items)
         originalQueue.append(contentsOf: items)
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func playNext(_ track: Track) {
@@ -714,6 +729,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queue.append(item)
         }
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func removeFromQueue(at index: Int) {
@@ -730,6 +750,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func clearQueue() {
@@ -745,6 +770,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         originalQueue = queue
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     // MARK: - Shuffle & Repeat
@@ -780,6 +810,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         
         savePlaybackState()
+        
+        // Check if we need to refresh autoplay queue
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func cycleRepeatMode() {
