@@ -341,6 +341,36 @@ public struct PlexStream: Codable, Sendable {
         case lra
         case peak
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(Int.self, forKey: .id)
+        streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
+        codec = try container.decodeIfPresent(String.self, forKey: .codec)
+        
+        // For fields that might be Double or String, manually handle both
+        loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
+        lra = try PlexStream.decodeDoubleOrString(container: container, forKey: .lra)
+        peak = try PlexStream.decodeDoubleOrString(container: container, forKey: .peak)
+    }
+    
+    private static func decodeDoubleOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double? {
+        guard container.contains(key) else { return nil }
+        
+        do {
+            return try container.decode(Double.self, forKey: key)
+        } catch DecodingError.typeMismatch {
+            // If it's not a Double, try String
+            do {
+                let stringValue = try container.decode(String.self, forKey: key)
+                return Double(stringValue)
+            } catch {
+                // If both fail, return nil
+                return nil
+            }
+        }
+    }
 }
 
 // MARK: - Loudness Timeline (Waveform Data)
@@ -379,6 +409,17 @@ public struct PlexLoudnessTimeline: Codable, Sendable {
 // MARK: - Genre
 
 public struct PlexGenre: Codable, Sendable, Identifiable {
+    public let ratingKey: String?
+    public let key: String
+    public let title: String
+    public let type: String?
+
+    public var id: String { ratingKey ?? key }
+}
+
+// MARK: - Mood
+
+public struct PlexMood: Codable, Sendable, Identifiable {
     public let ratingKey: String?
     public let key: String
     public let title: String

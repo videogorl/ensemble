@@ -9,6 +9,7 @@ public final class NavigationCoordinator: ObservableObject {
         case artist(id: String)
         case album(id: String)
         case playlist(id: String)
+        case moodTracks(mood: Mood)
         case view(TabItem) // For pushing library views from the More menu
     }
     

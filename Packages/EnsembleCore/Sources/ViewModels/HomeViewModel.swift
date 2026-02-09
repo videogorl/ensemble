@@ -114,7 +114,7 @@ public final class HomeViewModel: ObservableObject {
                     let enabledLibraries = server.libraries.filter { $0.isEnabled }
                     
                     for library in enabledLibraries {
-                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                        let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
                         fetchTasks.append((sourceKey, client, library.key))
                     }
                 }

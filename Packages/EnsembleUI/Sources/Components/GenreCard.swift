@@ -12,7 +12,7 @@ public struct GenreCard: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .center, spacing: 0) {
             // Gradient background with music icon
             ZStack {
                 // Generate a deterministic color based on genre name
@@ -43,7 +43,7 @@ public struct GenreCard: View {
                 .frame(width: ArtworkSize.thumbnail.cgSize.width)
                 .padding(.top, 8)
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(maxWidth: ArtworkSize.thumbnail.cgSize.width, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
             view.onTapGesture {

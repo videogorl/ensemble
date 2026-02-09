@@ -40,7 +40,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var recentlyPlayedArtists: [Artist] = []
     @Published public private(set) var recentlyAddedAlbums: [Album] = []
     @Published public private(set) var recommendedItems: [HubItem] = []
-    @Published public private(set) var allGenres: [Genre] = []
+    @Published public private(set) var allMoods: [Mood] = []
     @Published public private(set) var isLoadingExplore = false
     @Published public private(set) var exploreError: String?
     
@@ -52,6 +52,7 @@ public final class SearchViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let hubRepository: HubRepositoryProtocol
+    private let moodRepository: MoodRepositoryProtocol
     private let accountManager: AccountManager
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
@@ -65,11 +66,13 @@ public final class SearchViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
+        moodRepository: MoodRepositoryProtocol,
         accountManager: AccountManager
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
+        self.moodRepository = moodRepository
         self.accountManager = accountManager
         
         // Load recent searches
@@ -272,7 +275,7 @@ public final class SearchViewModel: ObservableObject {
               recentlyPlayedArtists.isEmpty &&
               recentlyAddedAlbums.isEmpty &&
               recommendedItems.isEmpty &&
-              allGenres.isEmpty else {
+              allMoods.isEmpty else {
             return
         }
         
@@ -333,7 +336,7 @@ public final class SearchViewModel: ObservableObject {
                         let enabledLibraries = server.libraries.filter { $0.isEnabled }
                         
                         for library in enabledLibraries {
-                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
                             tasks.append((sourceKey, client, library.key))
                         }
                     }
@@ -435,17 +438,97 @@ public final class SearchViewModel: ObservableObject {
             }
         }
         
-        // Fetch all genres from library in background (non-blocking)
+        // Load cached moods first, then fetch fresh from Plex servers
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
+            
+            // Load cached moods immediately
             do {
-                let genreCDs = try await self.libraryRepository.fetchGenres()
-                let genres = genreCDs.map { Genre(from: $0) }
-                await MainActor.run { [weak self] in
-                    self?.allGenres = genres
+                let cachedMoods = try await self.moodRepository.fetchMoods()
+                if !cachedMoods.isEmpty {
+                    await MainActor.run { [weak self] in
+                        self?.allMoods = cachedMoods
+                    }
                 }
             } catch {
-                // Silently continue if genre fetch fails
+                // Ignore cache errors, will fetch fresh from Plex
+            }
+            
+            // Capture API clients and section keys on main actor
+            let fetchTasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = await MainActor.run {
+                var tasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = []
+                for account in self.accountManager.plexAccounts {
+                    for server in account.servers {
+                        guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                            continue
+                        }
+                        
+                        let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                        for library in enabledLibraries {
+                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
+                            tasks.append((client, library.key, sourceKey))
+                        }
+                    }
+                }
+                return tasks
+            }
+            
+            // Fetch moods from all sources and merge results
+            var allFetchedMoods: [String: Mood] = [:]  // Key by mood key for deduplication
+            
+            for task in fetchTasks {
+                do {
+                    let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
+                    
+                    for plexMood in plexMoods {
+                        // Use mood key as unique identifier (same mood across different libraries)
+                        // Store first sourceKey that has this mood
+                        if allFetchedMoods[plexMood.key] == nil {
+                            let mood = Mood(id: plexMood.id, key: plexMood.key, title: plexMood.title, sourceCompositeKey: task.sourceKey)
+                            allFetchedMoods[plexMood.key] = mood
+                        }
+                    }
+                } catch {
+                    // Continue to next library
+                    continue
+                }
+            }
+            
+            if !allFetchedMoods.isEmpty {
+                // Filter out moods with fewer than 5 tracks across all libraries
+                var nonEmptyMoods: [Mood] = []
+                
+                for (_, mood) in allFetchedMoods {
+                    // Count total tracks across all libraries for this mood
+                    var totalTrackCount = 0
+                    
+                    for task in fetchTasks {
+                        do {
+                            let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
+                            totalTrackCount += tracks.count
+                        } catch {
+                            // Continue to next library
+                            continue
+                        }
+                    }
+                    
+                    if totalTrackCount >= 10 {
+                        nonEmptyMoods.append(mood)
+                    }
+                }
+                
+                // Save fresh moods to cache
+                if !nonEmptyMoods.isEmpty {
+                    do {
+                        try await self.moodRepository.saveMoods(nonEmptyMoods)
+                    } catch {
+                        // Ignore cache save errors
+                    }
+                    
+                    await MainActor.run { [weak self] in
+                        self?.allMoods = nonEmptyMoods
+                    }
+                }
             }
         }
     }

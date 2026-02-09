@@ -244,7 +244,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
+            // Play button
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
@@ -260,6 +261,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .cornerRadius(10)
             }
 
+            // Shuffle button
             Button {
                 nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
             } label: {
@@ -274,10 +276,49 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .foregroundColor(.primary)
                 .cornerRadius(10)
             }
+
+            // Radio button (for Artist or Album views)
+            radioButton
         }
         .padding(.horizontal)
         .padding(.bottom)
         .disabled(viewModel.filteredTracks.isEmpty)
+    }
+
+    @ViewBuilder
+    private var radioButton: some View {
+        // Radio button for Artist or Album views - queues all tracks, shuffles, enables radio
+        if let _ = viewModel as? ArtistDetailViewModel {
+            Button {
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+            } label: {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(.primary)
+                    .cornerRadius(10)
+            }
+            #if os(macOS)
+            .help("Artist Radio - Queue all shuffled, enable sonically similar")
+            #endif
+        }
+        // Check if this is an Album detail view
+        else if let _ = viewModel as? AlbumDetailViewModel {
+            Button {
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+            } label: {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(.primary)
+                    .cornerRadius(10)
+            }
+            #if os(macOS)
+            .help("Album Radio - Queue all shuffled, enable sonically similar")
+            #endif
+        }
     }
 
     @ViewBuilder

@@ -151,27 +151,6 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Recently Added
-                if !viewModel.recentlyAddedAlbums.isEmpty {
-                    exploreSection(
-                        title: "Recently Added",
-                        items: viewModel.recentlyAddedAlbums
-                    ) { album in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
                 
                 // Recommended
                 if !recommendedDisplayItems.isEmpty {
@@ -190,22 +169,39 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Browse Genres
-                if !viewModel.allGenres.isEmpty {
+                // Browse Moods (with loading state)
+                if viewModel.isLoadingExplore && viewModel.allMoods.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .frame(height: 200)
+                        Text("Loading moods...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else if !viewModel.allMoods.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Browse Genres")
+                        Text("Moods")
                             .font(.title2)
                             .fontWeight(.bold)
                             .padding(.horizontal)
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
-                            ForEach(Array(viewModel.allGenres.prefix(12))) { genre in
-                                NavigationLink {
-                                    GenresView(libraryVM: libraryVM)
-                                } label: {
-                                    GenreCard(genre: genre)
+                            ForEach(viewModel.allMoods) { mood in
+                                if #available(iOS 16.0, macOS 13.0, *) {
+                                    NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
+                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink {
+                                        MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
+                                    } label: {
+                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal)
@@ -217,7 +213,7 @@ public struct SearchView: View {
                    viewModel.recentlyPlayedAlbums.isEmpty &&
                    viewModel.recentlyAddedAlbums.isEmpty &&
                    viewModel.recommendedItems.isEmpty &&
-                   viewModel.allGenres.isEmpty &&
+                   viewModel.allMoods.isEmpty &&
                    viewModel.recentSearches.isEmpty {
                     emptyExploreView
                 }

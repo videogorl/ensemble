@@ -154,6 +154,17 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.rating = rating
         self.sourceCompositeKey = sourceCompositeKey
     }
+
+    /// Convenience initializer for radio/minimal album creation
+    public init?(id: String?, title: String?, artistName: String?) {
+        guard let id = id, let title = title else { return nil }
+        self.init(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: title,
+            artistName: artistName
+        )
+    }
 }
 
 // MARK: - Artist
@@ -198,11 +209,37 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
         self.fallbackThumbPath = fallbackThumbPath
         self.fallbackRatingKey = fallbackRatingKey
     }
+
+    /// Convenience initializer for radio/minimal artist creation
+    public init?(id: String?, name: String?) {
+        guard let id = id, let name = name else { return nil }
+        self.init(
+            id: id,
+            key: "/library/metadata/\(id)",
+            name: name
+        )
+    }
 }
 
 // MARK: - Genre
 
 public struct Genre: Identifiable, Hashable, Sendable, Codable {
+    public let id: String
+    public let key: String
+    public let title: String
+    public let sourceCompositeKey: String?
+
+    public init(id: String, key: String, title: String, sourceCompositeKey: String? = nil) {
+        self.id = id
+        self.key = key
+        self.title = title
+        self.sourceCompositeKey = sourceCompositeKey
+    }
+}
+
+// MARK: - Mood
+
+public struct Mood: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public let key: String
     public let title: String

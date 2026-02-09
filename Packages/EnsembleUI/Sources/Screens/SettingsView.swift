@@ -8,9 +8,12 @@ public struct SettingsView: View {
     @State private var sourceToDelete: MusicSource?
 
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let playbackService = DependencyContainer.shared.playbackService
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
+
+    @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
     public init() {}
 
@@ -78,6 +81,22 @@ public struct SettingsView: View {
 
             // Playback section
             Section(header: Text("Playback").textCase(nil)) {
+                Toggle(isOn: $isAutoplayEnabled) {
+                    HStack {
+                        Image(systemName: "infinity.circle.fill")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Autoplay")
+                            Text("Continue with similar tracks when queue ends")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .onChange(of: isAutoplayEnabled) { _ in
+                    playbackService.toggleAutoplay()
+                }
+
                 NavigationLink {
                     AudioQualitySettingsView()
                 } label: {

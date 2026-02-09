@@ -605,4 +605,63 @@ public final class SyncCoordinator: ObservableObject {
             }
         }
     }
+
+    // MARK: - Radio Provider Factory
+
+    /// Create a radio provider for a specific music source
+    /// Returns nil if the source doesn't support radio or isn't configured
+    /// - Parameter sourceKey: The music source composite key
+    public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
+        print("🔄 SyncCoordinator.makeRadioProvider() called")
+        print("  - Source key: \(sourceKey)")
+        
+        // Parse source key to extract identifiers
+        // Format: sourceType:accountId:serverId:libraryId (e.g., "plex:account123:server456:library789")
+        let components = sourceKey.split(separator: ":")
+        print("  - Key components: \(components)")
+        print("  - Component count: \(components.count)")
+        
+        guard components.count >= 4,
+              let sourceType = MusicSourceType(rawValue: String(components[0])) else {
+            print("❌ Invalid source key format: \(sourceKey)")
+            return nil
+        }
+        print("  - Source type: \(sourceType)")
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        let libraryId = String(components[3])
+        print("  - Account ID: \(accountId)")
+        print("  - Server ID: \(serverId)")
+        print("  - Library ID: \(libraryId)")
+
+        // Currently only Plex is supported
+        guard sourceType == .plex else {
+            print("ℹ️ Radio not available for source type: \(sourceType)")
+            return nil
+        }
+
+        // Get API client for this source
+        print("🔄 Creating API client...")
+        guard let apiClient = accountManager.makeAPIClient(
+            accountId: accountId,
+            serverId: serverId
+        ) else {
+            print("❌ Could not create API client for source: \(sourceKey)")
+            return nil
+        }
+        print("✅ API client created")
+
+        // Create Plex radio provider
+        print("🔄 Creating PlexRadioProvider...")
+        let radioProvider = PlexRadioProvider(
+            sourceKey: sourceKey,
+            apiClient: apiClient,
+            libraryRepository: libraryRepository,
+            sectionKey: libraryId
+        )
+
+        print("✅ Created PlexRadioProvider for source: \(sourceKey)")
+        return radioProvider
+    }
 }
