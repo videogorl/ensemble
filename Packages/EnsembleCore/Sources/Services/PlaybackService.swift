@@ -753,40 +753,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recordToHistory(queue[currentQueueIndex])
         }
 
-        // If we have items in the queue, AVQueuePlayer might already be playing it or can advance
-        if let player = player, player.items().count > 1 {
-            player.advanceToNextItem()
-            // handleItemChange will be called by observer which saves state
-        } else {
-            // Manually advance
-            let nextIndex = currentQueueIndex + 1
-            if nextIndex >= queue.count {
-                // Queue ended
-                if repeatMode == .all {
-                    // Repeat all takes precedence
-                    currentQueueIndex = 0
-                    Task {
-                        await playCurrentQueueItem()
-                        savePlaybackState()
-                    }
-                } else if isAutoplayEnabled {
-                    // Autoplay enabled: refresh to get more recommendations
-                    print("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
-                    Task {
-                        await refreshAutoplayQueue()
-                    }
-                } else {
-                    // No autoplay, stop playback
-                    stop()
-                }
-            } else {
-                currentQueueIndex = nextIndex
+        // Always use direct queue navigation to keep currentQueueIndex in sync
+        let nextIndex = currentQueueIndex + 1
+        if nextIndex >= queue.count {
+            // Queue ended
+            if repeatMode == .all {
+                // Repeat all takes precedence
+                currentQueueIndex = 0
                 Task {
                     await playCurrentQueueItem()
                     savePlaybackState()
-                    // Check queue after advancing
-                    await checkAndRefreshAutoplayQueue()
                 }
+            } else if isAutoplayEnabled {
+                // Autoplay enabled: refresh to get more recommendations
+                print("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
+                Task {
+                    await refreshAutoplayQueue()
+                }
+            } else {
+                // No autoplay, stop playback
+                stop()
+            }
+        } else {
+            currentQueueIndex = nextIndex
+            Task {
+                await playCurrentQueueItem()
+                savePlaybackState()
+                // Check queue after advancing
+                await checkAndRefreshAutoplayQueue()
             }
         }
     }
@@ -798,20 +792,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Try to go back through history first
-        if let previousItem = playbackHistory.popLast() {
-            // Insert the previous item before current position and play it
-            let insertIndex = max(0, currentQueueIndex)
-            queue.insert(previousItem, at: insertIndex)
-            currentQueueIndex = insertIndex
-            Task {
-                await playCurrentQueueItem()
-                savePlaybackState()
-            }
-            return
-        }
-
-        // Fallback: go to previous item in queue
+        // Go to previous item in queue (don't reinject history items)
         guard currentQueueIndex > 0 else {
             seek(to: 0)
             return
