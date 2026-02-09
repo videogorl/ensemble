@@ -20,6 +20,7 @@ public class QueueItemCell: UITableViewCell {
     private var subtitleLeadingConstraint: NSLayoutConstraint?
     private var currentItemID: String?
     private var artworkLoadTask: Task<Void, Never>?
+    private var autoplayWidthConstraint: NSLayoutConstraint?
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -72,6 +73,9 @@ public class QueueItemCell: UITableViewCell {
         dragHandleView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dragHandleView)
         
+        let widthConstraint = autoplayIndicator.widthAnchor.constraint(equalToConstant: 14)
+        self.autoplayWidthConstraint = widthConstraint
+        
         NSLayoutConstraint.activate([
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -79,7 +83,8 @@ public class QueueItemCell: UITableViewCell {
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
             
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
+            // Title expands until it hits autoplay indicator (which is pinned right to duration)
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: autoplayIndicator.leadingAnchor, constant: -6),
             
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
@@ -93,10 +98,10 @@ public class QueueItemCell: UITableViewCell {
             playingIndicator.widthAnchor.constraint(equalToConstant: 20),
             playingIndicator.heightAnchor.constraint(equalToConstant: 20),
             
-            autoplayIndicator.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 6),
+            autoplayIndicator.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
             autoplayIndicator.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            autoplayIndicator.widthAnchor.constraint(equalToConstant: 14),
             autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
+            widthConstraint,
             
             dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -118,6 +123,7 @@ public class QueueItemCell: UITableViewCell {
         let isAutoplay = item.source == .autoplay
         titleLabel.textColor = isAutoplay ? .systemPurple : .label
         autoplayIndicator.isHidden = !isAutoplay
+        autoplayWidthConstraint?.constant = isAutoplay ? 14 : 0
         
         // Remove old constraints
         titleLeadingConstraint?.isActive = false

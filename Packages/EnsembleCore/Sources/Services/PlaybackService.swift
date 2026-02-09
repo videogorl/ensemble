@@ -262,13 +262,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Records the currently playing item to history before advancing
     private func recordToHistory(_ item: QueueItem) {
+        // Flatten the item source to .history or .continuePlaying
+        // This ensures autoplay source (with sparkle icon) is removed in history
+        var historyItem = item
+        if historyItem.source == .autoplay || historyItem.source == .upNext {
+            historyItem.source = .continuePlaying
+        }
+        
         // Avoid consecutive duplicates
         if playbackHistory.last?.track.id != item.track.id {
-            playbackHistory.append(item)
+            playbackHistory.append(historyItem)
             if playbackHistory.count > maxHistorySize {
                 playbackHistory.removeFirst()
             }
         }
+        
+        // Also ensure duplicate trimming in case we navigated back/forth
+        // If the item exists earlier in history, we might want to move it to end?
+        // But for "history" it's a chronological log. 
+        // A -> B -> A means A was played twice. That's correct behavior for a history log.
+        // However, if the user perceives this as "duplicates", maybe they want unique history?
+        // Standard behavior (Apple Music, Spotify) is chronological.
+        // User's complaint "duplicates get made" likely refers to the "Autoplay" icon persisting or 
+        // the fact that "Autoplay" creates new items which then get logged.
+        // By preventing consecutive duplicates, we handle simple pauses/seeks.
     }
 
     /// Flattens autoplay items that appear before the given index to .continuePlaying.
