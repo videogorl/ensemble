@@ -190,8 +190,18 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Browse Moods
-                if !viewModel.allMoods.isEmpty {
+                // Browse Moods (with loading state)
+                if viewModel.isLoadingExplore && viewModel.allMoods.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .frame(height: 200)
+                        Text("Loading moods...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else if !viewModel.allMoods.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Moods")
                             .font(.title2)
@@ -200,12 +210,19 @@ public struct SearchView: View {
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
                             ForEach(Array(viewModel.allMoods.prefix(12))) { mood in
-                                NavigationLink {
-                                    GenresView(libraryVM: libraryVM)
-                                } label: {
-                                    GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                if #available(iOS 16.0, macOS 13.0, *) {
+                                    NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
+                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink {
+                                        MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
+                                    } label: {
+                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal)

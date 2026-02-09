@@ -253,6 +253,22 @@ extension CDGenre {
     }
 }
 
+// MARK: - CDMood
+
+@objc(CDMood)
+public class CDMood: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var key: String
+    @NSManaged public var title: String
+    @NSManaged public var sourceCompositeKey: String?
+}
+
+extension CDMood {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDMood> {
+        return NSFetchRequest<CDMood>(entityName: "CDMood")
+    }
+}
+
 // MARK: - CDHub
 
 @objc(CDHub)

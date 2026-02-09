@@ -52,6 +52,7 @@ public final class SearchViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let hubRepository: HubRepositoryProtocol
+    private let moodRepository: MoodRepositoryProtocol
     private let accountManager: AccountManager
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
@@ -65,11 +66,13 @@ public final class SearchViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
+        moodRepository: MoodRepositoryProtocol,
         accountManager: AccountManager
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
+        self.moodRepository = moodRepository
         self.accountManager = accountManager
         
         // Load recent searches
@@ -435,13 +438,25 @@ public final class SearchViewModel: ObservableObject {
             }
         }
         
-        // Fetch all moods from Plex servers in background (non-blocking)
+        // Load cached moods first, then fetch fresh from Plex servers
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
+            // Load cached moods immediately
+            do {
+                let cachedMoods = try await self.moodRepository.fetchMoods()
+                if !cachedMoods.isEmpty {
+                    await MainActor.run { [weak self] in
+                        self?.allMoods = cachedMoods
+                    }
+                }
+            } catch {
+                // Ignore cache errors, will fetch fresh from Plex
+            }
+            
             // Capture API clients and section keys on main actor
-            let fetchTasks: [(client: PlexAPIClient, sectionKey: String)] = await MainActor.run {
-                var tasks: [(client: PlexAPIClient, sectionKey: String)] = []
+            let fetchTasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = await MainActor.run {
+                var tasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = []
                 for account in self.accountManager.plexAccounts {
                     for server in account.servers {
                         guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
@@ -450,7 +465,8 @@ public final class SearchViewModel: ObservableObject {
                         
                         let enabledLibraries = server.libraries.filter { $0.isEnabled }
                         for library in enabledLibraries {
-                            tasks.append((client, library.key))
+                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            tasks.append((client, library.key, sourceKey))
                         }
                     }
                 }
@@ -461,9 +477,16 @@ public final class SearchViewModel: ObservableObject {
             for task in fetchTasks {
                 do {
                     let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
-                    let moods = plexMoods.map { Mood(id: $0.id, key: $0.key, title: $0.title) }
+                    let moods = plexMoods.map { Mood(id: $0.id, key: $0.key, title: $0.title, sourceCompositeKey: task.sourceKey) }
                     
                     if !moods.isEmpty {
+                        // Save fresh moods to cache
+                        do {
+                            try await self.moodRepository.saveMoods(moods)
+                        } catch {
+                            // Ignore cache save errors
+                        }
+                        
                         await MainActor.run { [weak self] in
                             self?.allMoods = moods
                         }

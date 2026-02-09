@@ -316,6 +316,19 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get tracks by mood
+    public func getTracksByMood(sectionKey: String, moodKey: String) async throws -> [PlexTrack] {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: ["type": "10", "mood": moodKey]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get audio playlists
     public func getPlaylists() async throws -> [PlexPlaylist] {
         let data = try await serverRequest(path: "/playlists", query: ["playlistType": "audio"])

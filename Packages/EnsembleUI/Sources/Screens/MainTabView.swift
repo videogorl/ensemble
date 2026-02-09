@@ -289,6 +289,8 @@ public struct MainTabView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id):
             PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .moodTracks(let mood):
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
             TabViewFactory.view(
                 for: tab,
@@ -498,6 +500,8 @@ public struct SidebarView: View {
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
         case .playlist(let id):
             PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .moodTracks(let mood):
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
             TabViewFactory.view(
                 for: tab,

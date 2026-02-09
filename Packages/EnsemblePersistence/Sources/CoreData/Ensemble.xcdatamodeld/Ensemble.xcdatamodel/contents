@@ -70,6 +70,19 @@
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
+    <entity name="CDMood" representedClassName="CDMood" syncable="YES">
+        <attribute name="id" attributeType="String"/>
+        <attribute name="key" attributeType="String"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="title" attributeType="String"/>
+        <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="moods" inverseEntity="CDMusicSource"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="key"/>
+                <constraint value="sourceCompositeKey"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
     <entity name="CDHub" representedClassName="CDHub" syncable="YES">
         <attribute name="id" optional="YES" attributeType="String"/>
         <attribute name="order" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
@@ -99,6 +112,7 @@
         <relationship name="albums" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDAlbum" inverseName="source" inverseEntity="CDAlbum"/>
         <relationship name="artists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDArtist" inverseName="source" inverseEntity="CDArtist"/>
         <relationship name="genres" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDGenre" inverseName="source" inverseEntity="CDGenre"/>
+        <relationship name="moods" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDMood" inverseName="source" inverseEntity="CDMood"/>
         <relationship name="playlists" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylist" inverseName="source" inverseEntity="CDPlaylist"/>
         <relationship name="tracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDTrack" inverseName="source" inverseEntity="CDTrack"/>
         <uniquenessConstraints>
