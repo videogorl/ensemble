@@ -292,7 +292,7 @@ public struct ArtistDetailView: View {
 
     private var heroBanner: some View {
         GeometryReader { geometry in
-            let bannerHeight = geometry.size.width * 4 / 3 // 3:4 aspect ratio (width:height)
+            let bannerHeight = geometry.size.width // 1:1 square aspect ratio
             
             ZStack(alignment: .bottom) {
                 // Artist artwork with aspect fill
@@ -344,7 +344,7 @@ public struct ArtistDetailView: View {
                 .padding()
             }
         }
-        .frame(height: UIScreen.main.bounds.width * 4 / 3) // 3:4 aspect ratio based on screen width
+        .frame(height: UIScreen.main.bounds.width) // 1:1 square aspect ratio
     }
 
     // MARK: - Action Buttons
