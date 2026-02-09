@@ -341,6 +341,41 @@ public struct PlexStream: Codable, Sendable {
         case lra
         case peak
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(Int.self, forKey: .id)
+        streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
+        codec = try container.decodeIfPresent(String.self, forKey: .codec)
+        
+        // Handle loudness as either Double or String
+        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .loudness) {
+            loudness = doubleValue
+        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .loudness) {
+            loudness = Double(stringValue)
+        } else {
+            loudness = nil
+        }
+        
+        // Handle lra as either Double or String
+        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .lra) {
+            lra = doubleValue
+        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .lra) {
+            lra = Double(stringValue)
+        } else {
+            lra = nil
+        }
+        
+        // Handle peak as either Double or String
+        if let doubleValue = try container.decodeIfPresent(Double.self, forKey: .peak) {
+            peak = doubleValue
+        } else if let stringValue = try container.decodeIfPresent(String.self, forKey: .peak) {
+            peak = Double(stringValue)
+        } else {
+            peak = nil
+        }
+    }
 }
 
 // MARK: - Loudness Timeline (Waveform Data)
