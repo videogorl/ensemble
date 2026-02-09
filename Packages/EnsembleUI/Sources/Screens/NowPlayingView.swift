@@ -489,9 +489,10 @@ public struct NowPlayingView: View {
                         // Use captured index for consistency
                         viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
-                    onMoveItem: { sourceIndex, destIndex in
-                        // Use captured index for consistency
-                        viewModel.moveQueueItem(from: capturedCurrentIndex + 1 + sourceIndex, to: capturedCurrentIndex + 1 + destIndex)
+                    onMoveItem: { itemId, sourceIndex, destinationIndex in
+                        // sourceIndex and destinationIndex are already absolute queue positions
+                        // No need to add capturedCurrentIndex offset
+                        viewModel.moveQueueItem(byId: itemId, from: sourceIndex, to: destinationIndex)
                     }
                 )
                 .frame(height: min(estimatedTableHeight, geometry.size.height * 0.8))

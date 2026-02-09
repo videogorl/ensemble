@@ -209,7 +209,7 @@ public struct QueueTableView: UIViewRepresentable {
     let onPlayNext: (Track) -> Void
     let onPlayLast: (Track) -> Void
     let onRemoveFromQueue: (Int) -> Void
-    let onMoveItem: (Int, Int) -> Void
+    let onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
     
     @Environment(\.dependencies) private var dependencies
     
@@ -221,7 +221,7 @@ public struct QueueTableView: UIViewRepresentable {
         onPlayNext: @escaping (Track) -> Void,
         onPlayLast: @escaping (Track) -> Void,
         onRemoveFromQueue: @escaping (Int) -> Void,
-        onMoveItem: @escaping (Int, Int) -> Void
+        onMoveItem: @escaping (String, Int, Int) -> Void
     ) {
         self.queueItems = queueItems
         self.history = history
@@ -318,7 +318,7 @@ public struct QueueTableView: UIViewRepresentable {
         var onPlayNext: (Track) -> Void
         var onPlayLast: (Track) -> Void
         var onRemoveFromQueue: (Int) -> Void
-        var onMoveItem: (Int, Int) -> Void
+        var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
         
         var isHistoryExpanded: Bool = false
@@ -354,7 +354,7 @@ public struct QueueTableView: UIViewRepresentable {
             onPlayNext: @escaping (Track) -> Void,
             onPlayLast: @escaping (Track) -> Void,
             onRemoveFromQueue: @escaping (Int) -> Void,
-            onMoveItem: @escaping (Int, Int) -> Void,
+            onMoveItem: @escaping (String, Int, Int) -> Void,
             artworkLoader: ArtworkLoaderProtocol
         ) {
             self.queueItems = queueItems
@@ -581,10 +581,34 @@ public struct QueueTableView: UIViewRepresentable {
                   let sourceIndexPath = coordinator.items.first?.sourceIndexPath,
                   sourceIndexPath.section > 0 else { return }
             
-            guard let sourceAbsoluteIndex = absoluteQueueIndex(for: sourceIndexPath),
-                  let destinationAbsoluteIndex = absoluteQueueIndex(for: destinationIndexPath) else { return }
+            // Extract source item from the drag item's localObject
+            guard let dragItem = coordinator.items.first?.dragItem,
+                  let sourceItem = dragItem.localObject as? QueueItem else { return }
             
-            onMoveItem(sourceAbsoluteIndex, destinationAbsoluteIndex)
+            // Calculate absolute indices
+            // Source absolute index: position of the item in the full queue
+            let sourceAbsoluteIndex: Int
+            if let index = queueItems.firstIndex(where: { $0.id == sourceItem.id }) {
+                sourceAbsoluteIndex = index
+            } else {
+                return  // Source item not found
+            }
+            
+            // Destination absolute index: position in the full queue
+            let destinationItem = item(at: destinationIndexPath)
+            let destinationAbsoluteIndex: Int
+            if let index = queueItems.firstIndex(where: { $0.id == destinationItem.id }) {
+                destinationAbsoluteIndex = index
+            } else {
+                // If destination item not found in upcoming queue, it might be after the index
+                // In that case, insert at the end of this section
+                destinationAbsoluteIndex = queueItems.count
+            }
+            
+            print("🎯 Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
+            
+            // Pass item ID + both absolute indices
+            onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)
         }
     }
 }

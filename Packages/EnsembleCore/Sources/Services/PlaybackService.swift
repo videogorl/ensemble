@@ -904,8 +904,53 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { await checkAndRefreshAutoplayQueue() }
     }
 
+    /// Move a queue item by ID from source position to destination position.
+    /// This is the primary method for drag-to-reorder (more robust than index-based).
+    /// Both indices are absolute queue positions (not filtered/relative).
+    public func moveQueueItem(byId sourceId: String, from sourceIndex: Int, to destinationIndex: Int) {
+        guard sourceIndex >= 0, sourceIndex < queue.count,
+              destinationIndex >= 0, destinationIndex <= queue.count,
+              sourceIndex != destinationIndex else { return }
+        
+        // Verify the source index actually contains the item with this ID
+        guard sourceIndex < queue.count, queue[sourceIndex].id == sourceId else { return }
+        
+        // Remove from source
+        var item = queue.remove(at: sourceIndex)
+        
+        // If an autoplay item is moved by the user, flatten it to continuePlaying
+        if item.source == .autoplay {
+            item.source = .continuePlaying
+        }
+        
+        // Adjust destination if removing shifted it
+        let adjustedDest = destinationIndex > sourceIndex ? destinationIndex - 1 : destinationIndex
+        
+        // Insert at destination
+        queue.insert(item, at: adjustedDest)
+        
+        // Update currentQueueIndex if needed (if we moved the current track's position)
+        if sourceIndex == currentQueueIndex {
+            currentQueueIndex = adjustedDest
+        } else if adjustedDest <= currentQueueIndex && sourceIndex > currentQueueIndex {
+            // Item moved forward past current, shift current index backwards
+            currentQueueIndex -= 1
+        } else if adjustedDest > currentQueueIndex && sourceIndex < currentQueueIndex {
+            // Item moved backward past current, shift current index forward
+            currentQueueIndex += 1
+        }
+        
+        // Flatten autoplay items that now appear before the moved item
+        flattenAutoplayItemsBeforeIndex(adjustedDest)
+        
+        print("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
+        
+        savePlaybackState()
+    }
+
     /// Move a queue item from one position to another (for drag-to-reorder).
     /// Indices are relative to the upcoming queue (after currentQueueIndex).
+    /// @deprecated Use moveQueueItem(byId:from:to:) instead for better robustness.
     public func moveQueueItem(from sourceIndex: Int, to destinationIndex: Int) {
         let queueStartIndex = currentQueueIndex + 1
         let absSource = queueStartIndex + sourceIndex
