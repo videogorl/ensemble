@@ -248,6 +248,7 @@ public struct MediaTrackList: UIViewRepresentable {
             right: 0
         )
         tableView.backgroundColor = .systemBackground
+        tableView.isScrollEnabled = false // Parent ScrollView handles scrolling
         return tableView
     }
     

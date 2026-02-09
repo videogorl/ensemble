@@ -99,7 +99,12 @@ public final class ArtistDetailViewModel: ObservableObject {
     public var trackCount: Int {
         filteredTracks.count
     }
-    
+
+    /// Tracks rated 4+ stars (rating >= 8 on 0-10 scale) by this artist
+    public var favoritedTracks: [Track] {
+        tracks.filter { $0.rating >= 8 }
+    }
+
     // MARK: - Filter Application
     
     private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {

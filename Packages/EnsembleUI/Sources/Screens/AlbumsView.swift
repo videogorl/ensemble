@@ -268,7 +268,8 @@ public struct AlbumDetailView: View {
             navigationTitle: album.title,
             showArtwork: false,
             showTrackNumbers: true,
-            groupByDisc: true
+            groupByDisc: true,
+            showFilter: false
         )
     }
     
