@@ -43,6 +43,23 @@ When a problem is mentioned, **interview the user first** to help hone in on whe
 
 When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
 
+## Using the Gemini CLI
+
+You have access to the Gemini CLI (`gemini -p`) which leverages Google Gemini's massive context window. Use it as a complementary tool in the following situations:
+
+**When to use Gemini:**
+- **Large codebase analysis:** When you need to analyze many files or large amounts of code that might strain your context limits, pipe content to `gemini -p` to take advantage of its large context capacity.
+- **UI implementation:** Gemini excels at identifying UI patterns and implementing SwiftUI views. When implementing UI changes, **plan the approach here in Claude first**, then delegate the implementation to Gemini. Review and integrate what it produces.
+
+**When NOT to use Gemini:**
+- **Architectural decisions:** Do not delegate architectural changes, structural refactors, or design decisions to Gemini. All architectural planning and decisions must stay in Claude.
+- **Planning:** Claude handles all planning. Gemini is an implementation tool, not a planning tool.
+
+**Typical workflow for UI changes:**
+1. **Claude:** Plan the UI change (what views to create/modify, what patterns to follow, what components to reuse)
+2. **Gemini:** Implement the planned UI code via `gemini -p` with the plan and relevant context
+3. **Claude:** Review the output, integrate it, and ensure it follows project conventions
+
 ## Project Overview
 
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
