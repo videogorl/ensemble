@@ -6,6 +6,7 @@
 		"git add": true,
 		"git commit": true,
 		"swift": true,
-		"FlipOpacity": true
+		"FlipOpacity": true,
+		"gemini": true
 	}
 }
