@@ -61,7 +61,12 @@ public struct MoodTracksView: View {
                                 if !nowPlayingVM.isAutoplayEnabled {
                                     nowPlayingVM.toggleAutoplay()
                                 }
-                                nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
+                                nowPlayingVM.clearQueue()
+                                nowPlayingVM.addToQueue(moodTracks)
+                                if nowPlayingVM.isShuffleEnabled {
+                                    nowPlayingVM.toggleShuffle()
+                                }
+                                nowPlayingVM.playPause()
                             }) {
                                 HStack {
                                     Image(systemName: "play.fill")
@@ -78,8 +83,12 @@ public struct MoodTracksView: View {
                                 if !nowPlayingVM.isAutoplayEnabled {
                                     nowPlayingVM.toggleAutoplay()
                                 }
-                                nowPlayingVM.toggleShuffle()
-                                nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
+                                nowPlayingVM.clearQueue()
+                                nowPlayingVM.addToQueue(moodTracks)
+                                if !nowPlayingVM.isShuffleEnabled {
+                                    nowPlayingVM.toggleShuffle()
+                                }
+                                nowPlayingVM.playPause()
                             }) {
                                 HStack {
                                     Image(systemName: "shuffle")
@@ -104,7 +113,11 @@ public struct MoodTracksView: View {
                                         if !nowPlayingVM.isAutoplayEnabled {
                                             nowPlayingVM.toggleAutoplay()
                                         }
-                                        nowPlayingVM.play(tracks: moodTracks, startingAt: index)
+                                        nowPlayingVM.clearQueue()
+                                        nowPlayingVM.addToQueue(moodTracks)
+                                        Task {
+                                            await nowPlayingVM.playQueueIndex(index)
+                                        }
                                     }
                                 )
                                 
