@@ -135,10 +135,38 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         do {
-            if let cached = try await playlistRepository.fetchPlaylist(ratingKey: playlist.id) {
-                let cachedTracks = cached.tracksArray
-                tracks = cachedTracks.map { Track(from: $0) }
+            var allTracks: [Track] = []
+            var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
+            
+            // Fetch all playlists from the repository
+            let allPlaylists = try await playlistRepository.fetchPlaylists()
+            
+            // Find all playlists with the same title as our current playlist (across all libraries)
+            let matchingPlaylists = allPlaylists.filter { $0.title == playlist.title }
+            
+            // Load tracks from each matching playlist
+            for playlist in matchingPlaylists {
+                do {
+                    let cachedPlaylist = try await playlistRepository.fetchPlaylist(ratingKey: playlist.ratingKey)
+                    if let cachedPlaylist = cachedPlaylist {
+                        let cachedTracks = cachedPlaylist.tracksArray
+                        for cdTrack in cachedTracks {
+                            let track = Track(from: cdTrack)
+                            
+                            // Dedup by ratingKey - keep first occurrence
+                            if trackMap[track.id] == nil {
+                                trackMap[track.id] = track
+                                allTracks.append(track)
+                            }
+                        }
+                    }
+                } catch {
+                    // Continue to next playlist if this one fails
+                    continue
+                }
             }
+            
+            tracks = allTracks
         } catch {
             self.error = error.localizedDescription
         }
