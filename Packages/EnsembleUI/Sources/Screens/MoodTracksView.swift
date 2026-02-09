@@ -200,34 +200,8 @@ public struct MoodTracksView: View {
                         let sourceKey = "\(account.id):\(server.id):\(library.key)"
                         
                         for plexTrack in plexTracks {
-                            var track = Track(from: plexTrack)
-                            // Ensure sourceCompositeKey is set
-                            if track.sourceCompositeKey == nil {
-                                track = Track(
-                                    id: track.id,
-                                    key: track.key,
-                                    title: track.title,
-                                    artistName: track.artistName,
-                                    albumName: track.albumName,
-                                    albumRatingKey: track.albumRatingKey,
-                                    artistRatingKey: track.artistRatingKey,
-                                    trackNumber: track.trackNumber,
-                                    discNumber: track.discNumber,
-                                    duration: track.duration,
-                                    thumbPath: track.thumbPath,
-                                    fallbackThumbPath: track.fallbackThumbPath,
-                                    fallbackRatingKey: track.fallbackRatingKey,
-                                    streamKey: track.streamKey,
-                                    streamId: track.streamId,
-                                    localFilePath: track.localFilePath,
-                                    dateAdded: track.dateAdded,
-                                    dateModified: track.dateModified,
-                                    lastPlayed: track.lastPlayed,
-                                    rating: track.rating,
-                                    playCount: track.playCount,
-                                    sourceCompositeKey: sourceKey
-                                )
-                            }
+                            // Create track with explicit sourceKey
+                            let track = Track(from: plexTrack, sourceKey: sourceKey)
                             
                             // Dedup by ratingKey - keep first occurrence
                             if trackMap[track.id] == nil {
