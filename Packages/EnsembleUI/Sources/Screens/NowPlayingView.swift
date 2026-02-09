@@ -405,7 +405,14 @@ public struct NowPlayingView: View {
                     .font(.title3)
                     .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .white.opacity(0.7))
             }
-            
+
+            // Autoplay
+            Button(action: viewModel.toggleAutoplay) {
+                Image(systemName: viewModel.isAutoplayEnabled ? "infinity.circle.fill" : "infinity.circle")
+                    .font(.title3)
+                    .foregroundColor(viewModel.isAutoplayEnabled ? .accentColor : .white.opacity(0.7))
+            }
+
             // Heart/Rating button (three-state)
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
