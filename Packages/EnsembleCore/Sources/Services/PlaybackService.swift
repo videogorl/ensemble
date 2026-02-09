@@ -951,6 +951,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queue = queue
         
         savePlaybackState()
+        
+        // Update the player's internal queue to reflect the change
+        Task {
+            await updatePlayerQueueAfterReorder()
+        }
     }
 
     /// Move a queue item from one position to another (for drag-to-reorder).
@@ -1400,6 +1405,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 print("⚠️ Failed to prefetch first track for repeat all: \(error)")
             }
         }
+    }
+
+    private func updatePlayerQueueAfterReorder() async {
+        await MainActor.run {
+            guard let player = self.player else { return }
+            let items = player.items()
+            
+            // Allow keeping the current item (index 0), remove the rest
+            if items.count > 1 {
+                print("🔄 Re-syncing player queue. Removing \(items.count - 1) upcoming items.")
+                // Drop first and remove the actual items provided by the API
+                for item in items.dropFirst() {
+                    player.remove(item)
+                }
+            }
+        }
+        
+        // Queue the correct next item based on the new order
+        await prefetchNextItem()
     }
 
     @MainActor
