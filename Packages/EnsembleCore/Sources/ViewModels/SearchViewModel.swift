@@ -480,17 +480,33 @@ public final class SearchViewModel: ObservableObject {
                     let moods = plexMoods.map { Mood(id: $0.id, key: $0.key, title: $0.title, sourceCompositeKey: task.sourceKey) }
                     
                     if !moods.isEmpty {
-                        // Save fresh moods to cache
-                        do {
-                            try await self.moodRepository.saveMoods(moods)
-                        } catch {
-                            // Ignore cache save errors
+                        // Filter out moods with no tracks
+                        var nonEmptyMoods: [Mood] = []
+                        for mood in moods {
+                            do {
+                                let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
+                                if !tracks.isEmpty {
+                                    nonEmptyMoods.append(mood)
+                                }
+                            } catch {
+                                // Skip moods that fail to load
+                                continue
+                            }
                         }
                         
-                        await MainActor.run { [weak self] in
-                            self?.allMoods = moods
+                        if !nonEmptyMoods.isEmpty {
+                            // Save fresh moods to cache
+                            do {
+                                try await self.moodRepository.saveMoods(nonEmptyMoods)
+                            } catch {
+                                // Ignore cache save errors
+                            }
+                            
+                            await MainActor.run { [weak self] in
+                                self?.allMoods = nonEmptyMoods
+                            }
+                            return  // Got moods, don't need to continue
                         }
-                        return  // Got moods, don't need to continue
                     }
                 } catch {
                     // Continue to next library
