@@ -946,6 +946,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         print("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
         
+        // Force @Published update by reassigning the queue array
+        // (Required because in-place mutations don't trigger Combine notifications)
+        self.queue = queue
+        
         savePlaybackState()
     }
 

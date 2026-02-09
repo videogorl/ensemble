@@ -373,13 +373,12 @@ public struct QueueTableView: UIViewRepresentable {
         func rebuildSections() {
             sections = []
             
-            // History section (always present if history exists)
-            if !history.isEmpty {
-                sections.append(QueueSection(
-                    type: .history,
-                    items: isHistoryExpanded ? Array(history.reversed()) : []
-                ))
-            }
+            // History section (always present to keep consistent section indices)
+            // Even if history is empty, we add it so queue sections start at section 1+
+            sections.append(QueueSection(
+                type: .history,
+                items: isHistoryExpanded && !history.isEmpty ? Array(history.reversed()) : []
+            ))
             
             // Split queue by source
             let upNext = queueItems.filter { $0.source == .upNext }
