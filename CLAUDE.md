@@ -5,6 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Coding style
 
+This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
+
 Begin your work in a git worktree (located in `../ensemble-worktrees/`). Please generate a branch name based on what work is being done. 
 Branch from `develop`, name it in this kind of format: `feat/{branch-name}`, where `feat` is for feature, `fix` for bug fixes, and so on.
 Store the branch in a similarly named folder in the worktrees folder mentioned above.
