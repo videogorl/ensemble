@@ -40,7 +40,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var recentlyPlayedArtists: [Artist] = []
     @Published public private(set) var recentlyAddedAlbums: [Album] = []
     @Published public private(set) var recommendedItems: [HubItem] = []
-    @Published public private(set) var allGenres: [Genre] = []
+    @Published public private(set) var allMoods: [Mood] = []
     @Published public private(set) var isLoadingExplore = false
     @Published public private(set) var exploreError: String?
     
@@ -272,7 +272,7 @@ public final class SearchViewModel: ObservableObject {
               recentlyPlayedArtists.isEmpty &&
               recentlyAddedAlbums.isEmpty &&
               recommendedItems.isEmpty &&
-              allGenres.isEmpty else {
+              allMoods.isEmpty else {
             return
         }
         
@@ -435,17 +435,44 @@ public final class SearchViewModel: ObservableObject {
             }
         }
         
-        // Fetch all genres from library in background (non-blocking)
+        // Fetch all moods from Plex servers in background (non-blocking)
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            do {
-                let genreCDs = try await self.libraryRepository.fetchGenres()
-                let genres = genreCDs.map { Genre(from: $0) }
-                await MainActor.run { [weak self] in
-                    self?.allGenres = genres
+            
+            // Capture API clients and section keys on main actor
+            let fetchTasks: [(client: PlexAPIClient, sectionKey: String)] = await MainActor.run {
+                var tasks: [(client: PlexAPIClient, sectionKey: String)] = []
+                for account in self.accountManager.plexAccounts {
+                    for server in account.servers {
+                        guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                            continue
+                        }
+                        
+                        let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                        for library in enabledLibraries {
+                            tasks.append((client, library.key))
+                        }
+                    }
                 }
-            } catch {
-                // Silently continue if genre fetch fails
+                return tasks
+            }
+            
+            // Fetch moods from all sources (use first library that has moods)
+            for task in fetchTasks {
+                do {
+                    let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
+                    let moods = plexMoods.map { Mood(id: $0.id, key: $0.key, title: $0.title) }
+                    
+                    if !moods.isEmpty {
+                        await MainActor.run { [weak self] in
+                            self?.allMoods = moods
+                        }
+                        return  // Got moods, don't need to continue
+                    }
+                } catch {
+                    // Continue to next library
+                    continue
+                }
             }
         }
     }

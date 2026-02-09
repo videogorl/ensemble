@@ -417,6 +417,17 @@ public struct PlexGenre: Codable, Sendable, Identifiable {
     public var id: String { ratingKey ?? key }
 }
 
+// MARK: - Mood
+
+public struct PlexMood: Codable, Sendable, Identifiable {
+    public let ratingKey: String?
+    public let key: String
+    public let title: String
+    public let type: String?
+
+    public var id: String { ratingKey ?? key }
+}
+
 // MARK: - Playlist
 
 public struct PlexPlaylist: Codable, Sendable, Identifiable {

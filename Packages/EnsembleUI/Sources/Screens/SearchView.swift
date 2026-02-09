@@ -190,20 +190,20 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Browse Genres
-                if !viewModel.allGenres.isEmpty {
+                // Browse Moods
+                if !viewModel.allMoods.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Browse Genres")
+                        Text("Moods")
                             .font(.title2)
                             .fontWeight(.bold)
                             .padding(.horizontal)
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
-                            ForEach(Array(viewModel.allGenres.prefix(12))) { genre in
+                            ForEach(Array(viewModel.allMoods.prefix(12))) { mood in
                                 NavigationLink {
                                     GenresView(libraryVM: libraryVM)
                                 } label: {
-                                    GenreCard(genre: genre)
+                                    GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -217,7 +217,7 @@ public struct SearchView: View {
                    viewModel.recentlyPlayedAlbums.isEmpty &&
                    viewModel.recentlyAddedAlbums.isEmpty &&
                    viewModel.recommendedItems.isEmpty &&
-                   viewModel.allGenres.isEmpty &&
+                   viewModel.allMoods.isEmpty &&
                    viewModel.recentSearches.isEmpty {
                     emptyExploreView
                 }

@@ -237,6 +237,22 @@ public struct Genre: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Mood
+
+public struct Mood: Identifiable, Hashable, Sendable, Codable {
+    public let id: String
+    public let key: String
+    public let title: String
+    public let sourceCompositeKey: String?
+
+    public init(id: String, key: String, title: String, sourceCompositeKey: String? = nil) {
+        self.id = id
+        self.key = key
+        self.title = title
+        self.sourceCompositeKey = sourceCompositeKey
+    }
+}
+
 // MARK: - Playlist
 
 public struct Playlist: Identifiable, Hashable, Sendable, Codable {
