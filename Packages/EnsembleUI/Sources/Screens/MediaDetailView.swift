@@ -43,6 +43,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showArtwork: Bool
     let showTrackNumbers: Bool
     let groupByDisc: Bool
+    let showFilter: Bool
     
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -56,7 +57,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         navigationTitle: String,
         showArtwork: Bool = true,
         showTrackNumbers: Bool = false,
-        groupByDisc: Bool = false
+        groupByDisc: Bool = false,
+        showFilter: Bool = true
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -65,9 +67,55 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showArtwork = showArtwork
         self.showTrackNumbers = showTrackNumbers
         self.groupByDisc = groupByDisc
+        self.showFilter = showFilter
     }
 
     public var body: some View {
+        Group {
+            if showFilter {
+                baseContent
+                    .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+
+                                    // Badge indicator when filters are active
+                                    if viewModel.filterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .sheet(isPresented: $showFilterSheet) {
+                        FilterSheet(
+                            filterOptions: $viewModel.filterOptions
+                        )
+                    }
+            } else {
+                baseContent
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 140)
+        }
+        .task {
+            await viewModel.loadTracks()
+            if let path = headerData.artworkPath {
+                await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
+            }
+        }
+    }
+
+    /// Base content without filter UI — shared between filtered and unfiltered modes
+    private var baseContent: some View {
         ZStack(alignment: .top) {
             // Background gradient
             backgroundGradient
@@ -99,40 +147,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showFilterSheet = true
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-
-                        // Badge indicator when filters are active
-                        if viewModel.filterOptions.hasActiveFilters {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 2, y: -2)
-                        }
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showFilterSheet) {
-            FilterSheet(
-                filterOptions: $viewModel.filterOptions
-            )
-        }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
-        .task {
-            await viewModel.loadTracks()
-            if let path = headerData.artworkPath {
-                await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
-            }
-        }
     }
     
     private var backgroundGradient: some View {
