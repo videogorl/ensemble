@@ -873,6 +873,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             queue.append(item)
         }
+
+        // Keep originalQueue in sync for shuffle restore
+        if isShuffleEnabled {
+            // Find current track in originalQueue and insert after it
+            if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
+               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id }) {
+                originalQueue.insert(item, at: originalIdx + 1)
+            } else {
+                originalQueue.append(item)
+            }
+        }
+
         savePlaybackState()
         Task { await checkAndRefreshAutoplayQueue() }
     }
@@ -884,6 +896,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queue.insert(item, at: insertIndex)
         // Flatten any autoplay items that now precede this track
         flattenAutoplayItemsBeforeIndex(insertIndex)
+
+        // Keep originalQueue in sync for shuffle restore
+        if isShuffleEnabled {
+            // Add before autoplay in original queue
+            let originalAutoplayStart = originalQueue.firstIndex(where: { $0.source == .autoplay }) ?? originalQueue.count
+            originalQueue.insert(item, at: originalAutoplayStart)
+        }
+
         savePlaybackState()
         Task { await checkAndRefreshAutoplayQueue() }
     }
@@ -894,6 +914,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let insertIndex = autoplayStartIndex
         queue.insert(contentsOf: items, at: insertIndex)
         flattenAutoplayItemsBeforeIndex(insertIndex)
+
+        // Keep originalQueue in sync for shuffle restore
+        if isShuffleEnabled {
+            let originalAutoplayStart = originalQueue.firstIndex(where: { $0.source == .autoplay }) ?? originalQueue.count
+            originalQueue.insert(contentsOf: items, at: originalAutoplayStart)
+        }
+
         savePlaybackState()
         Task { await checkAndRefreshAutoplayQueue() }
     }
@@ -904,7 +931,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't allow removing currently playing track
         guard index != currentQueueIndex else { return }
 
-        queue.remove(at: index)
+        let item = queue.remove(at: index)
+
+        // Keep originalQueue in sync for shuffle restore
+        if isShuffleEnabled {
+            originalQueue.removeAll { $0.id == item.id }
+        }
 
         // Adjust current index if needed
         if index < currentQueueIndex {
@@ -1021,38 +1053,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if isShuffleEnabled {
             // Save original queue for restore
             originalQueue = queue
-            let currentItem = currentQueueIndex >= 0 && currentQueueIndex < queue.count
+            
+            let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count)
                 ? queue[currentQueueIndex] : nil
-
-            // Split upcoming items: shuffle non-autoplay, preserve autoplay separately
-            let upcomingStart = currentQueueIndex + 1
-            let past = currentQueueIndex > 0 ? Array(queue[0..<currentQueueIndex]) : []
-            var nonAutoplay = upcomingStart < queue.count
-                ? queue[upcomingStart...].filter { $0.source != .autoplay }
-                : []
-            let autoplay = upcomingStart < queue.count
-                ? queue[upcomingStart...].filter { $0.source == .autoplay }
-                : []
-
-            // Shuffle only upNext + continuePlaying items
-            nonAutoplay.shuffle()
-
-            // Rebuild: [past] [current] [shuffled non-autoplay] [autoplay]
-            var newQueue = past
+            
+            // Candidates for shuffling: everything except current track and autoplay
+            var candidates = queue.filter { item in
+                let isCurrent = (item.id == currentItem?.id)
+                let isAutoplay = (item.source == .autoplay)
+                return !isCurrent && !isAutoplay
+            }
+            
+            // Filter out candidates that are already in history (actually played/skipped)
+            let historyIds = Set(playbackHistory.map { $0.track.id })
+            candidates.removeAll { historyIds.contains($0.track.id) }
+            
+            candidates.shuffle()
+            
+            // Autoplay items are kept at the very end
+            let autoplayItems = queue.filter { $0.source == .autoplay }
+            
+            // Rebuild: [current] [shuffled candidates] [autoplay]
+            var newQueue: [QueueItem] = []
             if let current = currentItem {
                 newQueue.append(current)
             }
-            newQueue.append(contentsOf: nonAutoplay)
-            newQueue.append(contentsOf: autoplay)
-
+            newQueue.append(contentsOf: candidates)
+            newQueue.append(contentsOf: autoplayItems)
+            
             queue = newQueue
-            if let current = currentItem {
-                currentQueueIndex = newQueue.firstIndex(where: { $0.id == current.id }) ?? 0
-            }
+            currentQueueIndex = currentItem != nil ? 0 : -1
         } else {
             // Restore original queue order
             let currentItem = currentQueueIndex >= 0 && currentQueueIndex < queue.count
                 ? queue[currentQueueIndex] : nil
+            
+            // When restoring, we use the originalQueue. 
+            // We need to find where our current track is in that original order.
             queue = originalQueue
 
             if let item = currentItem, let index = queue.firstIndex(where: { $0.id == item.id }) {
