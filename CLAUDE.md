@@ -5,14 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Coding style
 
+Begin your work in a git worktree (located in `../ensemble-worktrees/`). Please ask the user for a branch name before committing any work. Branch from `develop`, and create a PR that merges back into `develop`.
+When you're implementing a plan, please git commit after each "step".
+Whenever you're done and are prepared to wait for me to test, git commit your changes so we can roll them back if your context is cut off or if something breaks.
+
 Leave doc comments and comments above classes and other elements so that both the user and the agent know what's going on: keep this up to date.
 
 As you make big architectural changes, please update this document and the README.md file as necessary.
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
-
-When you're implementing a plan, please git commit after each "step".
-Whenever you're done and are prepared to wait for me to test, git commit your changes so we can roll them back if your context is cut off or if something breaks.
 
 If a problem is mentioned, interview to help hone in on where the problem is originating from. When troubleshooting, add logs to the appropriate files so debugging can be more efficient.
 
