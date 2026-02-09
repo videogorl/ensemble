@@ -210,6 +210,7 @@ public class QueueItemCell: UITableViewCell {
 public struct QueueTableView: UIViewRepresentable {
     let queueItems: [QueueItem]
     let history: [QueueItem]
+    let showHistory: Bool
     let currentQueueIndex: Int
     let onItemTap: (QueueItem, Int) -> Void
     let onPlayNext: (Track) -> Void
@@ -222,6 +223,7 @@ public struct QueueTableView: UIViewRepresentable {
     public init(
         queueItems: [QueueItem],
         history: [QueueItem],
+        showHistory: Bool,
         currentQueueIndex: Int,
         onItemTap: @escaping (QueueItem, Int) -> Void,
         onPlayNext: @escaping (Track) -> Void,
@@ -231,6 +233,7 @@ public struct QueueTableView: UIViewRepresentable {
     ) {
         self.queueItems = queueItems
         self.history = history
+        self.showHistory = showHistory
         self.currentQueueIndex = currentQueueIndex
         self.onItemTap = onItemTap
         self.onPlayNext = onPlayNext
@@ -262,12 +265,14 @@ public struct QueueTableView: UIViewRepresentable {
         let dataChanged = context.coordinator.queueItems.count != queueItems.count ||
             !zip(context.coordinator.queueItems, queueItems).allSatisfy { $0.id == $1.id } ||
             context.coordinator.history.count != history.count ||
-            !zip(context.coordinator.history, history).allSatisfy { $0.id == $1.id }
+            !zip(context.coordinator.history, history).allSatisfy { $0.id == $1.id } ||
+            context.coordinator.showHistory != showHistory
         
         let currentIndexChanged = context.coordinator.currentQueueIndex != currentQueueIndex
         
         context.coordinator.queueItems = queueItems
         context.coordinator.history = history
+        context.coordinator.showHistory = showHistory
         context.coordinator.currentQueueIndex = currentQueueIndex
         context.coordinator.onItemTap = onItemTap
         context.coordinator.onPlayNext = onPlayNext
@@ -289,7 +294,7 @@ public struct QueueTableView: UIViewRepresentable {
                     let item = context.coordinator.item(at: indexPath)
                     let absoluteIndex = context.coordinator.absoluteQueueIndex(for: indexPath)
                     let isPlaying = absoluteIndex == currentQueueIndex
-                    let showDragHandle = indexPath.section > 0 // No drag handle in history
+                    let showDragHandle = !showHistory // No drag handle in history
                     queueCell.configure(
                         with: item,
                         isPlaying: isPlaying,
@@ -305,6 +310,7 @@ public struct QueueTableView: UIViewRepresentable {
         Coordinator(
             queueItems: queueItems,
             history: history,
+            showHistory: showHistory,
             currentQueueIndex: currentQueueIndex,
             onItemTap: onItemTap,
             onPlayNext: onPlayNext,
@@ -320,6 +326,7 @@ public struct QueueTableView: UIViewRepresentable {
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UITableViewDropDelegate {
         var queueItems: [QueueItem]
         var history: [QueueItem]
+        var showHistory: Bool
         var currentQueueIndex: Int
         var onItemTap: (QueueItem, Int) -> Void
         var onPlayNext: (Track) -> Void
@@ -328,7 +335,6 @@ public struct QueueTableView: UIViewRepresentable {
         var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
         
-        var isHistoryExpanded: Bool = false
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
         
@@ -356,6 +362,7 @@ public struct QueueTableView: UIViewRepresentable {
         init(
             queueItems: [QueueItem],
             history: [QueueItem],
+            showHistory: Bool,
             currentQueueIndex: Int,
             onItemTap: @escaping (QueueItem, Int) -> Void,
             onPlayNext: @escaping (Track) -> Void,
@@ -366,6 +373,7 @@ public struct QueueTableView: UIViewRepresentable {
         ) {
             self.queueItems = queueItems
             self.history = history
+            self.showHistory = showHistory
             self.currentQueueIndex = currentQueueIndex
             self.onItemTap = onItemTap
             self.onPlayNext = onPlayNext
@@ -380,26 +388,28 @@ public struct QueueTableView: UIViewRepresentable {
         func rebuildSections() {
             sections = []
             
-            // History section (always present to keep consistent section indices)
-            // Even if history is empty, we add it so queue sections start at section 1+
-            sections.append(QueueSection(
-                type: .history,
-                items: isHistoryExpanded && !history.isEmpty ? Array(history.reversed()) : []
-            ))
-            
-            // Split queue by source
-            let upNext = queueItems.filter { $0.source == .upNext }
-            let continuePlaying = queueItems.filter { $0.source == .continuePlaying }
-            let autoplay = queueItems.filter { $0.source == .autoplay }
-            
-            if !upNext.isEmpty {
-                sections.append(QueueSection(type: .upNext, items: upNext))
-            }
-            if !continuePlaying.isEmpty {
-                sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
-            }
-            if !autoplay.isEmpty {
-                sections.append(QueueSection(type: .autoplay, items: autoplay))
+            if showHistory {
+                if !history.isEmpty {
+                    sections.append(QueueSection(
+                        type: .history,
+                        items: Array(history.reversed())
+                    ))
+                }
+            } else {
+                // Split queue by source
+                let upNext = queueItems.filter { $0.source == .upNext }
+                let continuePlaying = queueItems.filter { $0.source == .continuePlaying }
+                let autoplay = queueItems.filter { $0.source == .autoplay }
+                
+                if !upNext.isEmpty {
+                    sections.append(QueueSection(type: .upNext, items: upNext))
+                }
+                if !continuePlaying.isEmpty {
+                    sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
+                }
+                if !autoplay.isEmpty {
+                    sections.append(QueueSection(type: .autoplay, items: autoplay))
+                }
             }
         }
         
@@ -408,7 +418,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         func absoluteQueueIndex(for indexPath: IndexPath) -> Int? {
-            guard indexPath.section > 0 else { return nil } // History has no queue index
+            guard !showHistory else { return nil } // History has no queue index
             let item = self.item(at: indexPath)
             return queueItems.firstIndex(where: { $0.id == item.id })
         }
@@ -428,7 +438,7 @@ public struct QueueTableView: UIViewRepresentable {
             let item = self.item(at: indexPath)
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             let isPlaying = absoluteIndex == currentQueueIndex
-            let showDragHandle = indexPath.section > 0 // No drag handle in history
+            let showDragHandle = !showHistory // No drag handle in history
             cell.configure(
                 with: item,
                 isPlaying: isPlaying,
@@ -449,42 +459,22 @@ public struct QueueTableView: UIViewRepresentable {
             headerView.backgroundColor = .systemBackground
             
             let label = UILabel()
-            // For history section, show actual count even when collapsed
-            if sectionData.type == .history {
-                label.text = "\(sectionData.type.title) (\(history.count))"
-            } else {
-                label.text = sectionData.type.title
-            }
+            label.text = sectionData.type.title
             label.font = .systemFont(ofSize: 14, weight: .bold)
             label.textColor = .secondaryLabel
             label.translatesAutoresizingMaskIntoConstraints = false
             
             headerView.addSubview(label)
             
-            // Add chevron for history section
             if sectionData.type == .history {
-                let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
-                chevron.tintColor = .secondaryLabel
-                chevron.contentMode = .scaleAspectFit
-                chevron.translatesAutoresizingMaskIntoConstraints = false
-                headerView.addSubview(chevron)
-                
                 let clockIcon = UIImageView(image: UIImage(systemName: "clock"))
                 clockIcon.tintColor = .secondaryLabel
                 clockIcon.contentMode = .scaleAspectFit
                 clockIcon.translatesAutoresizingMaskIntoConstraints = false
                 headerView.addSubview(clockIcon)
                 
-                // Rotate chevron if expanded
-                chevron.transform = isHistoryExpanded ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
-                
                 NSLayoutConstraint.activate([
-                    chevron.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
-                    chevron.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-                    chevron.widthAnchor.constraint(equalToConstant: 12),
-                    chevron.heightAnchor.constraint(equalToConstant: 12),
-                    
-                    clockIcon.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     clockIcon.widthAnchor.constraint(equalToConstant: 14),
                     clockIcon.heightAnchor.constraint(equalToConstant: 14),
@@ -493,11 +483,6 @@ public struct QueueTableView: UIViewRepresentable {
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
                 ])
-                
-                // Add tap gesture
-                let tapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleHistorySection))
-                headerView.addGestureRecognizer(tapGesture)
-                headerView.isUserInteractionEnabled = true
             } else {
                 NSLayoutConstraint.activate([
                     label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
@@ -507,12 +492,6 @@ public struct QueueTableView: UIViewRepresentable {
             }
             
             return headerView
-        }
-        
-        @objc private func toggleHistorySection() {
-            isHistoryExpanded.toggle()
-            rebuildSections()
-            tableView?.reloadSections(IndexSet(integer: 0), with: .automatic)
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -545,7 +524,7 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Context Menu
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            guard indexPath.section > 0 else { return nil } // No menu on history
+            guard !showHistory else { return nil } // No menu on history
             
             let item = self.item(at: indexPath)
             guard let absoluteIndex = absoluteQueueIndex(for: indexPath) else { return nil }
@@ -569,11 +548,11 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Drag & Drop
         
         public func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-            indexPath.section > 0 // History not movable
+            !showHistory // History not movable
         }
         
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
-            guard indexPath.section > 0 else { return [] }
+            guard !showHistory else { return [] }
             let item = self.item(at: indexPath)
             let itemProvider = NSItemProvider(object: item.id as NSString)
             let dragItem = UIDragItem(itemProvider: itemProvider)
@@ -586,7 +565,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UITableViewDropProposal {
-            guard let dest = destinationIndexPath, dest.section > 0 else {
+            guard let dest = destinationIndexPath, !showHistory else {
                 return UITableViewDropProposal(operation: .cancel)
             }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
@@ -594,9 +573,9 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
             guard let destinationIndexPath = coordinator.destinationIndexPath,
-                  destinationIndexPath.section > 0,
+                  !showHistory,
                   let sourceIndexPath = coordinator.items.first?.sourceIndexPath,
-                  sourceIndexPath.section > 0 else { return }
+                  !showHistory else { return }
             
             // Extract source item from the drag item's localObject
             guard let dragItem = coordinator.items.first?.dragItem,

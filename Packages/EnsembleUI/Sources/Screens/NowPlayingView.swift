@@ -438,22 +438,39 @@ public struct NowPlayingView: View {
         VStack(spacing: 0) {
             // Queue header with autoplay toggle
             HStack {
-                Text("Queue")
+                Text(viewModel.showHistory ? "History" : "Queue")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.accentColor)
                 
                 Spacer()
                 
-                // Autoplay toggle
-                Button(action: viewModel.toggleAutoplay) {
-                    HStack(spacing: 6) {
-                        Image(systemName: viewModel.isAutoplayEnabled ? "sparkles" : "sparkles.slash")
-                            .font(.system(size: 14))
-                        Text("Autoplay")
-                            .font(.subheadline)
+                HStack(spacing: 16) {
+                    // History toggle
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            viewModel.toggleHistory()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 14))
+                            Text("History")
+                                .font(.subheadline)
+                        }
+                        .foregroundColor(viewModel.showHistory ? .accentColor : .secondary)
                     }
-                    .foregroundColor(viewModel.isAutoplayEnabled ? .purple : .secondary)
+
+                    // Autoplay toggle
+                    Button(action: viewModel.toggleAutoplay) {
+                        HStack(spacing: 6) {
+                            Image(systemName: viewModel.isAutoplayEnabled ? "sparkles" : "sparkles.slash")
+                                .font(.system(size: 14))
+                            Text("Autoplay")
+                                .font(.subheadline)
+                        }
+                        .foregroundColor(viewModel.isAutoplayEnabled ? .purple : .secondary)
+                    }
                 }
             }
             .padding(.horizontal, 24)
@@ -463,10 +480,10 @@ public struct NowPlayingView: View {
             if !viewModel.queue.isEmpty || !viewModel.playbackHistory.isEmpty {
                 #if canImport(UIKit)
                 let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
-                let totalItems = queueItemsToShow.count + viewModel.playbackHistory.count
+                let itemsToShowCount = viewModel.showHistory ? viewModel.playbackHistory.count : queueItemsToShow.count
                 let estimatedRowHeight: CGFloat = 68
                 let estimatedHeaderHeight: CGFloat = 50
-                let estimatedTableHeight = CGFloat(totalItems) * estimatedRowHeight + estimatedHeaderHeight
+                let estimatedTableHeight = CGFloat(itemsToShowCount) * estimatedRowHeight + estimatedHeaderHeight
                 
                 // Capture currentQueueIndex at display time to avoid race conditions
                 let capturedCurrentIndex = viewModel.currentQueueIndex
@@ -474,6 +491,7 @@ public struct NowPlayingView: View {
                 QueueTableView(
                     queueItems: queueItemsToShow,
                     history: viewModel.playbackHistory,
+                    showHistory: viewModel.showHistory,
                     currentQueueIndex: -1,
                     onItemTap: { item, absoluteIndex in
                         // Use captured index to ensure consistent calculations
