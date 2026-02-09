@@ -197,10 +197,10 @@ public struct MoodTracksView: View {
                         let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: mood.key)
                         
                         // Create composite key for this track from this library
-                        let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                        let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
                         
                         for plexTrack in plexTracks {
-                            // Create track with explicit sourceKey
+                            // Create track with explicit sourceKey including plex: prefix
                             let track = Track(from: plexTrack, sourceKey: sourceKey)
                             
                             // Dedup by ratingKey - keep first occurrence

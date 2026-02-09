@@ -336,7 +336,7 @@ public final class SearchViewModel: ObservableObject {
                         let enabledLibraries = server.libraries.filter { $0.isEnabled }
                         
                         for library in enabledLibraries {
-                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
                             tasks.append((sourceKey, client, library.key))
                         }
                     }
@@ -465,7 +465,7 @@ public final class SearchViewModel: ObservableObject {
                         
                         let enabledLibraries = server.libraries.filter { $0.isEnabled }
                         for library in enabledLibraries {
-                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
                             tasks.append((client, library.key, sourceKey))
                         }
                     }
