@@ -28,23 +28,46 @@ public final class PlexRadioProvider: RadioProviderProtocol {
         basedOn track: Track,
         limit: Int
     ) async -> [Track]? {
+        print("\n🎙️ PlexRadioProvider.getRecommendedTracks()")
+        print("  - track.id (ratingKey): \(track.id)")
+        print("  - track.title: \(track.title)")
+        print("  - sourceKey: \(sourceKey)")
+        print("  - limit: \(limit)")
+        
         do {
+            print("🔄 Calling apiClient.getSimilarTracks()...")
             // Use Plex's /nearest endpoint for sonic recommendations
             guard let plexTracks = try await apiClient.getSimilarTracks(
                 ratingKey: track.id,
                 limit: limit,
                 maxDistance: 0.25  // Lower = more similar (0.0-1.0)
             ) else {
-                print("ℹ️ PlexRadioProvider: No similar tracks available for \(track.title)")
+                print("⚠️ getSimilarTracks returned nil (no sonic analysis available)")
                 return nil
             }
 
+            print("✅ getSimilarTracks returned \(plexTracks.count) plex tracks")
+            
             // Convert PlexTrack to Track domain models
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
-            print("✅ PlexRadioProvider: Got \(tracks.count) recommended tracks")
+            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks")
+            
+            if tracks.isEmpty {
+                print("⚠️ WARNING: Conversion resulted in empty array")
+            } else {
+                print("✅ First track: \(tracks.first?.title ?? "unknown")")
+            }
+            
             return tracks
         } catch {
-            print("❌ PlexRadioProvider.getRecommendedTracks error: \(error)")
+            print("❌ PlexRadioProvider.getRecommendedTracks() ERROR:")
+            print("   Type: \(type(of: error))")
+            print("   localizedDescription: \(error.localizedDescription)")
+            if let nsError = error as? NSError {
+                print("   NSError domain: \(nsError.domain)")
+                print("   Code: \(nsError.code)")
+                print("   UserInfo: \(nsError.userInfo)")
+            }
             return nil
         }
     }

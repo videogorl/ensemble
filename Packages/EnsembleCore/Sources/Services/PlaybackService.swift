@@ -771,13 +771,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func refreshAutoplayQueue() async {
+        print("\n🔄 ═══════════════════════════════════════════════════════════")
         print("🔄 PlaybackService.refreshAutoplayQueue() called")
+        print("📊 State:")
         print("  - isAutoplayEnabled: \(isAutoplayEnabled)")
+        print("  - radioMode: \(radioMode)")
         print("  - Queue size: \(queue.count)")
-        print("  - Autoplay tracks available: \(autoplayTracks.count)")
+        print("  - Current autoplayTracks: \(autoplayTracks.count)")
         
         guard isAutoplayEnabled else {
-            print("⚠️ refreshAutoplayQueue: autoplay not enabled")
+            print("❌ Early return: autoplay not enabled")
+            print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
 
@@ -786,54 +790,76 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Fall back to currently playing track if queue is empty
         let seedTrack: Track?
         if !queue.isEmpty {
-            // Use the last track in the queue (most recently added)
             seedTrack = queue.last?.track
-            print("  - Using last queue track as seed: \(seedTrack?.title ?? "nil")")
+            print("\n🎵 Seed track selection:")
+            print("  - Method: Last queue track")
+            print("  - Title: \(seedTrack?.title ?? "nil")")
+            print("  - ID: \(seedTrack?.id ?? "nil")")
+            print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
         } else if let currentTrack = currentTrack {
             seedTrack = currentTrack
-            print("  - Queue empty, using current track as seed: \(seedTrack?.title ?? "nil")")
+            print("\n🎵 Seed track selection:")
+            print("  - Method: Current track (queue was empty)")
+            print("  - Title: \(seedTrack?.title ?? "nil")")
+            print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
         } else {
             seedTrack = nil
+            print("\n🎵 Seed track selection: FAILED - no queue or current track")
         }
         
         guard let seedTrack = seedTrack else {
-            print("⚠️ refreshAutoplayQueue: no seed track available")
+            print("\n❌ Early return: no seed track available")
+            print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
 
         // Get radio provider for seed track's source
         guard let sourceKey = seedTrack.sourceCompositeKey else {
-            print("ℹ️ Seed track has no source key")
+            print("\n❌ Early return: Seed track has NO sourceCompositeKey")
+            print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
-        print("  - Seed track source key: \(sourceKey)")
+        print("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
 
-        print("🔄 Creating radio provider for sonically similar recommendations...")
+        print("\n🔄 Creating radio provider...")
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
-            print("ℹ️ No radio provider available for seed track")
+            print("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
+            print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
-        print("✅ Radio provider created")
+        print("✅ Radio provider created successfully")
 
         // Always use sonically similar for continuous radio (like Plexamp)
-        // This creates a seamless, flowing experience and respects user additions
-        print("🔄 Fetching sonically similar tracks based on: \(seedTrack.title)")
+        print("\n🔄 Calling provider.getRecommendedTracks()...")
+        print("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
+        print("  - Limit: 50")
         let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 50)
         
         if let tracks = recommendations {
-            print("✅ Got \(tracks.count) sonically similar tracks")
+            print("\n✅ Got recommendations: \(tracks.count) tracks")
+            if tracks.isEmpty {
+                print("⚠️ WARNING: API returned empty array")
+            } else {
+                print("  - First track: \(tracks.first?.title ?? "unknown")")
+            }
             autoplayTracks = tracks
             // Ensure we're in trackRadio mode for continuous playback
             if radioMode == .off {
                 radioMode = .trackRadio
                 print("  - Set radioMode to trackRadio")
             }
-            print("✅ Loaded \(tracks.count) tracks for autoplay (sonically similar to '\(seedTrack.title)')")
+            print("✅ autoplayTracks buffer now has \(autoplayTracks.count) tracks")
         } else {
-            print("⚠️ No sonically similar tracks available")
+            print("\n❌ provider.getRecommendedTracks() returned nil")
+            print("   This could mean:")
+            print("   1. getSimilarTracks API call failed")
+            print("   2. The server has no sonic analysis for this track")
+            print("   3. Network error or permission issue")
+            autoplayTracks = []
         }
+        print("🔄 ═══════════════════════════════════════════════════════════\n")
     }
 
     public func enableRadio(tracks: [Track]) async {

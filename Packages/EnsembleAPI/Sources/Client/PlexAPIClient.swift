@@ -630,26 +630,55 @@ public actor PlexAPIClient {
         limit: Int = 50,
         maxDistance: Double = 0.25
     ) async throws -> [PlexTrack]? {
-        print("🎵 Fetching similar tracks for: \(ratingKey)")
+        print("\n🎵 PlexAPIClient.getSimilarTracks()")
+        print("  - ratingKey: \(ratingKey)")
+        print("  - limit: \(limit)")
+        print("  - maxDistance: \(maxDistance)")
 
         let path = "/library/metadata/\(ratingKey)/nearest"
         let query = [
             "limit": String(limit),
             "maxDistance": String(maxDistance)
         ]
+        print("  - path: \(path)")
+        print("  - query: \(query)")
 
         do {
+            print("🔄 Making serverRequest...")
             let data = try await serverRequest(path: path, query: query)
+            print("✅ Received response data (\(data.count) bytes)")
+            
+            print("🔄 Decoding JSON...")
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexTrack>.self,
                 from: data
             )
             let tracks = container.mediaContainer.items
-            print("✅ Found \(tracks.count) similar tracks for \(ratingKey)")
+            print("✅ Successfully decoded \(tracks.count) PlexTrack objects")
+            
+            if tracks.isEmpty {
+                print("⚠️ WARNING: API returned empty track list (no sonic analysis available)")
+            } else {
+                print("✅ First track from API: \(tracks.first?.title ?? "unknown")")
+            }
+            
             return tracks
         } catch {
-            // 404 means no sonic analysis available - this is normal, not an error
-            print("ℹ️ Similar tracks not available for \(ratingKey): \(error.localizedDescription)")
+            print("❌ Error in getSimilarTracks:")
+            print("   Type: \(type(of: error))")
+            print("   Message: \(error.localizedDescription)")
+            
+            if let nsError = error as? NSError {
+                print("   NSError domain: \(nsError.domain)")
+                print("   Code: \(nsError.code)")
+                print("   UserInfo: \(nsError.userInfo)")
+            }
+            
+            // Check if it's a 404 (no sonic analysis)
+            if let urlError = error as? URLError, urlError.code == .fileDoesNotExist {
+                print("   → This is a 404: No sonic analysis available for this track")
+            }
+            
             return nil
         }
     }
