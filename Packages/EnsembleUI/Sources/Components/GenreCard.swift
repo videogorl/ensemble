@@ -43,7 +43,7 @@ public struct GenreCard: View {
                 .frame(width: ArtworkSize.thumbnail.cgSize.width)
                 .padding(.top, 8)
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width, alignment: .top)
+        .frame(maxWidth: ArtworkSize.thumbnail.cgSize.width, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
             view.onTapGesture {
