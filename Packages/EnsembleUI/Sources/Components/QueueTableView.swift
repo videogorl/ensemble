@@ -205,6 +205,23 @@ public class QueueItemCell: UITableViewCell {
     }
 }
 
+// MARK: - Intrinsic Table View
+
+/// A UITableView that adjusts its intrinsicContentSize based on its contentSize.
+/// This allows it to be used inside a SwiftUI ScrollView without a fixed height.
+internal class IntrinsicTableView: UITableView {
+    override var contentSize: CGSize {
+        didSet {
+            self.invalidateIntrinsicContentSize()
+        }
+    }
+    
+    override var intrinsicContentSize: CGSize {
+        self.layoutIfNeeded()
+        return CGSize(width: UIView.noIntrinsicMetric, height: contentSize.height)
+    }
+}
+
 // MARK: - Queue Table View
 
 public struct QueueTableView: UIViewRepresentable {
@@ -243,7 +260,7 @@ public struct QueueTableView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .grouped)
+        let tableView = IntrinsicTableView(frame: .zero, style: .grouped)
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.dragDelegate = context.coordinator
@@ -286,6 +303,7 @@ public struct QueueTableView: UIViewRepresentable {
         
         if dataChanged {
             tableView.reloadData()
+            tableView.invalidateIntrinsicContentSize()
         } else if currentIndexChanged {
             // Only update visible cells
             tableView.visibleCells.forEach { cell in

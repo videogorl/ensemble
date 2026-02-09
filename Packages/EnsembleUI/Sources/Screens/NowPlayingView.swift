@@ -480,10 +480,6 @@ public struct NowPlayingView: View {
             if !viewModel.queue.isEmpty || !viewModel.playbackHistory.isEmpty {
                 #if canImport(UIKit)
                 let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
-                let itemsToShowCount = viewModel.showHistory ? viewModel.playbackHistory.count : queueItemsToShow.count
-                let estimatedRowHeight: CGFloat = 68
-                let estimatedHeaderHeight: CGFloat = 50
-                let estimatedTableHeight = CGFloat(itemsToShowCount) * estimatedRowHeight + estimatedHeaderHeight
                 
                 // Capture currentQueueIndex at display time to avoid race conditions
                 let capturedCurrentIndex = viewModel.currentQueueIndex
@@ -519,7 +515,7 @@ public struct NowPlayingView: View {
                         )
                     }
                 )
-                .frame(height: min(estimatedTableHeight, geometry.size.height * 0.8))
+                .padding(.bottom, 40)
                 #else
                 Text("Queue view not available on macOS")
                     .foregroundColor(.secondary)
