@@ -948,10 +948,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
 
         print("\n🔄 Creating radio provider...")
+        // Format for makeRadioProvider: sourceType:accountId:serverId:libraryId
+        let radioSourceKey = "plex:\(sourceKey)"
         guard let provider = await MainActor.run(body: {
-            syncCoordinator.makeRadioProvider(for: sourceKey)
+            syncCoordinator.makeRadioProvider(for: radioSourceKey)
         }) else {
-            print("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
+            print("❌ Early return: makeRadioProvider returned nil for key: \(radioSourceKey)")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
