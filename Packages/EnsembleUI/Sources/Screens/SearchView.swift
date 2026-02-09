@@ -8,6 +8,7 @@ public struct SearchView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @State private var isPinnedExpanded = false
+    @State private var isEditingPins = false
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
@@ -335,7 +336,23 @@ public struct SearchView: View {
 
                     Spacer()
 
-                    if pinnedVM.resolvedPins.count > 6 {
+                    if !pinnedVM.resolvedPins.isEmpty {
+                        Button {
+                            withAnimation(.spring()) {
+                                isEditingPins.toggle()
+                                if isEditingPins {
+                                    isPinnedExpanded = true
+                                }
+                            }
+                        } label: {
+                            Text(isEditingPins ? "Done" : "Edit")
+                                .font(.subheadline)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding(.trailing, 4)
+                    }
+
+                    if pinnedVM.resolvedPins.count > 6 && !isEditingPins {
                         Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
@@ -359,7 +376,7 @@ public struct SearchView: View {
                             .contextMenu {
                                 // Unpin action
                                 Button(role: .destructive) {
-                                    DependencyContainer.shared.pinManager.unpin(id: pin.pinnedItem.id)
+                                    pinnedVM.unpin(id: pin.pinnedItem.id)
                                 } label: {
                                     Label("Unpin", systemImage: "pin.slash")
                                 }
@@ -377,6 +394,23 @@ public struct SearchView: View {
     @ViewBuilder
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
         let cardContent = pinnedItemCardContent(pin)
+            .wiggle(isWiggling: isEditingPins)
+            .overlay(alignment: .topTrailing) {
+                if isEditingPins {
+                    Button {
+                        withAnimation {
+                            pinnedVM.unpin(id: pin.pinnedItem.id)
+                        }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .red)
+                            .font(.title3)
+                    }
+                    .offset(x: 8, y: -8)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
 
         if #available(iOS 16.0, macOS 13.0, *) {
             cardContent
@@ -384,7 +418,8 @@ public struct SearchView: View {
                     // Drag preview
                     pinnedItemCardContent(pin)
                         .frame(width: 100, height: 100)
-                        .opacity(0.8)
+                        .background(Color.secondary.opacity(0.2))
+                        .cornerRadius(8)
                 }
                 .dropDestination(for: String.self) { items, _ in
                     guard let droppedId = items.first,
@@ -393,7 +428,7 @@ public struct SearchView: View {
                           fromIndex != toIndex else {
                         return false
                     }
-                    withAnimation {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         pinnedVM.move(
                             fromOffsets: IndexSet(integer: fromIndex),
                             toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
@@ -416,6 +451,7 @@ public struct SearchView: View {
                     AlbumCard(album: album)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             } else {
                 NavigationLink {
                     AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
@@ -423,6 +459,7 @@ public struct SearchView: View {
                     AlbumCard(album: album)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             }
         case .artist(let artist, _):
             if #available(iOS 16.0, macOS 13.0, *) {
@@ -430,6 +467,7 @@ public struct SearchView: View {
                     ArtistCard(artist: artist)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             } else {
                 NavigationLink {
                     ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
@@ -437,6 +475,7 @@ public struct SearchView: View {
                     ArtistCard(artist: artist)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             }
         case .playlist(let playlist, _):
             if #available(iOS 16.0, macOS 13.0, *) {
@@ -444,6 +483,7 @@ public struct SearchView: View {
                     PlaylistCard(playlist: playlist)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             } else {
                 NavigationLink {
                     PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
@@ -451,6 +491,7 @@ public struct SearchView: View {
                     PlaylistCard(playlist: playlist)
                 }
                 .buttonStyle(.plain)
+                .disabled(isEditingPins)
             }
         }
     }

@@ -391,6 +391,9 @@ public struct SidebarView: View {
                                 Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
                                     .tag(SidebarSection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
                             }
+                            .onMove { source, destination in
+                                pinnedVM.move(fromOffsets: source, toOffset: destination)
+                            }
                         }
                     }
 

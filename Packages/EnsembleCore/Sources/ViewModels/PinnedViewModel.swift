@@ -90,4 +90,9 @@ public final class PinnedViewModel: ObservableObject {
         let ids = resolvedPins.map { $0.pinnedItem.id }
         pinManager.reorder(ids: ids)
     }
+
+    /// Unpin an item by its ID
+    public func unpin(id: String) {
+        pinManager.unpin(id: id)
+    }
 }
