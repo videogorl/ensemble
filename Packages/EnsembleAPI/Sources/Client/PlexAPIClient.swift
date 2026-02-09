@@ -609,6 +609,105 @@ public actor PlexAPIClient {
         }
     }
 
+    // MARK: - Radio & Recommendations
+
+    /// Get sonically similar tracks for radio recommendations
+    /// Returns nil if sonic analysis not performed or Plex Pass not active
+    /// - Parameters:
+    ///   - ratingKey: The track's rating key to find similar tracks for
+    ///   - limit: Maximum number of similar tracks to return (default: 50)
+    ///   - maxDistance: Maximum sonic distance (0.0-1.0, default: 0.25). Lower = more similar
+    public func getSimilarTracks(
+        ratingKey: String,
+        limit: Int = 50,
+        maxDistance: Double = 0.25
+    ) async throws -> [PlexTrack]? {
+        print("🎵 Fetching similar tracks for: \(ratingKey)")
+
+        let path = "/library/metadata/\(ratingKey)/nearest"
+        let query = [
+            "limit": String(limit),
+            "maxDistance": String(maxDistance)
+        ]
+
+        do {
+            let data = try await serverRequest(path: path, query: query)
+            let container = try JSONDecoder().decode(
+                PlexMediaContainer<PlexTrack>.self,
+                from: data
+            )
+            let tracks = container.mediaContainer.items
+            print("✅ Found \(tracks.count) similar tracks for \(ratingKey)")
+            return tracks
+        } catch {
+            // 404 means no sonic analysis available - this is normal, not an error
+            print("ℹ️ Similar tracks not available for \(ratingKey): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Get artist radio station as a playlist
+    /// Returns nil if artist radio not available or Plex Pass not active
+    /// - Parameter artistKey: The artist's rating key
+    public func getArtistRadioStation(artistKey: String) async throws -> PlexPlaylist? {
+        print("🎵 Fetching artist radio for: \(artistKey)")
+
+        let path = "/library/metadata/\(artistKey)"
+        let query = ["includeStations": "1"]
+
+        do {
+            let data = try await serverRequest(path: path, query: query)
+
+            // The response includes a Stations container within the metadata
+            // We need to parse it to extract the playlist
+            let container = try JSONDecoder().decode(
+                PlexMediaContainer<PlexPlaylist>.self,
+                from: data
+            )
+
+            // Filter for station-type playlists
+            let station = container.mediaContainer.items.first
+            if let station = station {
+                print("✅ Found artist radio station: \(station.title)")
+            } else {
+                print("ℹ️ No artist radio station found for \(artistKey)")
+            }
+            return station
+        } catch {
+            print("ℹ️ Artist radio not available for \(artistKey): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Get album radio station as a playlist
+    /// Returns nil if album radio not available or Plex Pass not active
+    /// - Parameter albumKey: The album's rating key
+    public func getAlbumRadioStation(albumKey: String) async throws -> PlexPlaylist? {
+        print("🎵 Fetching album radio for: \(albumKey)")
+
+        let path = "/library/metadata/\(albumKey)"
+        let query = ["includeStations": "1"]
+
+        do {
+            let data = try await serverRequest(path: path, query: query)
+            let container = try JSONDecoder().decode(
+                PlexMediaContainer<PlexPlaylist>.self,
+                from: data
+            )
+
+            let station = container.mediaContainer.items.first
+            if let station = station {
+                print("✅ Found album radio station: \(station.title)")
+            } else {
+                print("ℹ️ No album radio station found for \(albumKey)")
+            }
+            return station
+        } catch {
+            print("ℹ️ Album radio not available for \(albumKey): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Connection Management
     
     /// Attempt to find a working connection if current one fails
