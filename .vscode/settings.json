@@ -7,6 +7,7 @@
 		"git commit": true,
 		"swift": true,
 		"FlipOpacity": true,
-		"gemini": true
+		"gemini": true,
+		"git checkout": true
 	}
 }
