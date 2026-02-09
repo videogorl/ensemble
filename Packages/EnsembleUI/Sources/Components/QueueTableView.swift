@@ -246,6 +246,7 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.isScrollEnabled = false
         tableView.dragInteractionEnabled = true
         tableView.setEditing(true, animated: false) // Enable persistent drag handles
+        context.coordinator.tableView = tableView
         return tableView
     }
     
@@ -322,6 +323,7 @@ public struct QueueTableView: UIViewRepresentable {
         
         var isHistoryExpanded: Bool = false
         var sections: [QueueSection] = []
+        weak var tableView: UITableView?
         
         struct QueueSection {
             let type: SectionType
@@ -488,8 +490,7 @@ public struct QueueTableView: UIViewRepresentable {
         @objc private func toggleHistorySection() {
             isHistoryExpanded.toggle()
             rebuildSections()
-            // This will trigger a reload via some mechanism - in practice the table needs a reference
-            // For now we'll rely on the update cycle
+            tableView?.reloadSections(IndexSet(integer: 0), with: .automatic)
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
