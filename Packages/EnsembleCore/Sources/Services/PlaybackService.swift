@@ -318,6 +318,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
+                    // In repeat.one mode, prevent auto-advancing when track ends
+                    // Restart current track instead
+                    if repeatMode == .one && index > currentQueueIndex {
+                        // Revert to current track and restart it
+                        Task { @MainActor in
+                            self.seek(to: 0)
+                            if self.playbackState != .playing {
+                                self.resume()
+                            }
+                        }
+                        return
+                    }
+                    
                     // Record current track to history before advancing
                     if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
@@ -740,20 +753,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func next() {
         guard !queue.isEmpty else { return }
 
-        if repeatMode == .one {
-            seek(to: 0)
-            if playbackState != .playing {
-                resume()
-            }
-            return
-        }
-
         // Record current track to history before advancing
         if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
             recordToHistory(queue[currentQueueIndex])
         }
 
         // Always use direct queue navigation to keep currentQueueIndex in sync
+        // User's explicit "next" should skip to the next track regardless of repeat mode
         let nextIndex = currentQueueIndex + 1
         if nextIndex >= queue.count {
             // Queue ended
