@@ -79,6 +79,10 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var isShuffleEnabled: Bool { get }
     var repeatMode: RepeatMode { get }
     var waveformHeights: [Double] { get }
+    var isAutoplayEnabled: Bool { get }
+    var autoplayTracks: [Track] { get }
+    var isAutoplayActive: Bool { get }
+    var radioMode: RadioMode { get }
 
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
@@ -87,6 +91,10 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
     var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
     var waveformPublisher: AnyPublisher<[Double], Never> { get }
+    var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { get }
+    var autoplayTracksPublisher: AnyPublisher<[Track], Never> { get }
+    var autoplayActivePublisher: AnyPublisher<Bool, Never> { get }
+    var radioModePublisher: AnyPublisher<RadioMode, Never> { get }
 
     func play(track: Track) async
     func play(tracks: [Track], startingAt index: Int) async
@@ -105,6 +113,10 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func clearQueue()
     func toggleShuffle()
     func cycleRepeatMode()
+    func toggleAutoplay()
+    func refreshAutoplayQueue() async
+    func playArtistRadio(for artist: Artist) async
+    func playAlbumRadio(for album: Album) async
 }
 
 // MARK: - Playback Service Implementation
@@ -120,6 +132,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
     @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
     @Published public private(set) var waveformHeights: [Double] = []
+    @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
+    @Published public private(set) var autoplayTracks: [Track] = []
+    @Published public private(set) var isAutoplayActive: Bool = false
+    @Published public private(set) var radioMode: RadioMode = .off
 
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
@@ -128,6 +144,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
     public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
+    public var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { $isAutoplayEnabled.eraseToAnyPublisher() }
+    public var autoplayTracksPublisher: AnyPublisher<[Track], Never> { $autoplayTracks.eraseToAnyPublisher() }
+    public var autoplayActivePublisher: AnyPublisher<Bool, Never> { $isAutoplayActive.eraseToAnyPublisher() }
+    public var radioModePublisher: AnyPublisher<RadioMode, Never> { $radioMode.eraseToAnyPublisher() }
 
     public var duration: TimeInterval {
         currentTrack?.duration ?? 0
@@ -563,18 +583,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Manually advance
             let nextIndex = currentQueueIndex + 1
             if nextIndex >= queue.count {
+                // Queue ended
                 if repeatMode == .all {
+                    // Repeat all takes precedence
                     currentQueueIndex = 0
-                    Task { 
+                    Task {
                         await playCurrentQueueItem()
                         savePlaybackState()
                     }
+                } else if isAutoplayEnabled && !autoplayTracks.isEmpty {
+                    // Switch to autoplay mode
+                    print("🎵 Queue ended, starting autoplay...")
+                    isAutoplayActive = true
+                    let nextTrack = autoplayTracks.removeFirst()
+                    addToQueue(nextTrack)
+                    // Advance to the newly added track
+                    currentQueueIndex = queue.count - 1
+                    Task {
+                        await playCurrentQueueItem()
+                        savePlaybackState()
+                        // Fetch more autoplay tracks in background
+                        await refreshAutoplayQueue()
+                    }
                 } else {
+                    // No autoplay, stop playback
                     stop()
                 }
             } else {
                 currentQueueIndex = nextIndex
-                Task { 
+                Task {
                     await playCurrentQueueItem()
                     savePlaybackState()
                 }
@@ -706,6 +743,118 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let nextRawValue = (repeatMode.rawValue + 1) % RepeatMode.allCases.count
         repeatMode = RepeatMode(rawValue: nextRawValue) ?? .off
         UserDefaults.standard.set(repeatMode.rawValue, forKey: "repeatMode")
+    }
+
+    // MARK: - Autoplay & Radio
+
+    public func toggleAutoplay() {
+        isAutoplayEnabled.toggle()
+        UserDefaults.standard.set(isAutoplayEnabled, forKey: "isAutoplayEnabled")
+
+        if isAutoplayEnabled {
+            // Immediately fetch autoplay tracks when enabled
+            Task {
+                await refreshAutoplayQueue()
+            }
+        } else {
+            // Clear autoplay state when disabled
+            isAutoplayActive = false
+            autoplayTracks = []
+            radioMode = .off
+        }
+    }
+
+    public func refreshAutoplayQueue() async {
+        guard isAutoplayEnabled, let currentTrack = currentTrack else { return }
+
+        // Get radio provider for current track's source
+        guard let sourceKey = currentTrack.sourceCompositeKey,
+              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+            print("ℹ️ No radio provider available for current track")
+            return
+        }
+
+        // Use appropriate radio mode
+        let recommendations: [Track]?
+        switch radioMode {
+        case .trackRadio, .off:
+            // Default to track radio (sonically similar tracks)
+            recommendations = await provider.getRecommendedTracks(basedOn: currentTrack, limit: 50)
+            if recommendations != nil {
+                radioMode = .trackRadio
+            }
+        case .artistRadio:
+            // Already in artist radio mode, fetch more from same artist
+            if let artistKey = currentTrack.artistRatingKey,
+               let artist = Artist(id: artistKey, name: currentTrack.artistName ?? "Unknown") {
+                recommendations = await provider.getArtistRadio(for: artist)
+            } else {
+                recommendations = nil
+            }
+        case .albumRadio:
+            // Already in album radio mode
+            if let albumKey = currentTrack.albumRatingKey,
+               let album = Album(id: albumKey, title: currentTrack.albumName ?? "Unknown", artistName: currentTrack.artistName) {
+                recommendations = await provider.getAlbumRadio(for: album)
+            } else {
+                recommendations = nil
+            }
+        case .libraryRadio:
+            recommendations = await provider.getLibraryRadio(limit: 50)
+        case .timeTravelRadio:
+            recommendations = await provider.getTimeTravelRadio(limit: 50)
+        }
+
+        if let tracks = recommendations {
+            autoplayTracks = tracks
+            print("✅ Loaded \(tracks.count) tracks for autoplay (\(radioMode.displayName))")
+        } else {
+            print("⚠️ No autoplay tracks available")
+        }
+    }
+
+    public func playArtistRadio(for artist: Artist) async {
+        guard let sourceKey = artist.sourceCompositeKey,
+              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+            print("❌ No radio provider available for artist")
+            return
+        }
+
+        guard let tracks = await provider.getArtistRadio(for: artist) else {
+            print("❌ Artist radio not available for \(artist.name)")
+            return
+        }
+
+        // Enable autoplay and set mode
+        isAutoplayEnabled = true
+        radioMode = .artistRadio
+        UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
+
+        // Play the radio tracks
+        await play(tracks: tracks, startingAt: 0)
+        print("✅ Started artist radio for \(artist.name)")
+    }
+
+    public func playAlbumRadio(for album: Album) async {
+        guard let sourceKey = album.sourceCompositeKey,
+              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+            print("❌ No radio provider available for album")
+            return
+        }
+
+        guard let tracks = await provider.getAlbumRadio(for: album) else {
+            print("❌ Album radio not available for \(album.title)")
+            return
+        }
+
+        // Enable autoplay and set mode
+        isAutoplayEnabled = true
+        radioMode = .albumRadio
+        UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
+
+        // Play the radio tracks
+        await play(tracks: tracks, startingAt: 0)
+        print("✅ Started album radio for \(album.title)")
     }
 
     // MARK: - Private Methods
