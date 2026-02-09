@@ -151,27 +151,6 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Recently Added
-                if !viewModel.recentlyAddedAlbums.isEmpty {
-                    exploreSection(
-                        title: "Recently Added",
-                        items: viewModel.recentlyAddedAlbums
-                    ) { album in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                AlbumCard(album: album)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
                 
                 // Recommended
                 if !recommendedDisplayItems.isEmpty {
@@ -209,7 +188,7 @@ public struct SearchView: View {
                             .padding(.horizontal)
                         
                         LazyVGrid(columns: gridColumns, spacing: 16) {
-                            ForEach(Array(viewModel.allMoods.prefix(12))) { mood in
+                            ForEach(viewModel.allMoods) { mood in
                                 if #available(iOS 16.0, macOS 13.0, *) {
                                     NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
                                         GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
