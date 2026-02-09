@@ -512,7 +512,7 @@ public final class SearchViewModel: ObservableObject {
                         }
                     }
                     
-                    if totalTrackCount >= 5 {
+                    if totalTrackCount >= 10 {
                         nonEmptyMoods.append(mood)
                     }
                 }
