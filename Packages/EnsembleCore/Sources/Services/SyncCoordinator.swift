@@ -605,4 +605,50 @@ public final class SyncCoordinator: ObservableObject {
             }
         }
     }
+
+    // MARK: - Radio Provider Factory
+
+    /// Create a radio provider for a specific music source
+    /// Returns nil if the source doesn't support radio or isn't configured
+    /// - Parameter sourceKey: The music source composite key
+    public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
+        // Parse source key to extract identifiers
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4,
+              components[0] == "source",
+              let sourceType = MusicSourceType(rawValue: String(components[1])) else {
+            print("❌ Invalid source key format: \(sourceKey)")
+            return nil
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        let libraryId = String(components[3])
+
+        // Currently only Plex is supported
+        guard sourceType == .plex else {
+            print("ℹ️ Radio not available for source type: \(sourceType)")
+            return nil
+        }
+
+        // Get API client for this source
+        guard let apiClient = accountManager.makeAPIClient(
+            accountId: accountId,
+            serverId: serverId
+        ) else {
+            print("❌ Could not create API client for source: \(sourceKey)")
+            return nil
+        }
+
+        // Create Plex radio provider
+        let radioProvider = PlexRadioProvider(
+            sourceKey: sourceKey,
+            apiClient: apiClient,
+            libraryRepository: libraryRepository,
+            sectionKey: libraryId
+        )
+
+        print("✅ Created PlexRadioProvider for source: \(sourceKey)")
+        return radioProvider
+    }
 }
