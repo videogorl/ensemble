@@ -245,6 +245,9 @@ public struct ArtistDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 140)
+        }
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
