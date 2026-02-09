@@ -47,7 +47,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
-    @State private var isFilterBarExpanded = false
     @Environment(\.dependencies) private var deps
 
     public init(
@@ -74,42 +73,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            ZStack(alignment: .bottom) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Header
-                        headerView
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    headerView
 
-                        // Action buttons
-                        actionButtons
+                    // Action buttons
+                    actionButtons
 
-                        // Tracks
-                        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                            ProgressView()
-                                .padding(.top, 40)
-                        } else if viewModel.filteredTracks.isEmpty {
-                            Text("No tracks")
-                                .foregroundColor(.secondary)
-                                .padding(.top, 40)
-                        } else {
-                            tracksSection
-                        }
+                    // Tracks
+                    if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                        ProgressView()
+                            .padding(.top, 40)
+                    } else if viewModel.filteredTracks.isEmpty {
+                        Text("No tracks")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        tracksSection
                     }
-                    .padding(.bottom, isFilterBarExpanded ? 200 : 80)
                 }
-
-                // Inline filter bar
-                InlineFilterBar(
-                    filterOptions: $viewModel.filterOptions,
-                    isExpanded: $isFilterBarExpanded
-                )
-                .padding(.bottom, 56) // Above mini player
             }
         }
         .navigationTitle(navigationTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {

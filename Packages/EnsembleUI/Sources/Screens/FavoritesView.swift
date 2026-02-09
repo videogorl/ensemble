@@ -13,7 +13,6 @@ public struct FavoritesView: View {
     @StateObject private var viewModel: FavoritesViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
-    @State private var isFilterBarExpanded = false
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -91,98 +90,88 @@ public struct FavoritesView: View {
     }
     
     private var trackListView: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Header with heart icon
-                    VStack(spacing: 16) {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 80))
-                            .foregroundColor(.red)
-                            .padding(.top, 20)
+        ScrollView {
+            VStack(spacing: 0) {
+                // Header with heart icon
+                VStack(spacing: 16) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.red)
+                        .padding(.top, 20)
 
-                        VStack(spacing: 4) {
-                            Text("Favorites")
-                                .font(.title2)
-                                .fontWeight(.bold)
+                    VStack(spacing: 4) {
+                        Text("Favorites")
+                            .font(.title2)
+                            .fontWeight(.bold)
 
-                            Text("\(viewModel.filteredTracks.count) tracks • \(viewModel.totalDuration)")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                        Text("\(viewModel.filteredTracks.count) tracks • \(viewModel.totalDuration)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
 
-                            Text("All libraries")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        Text("All libraries")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 20)
+
+                // Action buttons
+                HStack(spacing: 16) {
+                    Button {
+                        nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                    } label: {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text("Play")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+
+                    Button {
+                        nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                    } label: {
+                        HStack {
+                            Image(systemName: "shuffle")
+                            Text("Shuffle")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.gray.opacity(0.2))
+                        .foregroundColor(.primary)
+                        .cornerRadius(10)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom)
+
+                // Track list
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                        ) {
+                            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                        }
+                        .id(track.id)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+
+                        if index < viewModel.filteredTracks.count - 1 {
+                            Divider()
+                                .padding(.leading, 68)
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 20)
-
-                    // Action buttons
-                    HStack(spacing: 16) {
-                        Button {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
-                        } label: {
-                            HStack {
-                                Image(systemName: "play.fill")
-                                Text("Play")
-                            }
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-
-                        Button {
-                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
-                        } label: {
-                            HStack {
-                                Image(systemName: "shuffle")
-                                Text("Shuffle")
-                            }
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.gray.opacity(0.2))
-                            .foregroundColor(.primary)
-                            .cornerRadius(10)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom)
-
-                    // Track list
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                            TrackRow(
-                                track: track,
-                                showArtwork: true,
-                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                            ) {
-                                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                            }
-                            .id(track.id)
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-
-                            if index < viewModel.filteredTracks.count - 1 {
-                                Divider()
-                                    .padding(.leading, 68)
-                            }
-                        }
-                    }
-                    .padding(.bottom, isFilterBarExpanded ? 200 : 80)
                 }
             }
-
-            // Inline filter bar
-            InlineFilterBar(
-                filterOptions: $viewModel.filterOptions,
-                isExpanded: $isFilterBarExpanded
-            )
-            .padding(.bottom, 56) // Above mini player
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
