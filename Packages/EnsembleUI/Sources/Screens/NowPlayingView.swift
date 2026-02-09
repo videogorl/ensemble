@@ -406,13 +406,6 @@ public struct NowPlayingView: View {
                     .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .white.opacity(0.7))
             }
 
-            // Autoplay
-            Button(action: viewModel.toggleAutoplay) {
-                Image(systemName: viewModel.isAutoplayEnabled ? "infinity.circle.fill" : "infinity.circle")
-                    .font(.title3)
-                    .foregroundColor(viewModel.isAutoplayEnabled ? .accentColor : .white.opacity(0.7))
-            }
-
             // Heart/Rating button (three-state)
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
@@ -469,8 +462,14 @@ public struct NowPlayingView: View {
             // Queue table view
             if !viewModel.queue.isEmpty || !viewModel.playbackHistory.isEmpty {
                 #if canImport(UIKit)
+                let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
+                let totalItems = queueItemsToShow.count + viewModel.playbackHistory.count
+                let estimatedRowHeight: CGFloat = 68
+                let estimatedHeaderHeight: CGFloat = 50
+                let estimatedTableHeight = CGFloat(totalItems) * estimatedRowHeight + estimatedHeaderHeight
+                
                 QueueTableView(
-                    queueItems: Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1)),
+                    queueItems: queueItemsToShow,
                     history: viewModel.playbackHistory,
                     currentQueueIndex: viewModel.currentQueueIndex,
                     onItemTap: { item, absoluteIndex in
@@ -492,6 +491,7 @@ public struct NowPlayingView: View {
                         viewModel.moveQueueItem(from: viewModel.currentQueueIndex + 1 + sourceIndex, to: viewModel.currentQueueIndex + 1 + destIndex)
                     }
                 )
+                .frame(height: min(estimatedTableHeight, geometry.size.height * 0.6))
                 #else
                 Text("Queue view not available on macOS")
                     .foregroundColor(.secondary)
