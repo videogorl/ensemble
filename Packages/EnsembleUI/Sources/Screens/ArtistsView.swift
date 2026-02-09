@@ -231,6 +231,12 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
 
+                    // Favorited Tracks (4+ stars)
+                    if !viewModel.favoritedTracks.isEmpty {
+                        favoritedTracksSection
+                            .padding(.top, 32)
+                    }
+
                     // Artist Bio
                     if let summary = viewModel.artist.summary, !summary.isEmpty {
                         bioSection(summary: summary)
@@ -444,6 +450,80 @@ public struct ArtistDetailView: View {
                 .padding(.horizontal)
 
             AlbumGrid(albums: viewModel.filteredAlbums, nowPlayingVM: nowPlayingVM)
+        }
+    }
+
+    // MARK: - Favorited Tracks Section
+
+    private var favoritedTracksSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Favorited Tracks")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Spacer()
+
+                Image(systemName: "heart.fill")
+                    .foregroundColor(.red)
+            }
+            .padding(.horizontal)
+
+            // Play / Shuffle buttons
+            HStack(spacing: 12) {
+                Button {
+                    nowPlayingVM.play(tracks: viewModel.favoritedTracks)
+                } label: {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text("Play")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+
+                Button {
+                    nowPlayingVM.shufflePlay(tracks: viewModel.favoritedTracks)
+                } label: {
+                    HStack {
+                        Image(systemName: "shuffle")
+                        Text("Shuffle")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(.primary)
+                    .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+
+            // Track list
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
+                    TrackRow(
+                        track: track,
+                        showArtwork: true,
+                        isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                    ) {
+                        nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                    if index < viewModel.favoritedTracks.count - 1 {
+                        Divider()
+                            .padding(.leading, 68)
+                    }
+                }
+            }
         }
     }
 }
