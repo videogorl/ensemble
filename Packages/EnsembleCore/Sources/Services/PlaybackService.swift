@@ -83,6 +83,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var autoplayTracks: [Track] { get }
     var isAutoplayActive: Bool { get }
     var radioMode: RadioMode { get }
+    var recommendationsExhausted: Bool { get }
 
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
@@ -95,6 +96,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var autoplayTracksPublisher: AnyPublisher<[Track], Never> { get }
     var autoplayActivePublisher: AnyPublisher<Bool, Never> { get }
     var radioModePublisher: AnyPublisher<RadioMode, Never> { get }
+    var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { get }
 
     func play(track: Track) async
     func play(tracks: [Track], startingAt index: Int) async
@@ -139,6 +141,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive: Bool = false
     @Published public private(set) var radioMode: RadioMode = .off
+    @Published public private(set) var recommendationsExhausted: Bool = false
 
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
@@ -151,6 +154,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var autoplayTracksPublisher: AnyPublisher<[Track], Never> { $autoplayTracks.eraseToAnyPublisher() }
     public var autoplayActivePublisher: AnyPublisher<Bool, Never> { $isAutoplayActive.eraseToAnyPublisher() }
     public var radioModePublisher: AnyPublisher<RadioMode, Never> { $radioMode.eraseToAnyPublisher() }
+    public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
 
     public var duration: TimeInterval {
         currentTrack?.duration ?? 0
@@ -936,6 +940,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             if uniqueNewTracks.isEmpty {
                 print("⚠️ All recommended tracks already in queue or previously added")
+                // Mark recommendations as exhausted if we can't find any new tracks
+                recommendationsExhausted = true
             } else {
                 // Show filtered tracks
                 for track in uniqueNewTracks.prefix(3) {
@@ -955,6 +961,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 
                 // Trim if we exceeded the limit (shouldn't happen, but just in case)
                 trimAutoplayQueue()
+                
+                // Reset exhausted flag since we found new tracks
+                recommendationsExhausted = false
             }
             
             // Also keep autoplayTracks as a buffer for continuous playback
@@ -967,6 +976,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             print("   2. The server has no sonic analysis for this track")
             print("   3. Network error or permission issue")
             autoplayTracks = []
+            // Mark recommendations as exhausted if API returns nothing
+            recommendationsExhausted = true
         }
         print("🔄 ═══════════════════════════════════════════════════════════\n")
     }

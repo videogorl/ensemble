@@ -479,6 +479,20 @@ public struct NowPlayingView: View {
                         viewModel.playFromQueue(at: viewModel.currentQueueIndex + 1 + index)
                     }
                     
+                    // Show "End of recommendations" message when autoplay can't find more tracks
+                    if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
+                        VStack(spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "music.note.list")
+                                    .font(.system(size: 14))
+                                Text("End of recommendations")
+                                    .font(.subheadline)
+                            }
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 16)
+                        }
+                    }
+                    
                     if upNext.count > 50 {
                         Text("Showing first 50 items")
                             .font(.caption)

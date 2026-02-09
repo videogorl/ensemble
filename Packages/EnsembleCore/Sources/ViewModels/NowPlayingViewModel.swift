@@ -50,6 +50,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive = false
     @Published public private(set) var radioMode: RadioMode = .off
+    @Published public private(set) var recommendationsExhausted = false
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -121,6 +122,10 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.radioModePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$radioMode)
+
+        playbackService.recommendationsExhaustedPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$recommendationsExhausted)
 
         // Update duration when track changes
         $currentTrack
