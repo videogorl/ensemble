@@ -594,13 +594,35 @@ public struct QueueTableView: UIViewRepresentable {
             }
             
             // Destination absolute index: position in the full queue
-            let destinationItem = item(at: destinationIndexPath)
+            let sections = self.sections
+            let sectionIndex = destinationIndexPath.section
+            let rowIndex = destinationIndexPath.row
+            
             let destinationAbsoluteIndex: Int
-            if let index = queueItems.firstIndex(where: { $0.id == destinationItem.id }) {
-                destinationAbsoluteIndex = index
+            
+            if sectionIndex < sections.count {
+                let sectionItems = sections[sectionIndex].items
+                if rowIndex < sectionItems.count {
+                    // Dropping onto/before an existing item
+                    let destinationItem = sectionItems[rowIndex]
+                    if let index = queueItems.firstIndex(where: { $0.id == destinationItem.id }) {
+                        destinationAbsoluteIndex = index
+                    } else {
+                        destinationAbsoluteIndex = queueItems.count
+                    }
+                } else {
+                    // Dropping at the end of the section
+                    // Find largest index of any item in this section?
+                    // Actually, if we drop after the last item of this section, we want to be *after* it in the flat list.
+                    if let lastItem = sectionItems.last,
+                       let lastIndex = queueItems.firstIndex(where: { $0.id == lastItem.id }) {
+                        destinationAbsoluteIndex = lastIndex + 1
+                    } else {
+                        // Section is empty or items not found - default to end
+                        destinationAbsoluteIndex = queueItems.count
+                    }
+                }
             } else {
-                // If destination item not found in upcoming queue, it might be after the index
-                // In that case, insert at the end of this section
                 destinationAbsoluteIndex = queueItems.count
             }
             

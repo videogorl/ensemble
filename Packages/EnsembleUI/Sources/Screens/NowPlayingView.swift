@@ -490,9 +490,15 @@ public struct NowPlayingView: View {
                         viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
                     onMoveItem: { itemId, sourceIndex, destinationIndex in
-                        // sourceIndex and destinationIndex are already absolute queue positions
-                        // No need to add capturedCurrentIndex offset
-                        viewModel.moveQueueItem(byId: itemId, from: sourceIndex, to: destinationIndex)
+                        // destinationIndex from QueueTableView is relative to the *visible* queue (upcoming items)
+                        // PlaybackService expects absolute indices into the *master* queue
+                        // So we must add capturedCurrentIndex + 1
+                        let offset = capturedCurrentIndex + 1
+                        viewModel.moveQueueItem(
+                            byId: itemId,
+                            from: sourceIndex + offset,
+                            to: destinationIndex + offset
+                        )
                     }
                 )
                 .frame(height: min(estimatedTableHeight, geometry.size.height * 0.8))
