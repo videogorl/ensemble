@@ -495,6 +495,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem()
         savePlaybackState()
+        
+        // Check queue population after starting new playback
+        await checkAndRefreshAutoplayQueue()
     }
     
     public func shufflePlay(tracks: [Track]) async {
@@ -517,6 +520,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         await playCurrentQueueItem()
         savePlaybackState()
+        
+        // Check queue population after starting new playback
+        await checkAndRefreshAutoplayQueue()
     }
 
     public func pause() {
@@ -531,6 +537,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await syncCoordinator.reportTimeline(track: track, state: "paused", time: currentTime)
             }
         }
+        
+        // Check queue population on pause
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func resume() {
@@ -538,6 +549,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.play()
         playbackState = .playing
         updateNowPlayingInfo()
+        
+        // Check queue population on resume
+        Task {
+            await checkAndRefreshAutoplayQueue()
+        }
 
         // Report playing state to Plex
         if let track = currentTrack {
@@ -610,14 +626,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 Task {
                     await playCurrentQueueItem()
                     savePlaybackState()
-                    // Proactively refresh autoplay queue if enabled and queue is running low
-                    if isAutoplayEnabled {
-                        let remainingTracksInQueue = queue.count - currentQueueIndex
-                        if remainingTracksInQueue < 5 {
-                            print("🎙️ Running low on queued tracks (\(remainingTracksInQueue) remaining), refreshing...")
-                            await refreshAutoplayQueue()
-                        }
-                    }
+                    // Check queue after advancing
+                    await checkAndRefreshAutoplayQueue()
                 }
             }
         }
@@ -639,6 +649,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { 
             await playCurrentQueueItem()
             savePlaybackState()
+            // Check queue after going back
+            await checkAndRefreshAutoplayQueue()
         }
     }
 
@@ -765,6 +777,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isAutoplayActive = false
             autoplayTracks = []
             radioMode = .off
+        }
+    }
+
+    // MARK: - Autoplay Queue Management
+    
+    /// Checks if queue is running low and refreshes if needed
+    private func checkAndRefreshAutoplayQueue() async {
+        guard isAutoplayEnabled else { return }
+        
+        let remainingTracksInQueue = queue.count - currentQueueIndex - 1
+        if remainingTracksInQueue < 5 {
+            print("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
+            await refreshAutoplayQueue()
         }
     }
 
