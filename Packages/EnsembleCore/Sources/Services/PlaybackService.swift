@@ -615,6 +615,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 Task {
                     await playCurrentQueueItem()
                     savePlaybackState()
+                    // Proactively refresh autoplay queue if radio is enabled and queue is running low
+                    if isAutoplayEnabled && radioMode == .trackRadio && autoplayTracks.count < 10 {
+                        print("🎙️ Autoplay queue low (\(autoplayTracks.count)), refreshing...")
+                        await refreshAutoplayQueue()
+                    }
                 }
             }
         }
