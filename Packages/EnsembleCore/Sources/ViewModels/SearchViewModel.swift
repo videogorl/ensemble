@@ -231,7 +231,7 @@ public final class SearchViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: recentSearchesKey)
     }
     
-    /// Intelligently orders search sections based on match count (most results first)
+    /// Orders search sections with artists always first, then remaining by match count
     private func determineSearchSectionOrder() {
         var sectionCounts: [(section: SearchSection, count: Int)] = [
             (.artists, artistResults.count),
@@ -239,16 +239,20 @@ public final class SearchViewModel: ObservableObject {
             (.playlists, playlistResults.count),
             (.songs, trackResults.count)
         ]
-        
-        // Sort by count descending, then by default order
+
+        // Artists always first, then sort remaining by count descending, with default order as tiebreaker
         sectionCounts.sort { lhs, rhs in
+            // Artists always come first
+            if lhs.section == .artists { return true }
+            if rhs.section == .artists { return false }
+
             if lhs.count == rhs.count {
-                // Default order: Artists, Albums, Playlists, Songs
+                // Default order for non-artist sections: Albums, Playlists, Songs
                 return SearchSection.allCases.firstIndex(of: lhs.section)! < SearchSection.allCases.firstIndex(of: rhs.section)!
             }
             return lhs.count > rhs.count
         }
-        
+
         // Only include sections with results
         orderedSections = sectionCounts.filter { $0.count > 0 }.map { $0.section }
     }
