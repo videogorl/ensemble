@@ -169,6 +169,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
+    
+    // Queue limiting: prevent unbounded growth of upcoming tracks
+    private let maxQueueLookahead = 50  // Max number of future tracks to keep queued
 
     // MARK: - Initialization
 
@@ -592,14 +595,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         await playCurrentQueueItem()
                         savePlaybackState()
                     }
-                } else if isAutoplayEnabled && radioMode == .trackRadio {
-                    // Radio mode: refresh to get more recommendations
-                    print("🎙️ Queue ended while in radio mode, refreshing for more tracks...")
+                } else if isAutoplayEnabled {
+                    // Autoplay enabled: refresh to get more recommendations
+                    print("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
                     Task {
                         await refreshAutoplayQueue()
                     }
                 } else {
-                    // No radio/autoplay, stop playback
+                    // No autoplay, stop playback
                     stop()
                 }
             } else {
@@ -607,8 +610,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 Task {
                     await playCurrentQueueItem()
                     savePlaybackState()
-                    // Proactively refresh autoplay queue if radio is enabled and queue is running low
-                    if isAutoplayEnabled && radioMode == .trackRadio {
+                    // Proactively refresh autoplay queue if enabled and queue is running low
+                    if isAutoplayEnabled {
                         let remainingTracksInQueue = queue.count - currentQueueIndex
                         if remainingTracksInQueue < 5 {
                             print("🎙️ Running low on queued tracks (\(remainingTracksInQueue) remaining), refreshing...")
@@ -770,8 +773,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("🔄 PlaybackService.refreshAutoplayQueue() called")
         print("📊 State:")
         print("  - isAutoplayEnabled: \(isAutoplayEnabled)")
-        print("  - radioMode: \(radioMode)")
         print("  - Queue size: \(queue.count)")
+        print("  - Current index: \(currentQueueIndex)")
         print("  - Current autoplayTracks: \(autoplayTracks.count)")
         
         guard isAutoplayEnabled else {
@@ -779,6 +782,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             print("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
+        
+        // Check if we already have enough upcoming tracks queued
+        let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
+        if futureTracksCount >= maxQueueLookahead {
+            print("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
+            print("   Skipping refresh to maintain queue limit")
+            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            return
+        }
+        print("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
 
         // Determine the seed track for sonically similar recommendations
         // Prefer the last track in the queue (respects user additions)
@@ -855,12 +868,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Also keep autoplayTracks as a buffer for continuous playback
             autoplayTracks = tracks
-            
-            // Ensure we're in trackRadio mode for continuous playback
-            if radioMode == .off {
-                radioMode = .trackRadio
-                print("  - Set radioMode to trackRadio")
-            }
             print("\n✅ SUCCESS - \(tracks.count) recommended tracks added to queue")
         } else {
             print("\n❌ provider.getRecommendedTracks() returned nil")
