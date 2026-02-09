@@ -320,11 +320,19 @@ public actor PlexAPIClient {
 
     /// Get playlist tracks
     public func getPlaylistTracks(playlistKey: String) async throws -> [PlexTrack] {
+        print("🎵 PlexAPIClient.getPlaylistTracks() called")
+        print("  - Playlist key: \(playlistKey)")
+        
+        print("🔄 Fetching playlist items from /playlists/\(playlistKey)/items...")
         let data = try await serverRequest(path: "/playlists/\(playlistKey)/items")
+        print("✅ Got response data (\(data.count) bytes)")
+        
+        print("🔄 Decoding playlist tracks...")
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
+        print("✅ Got \(container.mediaContainer.items.count) playlist tracks")
         return container.mediaContainer.items
     }
     
@@ -650,31 +658,39 @@ public actor PlexAPIClient {
     /// Returns nil if artist radio not available or Plex Pass not active
     /// - Parameter artistKey: The artist's rating key
     public func getArtistRadioStation(artistKey: String) async throws -> PlexPlaylist? {
-        print("🎵 Fetching artist radio for: \(artistKey)")
+        print("🎵 PlexAPIClient.getArtistRadioStation() called")
+        print("  - Artist key: \(artistKey)")
+        print("🔄 Fetching artist radio station from Plex...")
 
         let path = "/library/metadata/\(artistKey)"
         let query = ["includeStations": "1"]
+        print("  - Path: \(path)")
+        print("  - Query: \(query)")
 
         do {
+            print("🔄 Making serverRequest...")
             let data = try await serverRequest(path: path, query: query)
+            print("✅ Got response data (\(data.count) bytes)")
 
             // The response includes a Stations container within the metadata
             // We need to parse it to extract the playlist
+            print("🔄 Decoding response...")
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
+            print("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
 
             // Filter for station-type playlists
             let station = container.mediaContainer.items.first
             if let station = station {
-                print("✅ Found artist radio station: \(station.title)")
+                print("✅ Found artist radio station: \(station.title) (key: \(station.ratingKey))")
             } else {
                 print("ℹ️ No artist radio station found for \(artistKey)")
             }
             return station
         } catch {
-            print("ℹ️ Artist radio not available for \(artistKey): \(error.localizedDescription)")
+            print("❌ Artist radio not available for \(artistKey): \(error.localizedDescription)")
             return nil
         }
     }
@@ -683,27 +699,36 @@ public actor PlexAPIClient {
     /// Returns nil if album radio not available or Plex Pass not active
     /// - Parameter albumKey: The album's rating key
     public func getAlbumRadioStation(albumKey: String) async throws -> PlexPlaylist? {
-        print("🎵 Fetching album radio for: \(albumKey)")
+        print("🎵 PlexAPIClient.getAlbumRadioStation() called")
+        print("  - Album key: \(albumKey)")
+        print("🔄 Fetching album radio station from Plex...")
 
         let path = "/library/metadata/\(albumKey)"
         let query = ["includeStations": "1"]
+        print("  - Path: \(path)")
+        print("  - Query: \(query)")
 
         do {
+            print("🔄 Making serverRequest...")
             let data = try await serverRequest(path: path, query: query)
+            print("✅ Got response data (\(data.count) bytes)")
+
+            print("🔄 Decoding response...")
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
+            print("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
 
             let station = container.mediaContainer.items.first
             if let station = station {
-                print("✅ Found album radio station: \(station.title)")
+                print("✅ Found album radio station: \(station.title) (key: \(station.ratingKey))")
             } else {
                 print("ℹ️ No album radio station found for \(albumKey)")
             }
             return station
         } catch {
-            print("ℹ️ Album radio not available for \(albumKey): \(error.localizedDescription)")
+            print("❌ Album radio not available for \(albumKey): \(error.localizedDescription)")
             return nil
         }
     }

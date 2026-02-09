@@ -154,22 +154,39 @@ public final class AccountManager: ObservableObject {
 
     /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
+        print("🔄 AccountManager.makeAPIClient() called")
+        print("  - Account ID: \(accountId)")
+        print("  - Server ID: \(serverId)")
+        
         let cacheKey = "\(accountId):\(serverId)"
 
         // Return cached client if available
         if let cachedClient = apiClientCache[cacheKey] {
+            print("✅ Returning cached API client")
             return cachedClient
         }
-
+        
+        print("🔄 Creating new API client...")
+        print("  - Looking for account with ID: \(accountId)")
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
+            print("❌ Could not find account or server")
+            print("  - Accounts available: \(plexAccounts.count)")
+            if let account = plexAccounts.first(where: { $0.id == accountId }) {
+                print("  - Account found, but server not found. Servers available: \(account.servers.count)")
+            }
             return nil
         }
+
+        print("✅ Found account and server")
+        print("  - Server name: \(server.name)")
+        print("  - Server URL: \(server.url)")
 
         // Get all connection URLs from server config, excluding the primary URL
         let alternativeURLs = server.orderedConnections
             .map { $0.uri }
             .filter { $0 != server.url }
+        print("  - Alternative URLs available: \(alternativeURLs.count)")
 
         let connection = PlexServerConnection(
             url: server.url,
@@ -181,6 +198,7 @@ public final class AccountManager: ObservableObject {
 
         let client = PlexAPIClient(connection: connection, keychain: keychain)
         apiClientCache[cacheKey] = client
+        print("✅ API client created and cached")
         return client
     }
 

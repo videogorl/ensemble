@@ -765,119 +765,163 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func refreshAutoplayQueue() async {
-        guard isAutoplayEnabled, let currentTrack = currentTrack else { return }
+        print("🔄 PlaybackService.refreshAutoplayQueue() called")
+        print("  - isAutoplayEnabled: \(isAutoplayEnabled)")
+        print("  - currentTrack: \(currentTrack?.title ?? "nil")")
+        print("  - radioMode: \(radioMode.displayName)")
+        
+        guard isAutoplayEnabled, let currentTrack = currentTrack else {
+            print("⚠️ refreshAutoplayQueue: autoplay not enabled or no current track")
+            return
+        }
 
         // Get radio provider for current track's source
         guard let sourceKey = currentTrack.sourceCompositeKey else {
             print("ℹ️ Current track has no source key")
             return
         }
+        print("  - Current track source key: \(sourceKey)")
 
+        print("🔄 Creating radio provider for refreshAutoplayQueue...")
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
             print("ℹ️ No radio provider available for current track")
             return
         }
+        print("✅ Radio provider created")
 
         // Use appropriate radio mode
+        print("🔄 Fetching recommendations based on radioMode: \(radioMode.displayName)")
         let recommendations: [Track]?
         switch radioMode {
         case .trackRadio, .off:
             // Default to track radio (sonically similar tracks)
+            print("  - Fetching similar tracks...")
             recommendations = await provider.getRecommendedTracks(basedOn: currentTrack, limit: 50)
             if recommendations != nil {
                 radioMode = .trackRadio
             }
         case .artistRadio:
             // Already in artist radio mode, fetch more from same artist
+            print("  - Fetching more artist radio tracks...")
             if let artistKey = currentTrack.artistRatingKey,
                let artist = Artist(id: artistKey, name: currentTrack.artistName ?? "Unknown") {
                 recommendations = await provider.getArtistRadio(for: artist)
             } else {
+                print("  - Could not create artist from current track")
                 recommendations = nil
             }
         case .albumRadio:
             // Already in album radio mode
+            print("  - Fetching more album radio tracks...")
             if let albumKey = currentTrack.albumRatingKey,
                let album = Album(id: albumKey, title: currentTrack.albumName ?? "Unknown", artistName: currentTrack.artistName) {
                 recommendations = await provider.getAlbumRadio(for: album)
             } else {
+                print("  - Could not create album from current track")
                 recommendations = nil
             }
         case .libraryRadio:
+            print("  - Fetching library radio tracks...")
             recommendations = await provider.getLibraryRadio(limit: 50)
         case .timeTravelRadio:
+            print("  - Fetching time travel radio tracks...")
             recommendations = await provider.getTimeTravelRadio(limit: 50)
         }
 
         if let tracks = recommendations {
+            print("✅ Got \(tracks.count) autoplay tracks")
             autoplayTracks = tracks
             print("✅ Loaded \(tracks.count) tracks for autoplay (\(radioMode.displayName))")
         } else {
-            print("⚠️ No autoplay tracks available")
+            print("⚠️ No autoplay tracks available for radioMode: \(radioMode.displayName)")
         }
     }
 
     public func playArtistRadio(for artist: Artist) async {
+        print("🎙️ PlaybackService.playArtistRadio() called")
+        print("  - Artist: \(artist.name)")
+        print("  - Artist ID: \(artist.id)")
+        
         guard let sourceKey = artist.sourceCompositeKey else {
             print("❌ Artist has no source key")
             return
         }
+        print("  - Source key: \(sourceKey)")
 
+        print("🔄 Creating radio provider...")
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
             print("❌ No radio provider available for artist")
             return
         }
+        print("✅ Radio provider created successfully")
 
+        print("🔄 Fetching artist radio tracks...")
         guard let tracks = await provider.getArtistRadio(for: artist) else {
             print("❌ Artist radio not available for \(artist.name)")
             return
         }
+        print("✅ Got \(tracks.count) tracks from artist radio")
 
         // Enable autoplay and set mode
+        print("🔄 Setting radioMode = .artistRadio, isAutoplayEnabled = true")
         isAutoplayEnabled = true
         radioMode = .artistRadio
         UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
 
         // Play the radio tracks
+        print("🔄 Playing \(tracks.count) radio tracks...")
         await play(tracks: tracks, startingAt: 0)
         
         // Populate autoplay queue with additional tracks for continuous playback
+        print("🔄 Refreshing autoplay queue for continuous playback...")
         await refreshAutoplayQueue()
         
         print("✅ Started artist radio for \(artist.name)")
     }
 
     public func playAlbumRadio(for album: Album) async {
+        print("🎙️ PlaybackService.playAlbumRadio() called")
+        print("  - Album: \(album.title)")
+        print("  - Album ID: \(album.id)")
+        
         guard let sourceKey = album.sourceCompositeKey else {
             print("❌ Album has no source key")
             return
         }
+        print("  - Source key: \(sourceKey)")
 
+        print("🔄 Creating radio provider...")
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
             print("❌ No radio provider available for album")
             return
         }
+        print("✅ Radio provider created successfully")
 
+        print("🔄 Fetching album radio tracks...")
         guard let tracks = await provider.getAlbumRadio(for: album) else {
             print("❌ Album radio not available for \(album.title)")
             return
         }
+        print("✅ Got \(tracks.count) tracks from album radio")
 
         // Enable autoplay and set mode
+        print("🔄 Setting radioMode = .albumRadio, isAutoplayEnabled = true")
         isAutoplayEnabled = true
         radioMode = .albumRadio
         UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
 
         // Play the radio tracks
+        print("🔄 Playing \(tracks.count) radio tracks...")
         await play(tracks: tracks, startingAt: 0)
         
         // Populate autoplay queue with additional tracks for continuous playback
+        print("🔄 Refreshing autoplay queue for continuous playback...")
         await refreshAutoplayQueue()
         
         print("✅ Started album radio for \(album.title)")

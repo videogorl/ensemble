@@ -276,12 +276,18 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func playArtistRadio(for artist: Artist) {
+        print("🎙️ NowPlayingViewModel.playArtistRadio() called for artist: \(artist.name)")
+        print("  - Artist ID: \(artist.id)")
+        print("  - Artist sourceKey: \(artist.sourceCompositeKey ?? "nil")")
         Task {
             await playbackService.playArtistRadio(for: artist)
         }
     }
 
     public func playAlbumRadio(for album: Album) {
+        print("🎙️ NowPlayingViewModel.playAlbumRadio() called for album: \(album.title)")
+        print("  - Album ID: \(album.id)")
+        print("  - Album sourceKey: \(album.sourceCompositeKey ?? "nil")")
         Task {
             await playbackService.playAlbumRadio(for: album)
         }

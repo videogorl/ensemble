@@ -50,17 +50,27 @@ public final class PlexRadioProvider: RadioProviderProtocol {
     }
 
     public func getArtistRadio(for artist: Artist) async -> [Track]? {
+        print("🎙️ PlexRadioProvider.getArtistRadio() called")
+        print("  - Artist: \(artist.name)")
+        print("  - Artist ID: \(artist.id)")
+        
         do {
             // Get artist radio station playlist from Plex
+            print("🔄 Calling apiClient.getArtistRadioStation...")
             guard let station = try await apiClient.getArtistRadioStation(artistKey: artist.id) else {
                 print("ℹ️ PlexRadioProvider: No artist radio available for \(artist.name)")
                 return nil
             }
+            print("✅ Got artist radio station: \(station.title)")
+            print("  - Station playlist key: \(station.ratingKey)")
 
             // Fetch tracks from the playlist
+            print("🔄 Fetching tracks from playlist...")
             let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
+            print("✅ Fetched \(plexTracks.count) plex tracks")
+            
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
-            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for artist radio")
+            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for artist radio")
             return tracks
         } catch {
             print("❌ PlexRadioProvider.getArtistRadio error: \(error)")
@@ -69,17 +79,27 @@ public final class PlexRadioProvider: RadioProviderProtocol {
     }
 
     public func getAlbumRadio(for album: Album) async -> [Track]? {
+        print("🎙️ PlexRadioProvider.getAlbumRadio() called")
+        print("  - Album: \(album.title)")
+        print("  - Album ID: \(album.id)")
+        
         do {
             // Get album radio station playlist from Plex
+            print("🔄 Calling apiClient.getAlbumRadioStation...")
             guard let station = try await apiClient.getAlbumRadioStation(albumKey: album.id) else {
                 print("ℹ️ PlexRadioProvider: No album radio available for \(album.title)")
                 return nil
             }
+            print("✅ Got album radio station: \(station.title)")
+            print("  - Station playlist key: \(station.ratingKey)")
 
             // Fetch tracks from the playlist
+            print("🔄 Fetching tracks from playlist...")
             let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
+            print("✅ Fetched \(plexTracks.count) plex tracks")
+            
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
-            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for album radio")
+            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for album radio")
             return tracks
         } catch {
             print("❌ PlexRadioProvider.getAlbumRadio error: \(error)")
