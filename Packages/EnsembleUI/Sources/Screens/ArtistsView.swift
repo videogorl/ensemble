@@ -478,8 +478,7 @@ public struct ArtistDetailView: View {
                         Image(systemName: "play.fill")
                         Text("Play")
                     }
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(Color.accentColor)
@@ -494,8 +493,7 @@ public struct ArtistDetailView: View {
                         Image(systemName: "shuffle")
                         Text("Shuffle")
                     }
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(Color.gray.opacity(0.2))
