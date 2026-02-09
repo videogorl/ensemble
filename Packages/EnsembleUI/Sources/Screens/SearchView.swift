@@ -73,37 +73,10 @@ public struct SearchView: View {
                         }
                         .padding(.horizontal)
                         
-                        // Nested List for swipeActions support
-                        List {
-                            ForEach(Array(viewModel.recentSearches.prefix(3)), id: \.self) { search in
-                                Button {
-                                    viewModel.searchQuery = search
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "magnifyingglass")
-                                            .foregroundColor(.secondary)
-                                        Text(search)
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        Image(systemName: "arrow.up.left")
-                                            .foregroundColor(.secondary)
-                                            .font(.caption)
-                                    }
-                                }
-                                .listRowBackground(Color.secondary.opacity(0.1))
-                                .swipeActions(edge: .trailing) {
-                                    Button(role: .destructive) {
-                                        viewModel.removeRecentSearch(search)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                        .listStyle(.plain)
-                        .frame(height: CGFloat(min(viewModel.recentSearches.prefix(3).count, 3) * 44 + 10)) // Approximate height
-                        .cornerRadius(10)
-                        .padding(.horizontal)
+                        // List for swipeActions support, with scrolling disabled
+                        recentSearchesList
+                            .cornerRadius(10)
+                            .padding(.horizontal)
                     }
                 }
 
@@ -225,6 +198,48 @@ public struct SearchView: View {
         }
     }
     
+    /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
+    private var recentSearchesList: some View {
+        let items = Array(viewModel.recentSearches.prefix(3))
+        let rowHeight: CGFloat = 48
+        let listHeight = CGFloat(items.count) * rowHeight + 16
+
+        let list = List {
+            ForEach(items, id: \.self) { search in
+                Button {
+                    viewModel.searchQuery = search
+                } label: {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        Text(search)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "arrow.up.left")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                }
+                .listRowBackground(Color.secondary.opacity(0.1))
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        viewModel.removeRecentSearch(search)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .frame(height: listHeight)
+
+        if #available(iOS 16.0, *) {
+            return AnyView(list.scrollDisabled(true))
+        } else {
+            return AnyView(list)
+        }
+    }
+
     private func exploreListSection<T: Identifiable, Content: View>(
         title: String,
         items: [T],
