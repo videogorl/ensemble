@@ -168,47 +168,12 @@ public struct SongsView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
-                    if libraryVM.trackSortOption == .title {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(libraryVM.trackSections) { section in
-                                Section(header: sectionHeader(section.letter)) {
-                                    VStack(spacing: 0) {
-                                        ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                                            TrackRow(
-                                                track: track,
-                                                showArtwork: true,
-                                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                                            ) {
-                                                // Find global index for the track
-                                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
-                                                }
-                                            }
-                                            .id(track.id)
-                                            .padding(.horizontal)
-                                            .padding(.vertical, 8)
-                                            
-                                            if index < section.tracks.count - 1 {
-                                                Divider()
-                                                    .padding(.leading, 68)
-                                            }
-                                        }
-                                    }
-                                }
-                                .id(section.letter)
-                            }
+                    Group {
+                        if libraryVM.trackSortOption == .title {
+                            indexedTrackListContent
+                        } else {
+                            unsortedTrackListContent
                         }
-                        .padding(.vertical)
-                    } else {
-                        TrackListView(
-                            tracks: libraryVM.filteredTracks,
-                            showArtwork: true,
-                            showTrackNumbers: false,
-                            currentTrackId: nowPlayingVM.currentTrack?.id
-                        ) { track, index in
-                            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-                        }
-                        .padding(.vertical)
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
@@ -228,6 +193,63 @@ public struct SongsView: View {
                 }
             }
         }
+    }
+    
+    private var indexedTrackListContent: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(libraryVM.trackSections) { section in
+                indexedSection(section: section)
+            }
+        }
+        .padding(.vertical)
+    }
+    
+    private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
+        Section(header: sectionHeader(section.letter)) {
+            VStack(spacing: 0) {
+                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                    TrackRow(
+                        track: track,
+                        showArtwork: true,
+                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        onPlayNext: { nowPlayingVM.playNext(track) },
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onTap: {
+                            if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                            }
+                        }
+                    )
+                    .id(track.id)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    
+                    if index < section.tracks.count - 1 {
+                        Divider()
+                            .padding(.leading, 68)
+                    }
+                }
+            }
+        }
+        .id(section.letter)
+    }
+    
+    private var unsortedTrackListContent: some View {
+        TrackListView(
+            tracks: libraryVM.filteredTracks,
+            showArtwork: true,
+            showTrackNumbers: false,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            }
+        ) { track, index in
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+        }
+        .padding(.vertical)
     }
 
     private func sectionHeader(_ letter: String) -> some View {

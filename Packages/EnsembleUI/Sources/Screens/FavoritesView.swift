@@ -157,7 +157,9 @@ public struct FavoritesView: View {
                         TrackRow(
                             track: track,
                             showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) }
                         ) {
                             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                         }

@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 /// A 3D carousel view that displays items in a CoverFlow-style layout
 /// with perspective rotation and scaling based on distance from center.
 /// Tapping an item zooms it in and flips it to reveal details.
