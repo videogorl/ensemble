@@ -216,6 +216,8 @@ public struct MediaTrackList: UIViewRepresentable {
     let groupByDisc: Bool
     let currentTrackId: String?
     let onTrackTap: (Track, Int) -> Void
+    let onPlayNext: ((Track) -> Void)?
+    let onPlayLast: ((Track) -> Void)?
     
     @Environment(\.dependencies) private var dependencies
     
@@ -225,6 +227,8 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
+        onPlayNext: ((Track) -> Void)? = nil,
+        onPlayLast: ((Track) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.tracks = tracks
@@ -232,6 +236,8 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showTrackNumbers = showTrackNumbers
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
+        self.onPlayNext = onPlayNext
+        self.onPlayLast = onPlayLast
         self.onTrackTap = onTrackTap
     }
     
@@ -268,6 +274,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.onTrackTap = onTrackTap
+        context.coordinator.onPlayNext = onPlayNext
+        context.coordinator.onPlayLast = onPlayLast
         context.coordinator.artworkLoader = dependencies.artworkLoader
         
         // Only reload if data actually changed
@@ -300,6 +308,8 @@ public struct MediaTrackList: UIViewRepresentable {
             showTrackNumbers: showTrackNumbers,
             currentTrackId: currentTrackId,
             onTrackTap: onTrackTap,
+            onPlayNext: onPlayNext,
+            onPlayLast: onPlayLast,
             artworkLoader: dependencies.artworkLoader
         )
     }
@@ -323,6 +333,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var showTrackNumbers: Bool
         var currentTrackId: String?
         var onTrackTap: (Track, Int) -> Void
+        var onPlayNext: ((Track) -> Void)?
+        var onPlayLast: ((Track) -> Void)?
         var artworkLoader: ArtworkLoaderProtocol
         
         init(
@@ -332,6 +344,8 @@ public struct MediaTrackList: UIViewRepresentable {
             showTrackNumbers: Bool,
             currentTrackId: String?,
             onTrackTap: @escaping (Track, Int) -> Void,
+            onPlayNext: ((Track) -> Void)?,
+            onPlayLast: ((Track) -> Void)?,
             artworkLoader: ArtworkLoaderProtocol
         ) {
             self.tracks = tracks
@@ -340,6 +354,8 @@ public struct MediaTrackList: UIViewRepresentable {
             self.showTrackNumbers = showTrackNumbers
             self.currentTrackId = currentTrackId
             self.onTrackTap = onTrackTap
+            self.onPlayNext = onPlayNext
+            self.onPlayLast = onPlayLast
             self.artworkLoader = artworkLoader
         }
         
@@ -406,6 +422,32 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
             68
+        }
+        
+        public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            let globalIndex = tracks.firstIndex(where: { $0.id == track.id }) ?? 0
+            
+            // Only show context menu if at least one callback is provided
+            guard onPlayNext != nil || onPlayLast != nil else { return nil }
+            
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                var actions: [UIAction] = []
+                
+                if let onPlayNext = self?.onPlayNext {
+                    actions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                        onPlayNext(track)
+                    })
+                }
+                
+                if let onPlayLast = self?.onPlayLast {
+                    actions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                        onPlayLast(track)
+                    })
+                }
+                
+                return UIMenu(children: actions)
+            }
         }
     }
 }
