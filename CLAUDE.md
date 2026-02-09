@@ -52,7 +52,7 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does.
 
-As you make big architectural changes, please be sure to update this document and the README.md file to describe the app structure in a way that helps both you and me.
+As you make big architectural changes, please be sure to update this document, any relevant skills, and the README.md file to describe the app structure in a way that helps both you and me.
 
 Do not use emojis (except in debugging).
 
