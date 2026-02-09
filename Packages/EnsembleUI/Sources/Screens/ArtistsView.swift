@@ -195,6 +195,7 @@ public struct ArtistDetailView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
 
@@ -251,6 +252,11 @@ public struct ArtistDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                artistPinMenuButton
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
@@ -258,6 +264,33 @@ public struct ArtistDetailView: View {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
             await loadArtworkImage()
+        }
+    }
+
+    /// Toolbar menu with Pin/Unpin action for the artist
+    private var artistPinMenuButton: some View {
+        let isPinned = pinManager.isPinned(id: viewModel.artist.id)
+        return Menu {
+            Button {
+                if isPinned {
+                    pinManager.unpin(id: viewModel.artist.id)
+                } else {
+                    pinManager.pin(
+                        id: viewModel.artist.id,
+                        sourceKey: viewModel.artist.sourceCompositeKey ?? "",
+                        type: .artist,
+                        title: viewModel.artist.name
+                    )
+                }
+            } label: {
+                if isPinned {
+                    Label("Unpin", systemImage: "pin.slash")
+                } else {
+                    Label("Pin to Pins", systemImage: "pin.fill")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
     }
     
