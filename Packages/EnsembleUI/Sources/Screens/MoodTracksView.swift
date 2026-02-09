@@ -61,12 +61,10 @@ public struct MoodTracksView: View {
                                 if !nowPlayingVM.isAutoplayEnabled {
                                     nowPlayingVM.toggleAutoplay()
                                 }
-                                nowPlayingVM.clearQueue()
-                                nowPlayingVM.addToQueue(moodTracks)
                                 if nowPlayingVM.isShuffleEnabled {
                                     nowPlayingVM.toggleShuffle()
                                 }
-                                nowPlayingVM.playFromQueue(at: 0)
+                                nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
                             }) {
                                 HStack {
                                     Image(systemName: "play.fill")
@@ -83,12 +81,10 @@ public struct MoodTracksView: View {
                                 if !nowPlayingVM.isAutoplayEnabled {
                                     nowPlayingVM.toggleAutoplay()
                                 }
-                                nowPlayingVM.clearQueue()
-                                nowPlayingVM.addToQueue(moodTracks)
                                 if !nowPlayingVM.isShuffleEnabled {
                                     nowPlayingVM.toggleShuffle()
                                 }
-                                nowPlayingVM.playFromQueue(at: 0)
+                                nowPlayingVM.play(tracks: moodTracks, startingAt: 0)
                             }) {
                                 HStack {
                                     Image(systemName: "shuffle")
@@ -113,9 +109,7 @@ public struct MoodTracksView: View {
                                         if !nowPlayingVM.isAutoplayEnabled {
                                             nowPlayingVM.toggleAutoplay()
                                         }
-                                        nowPlayingVM.clearQueue()
-                                        nowPlayingVM.addToQueue(moodTracks)
-                                        nowPlayingVM.playFromQueue(at: index)
+                                        nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                                     }
                                 )
                                 
