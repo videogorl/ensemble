@@ -66,7 +66,7 @@ public struct MoodTracksView: View {
                                 if nowPlayingVM.isShuffleEnabled {
                                     nowPlayingVM.toggleShuffle()
                                 }
-                                nowPlayingVM.playPause()
+                                nowPlayingVM.resume()
                             }) {
                                 HStack {
                                     Image(systemName: "play.fill")
@@ -88,7 +88,7 @@ public struct MoodTracksView: View {
                                 if !nowPlayingVM.isShuffleEnabled {
                                     nowPlayingVM.toggleShuffle()
                                 }
-                                nowPlayingVM.playPause()
+                                nowPlayingVM.resume()
                             }) {
                                 HStack {
                                     Image(systemName: "shuffle")
@@ -115,9 +115,7 @@ public struct MoodTracksView: View {
                                         }
                                         nowPlayingVM.clearQueue()
                                         nowPlayingVM.addToQueue(moodTracks)
-                                        Task {
-                                            await nowPlayingVM.playQueueIndex(index)
-                                        }
+                                        nowPlayingVM.playFromQueue(at: index)
                                     }
                                 )
                                 
