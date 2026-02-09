@@ -235,6 +235,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private let maxHistorySize = 100  // Cap for 2GB RAM devices
+    private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
 
     public var historyPublisher: AnyPublisher<[QueueItem], Never> { $playbackHistory.eraseToAnyPublisher() }
 
@@ -335,10 +336,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
-                    // Record current track to history before advancing
-                    if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
+                    // Record current track to history before advancing (but not when going backward)
+                    if !isNavigatingBackward && currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
                     }
+                    
+                    // Reset backward navigation flag
+                    isNavigatingBackward = false
 
                     // Batch state updates to prevent multiple Combine publications
                     let newTrack = queue[index].track
@@ -821,6 +825,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        // Set flag to prevent recording to history when navigating backward
+        isNavigatingBackward = true
+        
+        // Remove the last item from history since we're navigating back to it
+        // This prevents duplicates when going forward again
+        if !playbackHistory.isEmpty {
+            playbackHistory.removeLast()
+        }
+        
         currentQueueIndex -= 1
         Task {
             await playCurrentQueueItem()
