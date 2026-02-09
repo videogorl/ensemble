@@ -213,7 +213,7 @@ ensemble/
 
 **Build the full app (iOS simulator):**
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
 **Build a single package:**
