@@ -246,6 +246,7 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.isScrollEnabled = false
         tableView.dragInteractionEnabled = true
         tableView.setEditing(true, animated: false) // Enable persistent drag handles
+        tableView.allowsSelectionDuringEditing = true // Allow tapping to select rows while dragging is enabled
         context.coordinator.tableView = tableView
         return tableView
     }
