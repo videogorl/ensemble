@@ -5,24 +5,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workflow (MUST follow for every task)
 
-**Before writing any code**, set up a git worktree:
-
-1. **Create a branch** from `develop` with a descriptive name:
-   - Features: `feat/{branch-name}`
-   - Bug fixes: `fix/{branch-name}`
-   - Refactors: `refactor/{branch-name}`
-   - Docs: `docs/{branch-name}`
-2. **Create the worktree** in `../ensemble-worktrees/{branch-name}/`
-3. **Do all work inside the worktree**, not in the main repo directory
-4. **When finished**, create a PR that merges back into `develop`
-
-Example:
-```bash
-git worktree add -b feat/queue-reorder ../ensemble-worktrees/feat/queue-reorder develop
-cd ../ensemble-worktrees/feat/queue-reorder
-# ... do work here ...
-```
-
 **Commit discipline:**
 - Git commit after each logical "step" when implementing a plan
 - Always commit before waiting for the user to test (so changes can be rolled back if context is lost or something breaks)
