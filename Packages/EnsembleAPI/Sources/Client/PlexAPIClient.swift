@@ -659,7 +659,13 @@ public actor PlexAPIClient {
             if tracks.isEmpty {
                 print("⚠️ WARNING: API returned empty track list (no sonic analysis available)")
             } else {
-                print("✅ First track from API: \(tracks.first?.title ?? "unknown")")
+                // Log first few results as confirmation
+                for track in tracks.prefix(3) {
+                    print("  ✅ Recommended: \(track.title) by \(track.grandparentTitle ?? "Unknown")")
+                }
+                if tracks.count > 3 {
+                    print("  ... and \(tracks.count - 3) more tracks")
+                }
             }
             
             return tracks

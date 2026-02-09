@@ -55,7 +55,13 @@ public final class PlexRadioProvider: RadioProviderProtocol {
             if tracks.isEmpty {
                 print("⚠️ WARNING: Conversion resulted in empty array")
             } else {
-                print("✅ First track: \(tracks.first?.title ?? "unknown")")
+                // Log first few recommendations as confirmation
+                for track in tracks.prefix(5) {
+                    print("  ✅ Radio: \(track.title) by \(track.artistName ?? "Unknown")")
+                }
+                if tracks.count > 5 {
+                    print("  ... and \(tracks.count - 5) more tracks")
+                }
             }
             
             return tracks

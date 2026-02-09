@@ -842,7 +842,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if tracks.isEmpty {
                 print("⚠️ WARNING: API returned empty array")
             } else {
-                print("  - First track: \(tracks.first?.title ?? "unknown")")
+                // Show first few recommended tracks
+                for track in tracks.prefix(3) {
+                    print("  ✅ Queued for autoplay: \(track.title) by \(track.artistName ?? "Unknown")")
+                }
+                if tracks.count > 3 {
+                    print("  ... and \(tracks.count - 3) more tracks")
+                }
             }
             autoplayTracks = tracks
             // Ensure we're in trackRadio mode for continuous playback
@@ -850,7 +856,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 radioMode = .trackRadio
                 print("  - Set radioMode to trackRadio")
             }
-            print("✅ autoplayTracks buffer now has \(autoplayTracks.count) tracks")
+            print("\n✅ SUCCESS - autoplayTracks buffer populated with \(autoplayTracks.count) tracks")
         } else {
             print("\n❌ provider.getRecommendedTracks() returned nil")
             print("   This could mean:")
