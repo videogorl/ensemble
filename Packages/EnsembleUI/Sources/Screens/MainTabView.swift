@@ -341,6 +341,7 @@ public struct SidebarView: View {
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var searchVM: SearchViewModel
+    @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
 
@@ -352,6 +353,7 @@ public struct SidebarView: View {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
     public var body: some View {
@@ -380,6 +382,16 @@ public struct SidebarView: View {
 
                         Label("Favorites", systemImage: "heart.fill")
                             .tag(SidebarSection.favorites)
+                    }
+
+                    // Pinned items section (hidden when empty)
+                    if !pinnedVM.resolvedPins.isEmpty {
+                        Section(header: Text("Pins").textCase(nil)) {
+                            ForEach(pinnedVM.resolvedPins) { pin in
+                                Label(pin.pinnedItem.title, systemImage: iconForPinType(pin.pinnedItem.type))
+                                    .tag(SidebarSection.pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type))
+                            }
+                        }
                     }
 
                     Section(header: Text("Other").textCase(nil)) {
@@ -419,6 +431,16 @@ public struct SidebarView: View {
         }
         .task {
             await libraryVM.refresh()
+            await pinnedVM.loadPinnedItems()
+        }
+    }
+
+    /// SF Symbol for each pinned item type
+    private func iconForPinType(_ type: PinnedItemType) -> String {
+        switch type {
+        case .album: return "square.stack"
+        case .artist: return "music.mic"
+        case .playlist: return "music.note.list"
         }
     }
     
@@ -481,6 +503,18 @@ public struct SidebarView: View {
                 NavigationStack {
                     TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
                 }
+            case .pin(let id, let type):
+                // Navigate directly to the pinned item's detail view
+                NavigationStack {
+                    switch type {
+                    case .album:
+                        AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
+                    case .artist:
+                        ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
+                    case .playlist:
+                        PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+                    }
+                }
             case .none:
                 Text("Select a section")
                     .foregroundColor(.secondary)
@@ -525,4 +559,5 @@ public enum SidebarSection: Hashable {
     case search
     case downloads
     case settings
+    case pin(id: String, type: PinnedItemType)
 }
