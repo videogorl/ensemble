@@ -177,12 +177,9 @@ public struct SongsView: View {
                                             TrackRow(
                                                 track: track,
                                                 showArtwork: true,
-                                                isPlaying: track.id == nowPlayingVM.currentTrack?.id
-                                            ) {
-                                                // Find global index for the track
-                                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
-                                                }
+                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                onPlayNext: { nowPlayingVM.playNext(track) },
+                                onPlayLast: { nowPlayingVM.playLast(track) }
                                             }
                                             .id(track.id)
                                             .padding(.horizontal)
@@ -204,7 +201,13 @@ public struct SongsView: View {
                             tracks: libraryVM.filteredTracks,
                             showArtwork: true,
                             showTrackNumbers: false,
-                            currentTrackId: nowPlayingVM.currentTrack?.id
+                            currentTrackId: nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { track in
+                                nowPlayingVM.playNext(track)
+                            },
+                            onPlayLast: { track in
+                                nowPlayingVM.playLast(track)
+                            }
                         ) { track, index in
                             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
                         }

@@ -346,7 +346,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
-            currentTrackId: nowPlayingVM.currentTrack?.id
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            }
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
@@ -358,7 +364,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 TrackRow(
                     track: track,
                     showArtwork: showArtwork,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    onPlayNext: { nowPlayingVM.playNext(track) },
+                    onPlayLast: { nowPlayingVM.playLast(track) }
                 ) {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
