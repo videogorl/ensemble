@@ -253,9 +253,8 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func playFromQueue(at index: Int) {
         guard index >= 0, index < queue.count else { return }
-        let tracks = queue.map { $0.track }
         Task {
-            await playbackService.play(tracks: tracks, startingAt: index)
+            await playbackService.playQueueIndex(index)
         }
     }
 

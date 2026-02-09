@@ -99,6 +99,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func play(track: Track) async
     func play(tracks: [Track], startingAt index: Int) async
     func shufflePlay(tracks: [Track]) async
+    func playQueueIndex(_ index: Int) async
     func pause()
     func resume()
     func stop()
@@ -531,6 +532,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         savePlaybackState()
         
         // Check queue population after starting new playback
+        await checkAndRefreshAutoplayQueue()
+    }
+    
+    public func playQueueIndex(_ index: Int) async {
+        guard index >= 0, index < queue.count else { return }
+        
+        currentQueueIndex = index
+        
+        // Don't reset auto-generated tracking - preserve it when jumping within queue
+        await playCurrentQueueItem()
+        savePlaybackState()
+        
+        // Check queue after jumping
         await checkAndRefreshAutoplayQueue()
     }
 
