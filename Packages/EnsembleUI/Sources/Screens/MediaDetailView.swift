@@ -287,10 +287,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @ViewBuilder
     private var radioButton: some View {
-        // Check if this is an Artist detail view
-        if let artistVM = viewModel as? ArtistDetailViewModel {
+        // Radio button for Artist or Album views - queues all tracks, shuffles, enables radio
+        if let _ = viewModel as? ArtistDetailViewModel {
             Button {
-                nowPlayingVM.playArtistRadio(for: artistVM.artist)
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.title3)
@@ -300,13 +300,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .cornerRadius(10)
             }
             #if os(macOS)
-            .help("Artist Radio")
+            .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
         // Check if this is an Album detail view
-        else if let albumVM = viewModel as? AlbumDetailViewModel {
+        else if let _ = viewModel as? AlbumDetailViewModel {
             Button {
-                nowPlayingVM.playAlbumRadio(for: albumVM.album)
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.title3)
@@ -316,7 +316,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .cornerRadius(10)
             }
             #if os(macOS)
-            .help("Album Radio")
+            .help("Album Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
     }

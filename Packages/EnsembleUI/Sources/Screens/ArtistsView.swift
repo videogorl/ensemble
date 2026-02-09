@@ -381,9 +381,9 @@ public struct ArtistDetailView: View {
                 .cornerRadius(10)
             }
             
-            // Radio button
+            // Radio button - queue all shuffled, enable sonically similar
             Button {
-                nowPlayingVM.playArtistRadio(for: viewModel.artist)
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.title3)
@@ -393,7 +393,7 @@ public struct ArtistDetailView: View {
                     .cornerRadius(10)
             }
             #if os(macOS)
-            .help("Artist Radio")
+            .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
         .disabled(viewModel.filteredTracks.isEmpty)

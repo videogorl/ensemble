@@ -276,20 +276,27 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func playArtistRadio(for artist: Artist) {
-        print("🎙️ NowPlayingViewModel.playArtistRadio() called for artist: \(artist.name)")
-        print("  - Artist ID: \(artist.id)")
-        print("  - Artist sourceKey: \(artist.sourceCompositeKey ?? "nil")")
+        print("🎙️ NowPlayingViewModel.playArtistRadio() called for: \(artist.name)")
         Task {
-            await playbackService.playArtistRadio(for: artist)
+            // This will be handled by the view passing filteredTracks from the detail view
+            // For now this is a placeholder for backwards compatibility
+            print("⚠️ Use enableRadio(tracks:) instead")
         }
     }
 
     public func playAlbumRadio(for album: Album) {
-        print("🎙️ NowPlayingViewModel.playAlbumRadio() called for album: \(album.title)")
-        print("  - Album ID: \(album.id)")
-        print("  - Album sourceKey: \(album.sourceCompositeKey ?? "nil")")
+        print("🎙️ NowPlayingViewModel.playAlbumRadio() called for: \(album.title)")
         Task {
-            await playbackService.playAlbumRadio(for: album)
+            // This will be handled by the view passing filteredTracks from the detail view
+            // For now this is a placeholder for backwards compatibility
+            print("⚠️ Use enableRadio(tracks:) instead")
+        }
+    }
+
+    public func enableRadio(tracks: [Track]) {
+        print("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
+        Task {
+            await playbackService.enableRadio(tracks: tracks)
         }
     }
 
