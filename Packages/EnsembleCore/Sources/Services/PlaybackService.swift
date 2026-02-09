@@ -318,19 +318,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
-                    // In repeat.one mode, prevent auto-advancing when track ends
-                    // Restart current track instead
-                    if repeatMode == .one && index > currentQueueIndex {
-                        // Revert to current track and restart it
-                        Task { @MainActor in
-                            self.seek(to: 0)
-                            if self.playbackState != .playing {
-                                self.resume()
-                            }
-                        }
-                        return
-                    }
-                    
                     // Record current track to history before advancing
                     if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
@@ -1369,10 +1356,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     
     private func prefetchNextItem() async {
-        guard repeatMode != .one else { return }
+        // Determine which track should be queued next
+        let nextIndex: Int
+        if repeatMode == .one {
+            // For repeat.one, queue the same track to play again
+            nextIndex = currentQueueIndex
+        } else {
+            // Normal case: queue the next track
+            nextIndex = currentQueueIndex + 1
+        }
         
-        let nextIndex = currentQueueIndex + 1
-        if nextIndex < queue.count {
+        if nextIndex >= 0, nextIndex < queue.count {
             let nextTrack = queue[nextIndex].track
             do {
                 let item = try await createPlayerItem(for: nextTrack)
@@ -1381,7 +1375,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await MainActor.run {
                     if let player = self.player, !player.items().contains(item) {
                         player.insert(item, after: player.currentItem)
-                        print("✅ Queued next track for gapless: \(nextTrack.title)")
+                        if repeatMode == .one {
+                            print("✅ Queued same track for repeat.one: \(nextTrack.title)")
+                        } else {
+                            print("✅ Queued next track for gapless: \(nextTrack.title)")
+                        }
                     }
                 }
             } catch {
@@ -1396,6 +1394,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await MainActor.run {
                     if let player = self.player, !player.items().contains(item) {
                         player.insert(item, after: player.currentItem)
+                        print("✅ Queued first track for repeat all: \(nextTrack.title)")
                     }
                 }
             } catch {
