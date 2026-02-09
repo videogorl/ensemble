@@ -7,6 +7,8 @@
 		"git commit": true,
 		"swift": true,
 		"FlipOpacity": true,
-		"swiftc": true
+		"swiftc": true,
+		"gemini": true,
+		"git checkout": true
 	}
 }
