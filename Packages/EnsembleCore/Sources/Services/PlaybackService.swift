@@ -844,6 +844,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Play the radio tracks
         await play(tracks: tracks, startingAt: 0)
+        
+        // Populate autoplay queue with additional tracks for continuous playback
+        await refreshAutoplayQueue()
+        
         print("✅ Started artist radio for \(artist.name)")
     }
 
@@ -872,6 +876,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Play the radio tracks
         await play(tracks: tracks, startingAt: 0)
+        
+        // Populate autoplay queue with additional tracks for continuous playback
+        await refreshAutoplayQueue()
+        
         print("✅ Started album radio for \(album.title)")
     }
 

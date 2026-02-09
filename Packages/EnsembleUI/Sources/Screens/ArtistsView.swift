@@ -350,7 +350,7 @@ public struct ArtistDetailView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Button {
                 nowPlayingVM.play(tracks: viewModel.filteredTracks)
             } label: {
@@ -380,6 +380,21 @@ public struct ArtistDetailView: View {
                 .foregroundColor(.primary)
                 .cornerRadius(10)
             }
+            
+            // Radio button
+            Button {
+                nowPlayingVM.playArtistRadio(for: viewModel.artist)
+            } label: {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .background(Color.gray.opacity(0.2))
+                    .foregroundColor(.primary)
+                    .cornerRadius(10)
+            }
+            #if os(macOS)
+            .help("Artist Radio")
+            #endif
         }
         .disabled(viewModel.filteredTracks.isEmpty)
     }

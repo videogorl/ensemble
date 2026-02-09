@@ -613,10 +613,10 @@ public final class SyncCoordinator: ObservableObject {
     /// - Parameter sourceKey: The music source composite key
     public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
         // Parse source key to extract identifiers
+        // Format: sourceType:accountId:serverId:libraryId (e.g., "plex:account123:server456:library789")
         let components = sourceKey.split(separator: ":")
         guard components.count >= 4,
-              components[0] == "source",
-              let sourceType = MusicSourceType(rawValue: String(components[1])) else {
+              let sourceType = MusicSourceType(rawValue: String(components[0])) else {
             print("❌ Invalid source key format: \(sourceKey)")
             return nil
         }
