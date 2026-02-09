@@ -46,6 +46,10 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var repeatMode: RepeatMode = .off
     @Published public private(set) var waveformHeights: [Double] = []
     @Published public var currentRating: TrackRating = .none
+    @Published public private(set) var isAutoplayEnabled = false
+    @Published public private(set) var autoplayTracks: [Track] = []
+    @Published public private(set) var isAutoplayActive = false
+    @Published public private(set) var radioMode: RadioMode = .off
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -101,6 +105,22 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$waveformHeights)
+
+        playbackService.autoplayEnabledPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isAutoplayEnabled)
+
+        playbackService.autoplayTracksPublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$autoplayTracks)
+
+        playbackService.autoplayActivePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isAutoplayActive)
+
+        playbackService.radioModePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$radioMode)
 
         // Update duration when track changes
         $currentTrack
@@ -247,6 +267,24 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func cycleRepeatMode() {
         playbackService.cycleRepeatMode()
+    }
+
+    // MARK: - Autoplay & Radio
+
+    public func toggleAutoplay() {
+        playbackService.toggleAutoplay()
+    }
+
+    public func playArtistRadio(for artist: Artist) {
+        Task {
+            await playbackService.playArtistRadio(for: artist)
+        }
+    }
+
+    public func playAlbumRadio(for album: Album) {
+        Task {
+            await playbackService.playAlbumRadio(for: album)
+        }
     }
 
     // MARK: - Rating Management
