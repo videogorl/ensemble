@@ -443,7 +443,12 @@ public struct QueueTableView: UIViewRepresentable {
             headerView.backgroundColor = .systemBackground
             
             let label = UILabel()
-            label.text = "\(sectionData.type.title) (\(sectionData.items.count))"
+            // For history section, show actual count even when collapsed
+            if sectionData.type == .history {
+                label.text = "\(sectionData.type.title) (\(history.count))"
+            } else {
+                label.text = sectionData.type.title
+            }
             label.font = .systemFont(ofSize: 14, weight: .bold)
             label.textColor = .secondaryLabel
             label.translatesAutoresizingMaskIntoConstraints = false

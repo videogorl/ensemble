@@ -471,7 +471,7 @@ public struct NowPlayingView: View {
                 QueueTableView(
                     queueItems: queueItemsToShow,
                     history: viewModel.playbackHistory,
-                    currentQueueIndex: viewModel.currentQueueIndex,
+                    currentQueueIndex: -1,
                     onItemTap: { item, absoluteIndex in
                         // absoluteIndex is relative to the upcoming queue, adjust for currentQueueIndex
                         viewModel.playFromQueue(at: viewModel.currentQueueIndex + 1 + absoluteIndex)
@@ -491,7 +491,7 @@ public struct NowPlayingView: View {
                         viewModel.moveQueueItem(from: viewModel.currentQueueIndex + 1 + sourceIndex, to: viewModel.currentQueueIndex + 1 + destIndex)
                     }
                 )
-                .frame(height: min(estimatedTableHeight, geometry.size.height * 0.6))
+                .frame(height: min(estimatedTableHeight, geometry.size.height * 0.8))
                 #else
                 Text("Queue view not available on macOS")
                     .foregroundColor(.secondary)
