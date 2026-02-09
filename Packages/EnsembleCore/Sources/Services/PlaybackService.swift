@@ -658,6 +658,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recordToHistory(queue[currentQueueIndex])
         }
 
+        // When jumping forward, record all skipped tracks to history
+        // This way tapping "previous" goes back to the skipped tracks, not before the jump
+        if index > currentQueueIndex {
+            for i in (currentQueueIndex + 1)..<index {
+                if i >= 0 && i < queue.count {
+                    recordToHistory(queue[i])
+                }
+            }
+        }
+
         currentQueueIndex = index
 
         // Don't reset auto-generated tracking - preserve it when jumping within queue
