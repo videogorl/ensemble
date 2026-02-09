@@ -177,10 +177,10 @@ public struct SongsView: View {
                                             TrackRow(
                                                 track: track,
                                                 showArtwork: true,
-                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                                onPlayNext: { nowPlayingVM.playNext(track) },
-                                onPlayLast: { nowPlayingVM.playLast(track) }
-                                            }
+                                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                                onPlayNext: { nowPlayingVM.playNext(track) },
+                                                onPlayLast: { nowPlayingVM.playLast(track) }
+                                            )
                                             .id(track.id)
                                             .padding(.horizontal)
                                             .padding(.vertical, 8)
