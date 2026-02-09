@@ -495,27 +495,24 @@ public final class SearchViewModel: ObservableObject {
             }
             
             if !allFetchedMoods.isEmpty {
-                // Filter out moods with no tracks across any library
+                // Filter out moods with fewer than 5 tracks across all libraries
                 var nonEmptyMoods: [Mood] = []
                 
                 for (_, mood) in allFetchedMoods {
-                    // Check if this mood has tracks in any library
-                    var hasTracksInAnyLibrary = false
+                    // Count total tracks across all libraries for this mood
+                    var totalTrackCount = 0
                     
                     for task in fetchTasks {
                         do {
                             let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
-                            if !tracks.isEmpty {
-                                hasTracksInAnyLibrary = true
-                                break  // Found tracks, no need to check other libraries
-                            }
+                            totalTrackCount += tracks.count
                         } catch {
                             // Continue to next library
                             continue
                         }
                     }
                     
-                    if hasTracksInAnyLibrary {
+                    if totalTrackCount >= 5 {
                         nonEmptyMoods.append(mood)
                     }
                 }
