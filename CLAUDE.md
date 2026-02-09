@@ -3,18 +3,33 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 
-## Coding style
+## Workflow (MUST follow for every task)
+
+**Before writing any code**, set up a git worktree:
+
+1. **Create a branch** from `develop` with a descriptive name:
+   - Features: `feat/{branch-name}`
+   - Bug fixes: `fix/{branch-name}`
+   - Refactors: `refactor/{branch-name}`
+   - Docs: `docs/{branch-name}`
+2. **Create the worktree** in `../ensemble-worktrees/{branch-name}/`
+3. **Do all work inside the worktree**, not in the main repo directory
+4. **When finished**, create a PR that merges back into `develop`
+
+Example:
+```bash
+git worktree add -b feat/queue-reorder ../ensemble-worktrees/feat/queue-reorder develop
+cd ../ensemble-worktrees/feat/queue-reorder
+# ... do work here ...
+```
+
+**Commit discipline:**
+- Git commit after each logical "step" when implementing a plan
+- Always commit before waiting for the user to test (so changes can be rolled back if context is lost or something breaks)
+
+## Coding Style
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
-
-Begin your work in a git worktree (located in `../ensemble-worktrees/`). Please generate a branch name based on what work is being done. 
-Branch from `develop`, name it in this kind of format: `feat/{branch-name}`, where `feat` is for feature, `fix` for bug fixes, and so on.
-Store the branch in a similarly named folder in the worktrees folder mentioned above.
-Fromt here, create a PR that merges back into `develop`.
-
-
-When you're implementing a plan, please git commit after each "step".
-Whenever you're done and are prepared to wait for me to test, git commit your changes so we can roll them back if your context is cut off or if something breaks.
 
 Leave doc comments and comments above classes and other elements so that both the user and the agent know what's going on: keep this up to date.
 
@@ -22,7 +37,11 @@ As you make big architectural changes, please update this document and the READM
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
 
-If a problem is mentioned, interview to help hone in on where the problem is originating from. When troubleshooting, add logs to the appropriate files so debugging can be more efficient.
+## Troubleshooting
+
+When a problem is mentioned, **interview the user first** to help hone in on where the problem is originating from — don't jump straight to code changes. Ask clarifying questions about when it happens, what they see, and what they expect.
+
+When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
 
 ## Project Overview
 
@@ -1042,6 +1061,11 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - Use `@FetchRequest` limits and offsets for large lists
 - Lazy-load images with Nuke
 - Background context for heavy CoreData operations
+
+### Troubleshooting
+- **Interview first:** When a bug or issue is reported, ask clarifying questions before changing code — understand the symptom, when it occurs, and what's expected
+- **Add logs:** Insert temporary logging in relevant code paths to narrow down the problem efficiently
+- **Clean up logs:** Remove or reduce log verbosity once the issue is resolved
 
 ### Testing
 - Unit tests for business logic (services, repositories)
