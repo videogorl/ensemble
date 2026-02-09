@@ -309,11 +309,11 @@ public struct ArtistDetailView: View {
                 .clipped()
                 .offset(y: -geometry.safeAreaInsets.top)
 
-                // Gradient overlay
+                // Gradient overlay — fades to system background for light/dark mode
                 LinearGradient(
                     gradient: Gradient(colors: [
                         .clear,
-                        .black.opacity(0.7)
+                        Color(UIColor.systemBackground).opacity(0.9)
                     ]),
                     startPoint: .top,
                     endPoint: .bottom
@@ -340,7 +340,7 @@ public struct ArtistDetailView: View {
                             }
                         }
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
