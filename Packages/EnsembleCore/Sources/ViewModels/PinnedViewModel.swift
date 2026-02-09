@@ -82,4 +82,12 @@ public final class PinnedViewModel: ObservableObject {
         resolvedPins = resolved
         isLoading = false
     }
+
+    /// Move a resolved pin from one position to another
+    public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        resolvedPins.move(fromOffsets: source, toOffset: destination)
+        // Persist the new order to PinManager
+        let ids = resolvedPins.map { $0.pinnedItem.id }
+        pinManager.reorder(ids: ids)
+    }
 }

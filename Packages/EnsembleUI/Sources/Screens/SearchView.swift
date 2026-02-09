@@ -84,10 +84,8 @@ public struct SearchView: View {
                     }
                 }
 
-                // Pinned Items
-                if !pinnedVM.resolvedPins.isEmpty {
-                    pinnedSection
-                }
+                // Pinned Items (always show header)
+                pinnedSection
 
                 // Recently Played Albums
                 if !viewModel.recentlyPlayedAlbums.isEmpty {
@@ -168,9 +166,8 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Empty state if no explore content
-                if pinnedVM.resolvedPins.isEmpty &&
-                   viewModel.recentlyPlayedAlbums.isEmpty &&
+                // Empty state if no explore content (excluding pinned since we always show it)
+                if viewModel.recentlyPlayedAlbums.isEmpty &&
                    viewModel.recentlyAddedAlbums.isEmpty &&
                    viewModel.recommendedItems.isEmpty &&
                    viewModel.allMoods.isEmpty &&
@@ -220,7 +217,7 @@ public struct SearchView: View {
         .listStyle(.plain)
         .frame(height: listHeight)
 
-        if #available(iOS 16.0, *) {
+        if #available(iOS 16.0, macOS 13.0, *) {
             return AnyView(list.scrollDisabled(true))
         } else {
             return AnyView(list)
@@ -317,6 +314,7 @@ public struct SearchView: View {
     // MARK: - Pinned Section
 
     /// Collapsible pinned items grid — shows 6 by default, all when expanded
+    /// Always shows header with empty state message when no pins exist
     private var pinnedSection: some View {
         let displayItems = isPinnedExpanded
             ? pinnedVM.resolvedPins
@@ -347,18 +345,70 @@ public struct SearchView: View {
             .buttonStyle(.plain)
             .padding(.horizontal)
 
-            LazyVGrid(columns: gridColumns, spacing: 16) {
-                ForEach(displayItems) { pin in
-                    pinnedItemCard(pin)
+            if pinnedVM.resolvedPins.isEmpty {
+                // Empty state message
+                Text("Pin your favorite playlists, artists, and albums for quick access.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            } else {
+                // Grid of pinned items with drag reordering on iOS 16+
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(displayItems) { pin in
+                        pinnedItemCard(pin)
+                            .contextMenu {
+                                // Unpin action
+                                Button(role: .destructive) {
+                                    DependencyContainer.shared.pinManager.unpin(id: pin.pinnedItem.id)
+                                } label: {
+                                    Label("Unpin", systemImage: "pin.slash")
+                                }
+                            }
+                    }
                 }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
         }
     }
 
+
     /// Renders the appropriate card and NavigationLink for a resolved pin
+    /// Supports drag reordering on iOS 16+
     @ViewBuilder
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
+        let cardContent = pinnedItemCardContent(pin)
+
+        if #available(iOS 16.0, macOS 13.0, *) {
+            cardContent
+                .draggable(pin.pinnedItem.id) {
+                    // Drag preview
+                    pinnedItemCardContent(pin)
+                        .frame(width: 100, height: 100)
+                        .opacity(0.8)
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let droppedId = items.first,
+                          let fromIndex = pinnedVM.resolvedPins.firstIndex(where: { $0.pinnedItem.id == droppedId }),
+                          let toIndex = pinnedVM.resolvedPins.firstIndex(where: { $0.id == pin.id }),
+                          fromIndex != toIndex else {
+                        return false
+                    }
+                    withAnimation {
+                        pinnedVM.move(
+                            fromOffsets: IndexSet(integer: fromIndex),
+                            toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+                        )
+                    }
+                    return true
+                }
+        } else {
+            cardContent
+        }
+    }
+
+    /// The actual card content (NavigationLink + card) without drag modifiers
+    @ViewBuilder
+    private func pinnedItemCardContent(_ pin: ResolvedPin) -> some View {
         switch pin {
         case .album(let album, _):
             if #available(iOS 16.0, macOS 13.0, *) {

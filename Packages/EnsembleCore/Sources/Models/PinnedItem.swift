@@ -60,6 +60,23 @@ public final class PinManager: ObservableObject {
         pinnedItems.contains { $0.id == id }
     }
 
+    /// Reorder pinned items (for drag-and-drop)
+    public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        pinnedItems.move(fromOffsets: source, toOffset: destination)
+        savePins()
+    }
+
+    /// Reorder pinned items by ID array (for reordering resolved pins)
+    public func reorder(ids: [String]) {
+        let idOrder = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+        pinnedItems.sort { (a, b) in
+            let aIndex = idOrder[a.id] ?? Int.max
+            let bIndex = idOrder[b.id] ?? Int.max
+            return aIndex < bIndex
+        }
+        savePins()
+    }
+
     // MARK: - Persistence
 
     private func loadPins() {

@@ -146,7 +146,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 if isPinned {
                     Label("Unpin", systemImage: "pin.slash")
                 } else {
-                    Label("Pin to Pins", systemImage: "pin.fill")
+                    Label("Pin", systemImage: "pin.fill")
                 }
             }
         } label: {
