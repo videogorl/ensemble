@@ -278,9 +278,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             // Radio button (for Artist or Album views)
-            if let radioButton = radioButton {
-                radioButton
-            }
+            radioButton
         }
         .padding(.horizontal)
         .padding(.bottom)
@@ -288,7 +286,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     @ViewBuilder
-    private var radioButton: some View? {
+    private var radioButton: some View {
         // Check if this is an Artist detail view
         if let artistVM = viewModel as? ArtistDetailViewModel {
             Button {

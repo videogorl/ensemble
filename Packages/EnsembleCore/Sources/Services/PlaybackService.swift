@@ -768,8 +768,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard isAutoplayEnabled, let currentTrack = currentTrack else { return }
 
         // Get radio provider for current track's source
-        guard let sourceKey = currentTrack.sourceCompositeKey,
-              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+        guard let sourceKey = currentTrack.sourceCompositeKey else {
+            print("ℹ️ Current track has no source key")
+            return
+        }
+
+        guard let provider = await MainActor.run(body: {
+            syncCoordinator.makeRadioProvider(for: sourceKey)
+        }) else {
             print("ℹ️ No radio provider available for current track")
             return
         }
@@ -814,8 +820,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func playArtistRadio(for artist: Artist) async {
-        guard let sourceKey = artist.sourceCompositeKey,
-              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+        guard let sourceKey = artist.sourceCompositeKey else {
+            print("❌ Artist has no source key")
+            return
+        }
+
+        guard let provider = await MainActor.run(body: {
+            syncCoordinator.makeRadioProvider(for: sourceKey)
+        }) else {
             print("❌ No radio provider available for artist")
             return
         }
@@ -836,8 +848,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func playAlbumRadio(for album: Album) async {
-        guard let sourceKey = album.sourceCompositeKey,
-              let provider = syncCoordinator.makeRadioProvider(for: sourceKey) else {
+        guard let sourceKey = album.sourceCompositeKey else {
+            print("❌ Album has no source key")
+            return
+        }
+
+        guard let provider = await MainActor.run(body: {
+            syncCoordinator.makeRadioProvider(for: sourceKey)
+        }) else {
             print("❌ No radio provider available for album")
             return
         }

@@ -113,18 +113,18 @@ public final class PlexRadioProvider: RadioProviderProtocol {
 
     public func getTimeTravelRadio(limit: Int) async -> [Track]? {
         do {
-            // Time Travel Radio: Chronological playback by release year
+            // Time Travel Radio: Chronological playback by date added
             let plexTracks = try await apiClient.getTracks(sectionKey: sectionKey)
 
-            // Sort by year ascending (oldest first)
-            let sortedByYear = plexTracks.sorted { track1, track2 in
-                let year1 = track1.parentYear ?? track1.year ?? 9999
-                let year2 = track2.parentYear ?? track2.year ?? 9999
-                return year1 < year2
+            // Sort by addedAt timestamp ascending (oldest added first)
+            let sortedByDate = plexTracks.sorted { (track1: PlexTrack, track2: PlexTrack) -> Bool in
+                let date1 = track1.addedAt ?? 0
+                let date2 = track2.addedAt ?? 0
+                return date1 < date2
             }
 
             // Take first N tracks
-            let timeTravelTracks = sortedByYear.prefix(limit)
+            let timeTravelTracks = sortedByDate.prefix(limit)
             let tracks = timeTravelTracks.map { Track(from: $0, sourceKey: sourceKey) }
 
             print("✅ PlexRadioProvider: Got \(tracks.count) tracks for time travel radio")

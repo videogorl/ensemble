@@ -8,10 +8,12 @@ public struct SettingsView: View {
     @State private var sourceToDelete: MusicSource?
 
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var playbackService = DependencyContainer.shared.playbackService
+    private let playbackService = DependencyContainer.shared.playbackService
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
+
+    @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
     public init() {}
 
@@ -79,10 +81,7 @@ public struct SettingsView: View {
 
             // Playback section
             Section(header: Text("Playback").textCase(nil)) {
-                Toggle(isOn: Binding(
-                    get: { playbackService.isAutoplayEnabled },
-                    set: { _ in playbackService.toggleAutoplay() }
-                )) {
+                Toggle(isOn: $isAutoplayEnabled) {
                     HStack {
                         Image(systemName: "infinity.circle.fill")
                             .frame(width: 44)
@@ -93,6 +92,9 @@ public struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                }
+                .onChange(of: isAutoplayEnabled) { _ in
+                    playbackService.toggleAutoplay()
                 }
 
                 NavigationLink {
