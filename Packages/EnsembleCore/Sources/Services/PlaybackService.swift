@@ -346,6 +346,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Check if we need to refresh autoplay queue
                         await self.checkAndRefreshAutoplayQueue()
                     }
+                } else if repeatMode == .one {
+                    // Handle repeat.one where the track ID and index are the same, 
+                    // but it's a new AVPlayerItem (new playback)
+                    print("↻ Repeating track due to repeat.one mode")
+                    
+                    Task { @MainActor in
+                        // Reset timeline tracking for the repeat
+                        self.lastTimelineReportTime = 0
+                        self.hasScrobbled = false
+                        
+                        // Queue it again for the next repeat
+                        await self.prefetchNextItem()
+                    }
                 }
             }
         }
