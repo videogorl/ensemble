@@ -473,44 +473,64 @@ public final class SearchViewModel: ObservableObject {
                 return tasks
             }
             
-            // Fetch moods from all sources (use first library that has moods)
+            // Fetch moods from all sources and merge results
+            var allFetchedMoods: [String: Mood] = [:]  // Key by mood key for deduplication
+            
             for task in fetchTasks {
                 do {
                     let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
-                    let moods = plexMoods.map { Mood(id: $0.id, key: $0.key, title: $0.title, sourceCompositeKey: task.sourceKey) }
                     
-                    if !moods.isEmpty {
-                        // Filter out moods with no tracks
-                        var nonEmptyMoods: [Mood] = []
-                        for mood in moods {
-                            do {
-                                let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
-                                if !tracks.isEmpty {
-                                    nonEmptyMoods.append(mood)
-                                }
-                            } catch {
-                                // Skip moods that fail to load
-                                continue
-                            }
-                        }
-                        
-                        if !nonEmptyMoods.isEmpty {
-                            // Save fresh moods to cache
-                            do {
-                                try await self.moodRepository.saveMoods(nonEmptyMoods)
-                            } catch {
-                                // Ignore cache save errors
-                            }
-                            
-                            await MainActor.run { [weak self] in
-                                self?.allMoods = nonEmptyMoods
-                            }
-                            return  // Got moods, don't need to continue
+                    for plexMood in plexMoods {
+                        // Use mood key as unique identifier (same mood across different libraries)
+                        // Store first sourceKey that has this mood
+                        if allFetchedMoods[plexMood.key] == nil {
+                            let mood = Mood(id: plexMood.id, key: plexMood.key, title: plexMood.title, sourceCompositeKey: task.sourceKey)
+                            allFetchedMoods[plexMood.key] = mood
                         }
                     }
                 } catch {
                     // Continue to next library
                     continue
+                }
+            }
+            
+            if !allFetchedMoods.isEmpty {
+                // Filter out moods with no tracks across any library
+                var nonEmptyMoods: [Mood] = []
+                
+                for (_, mood) in allFetchedMoods {
+                    // Check if this mood has tracks in any library
+                    var hasTracksInAnyLibrary = false
+                    
+                    for task in fetchTasks {
+                        do {
+                            let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
+                            if !tracks.isEmpty {
+                                hasTracksInAnyLibrary = true
+                                break  // Found tracks, no need to check other libraries
+                            }
+                        } catch {
+                            // Continue to next library
+                            continue
+                        }
+                    }
+                    
+                    if hasTracksInAnyLibrary {
+                        nonEmptyMoods.append(mood)
+                    }
+                }
+                
+                // Save fresh moods to cache
+                if !nonEmptyMoods.isEmpty {
+                    do {
+                        try await self.moodRepository.saveMoods(nonEmptyMoods)
+                    } catch {
+                        // Ignore cache save errors
+                    }
+                    
+                    await MainActor.run { [weak self] in
+                        self?.allMoods = nonEmptyMoods
+                    }
                 }
             }
         }

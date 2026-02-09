@@ -76,39 +76,74 @@ public struct MoodTracksView: View {
         error = nil
 
         do {
-            // Parse source composite key to get library info
-            // Format: accountId:serverId:libraryKey
-            guard let sourceKey = mood.sourceCompositeKey else {
-                error = "Mood missing source information"
-                isLoading = false
-                return
+            var allTracks: [Track] = []
+            var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
+            
+            // Fetch mood tracks from all enabled libraries
+            let accountManager = DependencyContainer.shared.accountManager
+            
+            for account in accountManager.plexAccounts {
+                for server in account.servers {
+                    guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                        continue
+                    }
+                    
+                    let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                    for library in enabledLibraries {
+                        do {
+                            let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: mood.key)
+                            
+                            // Create composite key for this track from this library
+                            let sourceKey = "\(account.id):\(server.id):\(library.key)"
+                            
+                            for plexTrack in plexTracks {
+                                var track = Track(from: plexTrack)
+                                // Ensure sourceCompositeKey is set
+                                if track.sourceCompositeKey == nil {
+                                    track = Track(
+                                        id: track.id,
+                                        key: track.key,
+                                        title: track.title,
+                                        artistName: track.artistName,
+                                        albumName: track.albumName,
+                                        albumRatingKey: track.albumRatingKey,
+                                        artistRatingKey: track.artistRatingKey,
+                                        trackNumber: track.trackNumber,
+                                        discNumber: track.discNumber,
+                                        duration: track.duration,
+                                        thumbPath: track.thumbPath,
+                                        fallbackThumbPath: track.fallbackThumbPath,
+                                        fallbackRatingKey: track.fallbackRatingKey,
+                                        streamKey: track.streamKey,
+                                        streamId: track.streamId,
+                                        localFilePath: track.localFilePath,
+                                        dateAdded: track.dateAdded,
+                                        dateModified: track.dateModified,
+                                        lastPlayed: track.lastPlayed,
+                                        rating: track.rating,
+                                        playCount: track.playCount,
+                                        sourceCompositeKey: sourceKey
+                                    )
+                                }
+                                
+                                // Dedup by ratingKey - keep first occurrence
+                                if trackMap[track.id] == nil {
+                                    trackMap[track.id] = track
+                                    allTracks.append(track)
+                                }
+                            }
+                        } catch {
+                            // Continue to next library if this one fails
+                            continue
+                        }
+                    }
+                }
             }
             
-            let components = sourceKey.split(separator: ":")
-            guard components.count >= 3 else {
-                error = "Invalid mood source format: \(sourceKey)"
-                isLoading = false
-                return
-            }
-            
-            let accountId = String(components[0])
-            let serverId = String(components[1])
-            let libraryId = String(components[2])
-
-            // Get API client from dependency container
-            guard let apiClient = DependencyContainer.shared.accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
-                error = "Server \(serverId) not available"
-                isLoading = false
-                return
-            }
-            
-            // Fetch tracks for this mood
-            let plexTracks = try await apiClient.getTracksByMood(sectionKey: libraryId, moodKey: mood.key)
-            
-            moodTracks = plexTracks.map { Track(from: $0) }
+            moodTracks = allTracks
             
             if moodTracks.isEmpty {
-                error = "No tracks found for '\(mood.title)' (got \(plexTracks.count) from API)"
+                error = "No tracks found for '\(mood.title)'"
             }
         } catch {
             self.error = "Failed to load tracks: \(error.localizedDescription)"
