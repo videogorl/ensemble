@@ -468,13 +468,16 @@ public struct NowPlayingView: View {
                 let estimatedHeaderHeight: CGFloat = 50
                 let estimatedTableHeight = CGFloat(totalItems) * estimatedRowHeight + estimatedHeaderHeight
                 
+                // Capture currentQueueIndex at display time to avoid race conditions
+                let capturedCurrentIndex = viewModel.currentQueueIndex
+                
                 QueueTableView(
                     queueItems: queueItemsToShow,
                     history: viewModel.playbackHistory,
                     currentQueueIndex: -1,
                     onItemTap: { item, absoluteIndex in
-                        // absoluteIndex is relative to the upcoming queue, adjust for currentQueueIndex
-                        viewModel.playFromQueue(at: viewModel.currentQueueIndex + 1 + absoluteIndex)
+                        // Use captured index to ensure consistent calculations
+                        viewModel.playFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
                     onPlayNext: { track in
                         viewModel.playNext(track)
@@ -483,12 +486,12 @@ public struct NowPlayingView: View {
                         viewModel.playLast(track)
                     },
                     onRemoveFromQueue: { absoluteIndex in
-                        // absoluteIndex is relative to the upcoming queue, adjust for currentQueueIndex
-                        viewModel.removeFromQueue(at: viewModel.currentQueueIndex + 1 + absoluteIndex)
+                        // Use captured index for consistency
+                        viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
                     onMoveItem: { sourceIndex, destIndex in
-                        // Both indices are relative to the upcoming queue, adjust for currentQueueIndex
-                        viewModel.moveQueueItem(from: viewModel.currentQueueIndex + 1 + sourceIndex, to: viewModel.currentQueueIndex + 1 + destIndex)
+                        // Use captured index for consistency
+                        viewModel.moveQueueItem(from: capturedCurrentIndex + 1 + sourceIndex, to: capturedCurrentIndex + 1 + destIndex)
                     }
                 )
                 .frame(height: min(estimatedTableHeight, geometry.size.height * 0.8))
