@@ -6,11 +6,14 @@ public struct SearchView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
+    @StateObject private var pinnedVM: PinnedViewModel
+    @State private var isPinnedExpanded = false
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
+        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
     public var body: some View {
@@ -36,6 +39,7 @@ public struct SearchView: View {
         .task {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
+            await pinnedVM.loadPinnedItems()
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
@@ -80,28 +84,11 @@ public struct SearchView: View {
                     }
                 }
 
-                // Recently Played Artists
-                if !viewModel.recentlyPlayedArtists.isEmpty {
-                    exploreSection(
-                        title: "Recently Played Artists",
-                        items: viewModel.recentlyPlayedArtists
-                    ) { artist in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
-                                ArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                ArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                // Pinned Items
+                if !pinnedVM.resolvedPins.isEmpty {
+                    pinnedSection
                 }
-                
+
                 // Recently Played Albums
                 if !viewModel.recentlyPlayedAlbums.isEmpty {
                     exploreSection(
@@ -182,7 +169,7 @@ public struct SearchView: View {
                 }
                 
                 // Empty state if no explore content
-                if viewModel.recentlyPlayedArtists.isEmpty &&
+                if pinnedVM.resolvedPins.isEmpty &&
                    viewModel.recentlyPlayedAlbums.isEmpty &&
                    viewModel.recentlyAddedAlbums.isEmpty &&
                    viewModel.recommendedItems.isEmpty &&
@@ -327,6 +314,97 @@ public struct SearchView: View {
         }
     }
     
+    // MARK: - Pinned Section
+
+    /// Collapsible pinned items grid — shows 6 by default, all when expanded
+    private var pinnedSection: some View {
+        let displayItems = isPinnedExpanded
+            ? pinnedVM.resolvedPins
+            : Array(pinnedVM.resolvedPins.prefix(6))
+
+        return VStack(alignment: .leading, spacing: 12) {
+            // Section header with expand/collapse chevron
+            Button {
+                withAnimation {
+                    isPinnedExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Pinned")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Spacer()
+
+                    if pinnedVM.resolvedPins.count > 6 {
+                        Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+
+            LazyVGrid(columns: gridColumns, spacing: 16) {
+                ForEach(displayItems) { pin in
+                    pinnedItemCard(pin)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    /// Renders the appropriate card and NavigationLink for a resolved pin
+    @ViewBuilder
+    private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
+        switch pin {
+        case .album(let album, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                    AlbumCard(album: album)
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink {
+                    AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    AlbumCard(album: album)
+                }
+                .buttonStyle(.plain)
+            }
+        case .artist(let artist, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                    ArtistCard(artist: artist)
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink {
+                    ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    ArtistCard(artist: artist)
+                }
+                .buttonStyle(.plain)
+            }
+        case .playlist(let playlist, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+                    PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink {
+                    PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var emptyExploreView: some View {
         VStack(spacing: 16) {
             Spacer()
