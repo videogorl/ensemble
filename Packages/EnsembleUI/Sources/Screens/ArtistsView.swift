@@ -304,7 +304,7 @@ public struct ArtistDetailView: View {
             let bannerHeight = geometry.size.width // 1:1 square aspect ratio
             
             ZStack(alignment: .bottom) {
-                // Artist artwork with aspect fill
+                // Artist artwork masked to fade out at the bottom
                 ArtworkView(
                     artist: viewModel.artist,
                     size: .extraLarge,
@@ -313,18 +313,17 @@ public struct ArtistDetailView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: geometry.size.width, height: bannerHeight + geometry.safeAreaInsets.top)
                 .clipped()
-                .offset(y: -geometry.safeAreaInsets.top)
-
-                // Gradient overlay — fades to system background for light/dark mode
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        .clear,
-                        Color(UIColor.systemBackground).opacity(0.9)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
+                .mask(
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .white, location: 0),
+                            .init(color: .white, location: 0.5),
+                            .init(color: .clear, location: 1.0)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-                .frame(height: bannerHeight + geometry.safeAreaInsets.top)
                 .offset(y: -geometry.safeAreaInsets.top)
 
                 // Artist info overlay
