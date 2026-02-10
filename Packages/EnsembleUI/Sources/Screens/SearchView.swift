@@ -396,6 +396,7 @@ public struct SearchView: View {
         func performDrop(info: DropInfo) -> Bool {
             withAnimation(.spring()) {
                 viewModel.draggingPin = nil
+                viewModel.draggingPinId = nil
             }
             return true
         }
@@ -430,9 +431,10 @@ public struct SearchView: View {
             }
 
         cardContent
-            .opacity(pinnedVM.draggingPin?.id == pin.id ? 0.1 : 1.0)
+            .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
             .onDrag {
                 pinnedVM.draggingPin = pin
+                pinnedVM.draggingPinId = pin.id
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
             }
             .onDrop(of: [.text], delegate: PinnedDropDelegate(item: pin, viewModel: pinnedVM))
@@ -451,7 +453,6 @@ public struct SearchView: View {
         }
         
         func dropExited(info: DropInfo) {
-            // Optional: Handle cleanup if needed
         }
         
         func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -461,6 +462,7 @@ public struct SearchView: View {
         func performDrop(info: DropInfo) -> Bool {
             withAnimation(.spring()) {
                 viewModel.draggingPin = nil
+                viewModel.draggingPinId = nil
             }
             return true
         }

@@ -31,11 +31,13 @@ public final class PinnedViewModel: ObservableObject {
     @Published public private(set) var resolvedPins: [ResolvedPin] = []
     @Published public private(set) var isLoading = false
     @Published public var draggingPin: ResolvedPin?
+    @Published public var draggingPinId: String?
 
     private let pinManager: PinManager
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
+    private var isMoving = false
 
     public init(
         pinManager: PinManager,
@@ -46,12 +48,13 @@ public final class PinnedViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
 
-        // Refresh when pins change
+        // Refresh when pins change (unless we are currently moving/reordering)
         pinManager.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
+                guard let self = self, !self.isMoving else { return }
                 Task { @MainActor in
-                    await self?.loadPinnedItems()
+                    await self.loadPinnedItems()
                 }
             }
             .store(in: &cancellables)
@@ -59,6 +62,7 @@ public final class PinnedViewModel: ObservableObject {
 
     /// Fetch each pinned item from CoreData by ratingKey
     public func loadPinnedItems() async {
+        guard !isMoving else { return }
         isLoading = true
         let pins = pinManager.pinnedItems
         var resolved: [ResolvedPin] = []
@@ -86,10 +90,12 @@ public final class PinnedViewModel: ObservableObject {
 
     /// Move a resolved pin from one position to another
     public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        isMoving = true
         resolvedPins.move(fromOffsets: source, toOffset: destination)
         // Persist the new order to PinManager
         let ids = resolvedPins.map { $0.pinnedItem.id }
         pinManager.reorder(ids: ids)
+        isMoving = false
     }
 
     /// Move a dragging item to a new target position during interactive drag
@@ -100,12 +106,14 @@ public final class PinnedViewModel: ObservableObject {
             return
         }
 
+        isMoving = true
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             resolvedPins.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
             // Persist the new order to PinManager
             let ids = resolvedPins.map { $0.pinnedItem.id }
             pinManager.reorder(ids: ids)
         }
+        isMoving = false
     }
 
     /// Unpin an item by its ID
