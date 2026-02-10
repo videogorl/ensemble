@@ -1438,6 +1438,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
            cachedItem.status == .readyToPlay {
             print("   ✅ Using cached player item (ready)")
 
+            // Seek to beginning since cached items retain their position
+            await MainActor.run {
+                cachedItem.seek(to: .zero, completionHandler: nil)
+            }
+
             // Use cached item - no loading state needed
             await MainActor.run {
                 self.currentTrack = track
@@ -1644,8 +1649,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("🎵 Starting playback - waiting for AVPlayer to actually start")
         player?.play()
 
-        // Only set loading if not already in a valid state (playing uses timeControlStatus observer)
-        if playbackState != .playing && playbackState != .paused {
+        // Only set loading if item isn't ready yet and we're not already in a valid state
+        // This prevents spinner flash when using cached items that are ready to play
+        if item.status != .readyToPlay && playbackState != .playing && playbackState != .paused {
             playbackState = .loading
         }
     }
