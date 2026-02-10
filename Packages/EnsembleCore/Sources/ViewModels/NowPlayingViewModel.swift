@@ -290,6 +290,12 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    public func playFromHistory(at historyIndex: Int) {
+        Task {
+            await playbackService.playFromHistory(at: historyIndex)
+        }
+    }
+
     // MARK: - Shuffle & Repeat
 
     public func toggleShuffle() {

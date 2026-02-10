@@ -508,6 +508,9 @@ public struct NowPlayingView: View {
                         // Use captured index to ensure consistent calculations
                         viewModel.playFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
+                    onHistoryTap: { item, historyIndex in
+                        viewModel.playFromHistory(at: historyIndex)
+                    },
                     onPlayNext: { track in
                         viewModel.playNext(track)
                     },
