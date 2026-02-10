@@ -10,6 +10,7 @@ import Nuke
 public enum PlaybackState: Equatable, Sendable {
     case stopped
     case loading
+    case buffering  // Waiting for buffer to fill (mid-playback stall)
     case playing
     case paused
     case failed(String)
@@ -219,6 +220,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var statusObservation: NSKeyValueObservation?
     private var itemEndObserver: NSObjectProtocol?
     private var currentItemObservation: NSKeyValueObservation?
+    private var bufferEmptyObservation: NSKeyValueObservation?
+    private var bufferLikelyToKeepUpObservation: NSKeyValueObservation?
+    private var timeControlStatusObservation: NSKeyValueObservation?
+    private var networkStateObservation: AnyCancellable?
+    private var stallRecoveryTask: Task<Void, Never>?
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -310,6 +316,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioSession()
         setupRemoteCommands()
         setupPlayer()
+        setupNetworkObservation()
     }
 
     deinit {
@@ -1369,21 +1376,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         let track = queue[currentQueueIndex].track
-        
+
+        print("🎵 ═══════════════════════════════════════════════════════")
+        print("🎵 playCurrentQueueItem() called")
+        print("   Track: \(track.title)")
+        print("   Artist: \(track.artistName ?? "Unknown")")
+        print("   Queue index: \(currentQueueIndex)/\(queue.count)")
+        print("   Has local file: \(track.localFilePath != nil)")
+
         // Batch all state updates together to minimize Combine publications
         await MainActor.run {
             self.currentTrack = track
             self.playbackState = .loading
             self.currentTime = 0
         }
-        
+
         // Generate waveform asynchronously (doesn't affect state)
         generateWaveform(for: track.id)
 
         do {
             let item = try await createPlayerItem(for: track)
             await loadAndPlay(item: item, track: track)
-            
+
             // Prefetch next for gapless
             Task { await prefetchNextItem() }
         } catch {
@@ -1392,34 +1406,47 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.playbackState = .failed(error.localizedDescription)
             }
         }
+        print("🎵 ═══════════════════════════════════════════════════════")
     }
     
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
+        print("📦 Creating player item for: \(track.title)")
+
         // If we have a local file, use it regardless of network state
         if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
+            print("   ✅ Using local file: \(localPath)")
             let url = URL(fileURLWithPath: localPath)
             return AVPlayerItem(url: url)
         }
-        
+
         // Check network connectivity before attempting to stream
-        guard await MainActor.run(body: { networkMonitor.isConnected }) else {
+        let isConnected = await MainActor.run(body: { networkMonitor.isConnected })
+        print("   Network connected: \(isConnected)")
+
+        guard isConnected else {
+            print("   ❌ No network connection - cannot stream")
             throw PlaybackError.offline
         }
-        
+
         // Ensure the server connection is ready before attempting to get stream URL
+        print("   🔄 Ensuring server connection...")
         do {
             try await syncCoordinator.ensureServerConnection(for: track)
+            print("   ✅ Server connection ready")
         } catch {
-            print("❌ Failed to ensure server connection: \(error)")
+            print("   ❌ Failed to ensure server connection: \(error)")
             throw PlaybackError.serverUnavailable
         }
-        
+
         // Attempt to get stream URL
+        print("   🔄 Getting stream URL...")
         do {
             let url = try await syncCoordinator.getStreamURL(for: track)
+            print("   ✅ Got stream URL: \(url)")
             let asset = AVURLAsset(url: url)
             return AVPlayerItem(asset: asset)
         } catch {
+            print("   ❌ Failed to get stream URL: \(error)")
             // Convert errors to PlaybackError
             if let plexError = error as? PlexAPIError {
                 switch plexError {
@@ -1507,7 +1534,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Stop current observers but don't full cleanup
         statusObservation?.invalidate()
         statusObservation = nil
-        
+
+        bufferEmptyObservation?.invalidate()
+        bufferEmptyObservation = nil
+
+        bufferLikelyToKeepUpObservation?.invalidate()
+        bufferLikelyToKeepUpObservation = nil
+
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
+
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
@@ -1519,14 +1555,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         playerItems.removeAll()
         playerItems[track.id] = item
-        
+
         player?.removeAllItems()
         player?.insert(item, after: nil)
 
         setupObservers(for: item)
-        print("🎵 Starting playback")
+        print("🎵 Starting playback - waiting for AVPlayer to actually start")
         player?.play()
-        playbackState = .playing
+
+        // Don't immediately set state to .playing - let timeControlStatus observer handle it
+        // This fixes the race condition where UI shows "playing" but audio isn't actually playing yet
+        playbackState = .loading
     }
 
     private func setupObservers(for item: AVPlayerItem) {
@@ -1536,7 +1575,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 switch item.status {
                 case .readyToPlay:
                     print("✅ Player ready to play")
-                    // Don't automatically set state to .playing - let play() method control this
+                    // Don't automatically set state to .playing - let timeControlStatus handle this
                     // Just update the now playing info
                     self?.updateNowPlayingInfo()
                 case .failed:
@@ -1544,6 +1583,67 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
                 default:
                     break
+                }
+            }
+        }
+
+        // Buffer empty observation - detects when playback stalls
+        bufferEmptyObservation = item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if item.isPlaybackBufferEmpty && self.playbackState == .playing {
+                    print("⚠️ Playback buffer empty - switching to buffering state")
+                    self.playbackState = .buffering
+                }
+            }
+        }
+
+        // Buffer likely to keep up observation - detects when buffer is ready
+        bufferLikelyToKeepUpObservation = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if item.isPlaybackLikelyToKeepUp && self.playbackState == .buffering {
+                    print("✅ Buffer ready - resuming playback")
+                    self.player?.play()
+                    self.playbackState = .playing
+                }
+            }
+        }
+
+        // Time control status observation - the most reliable way to track actual playback state
+        if #available(iOS 10.0, macOS 10.12, *) {
+            timeControlStatusObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+
+                    switch player.timeControlStatus {
+                    case .playing:
+                        // Only update to playing if we're not intentionally paused
+                        if self.playbackState != .paused && self.playbackState != .stopped {
+                            print("✅ AVPlayer actually playing audio")
+                            self.playbackState = .playing
+                        }
+
+                    case .paused:
+                        // Player is paused (but not stopped)
+                        if self.playbackState == .playing || self.playbackState == .buffering {
+                            print("⚠️ AVPlayer paused unexpectedly")
+                            // Don't override user-initiated pause
+                        }
+
+                    case .waitingToPlayAtSpecifiedRate:
+                        // Player is waiting to play (buffering, seeking, or loading)
+                        if self.playbackState == .playing {
+                            print("⏳ AVPlayer waiting to play (buffering)")
+                            self.playbackState = .buffering
+
+                            // Set up stall recovery with timeout
+                            self.setupStallRecovery()
+                        }
+
+                    @unknown default:
+                        break
+                    }
                 }
             }
         }
@@ -1584,6 +1684,71 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    /// Set up automatic recovery from stalled playback (with 10s timeout)
+    private func setupStallRecovery() {
+        // Cancel any existing recovery task
+        stallRecoveryTask?.cancel()
+
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            // Wait 10 seconds for playback to resume
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+
+            guard let self = self, !Task.isCancelled else { return }
+
+            // If still buffering after 10s, try to recover
+            if self.playbackState == .buffering {
+                print("⚠️ Playback stalled for 10s - attempting recovery")
+
+                // Check if network is available
+                if !self.networkMonitor.isConnected {
+                    print("❌ No network connection - waiting for network")
+                    self.playbackState = .failed("No internet connection")
+                    return
+                }
+
+                // Try to reload the current track
+                print("🔄 Attempting to reload current track...")
+                await self.retryCurrentTrack()
+            }
+        }
+    }
+
+    /// Set up network state observation to handle network transitions during playback
+    private func setupNetworkObservation() {
+        networkStateObservation = networkMonitor.$isConnected
+            .dropFirst() // Ignore initial value
+            .sink { [weak self] isConnected in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+
+                    if isConnected {
+                        print("✅ Network reconnected")
+
+                        // If playback failed due to network, try to recover
+                        if case .failed = self.playbackState {
+                            print("🔄 Network back - attempting to resume playback")
+                            await self.retryCurrentTrack()
+                        }
+                        // If buffering when network comes back, try to resume
+                        else if self.playbackState == .buffering {
+                            print("🔄 Network back - attempting to resume buffering")
+                            self.player?.play()
+                        }
+                    } else {
+                        print("⚠️ Network disconnected during playback")
+
+                        // If we're streaming (not playing from local file), pause
+                        if let track = self.currentTrack,
+                           track.localFilePath == nil,
+                           self.playbackState == .playing || self.playbackState == .buffering {
+                            print("⚠️ No network and streaming - switching to failed state")
+                            self.playbackState = .failed("Lost network connection")
+                        }
+                    }
+                }
+            }
+    }
+
     private func cleanup() {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -1597,9 +1762,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         statusObservation?.invalidate()
         statusObservation = nil
-        
+
         currentItemObservation?.invalidate()
         currentItemObservation = nil
+
+        bufferEmptyObservation?.invalidate()
+        bufferEmptyObservation = nil
+
+        bufferLikelyToKeepUpObservation?.invalidate()
+        bufferLikelyToKeepUpObservation = nil
+
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
+
+        networkStateObservation?.cancel()
+        networkStateObservation = nil
+
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
 
         player?.pause()
         player?.removeAllItems()
@@ -1781,31 +1961,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Stop current observers but don't full cleanup
         statusObservation?.invalidate()
         statusObservation = nil
-        
+
+        bufferEmptyObservation?.invalidate()
+        bufferEmptyObservation = nil
+
+        bufferLikelyToKeepUpObservation?.invalidate()
+        bufferLikelyToKeepUpObservation = nil
+
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
+
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
         }
-        
+
         #if !os(macOS)
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
-        
+
         playerItems.removeAll()
         playerItems[track.id] = item
-        
+
         player?.removeAllItems()
         player?.insert(item, after: nil)
-        
+
         setupObservers(for: item)
-        
+
         // Seek to the saved position
         if time > 0 {
             let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
             player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
             currentTime = time
         }
-        
+
         // Set state to paused (not playing)
         playbackState = .paused
         print("🎵 Track prepared and paused at \(time)s")
