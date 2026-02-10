@@ -370,7 +370,7 @@ public struct SearchView: View {
                     .padding(.horizontal)
             } else {
                 // Grid of pinned items with drag reordering on iOS 16+
-                LazyVGrid(columns: gridColumns, alignment: .top, spacing: 16) {
+                LazyVGrid(columns: gridColumns, spacing: 16) {
                     ForEach(displayItems) { pin in
                         pinnedItemCard(pin)
                             .contextMenu {
@@ -737,7 +737,7 @@ public struct SearchView: View {
     // MARK: - Grid Configuration
     
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)]
+        [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)]
     }
     
     private var recommendedDisplayItems: [HubItem] {
