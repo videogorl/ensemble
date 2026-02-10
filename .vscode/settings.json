@@ -10,5 +10,8 @@
 		"swiftc": true,
 		"gemini": true,
 		"git checkout": true
-	}
+	},
+	"githubPullRequests.overrideDefaultBranch": "develop",
+	"githubPullRequests.defaultMergeMethod": "squash",
+	"githubPullRequests.deleteBranchAfterMerge": true
 }
