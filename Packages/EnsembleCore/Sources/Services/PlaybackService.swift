@@ -746,6 +746,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Update currentQueueIndex to point to the tapped (first inserted) item
         currentQueueIndex = insertPosition
 
+        // Set flag to prevent handleItemChange from re-adding to history
+        isNavigatingBackward = true
+
         print("🔙 Restored \(itemsToRestore.count) items from history, now at index \(currentQueueIndex)")
 
         await playCurrentQueueItem()
@@ -1679,9 +1682,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("🎵 Starting playback - waiting for AVPlayer to actually start")
         player?.play()
 
-        // Only set loading if item isn't ready yet and we're not already in a valid state
-        // This prevents spinner flash when using cached items that are ready to play
-        if item.status != .readyToPlay && playbackState != .playing && playbackState != .paused {
+        // Set appropriate state based on item readiness
+        if item.status == .readyToPlay {
+            // Item is ready - set playing state immediately since timeControlStatus
+            // observer might miss the transition if player was already active
+            playbackState = .playing
+        } else if playbackState != .playing && playbackState != .paused {
+            // Item not ready yet - show loading state
             playbackState = .loading
         }
     }
