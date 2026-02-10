@@ -181,6 +181,7 @@ public struct SearchView: View {
         .refreshable {
             await viewModel.loadExploreContent()
         }
+        .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
     }
     
     /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
@@ -384,7 +385,6 @@ public struct SearchView: View {
                     }
                 }
                 .padding(.horizontal)
-                .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
             }
         }
     }
@@ -430,7 +430,7 @@ public struct SearchView: View {
             }
 
         cardContent
-            .opacity(pinnedVM.draggingPin?.id == pin.id ? 0.01 : 1.0)
+            .opacity(pinnedVM.draggingPin?.id == pin.id ? 0.1 : 1.0)
             .onDrag {
                 pinnedVM.draggingPin = pin
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
@@ -448,6 +448,10 @@ public struct SearchView: View {
                   draggingPin.id != item.id else { return }
             
             viewModel.move(draggingItem: draggingPin, toTarget: item)
+        }
+        
+        func dropExited(info: DropInfo) {
+            // Optional: Handle cleanup if needed
         }
         
         func dropUpdated(info: DropInfo) -> DropProposal? {
