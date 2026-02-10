@@ -1261,7 +1261,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Ask for more than we need since we'll filter out any already in queue
         let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
         
-        if var tracks = recommendations {
+        if let tracks = recommendations {
             print("\n✅ Got recommendations: \(tracks.count) tracks")
             
             // Filter out tracks already in queue
@@ -1715,9 +1715,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Set up network state observation to handle network transitions during playback
     private func setupNetworkObservation() {
-        networkStateObservation = networkMonitor.$isConnected
-            .dropFirst() // Ignore initial value
-            .sink { [weak self] isConnected in
+        // Access the publisher on MainActor since NetworkMonitor is @MainActor isolated
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.networkStateObservation = self.networkMonitor.$isConnected
+                .dropFirst() // Ignore initial value
+                .sink { [weak self] isConnected in
                 Task { @MainActor [weak self] in
                     guard let self = self else { return }
 
@@ -1747,6 +1750,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     }
                 }
             }
+        }
     }
 
     private func cleanup() {
