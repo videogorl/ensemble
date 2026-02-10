@@ -370,7 +370,7 @@ public struct SearchView: View {
                     .padding(.horizontal)
             } else {
                 // Grid of pinned items with drag reordering on iOS 16+
-                LazyVGrid(columns: gridColumns, spacing: 16) {
+                LazyVGrid(columns: gridColumns, alignment: .top, spacing: 16) {
                     ForEach(displayItems) { pin in
                         pinnedItemCard(pin)
                             .contextMenu {
@@ -384,7 +384,24 @@ public struct SearchView: View {
                     }
                 }
                 .padding(.horizontal)
+                .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
             }
+        }
+    }
+
+    /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
+    private struct PinnedGridBackgroundDropDelegate: DropDelegate {
+        let viewModel: PinnedViewModel
+        
+        func performDrop(info: DropInfo) -> Bool {
+            withAnimation(.spring()) {
+                viewModel.draggingPin = nil
+            }
+            return true
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            return DropProposal(operation: .move)
         }
     }
 
@@ -438,7 +455,9 @@ public struct SearchView: View {
         }
         
         func performDrop(info: DropInfo) -> Bool {
-            viewModel.draggingPin = nil
+            withAnimation(.spring()) {
+                viewModel.draggingPin = nil
+            }
             return true
         }
     }
