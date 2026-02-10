@@ -78,13 +78,14 @@ public struct MoodTracksView: View {
                                             nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                                         }
                                     )
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 8)
 
                                     if index < moodTracks.count - 1 {
-                                        Divider()
+                                        Divider().padding(.leading, 16)
                                     }
                                 }
                             }
-                            .padding(.horizontal)
                         }
                     }
                 }
