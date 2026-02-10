@@ -106,13 +106,16 @@ public final class PinnedViewModel: ObservableObject {
             return
         }
 
-        isMoving = true
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             resolvedPins.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-            // Persist the new order to PinManager
-            let ids = resolvedPins.map { $0.pinnedItem.id }
-            pinManager.reorder(ids: ids)
         }
+    }
+
+    /// Persist the current resolved order to the PinManager
+    public func persistOrder() {
+        isMoving = true
+        let ids = resolvedPins.map { $0.pinnedItem.id }
+        pinManager.reorder(ids: ids)
         isMoving = false
     }
 

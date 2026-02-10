@@ -395,6 +395,7 @@ public struct SearchView: View {
         
         func performDrop(info: DropInfo) -> Bool {
             withAnimation(.spring()) {
+                viewModel.persistOrder()
                 viewModel.draggingPin = nil
                 viewModel.draggingPinId = nil
             }
@@ -403,6 +404,13 @@ public struct SearchView: View {
         
         func dropUpdated(info: DropInfo) -> DropProposal? {
             return DropProposal(operation: .move)
+        }
+
+        func dropExited(info: DropInfo) {
+            // Safety cleanup
+            withAnimation(.spring()) {
+                viewModel.draggingPinId = nil
+            }
         }
     }
 
@@ -461,6 +469,7 @@ public struct SearchView: View {
         
         func performDrop(info: DropInfo) -> Bool {
             withAnimation(.spring()) {
+                viewModel.persistOrder()
                 viewModel.draggingPin = nil
                 viewModel.draggingPinId = nil
             }
