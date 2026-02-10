@@ -57,10 +57,10 @@ public struct GenreCard: View {
         let colors: [Color] = [
             .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
         ]
-        
-        // Hash the genre name to get a consistent color
-        let hash = abs(name.hashValue)
-        let index = hash % colors.count
+
+        // Hash the genre name using UTF-8 byte reduction for consistent colors across views
+        let hash = name.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
+        let index = abs(hash) % colors.count
         return colors[index]
     }
 }
