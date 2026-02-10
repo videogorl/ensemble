@@ -342,8 +342,23 @@ public struct NowPlayingView: View {
 
             // Play/Pause
             Button(action: viewModel.togglePlayPause) {
-                Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 80))
+                ZStack {
+                    // Show spinner when loading or buffering
+                    if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                        // Show faded button in background
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 80))
+                            .opacity(0.3)
+
+                        // Spinner on top
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.5)
+                    } else {
+                        Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 80))
+                    }
+                }
             }
 
             // Next/Forward button with long-press

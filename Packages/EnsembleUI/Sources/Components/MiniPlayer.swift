@@ -119,8 +119,17 @@ public struct MiniPlayer: View {
                     // Controls
                     HStack(spacing: 20) {
                         Button(action: viewModel.togglePlayPause) {
-                            Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.title2)
+                            ZStack {
+                                // Show spinner when loading or buffering
+                                if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                                        .font(.title2)
+                                }
+                            }
                         }
 
                         Button(action: viewModel.next) {
