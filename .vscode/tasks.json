@@ -17,8 +17,8 @@
   "inputs": [
     {
       "id": "branchName",
-      "type": "promptString",
-      "description": "Branch name to preview"
+      "type": "command",
+      "command": "git.branchList"
     }
   ]
 }
