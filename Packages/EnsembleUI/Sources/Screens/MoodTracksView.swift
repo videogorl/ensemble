@@ -90,6 +90,9 @@ public struct MoodTracksView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 140)
+        }
         .navigationTitle(mood.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
