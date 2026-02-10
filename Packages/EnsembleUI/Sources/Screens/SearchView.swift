@@ -178,6 +178,11 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
+        .onAppear {
+            // Reset dragging state when view appears/reappears to prevent stuck transparency
+            pinnedVM.draggingPin = nil
+            pinnedVM.draggingPinId = nil
+        }
         .refreshable {
             await viewModel.loadExploreContent()
         }
@@ -393,6 +398,15 @@ public struct SearchView: View {
     private struct PinnedGridBackgroundDropDelegate: DropDelegate {
         let viewModel: PinnedViewModel
         
+        func dropEntered(info: DropInfo) {
+            // Restore dragging ID if we entered the background while dragging
+            if let draggingPin = viewModel.draggingPin {
+                withAnimation(.spring()) {
+                    viewModel.draggingPinId = draggingPin.id
+                }
+            }
+        }
+        
         func performDrop(info: DropInfo) -> Bool {
             withAnimation(.spring()) {
                 viewModel.persistOrder()
@@ -454,13 +468,24 @@ public struct SearchView: View {
         let viewModel: PinnedViewModel
         
         func dropEntered(info: DropInfo) {
-            guard let draggingPin = viewModel.draggingPin,
-                  draggingPin.id != item.id else { return }
-            
-            viewModel.move(draggingItem: draggingPin, toTarget: item)
+            // Restore dragging state if we entered an item while dragging
+            if let draggingPin = viewModel.draggingPin {
+                withAnimation(.spring()) {
+                    viewModel.draggingPinId = draggingPin.id
+                }
+                
+                if draggingPin.id != item.id {
+                    viewModel.move(draggingItem: draggingPin, toTarget: item)
+                }
+            }
         }
         
         func dropExited(info: DropInfo) {
+            // Safety cleanup when leaving an item area. 
+            // If we enter another item or the background, they will restore draggingPinId.
+            withAnimation(.spring()) {
+                viewModel.draggingPinId = nil
+            }
         }
         
         func dropUpdated(info: DropInfo) -> DropProposal? {

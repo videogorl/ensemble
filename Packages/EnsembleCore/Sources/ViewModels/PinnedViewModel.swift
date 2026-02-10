@@ -63,6 +63,11 @@ public final class PinnedViewModel: ObservableObject {
     /// Fetch each pinned item from CoreData by ratingKey
     public func loadPinnedItems() async {
         guard !isMoving else { return }
+        
+        // Safety reset of dragging state
+        self.draggingPinId = nil
+        self.draggingPin = nil
+        
         isLoading = true
         let pins = pinManager.pinnedItems
         var resolved: [ResolvedPin] = []
