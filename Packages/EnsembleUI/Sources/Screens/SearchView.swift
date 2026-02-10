@@ -412,32 +412,34 @@ public struct SearchView: View {
                 }
             }
 
-        if #available(iOS 16.0, macOS 13.0, *) {
-            cardContent
-                .draggable(pin.pinnedItem.id) {
-                    // Drag preview
-                    pinnedItemCardContent(pin)
-                        .frame(width: 100, height: 100)
-                        .background(Color.secondary.opacity(0.2))
-                        .cornerRadius(8)
-                }
-                .dropDestination(for: String.self) { items, _ in
-                    guard let droppedId = items.first,
-                          let fromIndex = pinnedVM.resolvedPins.firstIndex(where: { $0.pinnedItem.id == droppedId }),
-                          let toIndex = pinnedVM.resolvedPins.firstIndex(where: { $0.id == pin.id }),
-                          fromIndex != toIndex else {
-                        return false
-                    }
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        pinnedVM.move(
-                            fromOffsets: IndexSet(integer: fromIndex),
-                            toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
-                        )
-                    }
-                    return true
-                }
-        } else {
-            cardContent
+        cardContent
+            .opacity(pinnedVM.draggingPin?.id == pin.id ? 0.01 : 1.0)
+            .onDrag {
+                pinnedVM.draggingPin = pin
+                return NSItemProvider(object: pin.pinnedItem.id as NSString)
+            }
+            .onDrop(of: [.text], delegate: PinnedDropDelegate(item: pin, viewModel: pinnedVM))
+    }
+
+    /// Delegate for handling interactive grid reordering
+    private struct PinnedDropDelegate: DropDelegate {
+        let item: ResolvedPin
+        let viewModel: PinnedViewModel
+        
+        func dropEntered(info: DropInfo) {
+            guard let draggingPin = viewModel.draggingPin,
+                  draggingPin.id != item.id else { return }
+            
+            viewModel.move(draggingItem: draggingPin, toTarget: item)
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            return DropProposal(operation: .move)
+        }
+        
+        func performDrop(info: DropInfo) -> Bool {
+            viewModel.draggingPin = nil
+            return true
         }
     }
 

@@ -30,6 +30,7 @@ public enum ResolvedPin: Identifiable {
 public final class PinnedViewModel: ObservableObject {
     @Published public private(set) var resolvedPins: [ResolvedPin] = []
     @Published public private(set) var isLoading = false
+    @Published public var draggingPin: ResolvedPin?
 
     private let pinManager: PinManager
     private let libraryRepository: LibraryRepositoryProtocol
@@ -89,6 +90,22 @@ public final class PinnedViewModel: ObservableObject {
         // Persist the new order to PinManager
         let ids = resolvedPins.map { $0.pinnedItem.id }
         pinManager.reorder(ids: ids)
+    }
+
+    /// Move a dragging item to a new target position during interactive drag
+    public func move(draggingItem: ResolvedPin, toTarget target: ResolvedPin) {
+        guard let fromIndex = resolvedPins.firstIndex(where: { $0.id == draggingItem.id }),
+              let toIndex = resolvedPins.firstIndex(where: { $0.id == target.id }),
+              fromIndex != toIndex else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            resolvedPins.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+            // Persist the new order to PinManager
+            let ids = resolvedPins.map { $0.pinnedItem.id }
+            pinManager.reorder(ids: ids)
+        }
     }
 
     /// Unpin an item by its ID
