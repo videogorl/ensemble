@@ -728,21 +728,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func playFromHistory(at historyIndex: Int) async {
         guard historyIndex >= 0, historyIndex < playbackHistory.count else { return }
 
-        // Get all history items from the tapped one to the end (most recent)
-        // These are tracks that were played after the tapped track
+        // History is chronological: [A, B, C] means A played first, then B, then C
+        // If user taps B (index 1), we want to restore [B, C] to the queue
+        // and play B, with C coming next
         let itemsToRestore = Array(playbackHistory[historyIndex...])
 
-        // Remove these items from history since they'll be back in the queue
+        // Remove these items from history
         playbackHistory.removeSubrange(historyIndex...)
 
-        // Insert them at the current position (before the current track)
-        // They go in reverse order so the tapped item is first
-        for (offset, item) in itemsToRestore.reversed().enumerated() {
-            queue.insert(item, at: currentQueueIndex + offset)
-        }
+        // Calculate insert position (before current track, or at start if no current)
+        let insertPosition = max(0, currentQueueIndex)
 
-        // Update current index to point to the tapped item
-        // (it's now at currentQueueIndex since we inserted before)
+        // Insert items in order at the insert position
+        // After this, tapped item will be at insertPosition
+        queue.insert(contentsOf: itemsToRestore, at: insertPosition)
+
+        // Update currentQueueIndex to point to the tapped (first inserted) item
+        currentQueueIndex = insertPosition
+
+        print("🔙 Restored \(itemsToRestore.count) items from history, now at index \(currentQueueIndex)")
+
         await playCurrentQueueItem()
         savePlaybackState()
 
