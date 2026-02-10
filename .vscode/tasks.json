@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+	{
+		"label": "Agent A: Preview",
+		"type": "shell",
+		"command": "cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout --detach && cd ~/Developer/projects/ensemble/ && git checkout ${input:branchName}",
+		"problemMatcher": []
+	},
+	{
+		"label": "Agent A: Send back",
+		"type": "shell",
+		"command": "cd ~/Developer/projects/ensemble/ && git checkout develop && cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout ${input:branchName}",
+		"problemMatcher": []
+	}
+],
+  "inputs": [
+    {
+      "id": "branchName",
+      "type": "promptString",
+      "description": "Branch name to preview"
+    }
+  ]
+}
