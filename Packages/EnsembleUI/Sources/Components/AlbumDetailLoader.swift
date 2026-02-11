@@ -7,35 +7,49 @@ struct AlbumDetailLoader: View {
     @State private var album: Album?
     @State private var isLoading = true
     @State private var error: Error?
-    
+
     @Environment(\.dependencies) private var deps
-    
+    @Environment(\.presentationMode) private var presentationMode
+
     var body: some View {
-        Group {
-            if let album = album {
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-            } else if isLoading {
-                VStack {
-                    ProgressView()
-                    Text("Loading album...")
-                        .font(.caption)
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+
+            Group {
+                if let album = album {
+                    AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                } else if isLoading {
+                    VStack {
+                        ProgressView()
+                        Text("Loading album...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.top)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = error {
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.red)
+                        Text("Failed to load album")
+                            .font(.headline)
+                        Text(error.localizedDescription)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Text("Album not found")
                         .foregroundColor(.secondary)
-                        .padding(.top)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else if let error = error {
-                VStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.red)
-                    Text("Failed to load album")
-                        .font(.headline)
-                    Text(error.localizedDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            }
+            .onChange(of: isLandscape) { newIsLandscape in
+                // Dismiss when rotating to landscape - parent will show CoverFlow
+                if newIsLandscape {
+                    presentationMode.wrappedValue.dismiss()
                 }
-            } else {
-                Text("Album not found")
-                    .foregroundColor(.secondary)
             }
         }
         .task {

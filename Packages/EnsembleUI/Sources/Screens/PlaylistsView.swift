@@ -6,8 +6,10 @@ public struct PlaylistsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
 
-    // For navigating to detail view when rotating from CoverFlow
-    @State private var navigateToPlaylistFromCoverFlow: Playlist?
+    // Orientation-based navigation state
+    @State private var wasLandscape: Bool = false
+    @State private var coverFlowIsShowingDetail: Bool = false
+    @State private var shouldNavigateToDetail: Bool = false
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -22,14 +24,11 @@ public struct PlaylistsView: View {
                 // Hidden NavigationLink for programmatic navigation from CoverFlow rotation
                 NavigationLink(
                     destination: Group {
-                        if let playlist = navigateToPlaylistFromCoverFlow {
+                        if let playlist = selectedPlaylist {
                             PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
                         }
                     },
-                    isActive: Binding(
-                        get: { navigateToPlaylistFromCoverFlow != nil },
-                        set: { if !$0 { navigateToPlaylistFromCoverFlow = nil } }
-                    ),
+                    isActive: $shouldNavigateToDetail,
                     label: { EmptyView() }
                 )
 
@@ -46,6 +45,12 @@ public struct PlaylistsView: View {
                         playlistListView
                     }
                 }
+            }
+            .onAppear {
+                wasLandscape = isLandscape
+            }
+            .onChange(of: isLandscape) { newIsLandscape in
+                handleOrientationChange(to: newIsLandscape)
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
@@ -165,12 +170,20 @@ public struct PlaylistsView: View {
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
             selectedItem: $selectedPlaylist,
-            onRotateToPortrait: { playlist in
-                // Navigate to playlist detail when rotating to portrait while viewing flipped card
-                navigateToPlaylistFromCoverFlow = playlist
-            }
+            isShowingDetail: $coverFlowIsShowingDetail
         )
         .background(Color.black)
+    }
+
+    /// Handle orientation change for seamless CoverFlow <-> Detail transitions
+    private func handleOrientationChange(to isLandscape: Bool) {
+        // Landscape -> Portrait: If viewing flipped card in CoverFlow, navigate to detail
+        if wasLandscape && !isLandscape && coverFlowIsShowingDetail && selectedPlaylist != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                shouldNavigateToDetail = true
+            }
+        }
+        wasLandscape = isLandscape
     }
 }
 

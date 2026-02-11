@@ -14,8 +14,10 @@ public struct SongsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
 
-    // For navigating to detail view when rotating from CoverFlow
-    @State private var navigateToAlbumFromCoverFlow: Album?
+    // Orientation-based navigation state
+    @State private var wasLandscape: Bool = false
+    @State private var coverFlowIsShowingDetail: Bool = false
+    @State private var shouldNavigateToDetail: Bool = false
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -38,14 +40,11 @@ public struct SongsView: View {
                 // Hidden NavigationLink for programmatic navigation from CoverFlow rotation
                 NavigationLink(
                     destination: Group {
-                        if let album = navigateToAlbumFromCoverFlow {
+                        if let album = selectedAlbum {
                             AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
                         }
                     },
-                    isActive: Binding(
-                        get: { navigateToAlbumFromCoverFlow != nil },
-                        set: { if !$0 { navigateToAlbumFromCoverFlow = nil } }
-                    ),
+                    isActive: $shouldNavigateToDetail,
                     label: { EmptyView() }
                 )
 
@@ -62,6 +61,12 @@ public struct SongsView: View {
                         trackListView
                     }
                 }
+            }
+            .onAppear {
+                wasLandscape = isLandscape
+            }
+            .onChange(of: isLandscape) { newIsLandscape in
+                handleOrientationChange(to: newIsLandscape)
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
@@ -302,11 +307,19 @@ public struct SongsView: View {
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
             selectedItem: $selectedAlbum,
-            onRotateToPortrait: { album in
-                // Navigate to album detail when rotating to portrait while viewing flipped card
-                navigateToAlbumFromCoverFlow = album
-            }
+            isShowingDetail: $coverFlowIsShowingDetail
         )
         .background(Color.black)
+    }
+
+    /// Handle orientation change for seamless CoverFlow <-> Detail transitions
+    private func handleOrientationChange(to isLandscape: Bool) {
+        // Landscape -> Portrait: If viewing flipped card in CoverFlow, navigate to detail
+        if wasLandscape && !isLandscape && coverFlowIsShowingDetail && selectedAlbum != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                shouldNavigateToDetail = true
+            }
+        }
+        wasLandscape = isLandscape
     }
 }
