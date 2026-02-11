@@ -170,13 +170,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
                         .transition(.identity) // Prevent fade in/out when entering/leaving window
                         .contentShape(Rectangle())
-                        // Use highPriorityGesture so taps register before the parent DragGesture captures them
-                        .highPriorityGesture(
-                            TapGesture()
-                                .onEnded {
-                                    tapItem(item, at: i, currentIndex: currentIndex)
-                                }
-                        )
+                        .onTapGesture {
+                            tapItem(item, at: i, currentIndex: currentIndex)
+                        }
                         // Long press for visual feedback (doesn't block tap)
                         .onLongPressGesture(minimumDuration: 0.5, pressing: { isPressing in
                             withAnimation(.easeInOut(duration: 0.1)) {
@@ -191,7 +187,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         .frame(width: geometry.size.width, height: carouselHeight)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture()
+            DragGesture(minimumDistance: 15)
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
