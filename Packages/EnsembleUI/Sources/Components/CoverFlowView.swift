@@ -139,7 +139,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let relativeIndex = i - currentIndex
 
                 // Optimization: render only items reasonably close
-                if abs(relativeIndex) < 12 {
+                // Increased window to 30 to ensure off-screen creation on large displays
+                if abs(relativeIndex) < 30 {
 
                     // Non-Linear Position Logic
                     let linearX = relativeIndex * wingSpacing
@@ -151,9 +152,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     let pressScale: CGFloat = pressedItemId == item.id ? 0.95 : 1.0
                     let scale = baseScale * pressScale
                     
-                    // Smoothly fade items out as they reach the edge of the rendering window (8-12 range)
-                    let edgeFade = max(0, min(1, (12 - abs(relativeIndex)) / 4))
-
                     itemView(item)
                         .frame(width: itemWidth, height: itemHeight)
                         .scaleEffect(scale)
@@ -164,12 +162,13 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                                 rotationMax: rotationMax
                             )
                         )
-                        .opacity(zoomedItem?.id == item.id ? 0 : edgeFade)
+                        .opacity(zoomedItem?.id == item.id ? 0 : 1)
                         .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
                         .offset(x: finalX)
                         // Simple stable zIndex: center is highest. 
                         // Small epsilon based on index prevents flickering when equidistant.
                         .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
+                        .transition(.identity) // Prevent fade in/out when entering/leaving window
                         .contentShape(Rectangle())
                         .onTapGesture {
                             tapItem(item, at: i, currentIndex: currentIndex)
