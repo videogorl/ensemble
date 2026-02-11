@@ -12,11 +12,28 @@
 		"type": "shell",
 		"command": "cd ~/Developer/projects/ensemble/ && git checkout develop && cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout ${input:branchNameAgentA}",
 		"problemMatcher": []
+	},
+	{
+		"label": "Agent B: Preview on main worktree",
+		"type": "shell",
+		"command": "cd ~/Developer/projects/ensemble.worktrees/agent-b && git checkout --detach && cd ~/Developer/projects/ensemble/ && git checkout ${input:branchNameAgentB}",
+		"problemMatcher": []
+	},
+	{
+		"label": "Agent B: Send back to agent worktree",
+		"type": "shell",
+		"command": "cd ~/Developer/projects/ensemble/ && git checkout develop && cd ~/Developer/projects/ensemble.worktrees/agent-b && git checkout ${input:branchNameAgentB}",
+		"problemMatcher": []
 	}
 ],
   "inputs": [
     {
       "id": "branchNameAgentA",
+      "type": "promptString",
+      "description": "Branch name to preview"
+    },
+    {
+      "id": "branchNameAgentB",
       "type": "promptString",
       "description": "Branch name to preview"
     }
