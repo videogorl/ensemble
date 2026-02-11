@@ -6,6 +6,9 @@ public struct PlaylistsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
 
+    // For navigating to detail view when rotating from CoverFlow
+    @State private var navigateToPlaylistFromCoverFlow: Playlist?
+
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self.nowPlayingVM = nowPlayingVM
@@ -15,17 +18,33 @@ public struct PlaylistsView: View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
             
-            Group {
-                if viewModel.isLoading && viewModel.playlists.isEmpty {
-                    loadingView
-                } else if viewModel.playlists.isEmpty {
-                    emptyView
-                } else if isLandscape {
-                    coverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
-                } else {
-                    playlistListView
+            ZStack {
+                // Hidden NavigationLink for programmatic navigation from CoverFlow rotation
+                NavigationLink(
+                    destination: Group {
+                        if let playlist = navigateToPlaylistFromCoverFlow {
+                            PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                        }
+                    },
+                    isActive: Binding(
+                        get: { navigateToPlaylistFromCoverFlow != nil },
+                        set: { if !$0 { navigateToPlaylistFromCoverFlow = nil } }
+                    ),
+                    label: { EmptyView() }
+                )
+
+                Group {
+                    if viewModel.isLoading && viewModel.playlists.isEmpty {
+                        loadingView
+                    } else if viewModel.playlists.isEmpty {
+                        emptyView
+                    } else if isLandscape {
+                        coverFlowView
+                            .navigationBarHidden(true)
+                            .statusBar(hidden: true)
+                    } else {
+                        playlistListView
+                    }
                 }
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
@@ -145,7 +164,11 @@ public struct PlaylistsView: View {
             },
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
-            selectedItem: $selectedPlaylist
+            selectedItem: $selectedPlaylist,
+            onRotateToPortrait: { playlist in
+                // Navigate to playlist detail when rotating to portrait while viewing flipped card
+                navigateToPlaylistFromCoverFlow = playlist
+            }
         )
         .background(Color.black)
     }

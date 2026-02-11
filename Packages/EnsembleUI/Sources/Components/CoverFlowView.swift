@@ -17,6 +17,10 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     let subtitleContent: (Item) -> String?
     @Binding var selectedItem: Item?
 
+    /// Called when the device rotates to portrait while viewing a flipped card.
+    /// Use this to navigate to the detail view for the item.
+    var onRotateToPortrait: ((Item) -> Void)?
+
     // Scroll & Drag State
     @State private var scrollIndex: Double = 0
     @State private var lastScrollIndex: Double = 0
@@ -34,11 +38,16 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // Press feedback state
     @State private var pressedItemId: Item.ID? = nil
 
+    // Orientation tracking for rotate-to-detail
+    @State private var wasLandscape: Bool = true
+
     // Configuration
     private let rotationMax: Double = 65
 
     var body: some View {
         GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+
             ZStack {
                 // Background Carousel Layer
                 carouselLayer(geometry: geometry)
@@ -73,6 +82,12 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 if let item = zoomedItem {
                    zoomedCardLayer(item: item, geometry: geometry)
                 }
+            }
+            .onChange(of: isLandscape) { newIsLandscape in
+                handleOrientationChange(isLandscape: newIsLandscape)
+            }
+            .onAppear {
+                wasLandscape = isLandscape
             }
         }
         .edgesIgnoringSafeArea(.all)
@@ -318,6 +333,27 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     lastScrollIndex = scrollIndex
                 }
             }
+        }
+    }
+
+    /// Handle orientation change - trigger navigation when rotating to portrait while viewing detail
+    private func handleOrientationChange(isLandscape: Bool) {
+        // Check if we transitioned from landscape to portrait
+        let wasViewingDetail = wasLandscape && !isLandscape && zoomedItem != nil && flipAngle >= 90
+
+        // Update tracking state
+        wasLandscape = isLandscape
+
+        // If we were viewing a flipped card and rotated to portrait, notify parent
+        if wasViewingDetail, let item = zoomedItem {
+            // Close the zoom first (cleanup)
+            withAnimation(.easeOut(duration: 0.2)) {
+                flipAngle = 0
+                zoomedItem = nil
+            }
+
+            // Notify parent to navigate to detail view
+            onRotateToPortrait?(item)
         }
     }
 

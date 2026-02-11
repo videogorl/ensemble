@@ -13,6 +13,9 @@ public struct SongsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+
+    // For navigating to detail view when rotating from CoverFlow
+    @State private var navigateToAlbumFromCoverFlow: Album?
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -31,17 +34,33 @@ public struct SongsView: View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
             
-            Group {
-                if libraryVM.isLoading && libraryVM.tracks.isEmpty {
-                    loadingView
-                } else if libraryVM.tracks.isEmpty {
-                    emptyView
-                } else if isLandscape {
-                    albumCoverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
-                } else {
-                    trackListView
+            ZStack {
+                // Hidden NavigationLink for programmatic navigation from CoverFlow rotation
+                NavigationLink(
+                    destination: Group {
+                        if let album = navigateToAlbumFromCoverFlow {
+                            AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                        }
+                    },
+                    isActive: Binding(
+                        get: { navigateToAlbumFromCoverFlow != nil },
+                        set: { if !$0 { navigateToAlbumFromCoverFlow = nil } }
+                    ),
+                    label: { EmptyView() }
+                )
+
+                Group {
+                    if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+                        loadingView
+                    } else if libraryVM.tracks.isEmpty {
+                        emptyView
+                    } else if isLandscape {
+                        albumCoverFlowView
+                            .navigationBarHidden(true)
+                            .statusBar(hidden: true)
+                    } else {
+                        trackListView
+                    }
                 }
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
@@ -282,7 +301,11 @@ public struct SongsView: View {
             },
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
-            selectedItem: $selectedAlbum
+            selectedItem: $selectedAlbum,
+            onRotateToPortrait: { album in
+                // Navigate to album detail when rotating to portrait while viewing flipped card
+                navigateToAlbumFromCoverFlow = album
+            }
         )
         .background(Color.black)
     }

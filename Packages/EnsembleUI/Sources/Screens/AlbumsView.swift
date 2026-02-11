@@ -7,6 +7,9 @@ public struct AlbumsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
 
+    // For navigating to detail view when rotating from CoverFlow
+    @State private var navigateToAlbumFromCoverFlow: Album?
+
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -25,17 +28,33 @@ public struct AlbumsView: View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
             
-            Group {
-                if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                    loadingView
-                } else if libraryVM.albums.isEmpty {
-                    emptyView
-                } else if isLandscape {
-                    coverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
-                } else {
-                    albumGridView
+            ZStack {
+                // Hidden NavigationLink for programmatic navigation from CoverFlow rotation
+                NavigationLink(
+                    destination: Group {
+                        if let album = navigateToAlbumFromCoverFlow {
+                            AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                        }
+                    },
+                    isActive: Binding(
+                        get: { navigateToAlbumFromCoverFlow != nil },
+                        set: { if !$0 { navigateToAlbumFromCoverFlow = nil } }
+                    ),
+                    label: { EmptyView() }
+                )
+
+                Group {
+                    if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                        loadingView
+                    } else if libraryVM.albums.isEmpty {
+                        emptyView
+                    } else if isLandscape {
+                        coverFlowView
+                            .navigationBarHidden(true)
+                            .statusBar(hidden: true)
+                    } else {
+                        albumGridView
+                    }
                 }
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
@@ -240,7 +259,11 @@ public struct AlbumsView: View {
             },
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
-            selectedItem: $selectedAlbum
+            selectedItem: $selectedAlbum,
+            onRotateToPortrait: { album in
+                // Navigate to album detail when rotating to portrait while viewing flipped card
+                navigateToAlbumFromCoverFlow = album
+            }
         )
         .background(Color.black)
     }
