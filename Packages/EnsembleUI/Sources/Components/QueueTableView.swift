@@ -537,7 +537,10 @@ public struct QueueTableView: UIViewRepresentable {
 
             // Handle history items separately
             if section.type == .history {
-                onHistoryTap(item, indexPath.row)
+                // History is displayed reversed (most recent first), so convert index
+                // back to original history array index
+                let originalHistoryIndex = history.count - 1 - indexPath.row
+                onHistoryTap(item, originalHistoryIndex)
             } else if let absoluteIndex = absoluteQueueIndex(for: indexPath) {
                 onItemTap(item, absoluteIndex)
             }
