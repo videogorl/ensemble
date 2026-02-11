@@ -205,21 +205,33 @@ public struct AlbumsView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(albumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
-                                    AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                        .id(section.letter)
+                                    AlbumGrid(
+                                        albums: section.albums,
+                                        nowPlayingVM: nowPlayingVM,
+                                        onAlbumTap: { album in
+                                            navigateToAlbum(album)
+                                        }
+                                    )
+                                    .id(section.letter)
                                 }
                             }
                         }
                         .padding(.vertical)
                     } else {
-                        AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                            .padding(.vertical)
+                        AlbumGrid(
+                            albums: libraryVM.filteredAlbums,
+                            nowPlayingVM: nowPlayingVM,
+                            onAlbumTap: { album in
+                                navigateToAlbum(album)
+                            }
+                        )
+                        .padding(.vertical)
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
                     Color.clear.frame(height: 140)
                 }
-                
+
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(
                         letters: albumSections.map { $0.letter },
@@ -233,6 +245,12 @@ public struct AlbumsView: View {
                 }
             }
         }
+    }
+
+    /// Navigate to album detail - sets selection state and triggers navigation
+    private func navigateToAlbum(_ album: Album) {
+        selectedAlbum = album
+        shouldNavigateToDetail = true
     }
 
     private func sectionHeader(_ letter: String) -> some View {

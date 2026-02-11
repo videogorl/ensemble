@@ -140,13 +140,25 @@ public struct PlaylistsView: View {
     private var playlistListView: some View {
         List {
             ForEach(viewModel.filteredPlaylists) { playlist in
-                PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                PlaylistRow(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    onTap: { tappedPlaylist in
+                        navigateToPlaylist(tappedPlaylist)
+                    }
+                )
             }
         }
         .listStyle(.plain)
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
+    }
+
+    /// Navigate to playlist detail - sets selection state and triggers navigation
+    private func navigateToPlaylist(_ playlist: Playlist) {
+        selectedPlaylist = playlist
+        shouldNavigateToDetail = true
     }
     
     private var coverFlowView: some View {

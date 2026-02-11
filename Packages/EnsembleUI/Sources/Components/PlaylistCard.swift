@@ -41,22 +41,33 @@ public struct PlaylistCard: View {
 public struct PlaylistRow: View {
     let playlist: Playlist
     let nowPlayingVM: NowPlayingViewModel
-    let onTap: (() -> Void)?
 
-    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, onTap: (() -> Void)? = nil) {
+    /// Called when playlist is tapped. Parent should use this to set selection and trigger navigation.
+    let onTap: ((Playlist) -> Void)?
+
+    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, onTap: ((Playlist) -> Void)? = nil) {
         self.playlist = playlist
         self.nowPlayingVM = nowPlayingVM
         self.onTap = onTap
     }
 
     public var body: some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
+        if let onTap = onTap {
+            // Parent controls navigation - use Button
+            Button {
+                onTap(playlist)
+            } label: {
+                playlistRowContent
+            }
+            .buttonStyle(.plain)
+        } else if #available(iOS 16.0, macOS 13.0, *) {
+            // Fallback: direct navigation via NavigationCoordinator
             NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
                 playlistRowContent
             }
             .buttonStyle(.plain)
         } else {
-            // iOS 15 fallback
+            // iOS 15 fallback without parent control
             NavigationLink {
                 PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
             } label: {
@@ -65,7 +76,7 @@ public struct PlaylistRow: View {
             .buttonStyle(.plain)
         }
     }
-    
+
     private var playlistRowContent: some View {
         HStack(spacing: 12) {
             ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)

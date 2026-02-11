@@ -43,6 +43,8 @@ public struct AlbumCard: View {
 public struct AlbumGrid: View {
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
+
+    /// Called when an album is tapped. Parent should use this to set selection and trigger navigation.
     let onAlbumTap: ((Album) -> Void)?
 
     private let columns = [
@@ -58,13 +60,22 @@ public struct AlbumGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
             ForEach(albums) { album in
-                if #available(iOS 16.0, macOS 13.0, *) {
+                if let onAlbumTap = onAlbumTap {
+                    // Parent controls navigation - use Button
+                    Button {
+                        onAlbumTap(album)
+                    } label: {
+                        AlbumCard(album: album)
+                    }
+                    .buttonStyle(.plain)
+                } else if #available(iOS 16.0, macOS 13.0, *) {
+                    // Fallback: direct navigation via NavigationCoordinator
                     NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
                         AlbumCard(album: album)
                     }
                     .buttonStyle(.plain)
                 } else {
-                    // iOS 15 fallback
+                    // iOS 15 fallback without parent control
                     NavigationLink {
                         AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
                     } label: {
