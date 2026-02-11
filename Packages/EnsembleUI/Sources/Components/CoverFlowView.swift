@@ -37,9 +37,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     @State private var zoomedItem: Item? = nil
     @Namespace private var animation
 
-    // Press feedback state
-    @State private var pressedItemId: Item.ID? = nil
-
     // Configuration
     private let rotationMax: Double = 65
 
@@ -134,7 +131,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let currentIndex = scrollIndex
 
         return ZStack {
-            // Drag target background (handles drags in empty space)
+            // Main drag target - covers the whole carousel area
             Color.clear
                 .contentShape(Rectangle())
                 .gesture(carouselDragGesture(geometry: geometry))
@@ -153,8 +150,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
 
                     // Scale Logic: Center item is 33% bigger
                     let baseScale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
-                    let pressScale: CGFloat = pressedItemId == item.id ? 0.95 : 1.0
-                    let scale = baseScale * pressScale
                     
                     Button {
                         tapItem(item, at: i, currentIndex: currentIndex)
@@ -163,22 +158,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                             .frame(width: itemWidth, height: itemHeight)
                     }
                     .buttonStyle(CarouselButtonStyle())
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 15)
-                            .onChanged { value in
-                                if !isDragging {
-                                    isDragging = true
-                                    dragStartIndex = scrollIndex
-                                }
-                                let sensitivity = 1.0 / (geometry.size.width * 0.20)
-                                scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
-                            }
-                            .onEnded { value in
-                                isDragging = false
-                                handleDragEnd(value: value, geometry: geometry)
-                            }
-                    )
-                    .scaleEffect(scale)
+                    // Simultaneous gesture ensures the button doesn't block the drag start
+                    .simultaneousGesture(carouselDragGesture(geometry: geometry))
+                    .scaleEffect(baseScale)
                     .modifier(
                         CoverFlowRotationModifier(
                             progress: relativeIndex,
@@ -202,18 +184,42 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Gestures
 
     private func carouselDragGesture(geometry: GeometryProxy) -> some Gesture {
-        DragGesture(minimumDistance: 15)
+        // Recalibrated sensitivity: ~45% of screen width = 1 item
+        let sensitivity = 1.0 / (geometry.size.width * 0.45)
+
+        return DragGesture(minimumDistance: 15)
             .onChanged { value in
                 if !isDragging {
                     isDragging = true
                     dragStartIndex = scrollIndex
                 }
-                let sensitivity = 1.0 / (geometry.size.width * 0.20)
-                scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
+                
+                let newIndex = dragStartIndex + (-value.translation.width * sensitivity)
+                scrollIndex = newIndex
             }
             .onEnded { value in
                 isDragging = false
-                handleDragEnd(value: value, geometry: geometry)
+                
+                // Calculate target with dampened velocity/inertia
+                let translation = value.translation.width
+                let predicted = value.predictedEndTranslation.width
+                let velocity = predicted - translation
+                
+                // Dampen the velocity significantly (0.3) for control
+                let targetIndex = dragStartIndex + (-(translation + (velocity * 0.3)) * sensitivity)
+                
+                // Snap to nearest item
+                let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
+
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    scrollIndex = clampedIndex
+                    
+                    // Update selection to the center item
+                    let index = Int(clampedIndex)
+                    if index >= 0 && index < items.count {
+                        selectedItem = items[index]
+                    }
+                }
             }
     }
 
@@ -273,29 +279,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     }
 
     // MARK: - Logic Helpers
-
-    private func handleDragEnd(value: DragGesture.Value, geometry: GeometryProxy) {
-        let sensitivity = 1.0 / (geometry.size.width * 0.20)
-
-        // Full momentum - let it ZIP!
-        // predictedEndTranslation already includes physics-based projection
-        let targetIndex = dragStartIndex + (-value.predictedEndTranslation.width * sensitivity)
-
-        // Clamp to valid indices and snap to nearest integer
-        let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
-
-        // Smooth spring for "easing" into the spot - gives it a natural feel
-        // compared to the mechanical easeOut.
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0)) {
-            scrollIndex = clampedIndex
-        }
-
-        // Update selection
-        let index = Int(clampedIndex)
-        if index >= 0 && index < items.count {
-            selectedItem = items[index]
-        }
-    }
 
     private func handleExternalSelectionChange() {
         if let selected = selectedItem, zoomedItem?.id != selected.id {
