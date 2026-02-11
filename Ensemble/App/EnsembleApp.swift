@@ -1,6 +1,9 @@
 import EnsembleCore
 import EnsembleUI
 import SwiftUI
+#if os(iOS)
+import BackgroundTasks
+#endif
 
 @main
 struct EnsembleApp: App {
@@ -19,10 +22,35 @@ struct EnsembleApp: App {
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh("com.videogorl.ensemble.refresh")) {
+            await handleBackgroundRefresh()
+        }
+        #endif
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
     }
+    
+    #if os(iOS)
+    /// Handle background app refresh (hubs only - lightweight)
+    @available(iOS 13.0, *)
+    private func handleBackgroundRefresh() async {
+        print("🔄 Background refresh triggered")
+        
+        // Reschedule next refresh immediately for continuity
+        BackgroundSyncScheduler.shared.scheduleAppRefresh()
+        
+        // Perform lightweight hub refresh
+        let homeVM = await MainActor.run {
+            DependencyContainer.shared.makeHomeViewModel()
+        }
+        
+        await homeVM.refresh()
+        
+        print("✅ Background refresh complete")
+    }
+    #endif
     
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         #if os(macOS)
