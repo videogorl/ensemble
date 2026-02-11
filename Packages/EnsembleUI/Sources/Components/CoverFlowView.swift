@@ -139,8 +139,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let relativeIndex = i - currentIndex
 
                 // Optimization: render only items reasonably close
-                // Increased window to 20 to avoid pops during fast swipes
-                if abs(relativeIndex) < 20 {
+                if abs(relativeIndex) < 12 {
 
                     // Non-Linear Position Logic
                     let linearX = relativeIndex * wingSpacing
@@ -151,6 +150,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     let baseScale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
                     let pressScale: CGFloat = pressedItemId == item.id ? 0.95 : 1.0
                     let scale = baseScale * pressScale
+                    
+                    // Smoothly fade items out as they reach the edge of the rendering window (8-12 range)
+                    let edgeFade = max(0, min(1, (12 - abs(relativeIndex)) / 4))
 
                     itemView(item)
                         .frame(width: itemWidth, height: itemHeight)
@@ -162,14 +164,12 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                                 rotationMax: rotationMax
                             )
                         )
-                        .opacity(zoomedItem?.id == item.id ? 0 : 1)
+                        .opacity(zoomedItem?.id == item.id ? 0 : edgeFade)
                         .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
                         .offset(x: finalX)
-                        // Use a larger, more stable zIndex range.
-                        // We also add a small epsilon based on index to ensure stable sorting 
-                        // even when distances are identical.
+                        // Simple stable zIndex: center is highest. 
+                        // Small epsilon based on index prevents flickering when equidistant.
                         .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
-                        .transition(.identity) // Prevent fade in/out when entering window
                         .contentShape(Rectangle())
                         .onTapGesture {
                             tapItem(item, at: i, currentIndex: currentIndex)
@@ -207,7 +207,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     handleDragEnd(value: value, geometry: geometry)
                 }
         )
-        .drawingGroup() // Flatten into a single layer for faster rendering during movement
         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         .onAppear {
             scrollToSelection()
