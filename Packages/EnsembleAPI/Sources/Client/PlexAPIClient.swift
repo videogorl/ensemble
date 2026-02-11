@@ -194,10 +194,66 @@ public actor PlexAPIClient {
         )
         return container.mediaContainer.items
     }
+    
+    /// Get artists added or updated after a specific timestamp (incremental sync)
+    public func getArtists(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: ["type": "8", "addedAt>=": String(unixTime)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexArtist>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get artists updated after a specific timestamp (incremental sync)
+    public func getArtists(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: ["type": "8", "updatedAt>=": String(unixTime)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexArtist>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
 
     /// Get all albums in a library section
     public func getAlbums(sectionKey: String) async throws -> [PlexAlbum] {
         let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: ["type": "9"])
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexAlbum>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get albums added or updated after a specific timestamp (incremental sync)
+    public func getAlbums(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexAlbum] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: ["type": "9", "addedAt>=": String(unixTime)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexAlbum>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get albums updated after a specific timestamp (incremental sync)
+    public func getAlbums(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexAlbum] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: ["type": "9", "updatedAt>=": String(unixTime)]
+        )
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexAlbum>.self,
             from: data
@@ -224,6 +280,44 @@ public actor PlexAPIClient {
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get tracks added or updated after a specific timestamp (incremental sync)
+    public func getTracks(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "includeMedia": "1",
+                "includeElements": "Media",
+                "addedAt>=": String(unixTime)
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+    
+    /// Get tracks updated after a specific timestamp (incremental sync)
+    public func getTracks(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "includeMedia": "1",
+                "includeElements": "Media",
+                "updatedAt>=": String(unixTime)
             ]
         )
         let container = try JSONDecoder().decode(

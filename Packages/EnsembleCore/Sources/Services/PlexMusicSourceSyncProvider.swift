@@ -17,7 +17,116 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.apiClient = apiClient
         self.sectionKey = sectionKey
     }
-
+    
+    public func syncLibraryIncremental(
+        since timestamp: TimeInterval,
+        to repository: LibraryRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws {
+        let sourceKey = sourceIdentifier.compositeKey
+        print("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
+        
+        // Ensure CDMusicSource exists
+        _ = try await repository.upsertMusicSource(
+            compositeKey: sourceKey,
+            type: sourceIdentifier.type.rawValue,
+            accountId: sourceIdentifier.accountId,
+            serverId: sourceIdentifier.serverId,
+            libraryId: sourceIdentifier.libraryId,
+            displayName: nil,
+            accountName: nil
+        )
+        
+        // Sync artists added or updated since timestamp
+        progressHandler(0.125)
+        let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
+        let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
+        let allArtists = Set(newArtists.map { $0.ratingKey }).union(Set(updatedArtists.map { $0.ratingKey }))
+        let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
+        
+        print("🔄 Incremental sync: \(artistsToSync.count) artists changed")
+        for artist in artistsToSync {
+            _ = try await repository.upsertArtist(
+                ratingKey: artist.ratingKey,
+                key: artist.key,
+                name: artist.title,
+                summary: artist.summary,
+                thumbPath: artist.thumb,
+                artPath: artist.art,
+                dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: sourceKey
+            )
+        }
+        
+        // Sync albums added or updated since timestamp
+        progressHandler(0.375)
+        let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
+        let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
+        let allAlbums = Set(newAlbums.map { $0.ratingKey }).union(Set(updatedAlbums.map { $0.ratingKey }))
+        let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
+        
+        print("🔄 Incremental sync: \(albumsToSync.count) albums changed")
+        for album in albumsToSync {
+            _ = try await repository.upsertAlbum(
+                ratingKey: album.ratingKey,
+                key: album.key,
+                title: album.title,
+                artistName: album.parentTitle,
+                albumArtist: album.parentTitle,
+                artistRatingKey: album.parentRatingKey,
+                summary: album.summary,
+                thumbPath: album.thumb,
+                artPath: album.art,
+                year: album.year,
+                trackCount: album.leafCount,
+                dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rating: 0,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        
+        // Sync tracks added or updated since timestamp
+        progressHandler(0.625)
+        let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
+        let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
+        let allTracks = Set(newTracks.map { $0.ratingKey }).union(Set(updatedTracks.map { $0.ratingKey }))
+        let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
+        
+        print("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
+        for track in tracksToSync {
+            _ = try await repository.upsertTrack(
+                ratingKey: track.ratingKey,
+                key: track.key,
+                title: track.title,
+                artistName: track.grandparentTitle,
+                albumName: track.parentTitle,
+                albumRatingKey: track.parentRatingKey,
+                trackNumber: track.index,
+                discNumber: track.parentIndex,
+                duration: track.duration,
+                thumbPath: track.thumb ?? track.parentThumb,
+                streamKey: track.streamURL,
+                dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rating: track.userRating.map { Int($0) } ?? 0,
+                playCount: track.viewCount ?? 0,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        
+        // Genres rarely change, so skip for incremental sync
+        progressHandler(0.875)
+        
+        // Update last sync timestamp
+        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        
+        progressHandler(1.0)
+        print("✅ Incremental sync complete for \(sourceKey)")
+    }
+    
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void

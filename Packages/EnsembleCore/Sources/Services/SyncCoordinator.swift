@@ -3,6 +3,16 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+/// Strategy for performing a sync operation
+public enum SyncStrategy {
+    /// Sync only items added/updated since last sync (fast)
+    case incremental
+    /// Sync all items from server (slow, comprehensive)
+    case full
+    /// Sync only hub data (Recently Added, etc.) - very fast
+    case hubsOnly
+}
+
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
@@ -209,6 +219,175 @@ public final class SyncCoordinator: ObservableObject {
                         // Playlist sync takes up the remaining 20%
                         self.sourceStatuses[source] = MusicSourceStatus(
                             syncStatus: .syncing(progress: 0.8 + (progress * 0.2)),
+                            connectionState: connState
+                        )
+                    }
+                }
+            )
+            
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .lastSynced(Date()),
+                connectionState: currentConnectionState
+            )
+        } catch {
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .error(error.localizedDescription),
+                connectionState: currentConnectionState
+            )
+        }
+    }
+    
+    /// Sync all enabled sources incrementally (only fetch changes since last sync)
+    public func syncAllIncremental() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        
+        // Track which servers have had their playlists synced
+        var syncedServerKeys = Set<String>()
+        
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+            
+            // Get last sync timestamp
+            guard let lastSyncDate = await loadLastSyncDate(for: sourceId) else {
+                // No previous sync - fall back to full sync
+                print("⚠️ No previous sync found for \(sourceId.compositeKey), performing full sync")
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: 0),
+                    connectionState: currentConnectionState
+                )
+                
+                do {
+                    try await provider.syncLibrary(
+                        to: libraryRepository,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor in
+                                guard let self = self else { return }
+                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                                self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                    syncStatus: .syncing(progress: progress * 0.9),
+                                    connectionState: connState
+                                )
+                            }
+                        }
+                    )
+                    
+                    sourceStatuses[sourceId] = MusicSourceStatus(
+                        syncStatus: .lastSynced(Date()),
+                        connectionState: currentConnectionState
+                    )
+                } catch {
+                    sourceStatuses[sourceId] = MusicSourceStatus(
+                        syncStatus: .error(error.localizedDescription),
+                        connectionState: currentConnectionState
+                    )
+                }
+                continue
+            }
+            
+            sourceStatuses[sourceId] = MusicSourceStatus(
+                syncStatus: .syncing(progress: 0),
+                connectionState: currentConnectionState
+            )
+            
+            do {
+                // Incremental sync library content
+                let timestamp = lastSyncDate.timeIntervalSince1970
+                try await provider.syncLibraryIncremental(
+                    since: timestamp,
+                    to: libraryRepository,
+                    progressHandler: { [weak self] progress in
+                        Task { @MainActor in
+                            guard let self = self else { return }
+                            let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                            self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                syncStatus: .syncing(progress: progress * 0.9),
+                                connectionState: connState
+                            )
+                        }
+                    }
+                )
+                
+                // Sync playlists once per server (playlists are typically fast)
+                let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+                if !syncedServerKeys.contains(serverKey) {
+                    syncedServerKeys.insert(serverKey)
+                    try await provider.syncPlaylists(
+                        to: playlistRepository,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor in
+                                guard let self = self else { return }
+                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                                self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                    syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
+                                    connectionState: connState
+                                )
+                            }
+                        }
+                    )
+                }
+                
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .lastSynced(Date()),
+                    connectionState: currentConnectionState
+                )
+            } catch {
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .error(error.localizedDescription),
+                    connectionState: currentConnectionState
+                )
+            }
+        }
+    }
+    
+    /// Sync a single source incrementally (only fetch changes since last sync)
+    public func syncIncremental(source: MusicSourceIdentifier) async {
+        guard let provider = syncProviders[source.compositeKey] else { return }
+        
+        let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
+        
+        // Get last sync timestamp
+        guard let lastSyncDate = await loadLastSyncDate(for: source) else {
+            // No previous sync - fall back to full sync
+            print("⚠️ No previous sync found for \(source.compositeKey), performing full sync")
+            await sync(source: source)
+            return
+        }
+        
+        sourceStatuses[source] = MusicSourceStatus(
+            syncStatus: .syncing(progress: 0),
+            connectionState: currentConnectionState
+        )
+        
+        do {
+            // Incremental sync library content
+            let timestamp = lastSyncDate.timeIntervalSince1970
+            try await provider.syncLibraryIncremental(
+                since: timestamp,
+                to: libraryRepository,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: progress * 0.9),
+                            connectionState: connState
+                        )
+                    }
+                }
+            )
+            
+            // Sync playlists for this server
+            try await provider.syncPlaylists(
+                to: playlistRepository,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
                             connectionState: connState
                         )
                     }
