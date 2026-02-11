@@ -131,11 +131,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let currentIndex = scrollIndex
 
         return ZStack {
-            // Main drag target - covers the whole carousel area
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(carouselDragGesture(geometry: geometry))
-
             // Render visible items
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 let i = Double(index)
@@ -158,8 +153,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                             .frame(width: itemWidth, height: itemHeight)
                     }
                     .buttonStyle(CarouselButtonStyle())
-                    // Simultaneous gesture ensures the button doesn't block the drag start
-                    .simultaneousGesture(carouselDragGesture(geometry: geometry))
                     .scaleEffect(baseScale)
                     .modifier(
                         CoverFlowRotationModifier(
@@ -176,6 +169,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             }
         }
         .frame(width: geometry.size.width, height: carouselHeight)
+        .contentShape(Rectangle())
+        .gesture(carouselDragGesture(geometry: geometry))
         .onAppear {
             scrollToSelection()
         }
