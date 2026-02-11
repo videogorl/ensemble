@@ -27,7 +27,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
 
     // Scroll & Drag State
     @State private var scrollIndex: Double = 0
-    @State private var lastScrollIndex: Double = 0
 
     // Drag tracking for progressive sensitivity
     @State private var dragStartIndex: Double = 0
@@ -140,7 +139,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let relativeIndex = i - currentIndex
 
                 // Optimization: render only items reasonably close
-                if abs(relativeIndex) < 15 {
+                // Increased window to 20 to avoid pops during fast swipes
+                if abs(relativeIndex) < 20 {
 
                     // Non-Linear Position Logic
                     let linearX = relativeIndex * wingSpacing
@@ -165,7 +165,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .opacity(zoomedItem?.id == item.id ? 0 : 1)
                         .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
                         .offset(x: finalX)
-                        .zIndex(zIndex(for: relativeIndex))
+                        // Use a larger, more stable zIndex range.
+                        // We also add a small epsilon based on index to ensure stable sorting 
+                        // even when distances are identical.
+                        .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
+                        .transition(.identity) // Prevent fade in/out when entering window
                         .contentShape(Rectangle())
                         .onTapGesture {
                             tapItem(item, at: i, currentIndex: currentIndex)
@@ -203,6 +207,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     handleDragEnd(value: value, geometry: geometry)
                 }
         )
+        .drawingGroup() // Flatten into a single layer for faster rendering during movement
         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         .onAppear {
             scrollToSelection()
@@ -280,7 +285,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         // compared to the mechanical easeOut.
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0)) {
             scrollIndex = clampedIndex
-            lastScrollIndex = scrollIndex
         }
 
         // Update selection
@@ -309,7 +313,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let duration = min(0.4, 0.15 + distance * 0.025)
                 withAnimation(.easeOut(duration: duration)) {
                     scrollIndex = targetIndex
-                    lastScrollIndex = scrollIndex
                 }
             }
         }
@@ -324,7 +327,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     private func scrollToSelection() {
         if let selected = selectedItem, let index = items.firstIndex(where: { $0.id == selected.id }) {
             scrollIndex = Double(index)
-            lastScrollIndex = scrollIndex
         }
     }
 
@@ -343,7 +345,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
 
             withAnimation(.easeOut(duration: duration)) {
                 scrollIndex = itemIndex
-                lastScrollIndex = scrollIndex
                 selectedItem = item
             }
 
@@ -388,7 +389,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 withAnimation(.easeOut(duration: 0.3)) {
                     zoomedItem = nil
                     scrollIndex = Double(index)
-                    lastScrollIndex = scrollIndex
                 }
             } else {
                 withAnimation(.easeOut(duration: 0.3)) {
