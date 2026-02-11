@@ -170,7 +170,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
         .frame(width: geometry.size.width, height: carouselHeight)
         .contentShape(Rectangle())
-        .gesture(carouselDragGesture(geometry: geometry))
+        .highPriorityGesture(carouselDragGesture(geometry: geometry))
         .onAppear {
             scrollToSelection()
         }
@@ -179,34 +179,35 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Gestures
 
     private func carouselDragGesture(geometry: GeometryProxy) -> some Gesture {
-        // Recalibrated sensitivity: ~45% of screen width = 1 item
-        let sensitivity = 1.0 / (geometry.size.width * 0.45)
+        // Recalibrated sensitivity: ~42% of screen width = 1 item
+        let sensitivity = 1.0 / (geometry.size.width * 0.42)
 
-        return DragGesture(minimumDistance: 15)
+        return DragGesture(minimumDistance: 10)
             .onChanged { value in
                 if !isDragging {
                     isDragging = true
                     dragStartIndex = scrollIndex
                 }
                 
-                let newIndex = dragStartIndex + (-value.translation.width * sensitivity)
-                scrollIndex = newIndex
+                // Live update with interactive spring for buttery tracking
+                withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.86, blendDuration: 0)) {
+                    scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
+                }
             }
             .onEnded { value in
                 isDragging = false
                 
-                // Calculate target with dampened velocity/inertia
                 let translation = value.translation.width
                 let predicted = value.predictedEndTranslation.width
                 let velocity = predicted - translation
                 
-                // Dampen the velocity significantly (0.3) for control
-                let targetIndex = dragStartIndex + (-(translation + (velocity * 0.3)) * sensitivity)
+                // Stronger inertia (0.85 weight) for satisfying "flicks"
+                let targetIndex = dragStartIndex + (-(translation + (velocity * 0.85)) * sensitivity)
                 
                 // Snap to nearest item
                 let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
 
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
                     scrollIndex = clampedIndex
                     
                     // Update selection to the center item
