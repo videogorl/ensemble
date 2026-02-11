@@ -179,8 +179,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Gestures
 
     private func carouselDragGesture(geometry: GeometryProxy) -> some Gesture {
-        // Recalibrated sensitivity: ~42% of screen width = 1 item
-        let sensitivity = 1.0 / (geometry.size.width * 0.42)
+        // Slightly higher sensitivity: ~38% of screen width = 1 item
+        let sensitivity = 1.0 / (geometry.size.width * 0.38)
 
         return DragGesture(minimumDistance: 10)
             .onChanged { value in
@@ -201,13 +201,14 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let predicted = value.predictedEndTranslation.width
                 let velocity = predicted - translation
                 
-                // Stronger inertia (0.85 weight) for satisfying "flicks"
-                let targetIndex = dragStartIndex + (-(translation + (velocity * 0.85)) * sensitivity)
+                // High inertia (1.25 weight) for extra "slick" flicks
+                let targetIndex = dragStartIndex + (-(translation + (velocity * 1.25)) * sensitivity)
                 
                 // Snap to nearest item
                 let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
 
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                // Snappier spring (0.3 response) for a more energetic feel
+                withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
                     scrollIndex = clampedIndex
                     
                     // Update selection to the center item
