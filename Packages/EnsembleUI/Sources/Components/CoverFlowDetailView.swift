@@ -108,10 +108,12 @@ struct CoverFlowDetailView: View {
                     .sorted { ($0.trackNumber ?? 0, $0.title) < ($1.trackNumber ?? 0, $1.title) }
                 
             case .playlist(let playlistId):
-                // For playlists, we would need to implement playlist track fetching
-                // For now, just mark as loaded with empty array
-                // This should be enhanced in a future update to fetch actual playlist tracks
-                tracks = []
+                // Fetch playlist and its tracks from the repository
+                if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(ratingKey: playlistId) {
+                    tracks = cdPlaylist.tracksArray.map { Track(from: $0) }
+                } else {
+                    tracks = []
+                }
             }
             isLoading = false
         } catch {

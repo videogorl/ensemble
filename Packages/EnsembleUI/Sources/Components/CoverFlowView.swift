@@ -27,6 +27,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     @State private var flipAngle: Double = 0
     @State private var zoomedItem: Item? = nil
     @Namespace private var animation
+
+    // Press feedback state
+    @State private var pressedItemId: Item.ID? = nil
     
     // Configuration
     private let rotationMax: Double = 65
@@ -101,13 +104,12 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 .gesture(
                     DragGesture()
                         .updating($dragIndexDelta) { value, state, _ in
-                            // Sensitivity: 1 full swipe width = moves 3 items?
-                            // dragTranslation / (total gap + spacing)
-                            let sensitivity = 1.0 / (wingSpacing + centerGap)
+                            // Sensitivity: one full swipe across 40% of screen width = ~2.5 items
+                            let sensitivity = 1.0 / (geometry.size.width * 0.4)
                             state = -value.translation.width * sensitivity
                         }
                         .onEnded { value in
-                            handleDragEnd(value: value, spacing: wingSpacing + centerGap)
+                            handleDragEnd(value: value, geometry: geometry)
                         }
                 )
             
@@ -128,15 +130,18 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     let gapShift = clamp(relativeIndex, -1, 1) * centerGap
                     let finalX = linearX + gapShift
                     
-                    // Scale Logic: Center item is 33% bigger
-                    let scale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
-                    
+                    // Scale Logic: Center item is 33% bigger, plus press feedback
+                    let baseScale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
+                    let pressScale: CGFloat = pressedItemId == item.id ? 0.95 : 1.0
+                    let scale = baseScale * pressScale
+
                     ZStack {
                         itemView(item)
                             .frame(width: itemWidth, height: itemHeight)
                     }
                     .frame(width: itemWidth, height: itemHeight)
                     .scaleEffect(scale)
+                    .animation(.easeInOut(duration: 0.1), value: pressedItemId)
                     .modifier(
                         CoverFlowRotationModifier(
                             progress: relativeIndex,
@@ -147,17 +152,21 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
                     .offset(x: finalX)
                     .zIndex(zIndex(for: relativeIndex))
-                    .onTapGesture {
-                        if round(currentIndex) == i {
-                            selectAndZoom(item)
-                        } else {
-                            // Tap neighbor to scroll to it
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
-                                scrollIndex = i
-                                lastScrollIndex = scrollIndex
-                                selectedItem = item
+                    .contentShape(Rectangle())
+                    // Press feedback gesture
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                if pressedItemId != item.id {
+                                    pressedItemId = item.id
+                                }
                             }
-                        }
+                            .onEnded { _ in
+                                pressedItemId = nil
+                            }
+                    )
+                    .onTapGesture {
+                        tapItem(item, at: i, currentIndex: currentIndex)
                     }
                 }
             }
@@ -226,23 +235,25 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
 
     // MARK: - Logic Helpers
     
-    private func handleDragEnd(value: DragGesture.Value, spacing: CGFloat) {
-        // spacing passed here is (wing + gap) = roughly the pixel distance 1 index moves at center
-        let sensitivity = 1.0 / spacing
-        
+    private func handleDragEnd(value: DragGesture.Value, geometry: GeometryProxy) {
+        // Sensitivity matches the updating closure: 40% of screen width = 1 item
+        let sensitivity = 1.0 / (geometry.size.width * 0.4)
+
         let dragDelta = -value.translation.width * sensitivity
-        let predictedDelta = -value.predictedEndTranslation.width * sensitivity * 0.5
-        
+        // Less dampening (0.3) preserves more natural momentum
+        let predictedDelta = -value.predictedEndTranslation.width * sensitivity * 0.3
+
         let targetIndex = scrollIndex + dragDelta + predictedDelta
-        
+
         // Clamp to valid indices
         let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+
+        // Softer spring for smoother deceleration
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
             scrollIndex = clampedIndex
             lastScrollIndex = scrollIndex
         }
-        
+
         // Update selection if we snapped to a new item
         let index = Int(clampedIndex)
         if index >= 0 && index < items.count {
@@ -258,11 +269,19 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         } else if selectedItem == nil && zoomedItem != nil {
             closeZoom()
         }
-        
-        // Optionally scroll to selection if triggered externally (e.g. search)
-        // Check if we are far off?
-        // Let's rely on scroll gesture mostly, but if significantly different:
-        // scrollToSelection()
+
+        // Scroll to selection if triggered externally (e.g. search)
+        // Only scroll if significantly different from current position to avoid interrupting swipes
+        if let selected = selectedItem,
+           let index = items.firstIndex(where: { $0.id == selected.id }) {
+            let targetIndex = Double(index)
+            if abs(scrollIndex - targetIndex) > 0.5 {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    scrollIndex = targetIndex
+                    lastScrollIndex = scrollIndex
+                }
+            }
+        }
     }
     
     private func scrollToSelection() {
@@ -272,6 +291,29 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
     }
     
+    /// Handle tap on any carousel item
+    /// - If already centered: zoom immediately
+    /// - If not centered: scroll to it, then zoom after animation completes
+    private func tapItem(_ item: Item, at itemIndex: Double, currentIndex: Double) {
+        let isCentered = round(currentIndex) == itemIndex
+
+        if isCentered {
+            // Already centered, zoom directly
+            selectAndZoom(item)
+        } else {
+            // Scroll to item first
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                scrollIndex = itemIndex
+                lastScrollIndex = scrollIndex
+                selectedItem = item
+            }
+            // Zoom after scroll animation completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                selectAndZoom(item)
+            }
+        }
+    }
+
     private func selectAndZoom(_ item: Item) {
         withAnimation(.easeInOut(duration: 0.6)) {
             selectedItem = item
@@ -280,10 +322,22 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
     }
     
+    /// Close zoom and preserve scroll position on the selected item
     private func closeZoom() {
-        withAnimation(.easeInOut(duration: 0.5)) {
-            flipAngle = 0
-            zoomedItem = nil
+        if let selected = selectedItem,
+           let index = items.firstIndex(where: { $0.id == selected.id }) {
+            // Ensure carousel stays on the selected item
+            withAnimation(.easeInOut(duration: 0.5)) {
+                flipAngle = 0
+                zoomedItem = nil
+                scrollIndex = Double(index)
+                lastScrollIndex = scrollIndex
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                flipAngle = 0
+                zoomedItem = nil
+            }
         }
     }
     
