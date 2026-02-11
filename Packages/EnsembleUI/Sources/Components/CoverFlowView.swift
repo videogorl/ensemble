@@ -75,6 +75,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                     .padding(.bottom, 20)
                     .padding(.horizontal)
                     .transition(.opacity)
+                    .allowsHitTesting(false) // Let taps pass through to the carousel
                 }
 
                 // Zoomed Card Layer
@@ -156,6 +157,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .frame(width: itemWidth, height: itemHeight)
                         .scaleEffect(scale)
                         .animation(.easeInOut(duration: 0.1), value: pressedItemId)
+                        .onTapGesture {
+                            tapItem(item, at: i, currentIndex: currentIndex)
+                        }
                         .modifier(
                             CoverFlowRotationModifier(
                                 progress: relativeIndex,
@@ -170,9 +174,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
                         .transition(.identity) // Prevent fade in/out when entering/leaving window
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            tapItem(item, at: i, currentIndex: currentIndex)
-                        }
                         // Long press for visual feedback (doesn't block tap)
                         .onLongPressGesture(minimumDuration: 0.5, pressing: { isPressing in
                             withAnimation(.easeInOut(duration: 0.1)) {
