@@ -728,31 +728,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func playFromHistory(at historyIndex: Int) async {
         guard historyIndex >= 0, historyIndex < playbackHistory.count else { return }
 
-        // History is chronological: [A, B, C] means A played first, then B, then C
-        // If user taps B (index 1), we want to restore [B, C] to the queue
-        // and play B, with C coming next
-        let itemsToRestore = Array(playbackHistory[historyIndex...])
+        let historyItem = playbackHistory[historyIndex]
+        let trackId = historyItem.track.id
 
-        // Remove these items from history
-        playbackHistory.removeSubrange(historyIndex...)
+        print("🔙 Playing from history: \(historyItem.track.title)")
 
-        // Calculate insert position (before current track, or at start if no current)
-        let insertPosition = max(0, currentQueueIndex)
+        // Check if this track already exists in the queue
+        if let existingIndex = queue.firstIndex(where: { $0.track.id == trackId }) {
+            // Track exists in queue - just navigate to it
+            print("   Found in queue at index \(existingIndex)")
 
-        // Insert items in order at the insert position
-        // After this, tapped item will be at insertPosition
-        queue.insert(contentsOf: itemsToRestore, at: insertPosition)
+            // Remove tapped item and everything after from history
+            playbackHistory.removeSubrange(historyIndex...)
 
-        // Update currentQueueIndex to point to the tapped (first inserted) item
-        currentQueueIndex = insertPosition
+            // Set flag to prevent re-adding to history
+            isNavigatingBackward = true
+            currentQueueIndex = existingIndex
 
-        // Set flag to prevent handleItemChange from re-adding to history
-        isNavigatingBackward = true
+            await playCurrentQueueItem()
+            savePlaybackState()
+        } else {
+            // Track not in queue - insert it at current position
+            print("   Not in queue, inserting at current position")
 
-        print("🔙 Restored \(itemsToRestore.count) items from history, now at index \(currentQueueIndex)")
+            // Remove from history
+            playbackHistory.remove(at: historyIndex)
 
-        await playCurrentQueueItem()
-        savePlaybackState()
+            // Insert at current position
+            let insertPosition = max(0, currentQueueIndex)
+            queue.insert(historyItem, at: insertPosition)
+            currentQueueIndex = insertPosition
+
+            // Set flag to prevent re-adding to history
+            isNavigatingBackward = true
+
+            await playCurrentQueueItem()
+            savePlaybackState()
+        }
 
         await checkAndRefreshAutoplayQueue()
     }
@@ -1679,18 +1691,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask = nil
 
         setupObservers(for: item)
-        print("🎵 Starting playback - waiting for AVPlayer to actually start")
+        print("🎵 Starting playback")
         player?.play()
 
-        // Set appropriate state based on item readiness
-        if item.status == .readyToPlay {
-            // Item is ready - set playing state immediately since timeControlStatus
-            // observer might miss the transition if player was already active
-            playbackState = .playing
-        } else if playbackState != .playing && playbackState != .paused {
-            // Item not ready yet - show loading state
-            playbackState = .loading
-        }
+        // Always set to playing - the observers will handle buffering/stall states
+        // This fixes race conditions where the button shows wrong state
+        playbackState = .playing
+        print("🎵 Set playbackState = .playing")
     }
 
     private func setupObservers(for item: AVPlayerItem) {
