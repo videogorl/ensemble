@@ -65,6 +65,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
             await syncCoordinator.performStartupSync()
             print("📱 AppDelegate: Startup sync complete")
+            
+            // Start periodic sync timer after startup sync completes
+            await MainActor.run {
+                syncCoordinator.startPeriodicSync()
+            }
         }
         
         // Schedule background refresh (iOS only)
@@ -104,6 +109,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Stop network monitoring to save battery
         Task { @MainActor in
             DependencyContainer.shared.networkMonitor.stopMonitoring()
+            
+            // Stop periodic sync timers
+            DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
         }
     }
     
@@ -116,6 +124,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // (network monitor will also trigger this, but doing it immediately ensures faster failover)
             await DependencyContainer.shared.serverHealthChecker.checkAllServers()
             await DependencyContainer.shared.syncCoordinator.refreshAPIClientConnections()
+            
+            // Restart periodic sync timers
+            DependencyContainer.shared.syncCoordinator.startPeriodicSync()
         }
     }
 }

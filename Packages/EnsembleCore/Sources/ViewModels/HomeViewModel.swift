@@ -23,6 +23,10 @@ public final class HomeViewModel: ObservableObject {
     private var lastLoadTime: Date?
     private var currentSourceKey: String?
     
+    // Periodic hub refresh
+    private var hubRefreshTimer: Timer?
+    private let hubRefreshInterval: TimeInterval = 10 * 60  // 10 minutes
+    
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
     
@@ -76,6 +80,10 @@ public final class HomeViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+    
+    deinit {
+        stopPeriodicRefresh()
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
@@ -530,6 +538,36 @@ public final class HomeViewModel: ObservableObject {
                 editableHubs = hubs
             }
         }
+    }
+    
+    // MARK: - Periodic Refresh
+    
+    /// Start periodic hub refresh (every 10 minutes while app is active)
+    public func startPeriodicRefresh() {
+        stopPeriodicRefresh()  // Stop any existing timer
+        
+        print("⏰ Starting periodic hub refresh (every 10 minutes)")
+        hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                // Don't refresh if offline
+                guard !self.syncCoordinator.isOffline else {
+                    print("📴 Offline - skipping periodic hub refresh")
+                    return
+                }
+                
+                print("⏰ Periodic hub refresh triggered")
+                await self.refresh()
+            }
+        }
+    }
+    
+    /// Stop periodic hub refresh
+    public func stopPeriodicRefresh() {
+        hubRefreshTimer?.invalidate()
+        hubRefreshTimer = nil
+        print("🛑 Stopped periodic hub refresh")
     }
 }
 

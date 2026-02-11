@@ -30,6 +30,11 @@ public final class SyncCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
     private var lastHealthCheckTime: Date?
+    
+    // Periodic sync timers
+    private var incrementalSyncTimer: Timer?
+    private var lastIncrementalSyncTime: Date?
+    private let incrementalSyncInterval: TimeInterval = 60 * 60  // 1 hour
 
     public init(
         accountManager: AccountManager,
@@ -904,5 +909,56 @@ public final class SyncCoordinator: ObservableObject {
 
         print("✅ Created PlexRadioProvider for source: \(sourceKey)")
         return radioProvider
+    }
+    
+    // MARK: - Periodic Sync During Active Use
+    
+    /// Start periodic incremental sync while app is active (every 1 hour)
+    public func startPeriodicSync() {
+        stopPeriodicSync()  // Stop any existing timer
+        
+        print("⏰ Starting periodic sync timer (every 1 hour)")
+        incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: incrementalSyncInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.performPeriodicSync()
+            }
+        }
+    }
+    
+    /// Stop periodic sync
+    public func stopPeriodicSync() {
+        incrementalSyncTimer?.invalidate()
+        incrementalSyncTimer = nil
+        print("🛑 Stopped periodic sync timer")
+    }
+    
+    /// Perform periodic incremental sync (called by timer)
+    private func performPeriodicSync() async {
+        print("⏰ Periodic sync triggered")
+        
+        // Don't sync if offline
+        guard !isOffline else {
+            print("📴 Offline - skipping periodic sync")
+            return
+        }
+        
+        // Don't sync if already syncing
+        guard !isSyncing else {
+            print("⏳ Sync already in progress - skipping periodic sync")
+            return
+        }
+        
+        // Check network type - only sync on WiFi for background updates
+        #if os(iOS)
+        if networkMonitor.networkState != .online {
+            print("📡 Not on WiFi - skipping periodic sync")
+            return
+        }
+        #endif
+        
+        print("🔄 Performing periodic incremental sync...")
+        await syncAllIncremental()
+        lastIncrementalSyncTime = Date()
+        print("✅ Periodic sync complete")
     }
 }

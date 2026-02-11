@@ -40,6 +40,15 @@ public struct HomeView: View {
             Task.detached(priority: .userInitiated) { [viewModel] in
                 await viewModel.loadHubs()
             }
+            
+            // Start periodic hub refresh
+            await MainActor.run {
+                viewModel.startPeriodicRefresh()
+            }
+        }
+        .onDisappear {
+            // Stop periodic refresh when view disappears
+            viewModel.stopPeriodicRefresh()
         }
         .refreshable {
             await viewModel.refresh()

@@ -60,6 +60,9 @@ struct EnsembleApp: App {
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 
+                // Start periodic sync timer
+                DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+                
                 // Perform startup sync on first activation (macOS only)
                 if !hasPerformedStartupSync {
                     hasPerformedStartupSync = true
@@ -78,6 +81,9 @@ struct EnsembleApp: App {
             case .background:
                 // Stop monitoring when app goes to background (macOS)
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
+                
+                // Stop periodic sync timer
+                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
             case .inactive:
                 break
             @unknown default:
