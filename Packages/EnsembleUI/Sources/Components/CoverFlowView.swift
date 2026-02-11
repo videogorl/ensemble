@@ -32,7 +32,6 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // Drag tracking for progressive sensitivity
     @State private var dragStartIndex: Double = 0
     @State private var isDragging: Bool = false
-    @State private var dragTranslation: CGFloat = 0
 
     // Zoom/Flip State
     @State private var flipAngle: Double = 0
@@ -131,37 +130,17 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         // Configuration
         let rotationMax: Double = 60
 
-        // Calculate current display index (including drag)
-        let currentIndex = calculateCurrentIndex(geometry: geometry)
+        // Current display index
+        let currentIndex = scrollIndex
 
         return ZStack {
-            // Background touch area for gesture
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            if !isDragging {
-                                // First touch - record starting position
-                                isDragging = true
-                                dragStartIndex = scrollIndex
-                            }
-                            dragTranslation = value.translation.width
-                        }
-                        .onEnded { value in
-                            handleDragEnd(value: value, geometry: geometry)
-                            isDragging = false
-                            dragTranslation = 0
-                        }
-                )
-
             // Render visible items
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 let i = Double(index)
                 let relativeIndex = i - currentIndex
 
                 // Optimization: render only items reasonably close
-                if abs(relativeIndex) < 20 {
+                if abs(relativeIndex) < 15 {
 
                     // Non-Linear Position Logic
                     let linearX = relativeIndex * wingSpacing
@@ -188,13 +167,9 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .offset(x: finalX)
                         .zIndex(zIndex(for: relativeIndex))
                         .contentShape(Rectangle())
-                        // Use highPriorityGesture for tap to ensure it fires
-                        .highPriorityGesture(
-                            TapGesture()
-                                .onEnded {
-                                    tapItem(item, at: i, currentIndex: currentIndex)
-                                }
-                        )
+                        .onTapGesture {
+                            tapItem(item, at: i, currentIndex: currentIndex)
+                        }
                         // Long press for visual feedback (doesn't block tap)
                         .onLongPressGesture(minimumDuration: 0.5, pressing: { isPressing in
                             withAnimation(.easeInOut(duration: 0.1)) {
@@ -206,23 +181,32 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
             }
         }
-        .frame(height: carouselHeight)
+        .frame(width: geometry.size.width, height: carouselHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if !isDragging {
+                        isDragging = true
+                        dragStartIndex = scrollIndex
+                    }
+                    
+                    // High sensitivity: 20% of screen width = 1 item (zippy feel)
+                    let sensitivity = 1.0 / (geometry.size.width * 0.20)
+                    let newIndex = dragStartIndex + (-value.translation.width * sensitivity)
+                    
+                    // Direct update for immediate feedback during drag
+                    scrollIndex = newIndex
+                }
+                .onEnded { value in
+                    isDragging = false
+                    handleDragEnd(value: value, geometry: geometry)
+                }
+        )
         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         .onAppear {
             scrollToSelection()
         }
-    }
-
-    // MARK: - Current Index Calculation
-
-    private func calculateCurrentIndex(geometry: GeometryProxy) -> Double {
-        guard isDragging else { return scrollIndex }
-
-        // High sensitivity: 20% of screen width = 1 item (zippy feel)
-        let sensitivity = 1.0 / (geometry.size.width * 0.20)
-        let dragDelta = -dragTranslation * sensitivity
-
-        return dragStartIndex + dragDelta
     }
 
     // MARK: - Zoomed Card Layer
@@ -283,40 +267,18 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Logic Helpers
 
     private func handleDragEnd(value: DragGesture.Value, geometry: GeometryProxy) {
-        // High sensitivity matching the drag
         let sensitivity = 1.0 / (geometry.size.width * 0.20)
-
-        // Calculate velocity in items/second
-        let velocityInPoints = value.predictedEndTranslation.width - value.translation.width
-        let velocityInItems = abs(velocityInPoints * sensitivity)
 
         // Full momentum - let it ZIP!
         // predictedEndTranslation already includes physics-based projection
-        let targetIndex = dragStartIndex + (-value.predictedEndTranslation.width * sensitivity * 0.85)
+        let targetIndex = dragStartIndex + (-value.predictedEndTranslation.width * sensitivity)
 
-        // Clamp to valid indices
+        // Clamp to valid indices and snap to nearest integer
         let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
 
-        // Animation duration based on velocity - fast flicks = short duration
-        // This maintains the perceived "zip" speed
-        let moveDistance = abs(clampedIndex - (dragStartIndex + (-value.translation.width * sensitivity)))
-        let baseDuration: Double
-        if velocityInItems > 8 {
-            // Very fast flick - quick settle
-            baseDuration = 0.2
-        } else if velocityInItems > 4 {
-            // Fast flick
-            baseDuration = 0.25
-        } else if moveDistance < 1.5 {
-            // Small movement - quick snap
-            baseDuration = 0.15
-        } else {
-            // Normal - proportional to distance but capped
-            baseDuration = min(0.35, 0.15 + moveDistance * 0.03)
-        }
-
-        // Pure easeOut - no spring overshoot
-        withAnimation(.easeOut(duration: baseDuration)) {
+        // Smooth spring for "easing" into the spot - gives it a natural feel
+        // compared to the mechanical easeOut.
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8, blendDuration: 0)) {
             scrollIndex = clampedIndex
             lastScrollIndex = scrollIndex
         }
