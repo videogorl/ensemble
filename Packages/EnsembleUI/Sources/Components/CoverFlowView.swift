@@ -134,83 +134,87 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         let currentIndex = scrollIndex
 
         return ZStack {
+            // Drag target background (handles drags in empty space)
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(carouselDragGesture(geometry: geometry))
+
             // Render visible items
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 let i = Double(index)
                 let relativeIndex = i - currentIndex
 
                 // Optimization: render only items reasonably close
-                // Increased window to 30 to ensure off-screen creation on large displays
-                if abs(relativeIndex) < 30 {
-
+                if abs(relativeIndex) < 15 {
                     // Non-Linear Position Logic
                     let linearX = relativeIndex * wingSpacing
                     let gapShift = clamp(relativeIndex, -1, 1) * centerGap
                     let finalX = linearX + gapShift
 
-                    // Scale Logic: Center item is 33% bigger, plus press feedback
+                    // Scale Logic: Center item is 33% bigger
                     let baseScale = 1.0 + (0.33 * max(0, 1 - abs(relativeIndex)))
                     let pressScale: CGFloat = pressedItemId == item.id ? 0.95 : 1.0
                     let scale = baseScale * pressScale
                     
-                    itemView(item)
-                        .frame(width: itemWidth, height: itemHeight)
-                        .scaleEffect(scale)
-                        .animation(.easeInOut(duration: 0.1), value: pressedItemId)
-                        .onTapGesture {
-                            tapItem(item, at: i, currentIndex: currentIndex)
-                        }
-                        .modifier(
-                            CoverFlowRotationModifier(
-                                progress: relativeIndex,
-                                rotationMax: rotationMax
-                            )
-                        )
-                        .opacity(zoomedItem?.id == item.id ? 0 : 1)
-                        .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
-                        .offset(x: finalX)
-                        // Simple stable zIndex: center is highest. 
-                        // Small epsilon based on index prevents flickering when equidistant.
-                        .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
-                        .transition(.identity) // Prevent fade in/out when entering/leaving window
-                        .contentShape(Rectangle())
-                        // Long press for visual feedback (doesn't block tap)
-                        .onLongPressGesture(minimumDuration: 0.5, pressing: { isPressing in
-                            withAnimation(.easeInOut(duration: 0.1)) {
-                                pressedItemId = isPressing ? item.id : nil
+                    Button {
+                        tapItem(item, at: i, currentIndex: currentIndex)
+                    } label: {
+                        itemView(item)
+                            .frame(width: itemWidth, height: itemHeight)
+                    }
+                    .buttonStyle(CarouselButtonStyle())
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 15)
+                            .onChanged { value in
+                                if !isDragging {
+                                    isDragging = true
+                                    dragStartIndex = scrollIndex
+                                }
+                                let sensitivity = 1.0 / (geometry.size.width * 0.20)
+                                scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
                             }
-                        }, perform: {
-                            // Long press completed - could add action here
-                        })
+                            .onEnded { value in
+                                isDragging = false
+                                handleDragEnd(value: value, geometry: geometry)
+                            }
+                    )
+                    .scaleEffect(scale)
+                    .modifier(
+                        CoverFlowRotationModifier(
+                            progress: relativeIndex,
+                            rotationMax: rotationMax
+                        )
+                    )
+                    .opacity(zoomedItem?.id == item.id ? 0 : 1)
+                    .matchedGeometryEffect(id: item.id, in: animation, properties: .position, isSource: true)
+                    .offset(x: finalX)
+                    .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
+                    .transition(.identity)
                 }
             }
         }
         .frame(width: geometry.size.width, height: carouselHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 15)
-                .onChanged { value in
-                    if !isDragging {
-                        isDragging = true
-                        dragStartIndex = scrollIndex
-                    }
-                    
-                    // High sensitivity: 20% of screen width = 1 item (zippy feel)
-                    let sensitivity = 1.0 / (geometry.size.width * 0.20)
-                    let newIndex = dragStartIndex + (-value.translation.width * sensitivity)
-                    
-                    // Direct update for immediate feedback during drag
-                    scrollIndex = newIndex
-                }
-                .onEnded { value in
-                    isDragging = false
-                    handleDragEnd(value: value, geometry: geometry)
-                }
-        )
-        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         .onAppear {
             scrollToSelection()
         }
+    }
+
+    // MARK: - Gestures
+
+    private func carouselDragGesture(geometry: GeometryProxy) -> some Gesture {
+        DragGesture(minimumDistance: 15)
+            .onChanged { value in
+                if !isDragging {
+                    isDragging = true
+                    dragStartIndex = scrollIndex
+                }
+                let sensitivity = 1.0 / (geometry.size.width * 0.20)
+                scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
+            }
+            .onEnded { value in
+                isDragging = false
+                handleDragEnd(value: value, geometry: geometry)
+            }
     }
 
     // MARK: - Zoomed Card Layer
@@ -401,6 +405,15 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         if value < min { return min }
         if value > max { return max }
         return value
+    }
+}
+
+// MARK: - Button Style
+
+struct CarouselButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
     }
 }
 
