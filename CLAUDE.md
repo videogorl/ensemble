@@ -51,6 +51,25 @@ Right now, this app is not released to the public, and isn't in beta. As a resul
 
 The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
 
+
+## Recent Major Changes
+
+### Sync System Overhaul (Feb 2026)
+The sync system now supports **incremental sync** using Plex API timestamp filters (`addedAt>=`, `updatedAt>=`):
+
+- **Pull-to-refresh:** Library views perform incremental sync (fast), HomeView refreshes hubs only
+- **Startup sync:** Full sync if >24h old, incremental if >1h old, skip if fresh (<1h)
+- **Background refresh (iOS):** `BGAppRefreshTask` refreshes hubs every ~15min (system-controlled)
+- **Routine updates:** Incremental library sync every 1h, hubs every 10min while app is active
+- **Offline-first:** All syncs respect offline state, fall back to CoreData cache
+
+**Key files:**
+- `SyncCoordinator.swift` - `syncAllIncremental()`, `performStartupSync()`, periodic timers
+- `PlexMusicSourceSyncProvider.swift` - `syncLibraryIncremental(since:)`
+- `PlexAPIClient.swift` - Filtered fetch methods (e.g., `getArtists(sectionKey:addedAfter:)`)
+- `BackgroundSyncScheduler.swift` - iOS background refresh scheduling
+
+
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
