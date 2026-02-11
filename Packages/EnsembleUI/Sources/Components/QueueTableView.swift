@@ -230,19 +230,21 @@ public struct QueueTableView: UIViewRepresentable {
     let showHistory: Bool
     let currentQueueIndex: Int
     let onItemTap: (QueueItem, Int) -> Void
+    let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
     let onPlayNext: (Track) -> Void
     let onPlayLast: (Track) -> Void
     let onRemoveFromQueue: (Int) -> Void
     let onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
-    
+
     @Environment(\.dependencies) private var dependencies
-    
+
     public init(
         queueItems: [QueueItem],
         history: [QueueItem],
         showHistory: Bool,
         currentQueueIndex: Int,
         onItemTap: @escaping (QueueItem, Int) -> Void,
+        onHistoryTap: @escaping (QueueItem, Int) -> Void,
         onPlayNext: @escaping (Track) -> Void,
         onPlayLast: @escaping (Track) -> Void,
         onRemoveFromQueue: @escaping (Int) -> Void,
@@ -253,6 +255,7 @@ public struct QueueTableView: UIViewRepresentable {
         self.showHistory = showHistory
         self.currentQueueIndex = currentQueueIndex
         self.onItemTap = onItemTap
+        self.onHistoryTap = onHistoryTap
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onRemoveFromQueue = onRemoveFromQueue
@@ -292,6 +295,7 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.showHistory = showHistory
         context.coordinator.currentQueueIndex = currentQueueIndex
         context.coordinator.onItemTap = onItemTap
+        context.coordinator.onHistoryTap = onHistoryTap
         context.coordinator.onPlayNext = onPlayNext
         context.coordinator.onPlayLast = onPlayLast
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
@@ -331,6 +335,7 @@ public struct QueueTableView: UIViewRepresentable {
             showHistory: showHistory,
             currentQueueIndex: currentQueueIndex,
             onItemTap: onItemTap,
+            onHistoryTap: onHistoryTap,
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
             onRemoveFromQueue: onRemoveFromQueue,
@@ -338,34 +343,35 @@ public struct QueueTableView: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader
         )
     }
-    
+
     // MARK: - Coordinator
-    
+
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UITableViewDropDelegate {
         var queueItems: [QueueItem]
         var history: [QueueItem]
         var showHistory: Bool
         var currentQueueIndex: Int
         var onItemTap: (QueueItem, Int) -> Void
+        var onHistoryTap: (QueueItem, Int) -> Void
         var onPlayNext: (Track) -> Void
         var onPlayLast: (Track) -> Void
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
-        
+
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
-        
+
         struct QueueSection {
             let type: SectionType
             let items: [QueueItem]
-            
+
             enum SectionType {
                 case history
                 case upNext
                 case continuePlaying
                 case autoplay
-                
+
                 var title: String {
                     switch self {
                     case .history: return "History"
@@ -376,13 +382,14 @@ public struct QueueTableView: UIViewRepresentable {
                 }
             }
         }
-        
+
         init(
             queueItems: [QueueItem],
             history: [QueueItem],
             showHistory: Bool,
             currentQueueIndex: Int,
             onItemTap: @escaping (QueueItem, Int) -> Void,
+            onHistoryTap: @escaping (QueueItem, Int) -> Void,
             onPlayNext: @escaping (Track) -> Void,
             onPlayLast: @escaping (Track) -> Void,
             onRemoveFromQueue: @escaping (Int) -> Void,
@@ -394,6 +401,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.showHistory = showHistory
             self.currentQueueIndex = currentQueueIndex
             self.onItemTap = onItemTap
+            self.onHistoryTap = onHistoryTap
             self.onPlayNext = onPlayNext
             self.onPlayLast = onPlayLast
             self.onRemoveFromQueue = onRemoveFromQueue
@@ -525,8 +533,15 @@ public struct QueueTableView: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
             let item = self.item(at: indexPath)
-            
-            if let absoluteIndex = absoluteQueueIndex(for: indexPath) {
+            let section = sections[indexPath.section]
+
+            // Handle history items separately
+            if section.type == .history {
+                // History is displayed reversed (most recent first), so convert index
+                // back to original history array index
+                let originalHistoryIndex = history.count - 1 - indexPath.row
+                onHistoryTap(item, originalHistoryIndex)
+            } else if let absoluteIndex = absoluteQueueIndex(for: indexPath) {
                 onItemTap(item, absoluteIndex)
             }
         }
