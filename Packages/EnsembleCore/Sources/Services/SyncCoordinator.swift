@@ -405,6 +405,68 @@ public final class SyncCoordinator: ObservableObject {
             )
         }
     }
+    
+    /// Perform appropriate sync on app startup based on staleness
+    /// - If last full sync > 24 hours: full sync
+    /// - If last sync > 1 hour: incremental sync
+    /// - Otherwise: skip (data is fresh enough)
+    public func performStartupSync() async {
+        print("🚀 Performing startup sync...")
+        
+        // Don't sync if offline
+        guard !isOffline else {
+            print("📴 Offline - skipping startup sync")
+            return
+        }
+        
+        // Don't sync if already syncing
+        guard !isSyncing else {
+            print("⏳ Sync already in progress - skipping startup sync")
+            return
+        }
+        
+        // Check if we have any sources configured
+        guard !syncProviders.isEmpty else {
+            print("ℹ️ No sync providers configured - skipping startup sync")
+            return
+        }
+        
+        // Determine if we need to sync
+        var needsFullSync = false
+        var needsIncrementalSync = false
+        
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            
+            if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
+                let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
+                
+                if hoursSinceSync > 24 {
+                    print("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs full sync")
+                    needsFullSync = true
+                    break
+                } else if hoursSinceSync > 1 {
+                    print("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs incremental sync")
+                    needsIncrementalSync = true
+                }
+            } else {
+                print("⏰ Source \(sourceId.compositeKey) has never been synced - needs full sync")
+                needsFullSync = true
+                break
+            }
+        }
+        
+        // Perform appropriate sync
+        if needsFullSync {
+            print("🔄 Starting full sync on startup...")
+            await syncAll()
+        } else if needsIncrementalSync {
+            print("🔄 Starting incremental sync on startup...")
+            await syncAllIncremental()
+        } else {
+            print("✅ Library is fresh - skipping startup sync")
+        }
+    }
 
     /// Ensure the server connection is ready for a given track
     /// This ensures we have a working connection URL before attempting playback

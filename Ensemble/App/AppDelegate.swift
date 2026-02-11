@@ -54,6 +54,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             print("📱 AppDelegate: Playback state restoration complete")
         }
         
+        // Perform startup sync (non-blocking, runs in background)
+        Task.detached(priority: .utility) {
+            // Wait a bit longer to ensure the app is fully initialized
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
+            print("📱 AppDelegate: Starting startup sync...")
+            let syncCoordinator = await MainActor.run {
+                DependencyContainer.shared.syncCoordinator
+            }
+            await syncCoordinator.performStartupSync()
+            print("📱 AppDelegate: Startup sync complete")
+        }
+        
         print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }
