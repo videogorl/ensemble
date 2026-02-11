@@ -181,20 +181,13 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
     }
 
-    // MARK: - Current Index Calculation with Progressive Sensitivity
+    // MARK: - Current Index Calculation
 
     private func calculateCurrentIndex(geometry: GeometryProxy) -> Double {
         guard isDragging else { return scrollIndex }
 
-        // Base sensitivity: 40% of screen width = 1 item
-        let baseSensitivity = 1.0 / (geometry.size.width * 0.4)
-
-        // Progressive sensitivity: items further from center scroll faster
-        // Like iOS app switcher - dragging from edge items feels faster
-        let distanceFromCenter = abs(dragStartIndex - round(dragStartIndex))
-        let progressiveMultiplier = 1.0 + (distanceFromCenter * 0.5) + (abs(dragStartIndex - scrollIndex) * 0.3)
-
-        let sensitivity = baseSensitivity * min(progressiveMultiplier, 2.5)
+        // High sensitivity: 20% of screen width = 1 item (zippy feel)
+        let sensitivity = 1.0 / (geometry.size.width * 0.20)
         let dragDelta = -dragTranslation * sensitivity
 
         return dragStartIndex + dragDelta
@@ -258,42 +251,45 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Logic Helpers
 
     private func handleDragEnd(value: DragGesture.Value, geometry: GeometryProxy) {
-        // Calculate final position with momentum
-        let baseSensitivity = 1.0 / (geometry.size.width * 0.4)
+        // High sensitivity matching the drag
+        let sensitivity = 1.0 / (geometry.size.width * 0.20)
 
-        // Progressive sensitivity for momentum too
-        let distanceFromCenter = abs(dragStartIndex - round(dragStartIndex))
-        let progressiveMultiplier = 1.0 + (distanceFromCenter * 0.5)
-        let sensitivity = baseSensitivity * min(progressiveMultiplier, 2.5)
+        // Calculate velocity in items/second
+        let velocityInPoints = value.predictedEndTranslation.width - value.translation.width
+        let velocityInItems = abs(velocityInPoints * sensitivity)
 
-        let dragDelta = -value.translation.width * sensitivity
-        // Momentum: use 0.25 for smooth follow-through
-        let predictedDelta = -value.predictedEndTranslation.width * sensitivity * 0.25
-
-        let targetIndex = dragStartIndex + dragDelta + predictedDelta
+        // Full momentum - let it ZIP!
+        // predictedEndTranslation already includes physics-based projection
+        let targetIndex = dragStartIndex + (-value.predictedEndTranslation.width * sensitivity * 0.85)
 
         // Clamp to valid indices
         let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
 
-        // Calculate how far we're moving
-        let moveDistance = abs(clampedIndex - scrollIndex)
-
-        // Use different animations based on scroll distance
-        if moveDistance <= 2 {
-            // Small moves: use easeOut for snappy feel without overshoot
-            withAnimation(.easeOut(duration: 0.25)) {
-                scrollIndex = clampedIndex
-                lastScrollIndex = scrollIndex
-            }
+        // Animation duration based on velocity - fast flicks = short duration
+        // This maintains the perceived "zip" speed
+        let moveDistance = abs(clampedIndex - (dragStartIndex + (-value.translation.width * sensitivity)))
+        let baseDuration: Double
+        if velocityInItems > 8 {
+            // Very fast flick - quick settle
+            baseDuration = 0.2
+        } else if velocityInItems > 4 {
+            // Fast flick
+            baseDuration = 0.25
+        } else if moveDistance < 1.5 {
+            // Small movement - quick snap
+            baseDuration = 0.15
         } else {
-            // Larger moves: use spring for natural deceleration
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                scrollIndex = clampedIndex
-                lastScrollIndex = scrollIndex
-            }
+            // Normal - proportional to distance but capped
+            baseDuration = min(0.35, 0.15 + moveDistance * 0.03)
         }
 
-        // Update selection if we snapped to a new item
+        // Pure easeOut - no spring overshoot
+        withAnimation(.easeOut(duration: baseDuration)) {
+            scrollIndex = clampedIndex
+            lastScrollIndex = scrollIndex
+        }
+
+        // Update selection
         let index = Int(clampedIndex)
         if index >= 0 && index < items.count {
             selectedItem = items[index]
@@ -314,18 +310,12 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
            let index = items.firstIndex(where: { $0.id == selected.id }) {
             let targetIndex = Double(index)
             if abs(scrollIndex - targetIndex) > 0.5 {
-                // Use appropriate animation based on distance
+                // Duration proportional to distance, capped
                 let distance = abs(scrollIndex - targetIndex)
-                if distance <= 2 {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        scrollIndex = targetIndex
-                        lastScrollIndex = scrollIndex
-                    }
-                } else {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                        scrollIndex = targetIndex
-                        lastScrollIndex = scrollIndex
-                    }
+                let duration = min(0.4, 0.15 + distance * 0.025)
+                withAnimation(.easeOut(duration: duration)) {
+                    scrollIndex = targetIndex
+                    lastScrollIndex = scrollIndex
                 }
             }
         }
@@ -349,23 +339,16 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         } else {
             // Scroll to item first, then zoom
             let distance = abs(scrollIndex - itemIndex)
+            let duration = min(0.3, 0.12 + distance * 0.03)
 
-            if distance <= 2 {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    scrollIndex = itemIndex
-                    lastScrollIndex = scrollIndex
-                    selectedItem = item
-                }
-            } else {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                    scrollIndex = itemIndex
-                    lastScrollIndex = scrollIndex
-                    selectedItem = item
-                }
+            withAnimation(.easeOut(duration: duration)) {
+                scrollIndex = itemIndex
+                lastScrollIndex = scrollIndex
+                selectedItem = item
             }
 
             // Zoom after scroll animation completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) {
                 selectAndZoom(item)
             }
         }
