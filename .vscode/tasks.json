@@ -2,13 +2,13 @@
   "version": "2.0.0",
   "tasks": [
 	{
-		"label": "Agent A: Preview",
+		"label": "Agent A: Preview on main worktree",
 		"type": "shell",
 		"command": "cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout --detach && cd ~/Developer/projects/ensemble/ && git checkout ${input:branchName}",
 		"problemMatcher": []
 	},
 	{
-		"label": "Agent A: Send back",
+		"label": "Agent A: Send back to agent worktree",
 		"type": "shell",
 		"command": "cd ~/Developer/projects/ensemble/ && git checkout develop && cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout ${input:branchName}",
 		"problemMatcher": []
