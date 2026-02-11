@@ -154,6 +154,24 @@ public final class LibraryViewModel: ObservableObject {
         await loadLibrary()
     }
     
+    /// Refresh from server (incremental sync) if online, otherwise load from cache
+    public func refreshFromServer() async {
+        // Check if offline
+        if syncCoordinator.isOffline {
+            print("📴 Offline - loading from cache only")
+            await loadLibrary()
+            return
+        }
+        
+        error = nil
+        
+        // Perform incremental sync
+        await syncCoordinator.syncAllIncremental()
+        
+        // Reload from updated cache
+        await loadLibrary()
+    }
+    
     // MARK: - Sorted Collections
     
     public var sortedTracks: [Track] {
