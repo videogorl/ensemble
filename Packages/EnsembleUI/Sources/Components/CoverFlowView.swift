@@ -170,9 +170,13 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                         .zIndex(100 - abs(relativeIndex) + (Double(index) * 0.0001))
                         .transition(.identity) // Prevent fade in/out when entering/leaving window
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            tapItem(item, at: i, currentIndex: currentIndex)
-                        }
+                        // Use highPriorityGesture so taps register before the parent DragGesture captures them
+                        .highPriorityGesture(
+                            TapGesture()
+                                .onEnded {
+                                    tapItem(item, at: i, currentIndex: currentIndex)
+                                }
+                        )
                         // Long press for visual feedback (doesn't block tap)
                         .onLongPressGesture(minimumDuration: 0.5, pressing: { isPressing in
                             withAnimation(.easeInOut(duration: 0.1)) {
@@ -337,18 +341,14 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             // Already centered, zoom directly
             selectAndZoom(item)
         } else {
-            // Scroll to item first, then zoom
+            // Scroll to item first, but DO NOT auto-zoom.
+            // User can tap again to open if desired.
             let distance = abs(scrollIndex - itemIndex)
             let duration = min(0.3, 0.12 + distance * 0.03)
 
             withAnimation(.easeOut(duration: duration)) {
                 scrollIndex = itemIndex
                 selectedItem = item
-            }
-
-            // Zoom after scroll animation completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) {
-                selectAndZoom(item)
             }
         }
     }
