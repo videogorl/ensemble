@@ -82,6 +82,11 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
             }
         }
         .edgesIgnoringSafeArea(.all)
+        .onAppear {
+            // Reset isShowingDetail on appear - important when returning from detail view
+            // to ensure we don't navigate again on next rotation
+            syncIsShowingDetail()
+        }
         .onChange(of: selectedItem?.id) { _ in
             handleExternalSelectionChange()
         }
