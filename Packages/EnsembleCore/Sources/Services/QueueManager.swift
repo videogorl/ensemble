@@ -584,7 +584,9 @@ public final class QueueManager {
     /// Called when a user inserts or moves a non-autoplay item among autoplay items.
     public func flattenAutoplayItemsBeforeIndex(_ index: Int) {
         let start = currentQueueIndex + 1
-        for i in start..<min(index, queue.count) {
+        let end = min(index, queue.count)
+        guard start < end else { return }
+        for i in start..<end {
             if queue[i].source == .autoplay {
                 queue[i].source = .continuePlaying
             }
