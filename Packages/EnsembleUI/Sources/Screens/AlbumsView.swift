@@ -11,6 +11,7 @@ public struct AlbumsView: View {
     @State private var wasLandscape: Bool = false
     @State private var coverFlowIsShowingDetail: Bool = false
     @State private var shouldNavigateToDetail: Bool = false
+    @State private var autoOpenInCoverFlow: Bool = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -35,7 +36,11 @@ public struct AlbumsView: View {
                 NavigationLink(
                     destination: Group {
                         if let album = selectedAlbum {
-                            AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                            AlbumDetailLoader(
+                                albumId: album.id,
+                                nowPlayingVM: nowPlayingVM,
+                                onDismissToLandscape: $autoOpenInCoverFlow
+                            )
                         }
                     },
                     isActive: $shouldNavigateToDetail,
@@ -283,7 +288,8 @@ public struct AlbumsView: View {
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
             selectedItem: $selectedAlbum,
-            isShowingDetail: $coverFlowIsShowingDetail
+            isShowingDetail: $coverFlowIsShowingDetail,
+            autoOpenSelectedItem: $autoOpenInCoverFlow
         )
         .background(Color.black)
     }

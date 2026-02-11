@@ -10,6 +10,7 @@ public struct PlaylistsView: View {
     @State private var wasLandscape: Bool = false
     @State private var coverFlowIsShowingDetail: Bool = false
     @State private var shouldNavigateToDetail: Bool = false
+    @State private var autoOpenInCoverFlow: Bool = false
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -25,7 +26,11 @@ public struct PlaylistsView: View {
                 NavigationLink(
                     destination: Group {
                         if let playlist = selectedPlaylist {
-                            PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                            PlaylistDetailLoader(
+                                playlistId: playlist.id,
+                                nowPlayingVM: nowPlayingVM,
+                                onDismissToLandscape: $autoOpenInCoverFlow
+                            )
                         }
                     },
                     isActive: $shouldNavigateToDetail,
@@ -182,7 +187,8 @@ public struct PlaylistsView: View {
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
             selectedItem: $selectedPlaylist,
-            isShowingDetail: $coverFlowIsShowingDetail
+            isShowingDetail: $coverFlowIsShowingDetail,
+            autoOpenSelectedItem: $autoOpenInCoverFlow
         )
         .background(Color.black)
     }

@@ -21,6 +21,10 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     /// Parent views can use this to coordinate navigation on orientation change.
     var isShowingDetail: Binding<Bool>?
 
+    /// When true on appear, automatically open (zoom+flip) the selected item.
+    /// Used when returning from detail view via landscape rotation.
+    var autoOpenSelectedItem: Binding<Bool>?
+
     // Scroll & Drag State
     @State private var scrollIndex: Double = 0
     @State private var lastScrollIndex: Double = 0
@@ -83,9 +87,19 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         }
         .edgesIgnoringSafeArea(.all)
         .onAppear {
-            // Reset isShowingDetail on appear - important when returning from detail view
-            // to ensure we don't navigate again on next rotation
-            syncIsShowingDetail()
+            // Check if we should auto-open the selected item (coming from detail view rotation)
+            if autoOpenSelectedItem?.wrappedValue == true, let item = selectedItem {
+                // Reset the flag
+                autoOpenSelectedItem?.wrappedValue = false
+                // Auto-open after a brief delay to let the view settle
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    selectAndZoom(item)
+                }
+            } else {
+                // Reset isShowingDetail on appear - important when returning from detail view
+                // to ensure we don't navigate again on next rotation
+                syncIsShowingDetail()
+            }
         }
         .onChange(of: selectedItem?.id) { _ in
             handleExternalSelectionChange()

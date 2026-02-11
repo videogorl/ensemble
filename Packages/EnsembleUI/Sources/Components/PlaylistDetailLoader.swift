@@ -4,6 +4,10 @@ import SwiftUI
 struct PlaylistDetailLoader: View {
     let playlistId: String
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+
+    /// Set to true when dismissing due to landscape rotation - signals parent to auto-open in CoverFlow
+    var onDismissToLandscape: Binding<Bool>?
+
     @State private var playlist: Playlist?
     @State private var isLoading = true
     @State private var error: Error?
@@ -48,6 +52,8 @@ struct PlaylistDetailLoader: View {
             .onChange(of: isLandscape) { newIsLandscape in
                 // Dismiss when rotating to landscape - parent will show CoverFlow
                 if newIsLandscape {
+                    // Signal parent to auto-open this item in CoverFlow
+                    onDismissToLandscape?.wrappedValue = true
                     presentationMode.wrappedValue.dismiss()
                 }
             }
