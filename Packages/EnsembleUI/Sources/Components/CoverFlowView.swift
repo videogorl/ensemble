@@ -80,6 +80,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                    zoomedCardLayer(item: item, geometry: geometry)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .edgesIgnoringSafeArea(.all)
         .onAppear {
@@ -179,8 +180,8 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
     // MARK: - Gestures
 
     private func carouselDragGesture(geometry: GeometryProxy) -> some Gesture {
-        // Slightly higher sensitivity: ~38% of screen width = 1 item
-        let sensitivity = 1.0 / (geometry.size.width * 0.38)
+        // Much higher sensitivity: ~28% of screen width = 1 item
+        let sensitivity = 1.0 / (geometry.size.width * 0.28)
 
         return DragGesture(minimumDistance: 10)
             .onChanged { value in
@@ -190,7 +191,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 }
                 
                 // Live update with interactive spring for buttery tracking
-                withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.86, blendDuration: 0)) {
+                withAnimation(.interactiveSpring(response: 0.12, dampingFraction: 0.88, blendDuration: 0)) {
                     scrollIndex = dragStartIndex + (-value.translation.width * sensitivity)
                 }
             }
@@ -201,14 +202,14 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 let predicted = value.predictedEndTranslation.width
                 let velocity = predicted - translation
                 
-                // High inertia (1.25 weight) for extra "slick" flicks
-                let targetIndex = dragStartIndex + (-(translation + (velocity * 1.25)) * sensitivity)
+                // Extreme inertia (1.7 weight) for that "infinite glide" feel
+                let targetIndex = dragStartIndex + (-(translation + (velocity * 1.7)) * sensitivity)
                 
                 // Snap to nearest item
                 let clampedIndex = max(0, min(Double(items.count - 1), round(targetIndex)))
 
-                // Snappier spring (0.3 response) for a more energetic feel
-                withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
+                // Very fast spring (0.25 response) for immediate locking
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
                     scrollIndex = clampedIndex
                     
                     // Update selection to the center item
