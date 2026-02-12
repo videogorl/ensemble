@@ -173,7 +173,8 @@ public struct PlaylistDetailView: View {
             navigationTitle: playlist.title,
             showArtwork: true,
             showTrackNumbers: false,
-            groupByDisc: false
+            groupByDisc: false,
+            mediaType: .playlist
         )
     }
     
