@@ -948,10 +948,10 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
         
-        // Check network type - only sync on WiFi for background updates
+        // Check network connectivity - only sync when connected
         #if os(iOS)
-        if networkMonitor.networkState != .online {
-            print("📡 Not on WiFi - skipping periodic sync")
+        if !networkMonitor.isConnected {
+            print("📡 Not connected - skipping periodic sync")
             return
         }
         #endif

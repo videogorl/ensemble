@@ -83,7 +83,8 @@ public final class HomeViewModel: ObservableObject {
     }
     
     deinit {
-        stopPeriodicRefresh()
+        // Invalidate timer directly without calling @MainActor method from nonisolated deinit
+        hubRefreshTimer?.invalidate()
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
