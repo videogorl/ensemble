@@ -1,0 +1,19 @@
+{
+	"name": "xcode build server",
+	"version": "1.3.0",
+	"bspVersion": "2.2.0",
+	"languages": [
+		"c",
+		"cpp",
+		"objective-c",
+		"objective-cpp",
+		"swift"
+	],
+	"argv": [
+		"/opt/homebrew/bin/xcode-build-server"
+	],
+	"workspace": "/Users/felicity/Developer/projects/ensemble/Ensemble.xcworkspace",
+	"build_root": "/Users/felicity/Library/Developer/Xcode/DerivedData/Ensemble-acfrzilewhltslcavzyjpkgeuqmr",
+	"scheme": "Ensemble",
+	"kind": "xcode"
+}
