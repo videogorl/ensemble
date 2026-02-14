@@ -44,11 +44,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showTrackNumbers: Bool
     let groupByDisc: Bool
     let showFilter: Bool
-    
+    let mediaType: PinnedItemType?
+
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
     @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
     public init(
         viewModel: ViewModel,
@@ -58,7 +60,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showArtwork: Bool = true,
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
-        showFilter: Bool = true
+        showFilter: Bool = true,
+        mediaType: PinnedItemType? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -68,6 +71,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showTrackNumbers = showTrackNumbers
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
+        self.mediaType = mediaType
     }
 
     public var body: some View {
@@ -103,6 +107,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 baseContent
             }
         }
+        .toolbar {
+            // Pin/Unpin menu button
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let mediaType = mediaType,
+                   let ratingKey = headerData.ratingKey {
+                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
@@ -111,6 +124,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if let path = headerData.artworkPath {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
+        }
+    }
+
+    /// Toolbar menu with Pin/Unpin action
+    private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
+        let isPinned = pinManager.isPinned(id: ratingKey)
+        return Menu {
+            Button {
+                if isPinned {
+                    pinManager.unpin(id: ratingKey)
+                } else {
+                    pinManager.pin(
+                        id: ratingKey,
+                        sourceKey: headerData.sourceKey ?? "",
+                        type: mediaType,
+                        title: headerData.title
+                    )
+                }
+            } label: {
+                if isPinned {
+                    Label("Unpin", systemImage: "pin.slash")
+                } else {
+                    Label("Pin", systemImage: "pin.fill")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
     }
 

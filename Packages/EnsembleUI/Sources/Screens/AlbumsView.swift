@@ -269,7 +269,8 @@ public struct AlbumDetailView: View {
             showArtwork: false,
             showTrackNumbers: true,
             groupByDisc: true,
-            showFilter: false
+            showFilter: false,
+            mediaType: .album
         )
     }
     
