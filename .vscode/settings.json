@@ -1,6 +1,6 @@
 {
-	"workbench.colorTheme": "Solarized Dark",
-	"workbench.preferredLightColorTheme": "Solarized Light",
+	"workbench.colorTheme": "Monokai",
+	"workbench.preferredLightColorTheme": "Quiet Light",
 	"chat.tools.terminal.autoApprove": {
 		"xcodebuild": true,
 		"git add": true,
