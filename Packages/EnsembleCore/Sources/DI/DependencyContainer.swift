@@ -37,6 +37,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let cacheManager: CacheManager
     public let navigationCoordinator: NavigationCoordinator
     public let hubOrderManager: HubOrderManager
+    public let pinManager: PinManager
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -119,6 +120,11 @@ public final class DependencyContainer: @unchecked Sendable {
         
         // Hub order manager
         hubOrderManager = HubOrderManager()
+
+        // Pin manager
+        pinManager = MainActor.assumeIsolated {
+            PinManager()
+        }
     }
 
     // MARK: - View Model Factories
@@ -215,6 +221,15 @@ public final class DependencyContainer: @unchecked Sendable {
         FavoritesViewModel(libraryRepository: libraryRepository)
     }
     
+    @MainActor
+    public func makePinnedViewModel() -> PinnedViewModel {
+        PinnedViewModel(
+            pinManager: pinManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository
+        )
+    }
+
     @MainActor
     public func makeHomeViewModel() -> HomeViewModel {
         HomeViewModel(

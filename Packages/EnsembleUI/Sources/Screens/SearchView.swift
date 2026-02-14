@@ -6,11 +6,15 @@ public struct SearchView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
+    @StateObject private var pinnedVM: PinnedViewModel
+    @State private var isPinnedExpanded = false
+    @State private var isEditingPins = false
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
+        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
     public var body: some View {
@@ -36,6 +40,7 @@ public struct SearchView: View {
         .task {
             // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
+            await pinnedVM.loadPinnedItems()
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
@@ -80,28 +85,9 @@ public struct SearchView: View {
                     }
                 }
 
-                // Recently Played Artists
-                if !viewModel.recentlyPlayedArtists.isEmpty {
-                    exploreSection(
-                        title: "Recently Played Artists",
-                        items: viewModel.recentlyPlayedArtists
-                    ) { artist in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
-                                ArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                ArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                
+                // Pinned Items (always show header)
+                pinnedSection
+
                 // Recently Played Albums
                 if !viewModel.recentlyPlayedAlbums.isEmpty {
                     exploreSection(
@@ -181,9 +167,8 @@ public struct SearchView: View {
                     }
                 }
                 
-                // Empty state if no explore content
-                if viewModel.recentlyPlayedArtists.isEmpty &&
-                   viewModel.recentlyPlayedAlbums.isEmpty &&
+                // Empty state if no explore content (excluding pinned since we always show it)
+                if viewModel.recentlyPlayedAlbums.isEmpty &&
                    viewModel.recentlyAddedAlbums.isEmpty &&
                    viewModel.recommendedItems.isEmpty &&
                    viewModel.allMoods.isEmpty &&
@@ -193,9 +178,15 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
+        .onAppear {
+            // Reset dragging state when view appears/reappears to prevent stuck transparency
+            pinnedVM.draggingPin = nil
+            pinnedVM.draggingPinId = nil
+        }
         .refreshable {
             await viewModel.loadExploreContent()
         }
+        .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
     }
     
     /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
@@ -233,7 +224,7 @@ public struct SearchView: View {
         .listStyle(.plain)
         .frame(height: listHeight)
 
-        if #available(iOS 16.0, *) {
+        if #available(iOS 16.0, macOS 13.0, *) {
             return AnyView(list.scrollDisabled(true))
         } else {
             return AnyView(list)
@@ -327,6 +318,245 @@ public struct SearchView: View {
         }
     }
     
+    // MARK: - Pinned Section
+
+    /// Collapsible pinned items grid — shows 6 by default, all when expanded
+    /// Always shows header with empty state message when no pins exist
+    private var pinnedSection: some View {
+        let displayItems = isPinnedExpanded
+            ? pinnedVM.resolvedPins
+            : Array(pinnedVM.resolvedPins.prefix(6))
+
+        return VStack(alignment: .leading, spacing: 12) {
+            // Section header with expand/collapse chevron
+            Button {
+                withAnimation {
+                    isPinnedExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Pinned")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Spacer()
+
+                    if !pinnedVM.resolvedPins.isEmpty {
+                        Button {
+                            withAnimation(.spring()) {
+                                isEditingPins.toggle()
+                                if isEditingPins {
+                                    isPinnedExpanded = true
+                                }
+                            }
+                        } label: {
+                            Text(isEditingPins ? "Done" : "Edit")
+                                .font(.subheadline)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding(.trailing, 4)
+                    }
+
+                    if pinnedVM.resolvedPins.count > 6 && !isEditingPins {
+                        Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+
+            if pinnedVM.resolvedPins.isEmpty {
+                // Empty state message
+                Text("Pin your favorite playlists, artists, and albums for quick access.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            } else {
+                // Grid of pinned items with drag reordering on iOS 16+
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(displayItems) { pin in
+                        pinnedItemCard(pin)
+                            .contextMenu {
+                                // Unpin action
+                                Button(role: .destructive) {
+                                    pinnedVM.unpin(id: pin.pinnedItem.id)
+                                } label: {
+                                    Label("Unpin", systemImage: "pin.slash")
+                                }
+                            }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
+    private struct PinnedGridBackgroundDropDelegate: DropDelegate {
+        let viewModel: PinnedViewModel
+        
+        func dropEntered(info: DropInfo) {
+            // Restore dragging ID if we entered the background while dragging
+            if let draggingPin = viewModel.draggingPin {
+                withAnimation(.spring()) {
+                    viewModel.draggingPinId = draggingPin.id
+                }
+            }
+        }
+        
+        func performDrop(info: DropInfo) -> Bool {
+            withAnimation(.spring()) {
+                viewModel.persistOrder()
+                viewModel.draggingPin = nil
+                viewModel.draggingPinId = nil
+            }
+            return true
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            return DropProposal(operation: .move)
+        }
+
+        func dropExited(info: DropInfo) {
+            // Safety cleanup
+            withAnimation(.spring()) {
+                viewModel.draggingPinId = nil
+            }
+        }
+    }
+
+
+    /// Renders the appropriate card and NavigationLink for a resolved pin
+    /// Supports drag reordering on iOS 16+
+    @ViewBuilder
+    private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
+        let cardContent = pinnedItemCardContent(pin)
+            .wiggle(isWiggling: isEditingPins)
+            .overlay(alignment: .topTrailing) {
+                if isEditingPins {
+                    Button {
+                        withAnimation {
+                            pinnedVM.unpin(id: pin.pinnedItem.id)
+                        }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .red)
+                            .font(.title3)
+                    }
+                    .offset(x: 8, y: -8)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+
+        cardContent
+            .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
+            .onDrag {
+                pinnedVM.draggingPin = pin
+                pinnedVM.draggingPinId = pin.id
+                return NSItemProvider(object: pin.pinnedItem.id as NSString)
+            }
+            .onDrop(of: [.text], delegate: PinnedDropDelegate(item: pin, viewModel: pinnedVM))
+    }
+
+    /// Delegate for handling interactive grid reordering
+    private struct PinnedDropDelegate: DropDelegate {
+        let item: ResolvedPin
+        let viewModel: PinnedViewModel
+        
+        func dropEntered(info: DropInfo) {
+            // Restore dragging state if we entered an item while dragging
+            if let draggingPin = viewModel.draggingPin {
+                withAnimation(.spring()) {
+                    viewModel.draggingPinId = draggingPin.id
+                }
+                
+                if draggingPin.id != item.id {
+                    viewModel.move(draggingItem: draggingPin, toTarget: item)
+                }
+            }
+        }
+        
+        func dropExited(info: DropInfo) {
+            // Safety cleanup when leaving an item area. 
+            // If we enter another item or the background, they will restore draggingPinId.
+            withAnimation(.spring()) {
+                viewModel.draggingPinId = nil
+            }
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            return DropProposal(operation: .move)
+        }
+        
+        func performDrop(info: DropInfo) -> Bool {
+            withAnimation(.spring()) {
+                viewModel.persistOrder()
+                viewModel.draggingPin = nil
+                viewModel.draggingPinId = nil
+            }
+            return true
+        }
+    }
+
+    /// The actual card content (NavigationLink + card) without drag modifiers
+    @ViewBuilder
+    private func pinnedItemCardContent(_ pin: ResolvedPin) -> some View {
+        switch pin {
+        case .album(let album, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.album(id: album.id)) {
+                    AlbumCard(album: album)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            } else {
+                NavigationLink {
+                    AlbumDetailLoader(albumId: album.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    AlbumCard(album: album)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            }
+        case .artist(let artist, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                    ArtistCard(artist: artist)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            } else {
+                NavigationLink {
+                    ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    ArtistCard(artist: artist)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            }
+        case .playlist(let playlist, _):
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+                    PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            } else {
+                NavigationLink {
+                    PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+                .disabled(isEditingPins)
+            }
+        }
+    }
+
     private var emptyExploreView: some View {
         VStack(spacing: 16) {
             Spacer()
@@ -547,7 +777,7 @@ public struct SearchView: View {
     // MARK: - Grid Configuration
     
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)]
+        [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)]
     }
     
     private var recommendedDisplayItems: [HubItem] {
