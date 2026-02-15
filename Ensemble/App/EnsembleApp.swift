@@ -1,5 +1,6 @@
 import EnsembleCore
 import EnsembleUI
+import Intents
 import SwiftUI
 
 @main
@@ -7,7 +8,7 @@ struct EnsembleApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
-    
+
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -17,6 +18,12 @@ struct EnsembleApp: App {
                 .onOpenURL { url in
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }
+                #if os(iOS)
+                .onContinueUserActivity(NSStringFromClass(INPlayMediaIntent.self)) { userActivity in
+                    // Handle Siri intent when app is already running
+                    appDelegate.handleSiriIntent(from: userActivity)
+                }
+                #endif
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)

@@ -1,8 +1,117 @@
 import AVFoundation
+import Intents
 import UIKit
 import EnsembleCore
+import EnsemblePersistence
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+
+    // MARK: - Siri Intent Handling
+
+    /// Handles Siri media intents when the app is launched or resumed
+    func application(
+        _ application: UIApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+    ) -> Bool {
+        handleSiriIntent(from: userActivity)
+        return true
+    }
+
+    /// Process the Siri intent and trigger playback
+    func handleSiriIntent(from userActivity: NSUserActivity) {
+        guard userActivity.activityType == NSStringFromClass(INPlayMediaIntent.self),
+              let intent = userActivity.interaction?.intent as? INPlayMediaIntent else {
+            print("AppDelegate: Not a play media intent")
+            return
+        }
+
+        // Extract media item identifier (format: "type:ratingKey")
+        guard let mediaItem = intent.mediaItems?.first,
+              let identifier = mediaItem.identifier else {
+            print("AppDelegate: No media item identifier in intent")
+            return
+        }
+
+        let playShuffled = intent.playShuffled ?? false
+        print("AppDelegate: Siri intent received - identifier: \(identifier), shuffle: \(playShuffled)")
+
+        // Parse identifier (format: "type:ratingKey")
+        let components = identifier.split(separator: ":", maxSplits: 1)
+        guard components.count == 2 else {
+            print("AppDelegate: Invalid identifier format: \(identifier)")
+            return
+        }
+
+        let type = String(components[0])
+        let ratingKey = String(components[1])
+
+        Task { @MainActor in
+            await handlePlaybackRequest(type: type, ratingKey: ratingKey, shuffle: playShuffled)
+        }
+    }
+
+    /// Fetch tracks and trigger playback based on media type
+    @MainActor
+    private func handlePlaybackRequest(type: String, ratingKey: String, shuffle: Bool) async {
+        let playbackService = DependencyContainer.shared.playbackService
+        let libraryRepository = DependencyContainer.shared.libraryRepository
+        let playlistRepository = DependencyContainer.shared.playlistRepository
+
+        do {
+            var tracks: [Track] = []
+
+            switch type {
+            case "artist":
+                // Play all tracks by this artist
+                let cdTracks = try await libraryRepository.fetchTracks(forArtist: ratingKey)
+                tracks = cdTracks.map { Track(from: $0) }
+                print("AppDelegate: Found \(tracks.count) tracks for artist \(ratingKey)")
+
+            case "album":
+                // Play album tracks
+                let cdTracks = try await libraryRepository.fetchTracks(forAlbum: ratingKey)
+                tracks = cdTracks.map { Track(from: $0) }
+                print("AppDelegate: Found \(tracks.count) tracks for album \(ratingKey)")
+
+            case "playlist":
+                // Play playlist tracks
+                if let playlist = try await playlistRepository.fetchPlaylist(ratingKey: ratingKey) {
+                    tracks = playlist.tracksArray.map { Track(from: $0) }
+                    print("AppDelegate: Found \(tracks.count) tracks for playlist \(ratingKey)")
+                }
+
+            case "track":
+                // Play single track
+                if let cdTrack = try await libraryRepository.fetchTrack(ratingKey: ratingKey) {
+                    tracks = [Track(from: cdTrack)]
+                    print("AppDelegate: Found track \(ratingKey)")
+                }
+
+            default:
+                print("AppDelegate: Unknown media type: \(type)")
+                return
+            }
+
+            guard !tracks.isEmpty else {
+                print("AppDelegate: No tracks found for \(type):\(ratingKey)")
+                return
+            }
+
+            // Trigger playback
+            if shuffle {
+                await playbackService.shufflePlay(tracks: tracks)
+            } else {
+                await playbackService.play(tracks: tracks, startingAt: 0)
+            }
+
+            print("AppDelegate: Started playback of \(tracks.count) tracks (shuffle: \(shuffle))")
+
+        } catch {
+            print("AppDelegate: Error handling Siri playback request: \(error)")
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
