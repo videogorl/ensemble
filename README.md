@@ -265,7 +265,9 @@ This is a personal project, but contributions are welcome! Please:
 
 ## License
 
-This project is for personal use.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for third-party licenses and attributions.
 
 ---
 
