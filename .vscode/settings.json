@@ -1,0 +1,17 @@
+{
+	"workbench.colorTheme": "Monokai",
+	"workbench.preferredLightColorTheme": "Quiet Light",
+	"chat.tools.terminal.autoApprove": {
+		"xcodebuild": true,
+		"git add": true,
+		"git commit": true,
+		"swift": true,
+		"FlipOpacity": true,
+		"swiftc": true,
+		"gemini": true,
+		"git checkout": true
+	},
+	"githubPullRequests.overrideDefaultBranch": "develop",
+	"githubPullRequests.defaultMergeMethod": "squash",
+	"githubPullRequests.deleteBranchAfterMerge": true
+}
