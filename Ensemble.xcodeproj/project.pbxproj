@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
 		992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC62F32A1FC00491C42 /* CLAUDE.md */; };
 		992E2BC92F32A1FC00491C42 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC72F32A1FC00491C42 /* README.md */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
@@ -20,6 +21,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		9926CB072F43A106004A19A3 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		992E2BC62F32A1FC00491C42 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 		992E2BC72F32A1FC00491C42 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		E0000001 /* Ensemble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ensemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -67,6 +69,7 @@
 				E0100002 /* EnsembleWatch */,
 				E0100003 /* Packages */,
 				E0100004 /* Products */,
+				9926CB072F43A106004A19A3 /* AppIcon.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -244,6 +247,7 @@
 				992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */,
 				992E2BC92F32A1FC00491C42 /* README.md in Resources */,
 				E0001005 /* Assets.xcassets in Resources */,
+				9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,0 +1,220 @@
+{
+  "fill-specializations" : [
+    {
+      "value" : {
+        "solid" : "display-p3:0.87843,0.98039,1.00000,1.00000"
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : "automatic"
+    }
+  ],
+  "groups" : [
+    {
+      "blend-mode-specializations" : [
+        {
+          "value" : "normal"
+        },
+        {
+          "appearance" : "dark",
+          "value" : "normal"
+        }
+      ],
+      "blur-material" : 0.5,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill-specializations" : [
+            {
+              "value" : "none"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name-specializations" : [
+            {
+              "value" : "Play - PRIMARY.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Play - PRIMARY (Dark).svg"
+            }
+          ],
+          "name" : "Play - PRIMARY (Dark)",
+          "position" : {
+            "scale" : 0.5,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "opacity" : 0.95,
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.25
+      },
+      "specular" : true,
+      "translucency-specializations" : [
+        {
+          "value" : {
+            "enabled" : false,
+            "value" : 0.44
+          }
+        },
+        {
+          "appearance" : "dark",
+          "value" : {
+            "enabled" : true,
+            "value" : 0.78
+          }
+        }
+      ]
+    },
+    {
+      "blend-mode-specializations" : [
+        {
+          "value" : "normal"
+        },
+        {
+          "appearance" : "dark",
+          "value" : "lighten"
+        }
+      ],
+      "blur-material" : 0.5,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "gray:0.67827,1.00000"
+              }
+            }
+          ],
+          "hidden" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "Play - 01.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Play - 01 (Dark).svg"
+            }
+          ],
+          "name" : "Play - 01 (Dark)",
+          "position" : {
+            "scale" : 0.5,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "opacity" : 0.5,
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.25
+      },
+      "specular" : true,
+      "translucency-specializations" : [
+        {
+          "value" : {
+            "enabled" : false,
+            "value" : 0.5
+          }
+        },
+        {
+          "appearance" : "dark",
+          "value" : {
+            "enabled" : true,
+            "value" : 0.32
+          }
+        }
+      ]
+    },
+    {
+      "blend-mode-specializations" : [
+        {
+          "value" : "normal"
+        },
+        {
+          "appearance" : "dark",
+          "value" : "normal"
+        }
+      ],
+      "blur-material" : 0.5,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "gray:0.23922,1.00000"
+              }
+            }
+          ],
+          "hidden" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "Play - 2.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Play - 2 (Dark).svg"
+            }
+          ],
+          "name" : "Play - 2 (Dark)",
+          "position" : {
+            "scale" : 0.5,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "opacity" : 0.8,
+      "position" : {
+        "scale" : 1,
+        "translation-in-points" : [
+          10,
+          -10
+        ]
+      },
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.25
+      },
+      "specular" : true,
+      "translucency-specializations" : [
+        {
+          "value" : {
+            "enabled" : false,
+            "value" : 0.5
+          }
+        },
+        {
+          "appearance" : "dark",
+          "value" : {
+            "enabled" : true,
+            "value" : 0.5
+          }
+        }
+      ]
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
