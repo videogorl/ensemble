@@ -3,12 +3,15 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9926CB062F4259B2004A19A3 /* EnsemblePersistence in Frameworks */ = {isa = PBXBuildFile; productRef = 9926CB052F4259B2004A19A3 /* EnsemblePersistence */; };
 		992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC62F32A1FC00491C42 /* CLAUDE.md */; };
 		992E2BC92F32A1FC00491C42 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC72F32A1FC00491C42 /* README.md */; };
+		99615DA22F42573C00C1AC50 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99615DA12F42573C00C1AC50 /* Intents.framework */; };
+		99615DA92F42573C00C1AC50 /* EnsembleIntents.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 99615D9F2F42573C00C1AC50 /* EnsembleIntents.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
@@ -19,9 +22,36 @@
 		E0003003 /* EnsembleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E0003002 /* EnsembleCore */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		99615DA72F42573C00C1AC50 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0400000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 99615D9E2F42573C00C1AC50;
+			remoteInfo = EnsembleIntents;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		99615DAA2F42573C00C1AC50 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				99615DA92F42573C00C1AC50 /* EnsembleIntents.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		9926CB032F4258EF004A19A3 /* Ensemble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ensemble.entitlements; sourceTree = "<group>"; };
 		992E2BC62F32A1FC00491C42 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 		992E2BC72F32A1FC00491C42 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		99615D9F2F42573C00C1AC50 /* EnsembleIntents.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EnsembleIntents.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		99615DA12F42573C00C1AC50 /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 		E0000001 /* Ensemble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ensemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0000002 /* Ensemble Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ensemble Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0001000 /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
@@ -38,7 +68,30 @@
 		E0004003 /* EnsemblePersistence */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsemblePersistence; path = Packages/EnsemblePersistence; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		99615DAD2F42573C00C1AC50 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 99615D9E2F42573C00C1AC50 /* EnsembleIntents */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		99615DA32F42573C00C1AC50 /* EnsembleIntents */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (99615DAD2F42573C00C1AC50 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = EnsembleIntents; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		99615D9C2F42573C00C1AC50 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				99615DA22F42573C00C1AC50 /* Intents.framework in Frameworks */,
+				9926CB062F4259B2004A19A3 /* EnsemblePersistence in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E0010001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -58,6 +111,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		99615DA02F42573C00C1AC50 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				99615DA12F42573C00C1AC50 /* Intents.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		E0100000 = {
 			isa = PBXGroup;
 			children = (
@@ -66,6 +127,8 @@
 				E0100001 /* Ensemble */,
 				E0100002 /* EnsembleWatch */,
 				E0100003 /* Packages */,
+				99615DA32F42573C00C1AC50 /* EnsembleIntents */,
+				99615DA02F42573C00C1AC50 /* Frameworks */,
 				E0100004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +136,7 @@
 		E0100001 /* Ensemble */ = {
 			isa = PBXGroup;
 			children = (
+				9926CB032F4258EF004A19A3 /* Ensemble.entitlements */,
 				E0100010 /* App */,
 				E0100011 /* Resources */,
 				E0001006 /* Info.plist */,
@@ -107,6 +171,7 @@
 			children = (
 				E0000001 /* Ensemble.app */,
 				E0000002 /* Ensemble Watch.app */,
+				99615D9F2F42573C00C1AC50 /* EnsembleIntents.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -155,6 +220,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		99615D9E2F42573C00C1AC50 /* EnsembleIntents */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 99615DAE2F42573C00C1AC50 /* Build configuration list for PBXNativeTarget "EnsembleIntents" */;
+			buildPhases = (
+				99615D9B2F42573C00C1AC50 /* Sources */,
+				99615D9C2F42573C00C1AC50 /* Frameworks */,
+				99615D9D2F42573C00C1AC50 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				99615DA32F42573C00C1AC50 /* EnsembleIntents */,
+			);
+			name = EnsembleIntents;
+			packageProductDependencies = (
+				9926CB052F4259B2004A19A3 /* EnsemblePersistence */,
+			);
+			productName = EnsembleIntents;
+			productReference = 99615D9F2F42573C00C1AC50 /* EnsembleIntents.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		E0200001 /* Ensemble */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E0300001 /* Build configuration list for PBXNativeTarget "Ensemble" */;
@@ -162,10 +250,12 @@
 				E0010001 /* Frameworks */,
 				E0210001 /* Sources */,
 				E0220001 /* Resources */,
+				99615DAA2F42573C00C1AC50 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				99615DA82F42573C00C1AC50 /* PBXTargetDependency */,
 			);
 			name = Ensemble;
 			packageProductDependencies = (
@@ -202,9 +292,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
+				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
+					99615D9E2F42573C00C1AC50 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					E0200001 = {
 						CreatedOnToolsVersion = 15.0;
 					};
@@ -225,6 +318,7 @@
 			packageReferences = (
 				E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */,
 				E0500001 /* XCLocalSwiftPackageReference "Packages/EnsembleCore" */,
+				9926CB042F4259B2004A19A3 /* XCLocalSwiftPackageReference "Packages/EnsemblePersistence" */,
 			);
 			productRefGroup = E0100004 /* Products */;
 			projectDirPath = "";
@@ -232,11 +326,19 @@
 			targets = (
 				E0200001 /* Ensemble */,
 				E0200002 /* EnsembleWatch */,
+				99615D9E2F42573C00C1AC50 /* EnsembleIntents */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		99615D9D2F42573C00C1AC50 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E0220001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -258,6 +360,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		99615D9B2F42573C00C1AC50 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E0210001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -278,7 +387,78 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		99615DA82F42573C00C1AC50 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 99615D9E2F42573C00C1AC50 /* EnsembleIntents */;
+			targetProxy = 99615DA72F42573C00C1AC50 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		99615DAB2F42573C00C1AC50 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = EnsembleIntents/EnsembleIntents.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EnsembleIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EnsembleIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.EnsembleIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		99615DAC2F42573C00C1AC50 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = EnsembleIntents/EnsembleIntents.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EnsembleIntents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EnsembleIntents;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.EnsembleIntents;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		E0600001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -398,6 +578,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Ensemble/Ensemble.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
@@ -420,6 +601,7 @@
 				MARKETING_VERSION = 0.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -436,6 +618,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Ensemble/Ensemble.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
@@ -458,6 +641,7 @@
 				MARKETING_VERSION = 0.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -528,6 +712,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		99615DAE2F42573C00C1AC50 /* Build configuration list for PBXNativeTarget "EnsembleIntents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				99615DAB2F42573C00C1AC50 /* Debug */,
+				99615DAC2F42573C00C1AC50 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		E0300000 /* Build configuration list for PBXProject "Ensemble" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -558,6 +751,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		9926CB042F4259B2004A19A3 /* XCLocalSwiftPackageReference "Packages/EnsemblePersistence" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EnsemblePersistence;
+		};
 		E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EnsembleUI;
@@ -569,6 +766,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9926CB052F4259B2004A19A3 /* EnsemblePersistence */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnsemblePersistence;
+		};
 		E0003000 /* EnsembleUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EnsembleUI;
