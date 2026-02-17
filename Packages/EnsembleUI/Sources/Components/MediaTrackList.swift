@@ -265,6 +265,10 @@ public struct MediaTrackList: UIViewRepresentable {
         // exactly N × rowHeight with no extra trailing space.
         tableView.sectionFooterHeight = 0
 
+        // iOS 15 introduced automatic top padding above section headers; suppress it
+        // so the content height is exactly N × rowHeight with no leading offset.
+        tableView.sectionHeaderTopPadding = 0
+
         return tableView
     }
     
@@ -291,6 +295,10 @@ public struct MediaTrackList: UIViewRepresentable {
         // Only reload if data actually changed
         if dataChanged {
             tableView.reloadData()
+            // 🐛 TEMP: log geometry after reload to diagnose clipping
+            DispatchQueue.main.async {
+                print("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
+            }
         } else if currentTrackChanged {
             // Only update visible cells instead of full reload
             tableView.visibleCells.forEach { cell in
