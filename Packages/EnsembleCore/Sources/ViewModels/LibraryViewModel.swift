@@ -168,18 +168,22 @@ public final class LibraryViewModel: ObservableObject {
         // Check if sync is already in progress
         if syncCoordinator.isSyncing {
             print("⏳ Sync already in progress - waiting for it to complete")
-            // Wait a bit and reload (the auto-reload observer will handle it)
             await loadLibrary()
             return
         }
 
         error = nil
 
-        // Perform incremental sync
-        print("🔄 Starting incremental sync...")
-        print("🔄 Task.isCancelled at start: \(Task.isCancelled)")
-        await syncCoordinator.syncAllIncremental()
-        print("🔄 Task.isCancelled after sync: \(Task.isCancelled)")
+        // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        // SwiftUI can cancel the refreshable task when the view updates, but we want
+        // the sync to complete regardless
+        print("🔄 Starting incremental sync (detached)...")
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncAllIncremental()
+                continuation.resume()
+            }
+        }
         print("✅ Incremental sync complete")
 
         // Reload from updated cache

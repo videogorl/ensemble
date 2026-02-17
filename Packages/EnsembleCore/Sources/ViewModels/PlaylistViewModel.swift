@@ -81,8 +81,15 @@ public final class PlaylistViewModel: ObservableObject {
 
         error = nil
 
-        // Sync playlists only (fast, doesn't touch library)
-        await syncCoordinator.syncPlaylistsOnly()
+        // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        print("🔄 Starting playlist sync (detached)...")
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncPlaylistsOnly()
+                continuation.resume()
+            }
+        }
+        print("✅ Playlist sync complete")
 
         // Reload from updated cache
         await loadPlaylists()
