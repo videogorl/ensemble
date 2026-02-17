@@ -190,6 +190,11 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         }
                     }
 
+                    // Update trackCount to match what was actually stored locally.
+                    // The Plex API's leafCount (stored at upsert time) can be stale or mismatched
+                    // for smart playlists, and we can only link tracks that exist in the local library.
+                    playlist.trackCount = Int32(foundCount)
+
                     try context.save()
                     print("✅ Saved \(foundCount) tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) requested)")
                     continuation.resume()
