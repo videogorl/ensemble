@@ -255,6 +255,16 @@ public struct MediaTrackList: UIViewRepresentable {
         )
         tableView.backgroundColor = .systemBackground
         tableView.isScrollEnabled = false // Parent ScrollView handles scrolling
+
+        // Disable automatic content inset adjustment — the table view is already
+        // positioned below the nav bar by SwiftUI, so letting UIKit also adjust
+        // contentInset.top causes a contentOffset shift that clips the last row.
+        tableView.contentInsetAdjustmentBehavior = .never
+
+        // Suppress any default section footer height so the content height stays
+        // exactly N × rowHeight with no extra trailing space.
+        tableView.sectionFooterHeight = 0
+
         return tableView
     }
     
@@ -409,6 +419,10 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             return groupedTracks[section].disc != nil ? 40 : 0
+        }
+
+        public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+            return 0
         }
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
