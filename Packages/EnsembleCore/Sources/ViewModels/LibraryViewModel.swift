@@ -33,6 +33,13 @@ public final class LibraryViewModel: ObservableObject {
     @Published public var albumsFilterOptions: FilterOptions
     @Published public var genresFilterOptions: FilterOptions
 
+    // Cached computed collections — updated by Combine pipelines, not on every render
+    @Published public private(set) var filteredTracks: [Track] = []
+    @Published public private(set) var filteredArtists: [Artist] = []
+    @Published public private(set) var filteredAlbums: [Album] = []
+    @Published public private(set) var filteredGenres: [Genre] = []
+    @Published public private(set) var trackSections: [TrackSection] = []
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let accountManager: AccountManager
@@ -91,6 +98,66 @@ public final class LibraryViewModel: ObservableObject {
 
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Keep cached filtered collections in sync with their inputs
+        setupComputedPipelines()
+    }
+
+    /// Wires Combine pipelines that keep the cached filtered collections up to date.
+    /// Each collection is recomputed only when its relevant inputs change (not on every SwiftUI render).
+    /// All pipeline values are passed through explicitly so no `self` capture is needed in map closures.
+    private func setupComputedPipelines() {
+        // Tracks: recompute when the raw list, sort option, or filter options change
+        Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
+            .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
+                let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption)
+                let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
+                let sections = LibraryViewModel.computeTrackSections(from: filtered)
+                return (filtered, sections)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] filtered, sections in
+                self?.filteredTracks = filtered
+                self?.trackSections = sections
+            }
+            .store(in: &cancellables)
+
+        // Artists
+        Publishers.CombineLatest3($artists, $artistSortOption, $artistsFilterOptions)
+            .map { artists, sortOption, filterOptions -> [Artist] in
+                let sorted = LibraryViewModel.sortArtists(artists, by: sortOption)
+                return LibraryViewModel.filterArtists(sorted, with: filterOptions)
+            }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$filteredArtists)
+
+        // Albums
+        Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
+            .map { albums, sortOption, filterOptions -> [Album] in
+                let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption)
+                return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
+            }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$filteredAlbums)
+
+        // Genres (no sort option — always alphabetical)
+        Publishers.CombineLatest($genres, $genresFilterOptions)
+            .map { genres, filterOptions -> [Genre] in
+                let sorted = genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+                return LibraryViewModel.filterGenres(sorted, with: filterOptions)
+            }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$filteredGenres)
+    }
+
+    private static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
+        let grouped = Dictionary(grouping: tracks) { $0.title.indexingLetter }
+        return grouped.map { TrackSection(letter: $0.key, tracks: $0.value) }
+            .sorted { left, right in
+                if left.letter == "#" { return true }
+                if right.letter == "#" { return false }
+                return left.letter < right.letter
+            }
     }
 
     private func setupFilterPersistence() {
@@ -193,18 +260,27 @@ public final class LibraryViewModel: ObservableObject {
         await loadLibrary()
     }
     
-    // MARK: - Sorted Collections
-    
-    public var sortedTracks: [Track] {
-        switch trackSortOption {
+    // MARK: - Sorted Collections (instance accessors for callers that need them)
+
+    public var sortedTracks: [Track] { LibraryViewModel.sortTracks(tracks, by: trackSortOption) }
+    public var sortedArtists: [Artist] { LibraryViewModel.sortArtists(artists, by: artistSortOption) }
+    public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption) }
+    public var sortedGenres: [Genre] {
+        genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+    }
+
+    // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
+
+    private static func sortTracks(_ tracks: [Track], by option: TrackSortOption) -> [Track] {
+        switch option {
         case .title:
             return tracks.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
         case .artist:
-            return tracks.sorted { 
+            return tracks.sorted {
                 ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey) == .orderedAscending
             }
         case .album:
-            return tracks.sorted { 
+            return tracks.sorted {
                 ($0.albumName ?? "").sortingKey.localizedStandardCompare(($1.albumName ?? "").sortingKey) == .orderedAscending
             }
         case .duration:
@@ -221,9 +297,9 @@ public final class LibraryViewModel: ObservableObject {
             return tracks.sorted { $0.playCount > $1.playCount }
         }
     }
-    
-    public var sortedArtists: [Artist] {
-        switch artistSortOption {
+
+    private static func sortArtists(_ artists: [Artist], by option: ArtistSortOption) -> [Artist] {
+        switch option {
         case .name:
             return artists.sorted { $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedAscending }
         case .dateAdded:
@@ -232,13 +308,13 @@ public final class LibraryViewModel: ObservableObject {
             return artists.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
         }
     }
-    
-    public var sortedAlbums: [Album] {
-        switch albumSortOption {
+
+    private static func sortAlbums(_ albums: [Album], by option: AlbumSortOption) -> [Album] {
+        switch option {
         case .title:
             return albums.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
         case .artist:
-            return albums.sorted { 
+            return albums.sorted {
                 ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey) == .orderedAscending
             }
         case .albumArtist:
@@ -255,32 +331,6 @@ public final class LibraryViewModel: ObservableObject {
             return albums.sorted { $0.rating > $1.rating }
         }
     }
-    
-    public var sortedGenres: [Genre] {
-        genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
-    }
-
-    // MARK: - Filtered Collections
-
-    /// Filtered and sorted tracks based on current filter options
-    public var filteredTracks: [Track] {
-        applyFilters(to: sortedTracks, with: tracksFilterOptions)
-    }
-
-    /// Filtered and sorted artists based on current filter options
-    public var filteredArtists: [Artist] {
-        applyFilters(to: sortedArtists, with: artistsFilterOptions)
-    }
-
-    /// Filtered and sorted albums based on current filter options
-    public var filteredAlbums: [Album] {
-        applyFilters(to: sortedAlbums, with: albumsFilterOptions)
-    }
-
-    /// Filtered and sorted genres based on current filter options
-    public var filteredGenres: [Genre] {
-        applyFilters(to: sortedGenres, with: genresFilterOptions)
-    }
 
     // MARK: - Sections
 
@@ -290,22 +340,11 @@ public final class LibraryViewModel: ObservableObject {
         public var id: String { letter }
     }
 
-    public var trackSections: [TrackSection] {
-        let grouped = Dictionary(grouping: filteredTracks) { $0.title.indexingLetter }
-        return grouped.map { TrackSection(letter: $0.key, tracks: $0.value) }
-            .sorted { left, right in
-                if left.letter == "#" { return true }
-                if right.letter == "#" { return false }
-                return left.letter < right.letter
-            }
-    }
+    // MARK: - Filter Implementations (static so Combine pipelines can call them without actor capture)
 
-    // MARK: - Filter Application
-
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
+    private static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
         var filtered = tracks
 
-        // Search text filter
         if !options.searchText.isEmpty {
             let searchLower = options.searchText.lowercased()
             filtered = filtered.filter {
@@ -315,7 +354,6 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
-        // Downloaded only filter
         if options.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
@@ -323,33 +361,21 @@ public final class LibraryViewModel: ObservableObject {
         return filtered
     }
 
-    private func applyFilters(to artists: [Artist], with options: FilterOptions) -> [Artist] {
+    private static func filterArtists(_ artists: [Artist], with options: FilterOptions) -> [Artist] {
         var filtered = artists
 
-        // Search text filter
         if !options.searchText.isEmpty {
             let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.name.lowercased().contains(searchLower)
-            }
+            filtered = filtered.filter { $0.name.lowercased().contains(searchLower) }
         }
 
-        // Genre filter
-        if !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { artist in
-                // For now, we can't easily filter artists by genre without fetching their albums
-                // This would require additional repository methods
-                true
-            }
-        }
-
+        // Genre filtering for artists requires album lookups — not yet implemented
         return filtered
     }
 
-    private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
+    private static func filterAlbums(_ albums: [Album], with options: FilterOptions) -> [Album] {
         var filtered = albums
 
-        // Search text filter
         if !options.searchText.isEmpty {
             let searchLower = options.searchText.lowercased()
             filtered = filtered.filter {
@@ -359,7 +385,6 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
-        // Year range filter
         if let yearRange = options.yearRange {
             filtered = filtered.filter {
                 guard let year = $0.year else { return false }
@@ -367,7 +392,6 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
-        // Artist filter
         if !options.selectedArtists.isEmpty {
             filtered = filtered.filter { album in
                 options.selectedArtists.contains(album.artistName ?? "") ||
@@ -378,17 +402,9 @@ public final class LibraryViewModel: ObservableObject {
         return filtered
     }
 
-    private func applyFilters(to genres: [Genre], with options: FilterOptions) -> [Genre] {
-        var filtered = genres
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
-            }
-        }
-
-        return filtered
+    private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
+        guard !options.searchText.isEmpty else { return genres }
+        let searchLower = options.searchText.lowercased()
+        return genres.filter { $0.title.lowercased().contains(searchLower) }
     }
 }
