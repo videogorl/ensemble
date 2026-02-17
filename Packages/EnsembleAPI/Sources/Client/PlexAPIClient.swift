@@ -388,6 +388,61 @@ public actor PlexAPIClient {
         )
         return container.mediaContainer.items
     }
+
+    // MARK: - Lightweight Inventory (for orphan detection)
+
+    /// Get all artist ratingKeys in a library section (minimal response)
+    /// Uses includeFields=ratingKey to reduce response size significantly
+    public func getArtistInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "8",
+                "includeFields": "ratingKey",
+                "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexInventoryItem>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
+    /// Get all album ratingKeys in a library section (minimal response)
+    public func getAlbumInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "9",
+                "includeFields": "ratingKey",
+                "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexInventoryItem>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
+    /// Get all track ratingKeys in a library section (minimal response)
+    public func getTrackInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "includeFields": "ratingKey",
+                "excludeElements": "Media,Genre,Mood,Guid,Rating"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexInventoryItem>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get moods in a library section
     public func getMoods(sectionKey: String) async throws -> [PlexMood] {
         let data = try await serverRequest(path: "/library/sections/\(sectionKey)/mood")

@@ -117,21 +117,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
-        // Orphan removal: Fetch server inventory and remove local items not on server
+        // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
         print("🧹 Checking for orphaned items (lightweight inventory)...")
 
-        // Fetch all items from server to get complete inventory
-        let serverArtists = try await apiClient.getArtists(sectionKey: sectionKey)
-        let artistRatingKeys = Set(serverArtists.map { $0.ratingKey })
+        // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
+        let artistInventory = try await apiClient.getArtistInventory(sectionKey: sectionKey)
+        let artistRatingKeys = Set(artistInventory.map { $0.ratingKey })
         progressHandler(0.65)
 
-        let serverAlbums = try await apiClient.getAlbums(sectionKey: sectionKey)
-        let albumRatingKeys = Set(serverAlbums.map { $0.ratingKey })
+        let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
+        let albumRatingKeys = Set(albumInventory.map { $0.ratingKey })
         progressHandler(0.75)
 
-        let serverTracks = try await apiClient.getTracks(sectionKey: sectionKey)
-        let trackRatingKeys = Set(serverTracks.map { $0.ratingKey })
+        let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
+        let trackRatingKeys = Set(trackInventory.map { $0.ratingKey })
         progressHandler(0.85)
 
         // Remove orphans
