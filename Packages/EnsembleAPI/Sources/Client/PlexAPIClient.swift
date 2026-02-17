@@ -1042,6 +1042,12 @@ public actor PlexAPIClient {
     }
 
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        // Check if the task is already cancelled before making the request
+        if Task.isCancelled {
+            print("⚠️ Task was cancelled before request started!")
+            throw CancellationError()
+        }
+
         do {
             let (data, response) = try await session.data(for: request)
 

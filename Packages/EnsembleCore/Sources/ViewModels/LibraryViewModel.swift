@@ -177,7 +177,9 @@ public final class LibraryViewModel: ObservableObject {
 
         // Perform incremental sync
         print("🔄 Starting incremental sync...")
+        print("🔄 Task.isCancelled at start: \(Task.isCancelled)")
         await syncCoordinator.syncAllIncremental()
+        print("🔄 Task.isCancelled after sync: \(Task.isCancelled)")
         print("✅ Incremental sync complete")
 
         // Reload from updated cache
