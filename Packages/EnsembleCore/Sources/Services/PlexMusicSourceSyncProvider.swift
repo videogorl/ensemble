@@ -25,7 +25,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     ) async throws {
         let sourceKey = sourceIdentifier.compositeKey
         print("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
-        
+
         // Ensure CDMusicSource exists
         _ = try await repository.upsertMusicSource(
             compositeKey: sourceKey,
@@ -36,14 +36,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             displayName: nil,
             accountName: nil
         )
-        
+
         // Sync artists added or updated since timestamp
-        progressHandler(0.125)
+        progressHandler(0.1)
         let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
         let allArtists = Set(newArtists.map { $0.ratingKey }).union(Set(updatedArtists.map { $0.ratingKey }))
         let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
-        
+
         print("🔄 Incremental sync: \(artistsToSync.count) artists changed")
         for artist in artistsToSync {
             _ = try await repository.upsertArtist(
@@ -58,14 +58,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 sourceCompositeKey: sourceKey
             )
         }
-        
+
         // Sync albums added or updated since timestamp
-        progressHandler(0.375)
+        progressHandler(0.25)
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
         let allAlbums = Set(newAlbums.map { $0.ratingKey }).union(Set(updatedAlbums.map { $0.ratingKey }))
         let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
-        
+
         print("🔄 Incremental sync: \(albumsToSync.count) albums changed")
         for album in albumsToSync {
             _ = try await repository.upsertAlbum(
@@ -86,14 +86,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 sourceCompositeKey: sourceKey
             )
         }
-        
+
         // Sync tracks added or updated since timestamp
-        progressHandler(0.625)
+        progressHandler(0.4)
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
         let allTracks = Set(newTracks.map { $0.ratingKey }).union(Set(updatedTracks.map { $0.ratingKey }))
         let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
-        
+
         print("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
         for track in tracksToSync {
             _ = try await repository.upsertTrack(
@@ -116,13 +116,38 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 sourceCompositeKey: sourceKey
             )
         }
-        
-        // Genres rarely change, so skip for incremental sync
-        progressHandler(0.875)
-        
+
+        // Orphan removal: Fetch server inventory and remove local items not on server
+        progressHandler(0.55)
+        print("🧹 Checking for orphaned items (lightweight inventory)...")
+
+        // Fetch all items from server to get complete inventory
+        let serverArtists = try await apiClient.getArtists(sectionKey: sectionKey)
+        let artistRatingKeys = Set(serverArtists.map { $0.ratingKey })
+        progressHandler(0.65)
+
+        let serverAlbums = try await apiClient.getAlbums(sectionKey: sectionKey)
+        let albumRatingKeys = Set(serverAlbums.map { $0.ratingKey })
+        progressHandler(0.75)
+
+        let serverTracks = try await apiClient.getTracks(sectionKey: sectionKey)
+        let trackRatingKeys = Set(serverTracks.map { $0.ratingKey })
+        progressHandler(0.85)
+
+        // Remove orphans
+        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
+        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+        let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+
+        if removedArtists + removedAlbums + removedTracks > 0 {
+            print("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
+        } else {
+            print("✅ No orphaned items found")
+        }
+
         // Update last sync timestamp
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-        
+
         progressHandler(1.0)
         print("✅ Incremental sync complete for \(sourceKey)")
     }

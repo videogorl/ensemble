@@ -2,6 +2,9 @@ import CoreData
 import Foundation
 
 public protocol LibraryRepositoryProtocol: Sendable {
+    /// Refresh the context to ensure fresh data from the store
+    func refreshContext() async
+
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
@@ -105,6 +108,18 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+    }
+
+    // MARK: - Context Refresh
+
+    public func refreshContext() async {
+        await withCheckedContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                context.refreshAllObjects()
+                continuation.resume()
+            }
+        }
     }
 
     // MARK: - Artists

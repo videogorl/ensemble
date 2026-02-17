@@ -120,6 +120,9 @@ public final class LibraryViewModel: ObservableObject {
         error = nil
 
         do {
+            // Refresh context to ensure we get fresh data after sync
+            await libraryRepository.refreshContext()
+
             async let artistsTask = libraryRepository.fetchArtists()
             async let albumsTask = libraryRepository.fetchAlbums()
             async let tracksTask = libraryRepository.fetchTracks()
