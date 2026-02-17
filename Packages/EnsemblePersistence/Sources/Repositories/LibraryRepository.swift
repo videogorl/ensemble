@@ -2,6 +2,9 @@ import CoreData
 import Foundation
 
 public protocol LibraryRepositoryProtocol: Sendable {
+    /// Refresh the context to ensure fresh data from the store
+    func refreshContext() async
+
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
@@ -90,8 +93,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func updateMusicSourceSyncTimestamp(compositeKey: String) async throws
 
     func deleteAllData(forSourceCompositeKey: String) async throws
-    
+
     func deleteAllLibraryData() async throws
+
+    // Orphan removal - delete items not in the provided set of valid ratingKeys
+    func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -99,6 +108,18 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+    }
+
+    // MARK: - Context Refresh
+
+    public func refreshContext() async {
+        await withCheckedContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                context.refreshAllObjects()
+                continuation.resume()
+            }
+        }
     }
 
     // MARK: - Artists
@@ -790,6 +811,116 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     continuation.resume()
                 } catch {
                     print("❌ Failed to delete library data: \(error)")
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Orphan Removal
+
+    public func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localArtists = try context.fetch(request)
+
+                    var removedCount = 0
+                    for artist in localArtists {
+                        if !validRatingKeys.contains(artist.ratingKey) {
+                            context.delete(artist)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localAlbums = try context.fetch(request)
+
+                    var removedCount = 0
+                    for album in localAlbums {
+                        if !validRatingKeys.contains(album.ratingKey) {
+                            context.delete(album)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localTracks = try context.fetch(request)
+
+                    var removedCount = 0
+                    for track in localTracks {
+                        if !validRatingKeys.contains(track.ratingKey) {
+                            context.delete(track)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localGenres = try context.fetch(request)
+
+                    var removedCount = 0
+                    for genre in localGenres {
+                        if let ratingKey = genre.ratingKey, !validRatingKeys.contains(ratingKey) {
+                            context.delete(genre)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
                     continuation.resume(throwing: error)
                 }
             }

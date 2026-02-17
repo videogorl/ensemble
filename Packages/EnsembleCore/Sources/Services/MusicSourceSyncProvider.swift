@@ -11,8 +11,22 @@ public protocol MusicSourceSyncProvider: Sendable {
         progressHandler: @Sendable (Double) -> Void
     ) async throws
     
+    /// Sync only items added or updated since the given timestamp (incremental sync)
+    /// - Parameter since: Unix timestamp of last sync (fetch items added/updated after this)
+    func syncLibraryIncremental(
+        since timestamp: TimeInterval,
+        to repository: LibraryRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws
+    
     /// Sync playlists to CoreData (should be called once per server, not per library)
     func syncPlaylists(
+        to repository: PlaylistRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws
+
+    /// Sync only playlists added or updated since last sync (incremental)
+    func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws

@@ -120,6 +120,9 @@ public final class LibraryViewModel: ObservableObject {
         error = nil
 
         do {
+            // Refresh context to ensure we get fresh data after sync
+            await libraryRepository.refreshContext()
+
             async let artistsTask = libraryRepository.fetchArtists()
             async let albumsTask = libraryRepository.fetchAlbums()
             async let tracksTask = libraryRepository.fetchTracks()
@@ -151,6 +154,42 @@ public final class LibraryViewModel: ObservableObject {
 
     public func refresh() async {
         // Always load from CoreData cache
+        await loadLibrary()
+    }
+    
+    /// Refresh from server (incremental sync) if online, otherwise load from cache
+    public func refreshFromServer() async {
+        print("🔄 LibraryViewModel.refreshFromServer() called")
+
+        // Check if offline
+        if syncCoordinator.isOffline {
+            print("📴 Offline - loading from cache only")
+            await loadLibrary()
+            return
+        }
+
+        // Check if sync is already in progress
+        if syncCoordinator.isSyncing {
+            print("⏳ Sync already in progress - waiting for it to complete")
+            await loadLibrary()
+            return
+        }
+
+        error = nil
+
+        // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        // SwiftUI can cancel the refreshable task when the view updates, but we want
+        // the sync to complete regardless
+        print("🔄 Starting incremental sync (detached)...")
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncAllIncremental()
+                continuation.resume()
+            }
+        }
+        print("✅ Incremental sync complete")
+
+        // Reload from updated cache
         await loadLibrary()
     }
     

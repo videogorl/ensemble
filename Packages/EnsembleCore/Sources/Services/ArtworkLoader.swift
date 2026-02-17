@@ -126,29 +126,31 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
         
         guard let finalPath = actualPath else { return nil }
-        
-        // Check local cache first if we have a ratingKey
-        if let key = actualRatingKey {
+
+        // Only use local file cache when offline
+        // When online, always use network to get fresh artwork (Nuke handles efficient caching)
+        let isOffline = await syncCoordinator.isOffline
+        if isOffline, let key = actualRatingKey {
             // Try album artwork cache
             let albumFilename = "\(key)_album.jpg"
-            let albumPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
-            if FileManager.default.fileExists(atPath: albumPath) {
-                let url = URL(fileURLWithPath: albumPath)
-                print("📦 ArtworkLoader[\(size)]: Local file - ratingKey:\(key) file:\(albumFilename)")
+            let albumCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
+            if FileManager.default.fileExists(atPath: albumCachePath) {
+                let url = URL(fileURLWithPath: albumCachePath)
+                print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
                 return url
             }
-            
+
             // Try artist artwork cache
             let artistFilename = "\(key)_artist.jpg"
-            let artistPath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
-            if FileManager.default.fileExists(atPath: artistPath) {
-                let url = URL(fileURLWithPath: artistPath)
-                print("📦 ArtworkLoader[\(size)]: Local file - ratingKey:\(key) file:\(artistFilename)")
+            let artistCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
+            if FileManager.default.fileExists(atPath: artistCachePath) {
+                let url = URL(fileURLWithPath: artistCachePath)
+                print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
                 return url
             }
         }
-        
-        // Fall back to network
+
+        // Use network to fetch artwork
         let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
             if usedFallback {
