@@ -145,8 +145,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
 
         // Sync artists
-        progressHandler(0.125)
+        progressHandler(0.1)
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
+        let artistRatingKeys = Set(artists.map { $0.ratingKey })
         for artist in artists {
             _ = try await repository.upsertArtist(
                 ratingKey: artist.ratingKey,
@@ -162,8 +163,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         // Sync albums
-        progressHandler(0.375)
+        progressHandler(0.3)
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
+        let albumRatingKeys = Set(albums.map { $0.ratingKey })
         for album in albums {
             _ = try await repository.upsertAlbum(
                 ratingKey: album.ratingKey,
@@ -185,20 +187,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         // Sync tracks
-        progressHandler(0.625)
+        progressHandler(0.5)
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+        let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         print("📀 Syncing \(tracks.count) tracks")
-        for (index, track) in tracks.enumerated() {
-            if index == 0 {
-                print("📀 First track streamURL: \(track.streamURL ?? "nil")")
-                print("📀 First track media count: \(track.media?.count ?? 0)")
-                if let media = track.media?.first {
-                    print("📀 First track parts count: \(media.part?.count ?? 0)")
-                    if let part = media.part?.first {
-                        print("📀 First track part key: \(part.key ?? "nil")")
-                    }
-                }
-            }
+        for track in tracks {
             _ = try await repository.upsertTrack(
                 ratingKey: track.ratingKey,
                 key: track.key,
@@ -221,8 +214,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         // Sync genres
-        progressHandler(0.875)
+        progressHandler(0.7)
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
+        let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
         for genre in genres {
             _ = try await repository.upsertGenre(
                 ratingKey: genre.ratingKey,
@@ -230,6 +224,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 title: genre.title,
                 sourceCompositeKey: sourceKey
             )
+        }
+
+        // Remove orphaned items (deleted/merged on server but still in local DB)
+        progressHandler(0.85)
+        print("🧹 Checking for orphaned items...")
+        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
+        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+        let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+        let removedGenres = try await repository.removeOrphanedGenres(notIn: genreRatingKeys, forSource: sourceKey)
+
+        if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
+            print("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks, \(removedGenres) genres")
+        } else {
+            print("✅ No orphaned items found")
         }
 
         // Update last sync timestamp
