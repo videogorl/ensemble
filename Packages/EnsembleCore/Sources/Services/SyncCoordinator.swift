@@ -244,9 +244,13 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
     public func syncAllIncremental() async {
-        guard !isSyncing else { return }
+        guard !isSyncing else {
+            print("⏳ syncAllIncremental: Already syncing, skipping")
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
+        print("🔄 syncAllIncremental: Starting...")
         
         // Track which servers have had their playlists synced
         var syncedServerKeys = Set<String>()

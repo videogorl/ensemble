@@ -156,18 +156,30 @@ public final class LibraryViewModel: ObservableObject {
     
     /// Refresh from server (incremental sync) if online, otherwise load from cache
     public func refreshFromServer() async {
+        print("🔄 LibraryViewModel.refreshFromServer() called")
+
         // Check if offline
         if syncCoordinator.isOffline {
             print("📴 Offline - loading from cache only")
             await loadLibrary()
             return
         }
-        
+
+        // Check if sync is already in progress
+        if syncCoordinator.isSyncing {
+            print("⏳ Sync already in progress - waiting for it to complete")
+            // Wait a bit and reload (the auto-reload observer will handle it)
+            await loadLibrary()
+            return
+        }
+
         error = nil
-        
+
         // Perform incremental sync
+        print("🔄 Starting incremental sync...")
         await syncCoordinator.syncAllIncremental()
-        
+        print("✅ Incremental sync complete")
+
         // Reload from updated cache
         await loadLibrary()
     }
