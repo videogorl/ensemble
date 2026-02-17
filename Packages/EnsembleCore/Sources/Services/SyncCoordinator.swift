@@ -411,7 +411,7 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    /// Sync only playlists (fast, no library sync)
+    /// Sync only playlists incrementally (fast, no library sync)
     public func syncPlaylistsOnly() async {
         guard !isSyncing else { return }
         isSyncing = true
@@ -429,7 +429,8 @@ public final class SyncCoordinator: ObservableObject {
             syncedServerKeys.insert(serverKey)
 
             do {
-                try await provider.syncPlaylists(
+                // Use incremental sync (falls back to full if never synced)
+                try await provider.syncPlaylistsIncremental(
                     to: playlistRepository,
                     progressHandler: { _ in }
                 )

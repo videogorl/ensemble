@@ -433,6 +433,34 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get playlists added after a specific timestamp (incremental sync)
+    public func getPlaylists(addedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/playlists",
+            query: ["playlistType": "audio", "addedAt>=": String(unixTime)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexPlaylist>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
+    /// Get playlists updated after a specific timestamp (incremental sync)
+    public func getPlaylists(updatedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/playlists",
+            query: ["playlistType": "audio", "updatedAt>=": String(unixTime)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexPlaylist>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get playlist tracks
     public func getPlaylistTracks(playlistKey: String) async throws -> [PlexTrack] {
         print("🎵 PlexAPIClient.getPlaylistTracks() called")

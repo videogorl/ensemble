@@ -244,14 +244,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     ) async throws {
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
-        
+
         progressHandler(0.1)
         let playlists = try await apiClient.getPlaylists()
-        
+
         for (index, playlist) in playlists.enumerated() {
             let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
             progressHandler(playlistProgress)
-            
+
             _ = try await repository.upsertPlaylist(
                 ratingKey: playlist.ratingKey,
                 key: playlist.key,
@@ -275,6 +275,80 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             }
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
+
+        // Update last playlist sync timestamp
+        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+
+        progressHandler(1.0)
+    }
+
+    /// Sync only playlists that changed since last sync (incremental)
+    public func syncPlaylistsIncremental(
+        to repository: PlaylistRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws {
+        let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
+        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+
+        // Get last sync timestamp
+        let lastSyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
+
+        // If never synced, fall back to full sync
+        guard lastSyncTimestamp > 0 else {
+            print("⚠️ No previous playlist sync found, performing full sync")
+            try await syncPlaylists(to: repository, progressHandler: progressHandler)
+            return
+        }
+
+        progressHandler(0.1)
+
+        // Fetch playlists added or updated since last sync
+        let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
+        let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
+
+        // Combine and deduplicate
+        var playlistMap: [String: PlexPlaylist] = [:]
+        for playlist in newPlaylists { playlistMap[playlist.ratingKey] = playlist }
+        for playlist in updatedPlaylists { playlistMap[playlist.ratingKey] = playlist }
+        let changedPlaylists = Array(playlistMap.values)
+
+        print("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
+
+        // If no changes, we're done
+        guard !changedPlaylists.isEmpty else {
+            progressHandler(1.0)
+            return
+        }
+
+        // Sync only changed playlists
+        for (index, playlist) in changedPlaylists.enumerated() {
+            let playlistProgress = 0.1 + (0.8 * Double(index) / Double(changedPlaylists.count))
+            progressHandler(playlistProgress)
+
+            _ = try await repository.upsertPlaylist(
+                ratingKey: playlist.ratingKey,
+                key: playlist.key,
+                title: playlist.title,
+                summary: playlist.summary,
+                compositePath: playlist.composite,
+                isSmart: playlist.smart ?? false,
+                duration: playlist.duration,
+                trackCount: playlist.leafCount,
+                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: serverSourceKey
+            )
+
+            let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
+            let trackKeys = playlistTracks.map { $0.ratingKey }
+            print("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
+            try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
+        }
+
+        // Update last playlist sync timestamp
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
 
         progressHandler(1.0)
     }

@@ -25,6 +25,12 @@ public protocol MusicSourceSyncProvider: Sendable {
         progressHandler: @Sendable (Double) -> Void
     ) async throws
 
+    /// Sync only playlists added or updated since last sync (incremental)
+    func syncPlaylistsIncremental(
+        to repository: PlaylistRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws
+
     /// Get a streaming URL for a track
     func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL
 
