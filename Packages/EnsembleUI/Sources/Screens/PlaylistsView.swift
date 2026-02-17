@@ -38,7 +38,7 @@ public struct PlaylistsView: View {
                 await viewModel.loadPlaylists()
             }
             .refreshable {
-                await viewModel.loadPlaylists()
+                await viewModel.refreshFromServer()
             }
             .toolbar {
             #if os(iOS)

@@ -15,22 +15,38 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlistRepository = playlistRepository
+        self.syncCoordinator = syncCoordinator
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
-        
+
         // Load sort option from filters
         if let savedSort = PlaylistSortOption(rawValue: savedFilters.sortBy) {
             self.playlistSortOption = savedSort
         }
-        
+
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Auto-reload when sync completes
+        syncCoordinator.$isSyncing
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] syncing in
+                if !syncing {
+                    Task { @MainActor in
+                        await self?.loadPlaylists()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -52,6 +68,24 @@ public final class PlaylistViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    /// Sync playlists from server, then reload from cache
+    public func refreshFromServer() async {
+        // Check if offline
+        if syncCoordinator.isOffline {
+            print("📴 Offline - loading playlists from cache only")
+            await loadPlaylists()
+            return
+        }
+
+        error = nil
+
+        // Perform incremental sync (includes playlists)
+        await syncCoordinator.syncAllIncremental()
+
+        // Reload from updated cache
+        await loadPlaylists()
     }
     
     public var sortedPlaylists: [Playlist] {

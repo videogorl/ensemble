@@ -169,7 +169,8 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makePlaylistViewModel() -> PlaylistViewModel {
         PlaylistViewModel(
-            playlistRepository: playlistRepository
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 
