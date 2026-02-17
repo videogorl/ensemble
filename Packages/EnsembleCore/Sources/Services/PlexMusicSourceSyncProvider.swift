@@ -348,15 +348,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         print("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
 
-        // If no changes, we're done
-        guard !changedPlaylists.isEmpty else {
-            progressHandler(1.0)
-            return
-        }
-
-        // Sync only changed playlists
+        // Sync only changed playlists (only fetch tracks for changed ones)
         for (index, playlist) in changedPlaylists.enumerated() {
-            let playlistProgress = 0.1 + (0.8 * Double(index) / Double(changedPlaylists.count))
+            let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
             progressHandler(playlistProgress)
 
             _ = try await repository.upsertPlaylist(
@@ -378,6 +372,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let trackKeys = playlistTracks.map { $0.ratingKey }
             print("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
+        }
+
+        // Orphan removal: Fetch playlist inventory and remove deleted playlists
+        progressHandler(0.7)
+        print("🧹 Checking for orphaned playlists...")
+        let playlistInventory = try await apiClient.getPlaylistInventory()
+        let validPlaylistKeys = Set(playlistInventory.map { $0.ratingKey })
+        progressHandler(0.85)
+
+        let removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
+        if removedPlaylists > 0 {
+            print("🧹 Removed \(removedPlaylists) orphaned playlists")
+        } else {
+            print("✅ No orphaned playlists found")
         }
 
         // Update last playlist sync timestamp

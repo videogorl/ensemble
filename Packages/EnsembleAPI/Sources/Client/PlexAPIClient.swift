@@ -488,6 +488,23 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get playlist inventory (just ratingKeys) for orphan detection
+    public func getPlaylistInventory() async throws -> [PlexInventoryItem] {
+        let data = try await serverRequest(
+            path: "/playlists",
+            query: [
+                "playlistType": "audio",
+                "includeFields": "ratingKey",
+                "excludeElements": "Media"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexInventoryItem>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get playlists added after a specific timestamp (incremental sync)
     public func getPlaylists(addedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
         let unixTime = Int(timestamp)

@@ -22,6 +22,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
     func removeDuplicatePlaylists() async throws
+    func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 }
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
@@ -250,8 +251,35 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     if !playlistsToDelete.isEmpty {
                         try context.save()
                     }
-                    
+
                     continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                    let localPlaylists = try context.fetch(request)
+
+                    var removedCount = 0
+                    for playlist in localPlaylists {
+                        if !validRatingKeys.contains(playlist.ratingKey) {
+                            context.delete(playlist)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
                 } catch {
                     continuation.resume(throwing: error)
                 }
