@@ -963,9 +963,15 @@ public actor PlexAPIClient {
         do {
             return try await performServerRequest(url: currentServerURL, path: path, query: query)
         } catch {
+            // Log the actual error for debugging
+            print("❌ Request failed: \(error)")
+            if let urlError = error as? URLError {
+                print("   URLError code: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
+            }
+
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty {
-                print("⚠️ Request failed with current URL, attempting failover...")
+                print("⚠️ Attempting failover to alternative URLs...")
                 try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query)
