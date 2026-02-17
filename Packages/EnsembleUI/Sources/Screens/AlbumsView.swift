@@ -74,7 +74,7 @@ public struct AlbumsView: View {
             .navigationTitle(isLandscape ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
-                await libraryVM.refresh()
+                await libraryVM.refreshFromServer()
             }
             .toolbar {
                 #if os(iOS)

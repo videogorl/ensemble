@@ -32,6 +32,9 @@ public final class CoreDataStack: @unchecked Sendable {
 
         viewContext.automaticallyMergesChangesFromParent = true
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        // Ensure objects are always refetched from store (not cached)
+        // This fixes stale data after background sync operations
+        viewContext.stalenessInterval = 0
     }
 
     /// Create an in-memory stack for testing/previews
@@ -59,5 +62,13 @@ public final class CoreDataStack: @unchecked Sendable {
 
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
         persistentContainer.performBackgroundTask(block)
+    }
+
+    /// Refresh all objects in the view context to ensure they reflect the latest store data.
+    /// Call this after background sync operations to ensure UI sees updated data.
+    public func refreshViewContext() {
+        viewContext.perform {
+            self.viewContext.refreshAllObjects()
+        }
     }
 }

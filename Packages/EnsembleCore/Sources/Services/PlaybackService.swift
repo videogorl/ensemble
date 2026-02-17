@@ -1989,36 +1989,42 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let currentIndexKey = "com.ensemble.playback.currentIndex"
     private let currentTimeKey = "com.ensemble.playback.currentTime"
     
-    /// Save playback state to UserDefaults
+    /// Save playback state to UserDefaults.
+    /// Captures a snapshot of the current queue on the calling thread, then
+    /// offloads the JSON encoding and disk write to a background thread so the
+    /// main/audio thread is never blocked.
     private func savePlaybackState() {
-        print("💾 savePlaybackState() called, queue.count: \(queue.count)")
+        // Capture value-type snapshots immediately (cheap, no allocation of new memory).
+        let queueSnapshot = queue
+        let historySnapshot = playbackHistory
+        let indexSnapshot = currentQueueIndex
+        let timeSnapshot = currentTime
 
-        guard !queue.isEmpty || !playbackHistory.isEmpty else {
-            print("💾 Queue and history are empty, clearing saved state")
-            UserDefaults.standard.removeObject(forKey: queueKey)
-            UserDefaults.standard.removeObject(forKey: historyKey)
-            UserDefaults.standard.removeObject(forKey: currentIndexKey)
-            UserDefaults.standard.removeObject(forKey: currentTimeKey)
-            return
+        let queueKey = self.queueKey
+        let historyKey = self.historyKey
+        let currentIndexKey = self.currentIndexKey
+        let currentTimeKey = self.currentTimeKey
+
+        Task.detached(priority: .utility) {
+            guard !queueSnapshot.isEmpty || !historySnapshot.isEmpty else {
+                UserDefaults.standard.removeObject(forKey: queueKey)
+                UserDefaults.standard.removeObject(forKey: historyKey)
+                UserDefaults.standard.removeObject(forKey: currentIndexKey)
+                UserDefaults.standard.removeObject(forKey: currentTimeKey)
+                return
+            }
+
+            let encoder = JSONEncoder()
+
+            if let encodedQueue = try? encoder.encode(queueSnapshot) {
+                UserDefaults.standard.set(encodedQueue, forKey: queueKey)
+            }
+            if let encodedHistory = try? encoder.encode(historySnapshot) {
+                UserDefaults.standard.set(encodedHistory, forKey: historyKey)
+            }
+            UserDefaults.standard.set(indexSnapshot, forKey: currentIndexKey)
+            UserDefaults.standard.set(timeSnapshot, forKey: currentTimeKey)
         }
-
-        print("💾 Encoding \(queue.count) queue items, \(playbackHistory.count) history items, current index: \(currentQueueIndex), time: \(currentTime)s")
-
-        let encoder = JSONEncoder()
-
-        // Encode full QueueItem array (includes source tags)
-        if let encodedQueue = try? encoder.encode(queue) {
-            UserDefaults.standard.set(encodedQueue, forKey: queueKey)
-        }
-        
-        // Encode history
-        if let encodedHistory = try? encoder.encode(playbackHistory) {
-            UserDefaults.standard.set(encodedHistory, forKey: historyKey)
-        }
-
-        UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
-        UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
-        print("💾 Saved to UserDefaults")
     }
     
     /// Restore playback state from UserDefaults

@@ -184,6 +184,14 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Lightweight Inventory Item (for orphan detection)
+
+/// Minimal model for fetching just ratingKeys (used for orphan removal)
+/// Using includeFields=ratingKey reduces response size significantly
+public struct PlexInventoryItem: Codable, Sendable {
+    public let ratingKey: String
+}
+
 // MARK: - Artist
 
 public struct PlexArtist: Codable, Sendable, Identifiable {

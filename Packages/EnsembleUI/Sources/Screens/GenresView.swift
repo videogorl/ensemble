@@ -34,7 +34,7 @@ public struct GenresView: View {
         .searchable(text: $searchText)
         #endif
         .refreshable {
-            await libraryVM.refresh()
+            await libraryVM.refreshFromServer()
         }
     }
 
