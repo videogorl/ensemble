@@ -81,8 +81,8 @@ public final class PlaylistViewModel: ObservableObject {
 
         error = nil
 
-        // Perform incremental sync (includes playlists)
-        await syncCoordinator.syncAllIncremental()
+        // Sync playlists only (fast, doesn't touch library)
+        await syncCoordinator.syncPlaylistsOnly()
 
         // Reload from updated cache
         await loadPlaylists()

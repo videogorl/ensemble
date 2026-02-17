@@ -410,7 +410,35 @@ public final class SyncCoordinator: ObservableObject {
             )
         }
     }
-    
+
+    /// Sync only playlists (fast, no library sync)
+    public func syncPlaylistsOnly() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
+        // Track which servers have been synced (playlists are server-level, not library-level)
+        var syncedServerKeys = Set<String>()
+
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+
+            // Only sync once per server
+            guard !syncedServerKeys.contains(serverKey) else { continue }
+            syncedServerKeys.insert(serverKey)
+
+            do {
+                try await provider.syncPlaylists(
+                    to: playlistRepository,
+                    progressHandler: { _ in }
+                )
+            } catch {
+                print("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Perform appropriate sync on app startup based on staleness
     /// - If last full sync > 24 hours: full sync
     /// - If last sync > 1 hour: incremental sync
