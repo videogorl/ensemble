@@ -138,7 +138,9 @@ public struct MainTabView: View {
                 // Position above the native tab bar using layout alignment so the
                 // interactive frame moves with the mini player (no hidden touch blocker).
                 .alignmentGuide(.bottom) { dimensions in
-                    dimensions[.bottom] + 56
+                    // Keep the mini player fully above the native tab bar hit region.
+                    // 92pt clears the tab bar + home-indicator area on iPhone layouts.
+                    dimensions[.bottom] + 92
                 }
                 .zIndex(2)
                 .transition(.move(edge: .bottom).combined(with: .opacity))

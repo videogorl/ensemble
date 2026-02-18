@@ -35,12 +35,9 @@ public extension View {
             }
         } else {
             // iOS 15: avoid safeAreaInset host-preference recursion.
-            // Overlay preserves visuals without participating in safe-area preference propagation.
-            self.overlay(alignment: .bottom) {
-                Color.clear
-                    .frame(height: height)
-                    .allowsHitTesting(false)
-            }
+            // Use layout padding (not overlay) so we don't create an extra
+            // bottom hit-test layer that can interfere with tab bar taps.
+            self.padding(.bottom, height)
         }
         #else
         self.safeAreaInset(edge: .bottom) {
