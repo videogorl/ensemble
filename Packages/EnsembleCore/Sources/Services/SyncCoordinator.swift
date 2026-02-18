@@ -685,7 +685,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Ensure the server connection is ready for a given track
     /// This ensures we have a working connection URL before attempting playback
     public func ensureServerConnection(for track: Track) async throws {
-        guard let sourceKey = track.sourceCompositeKey else {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
         
@@ -734,8 +734,8 @@ public final class SyncCoordinator: ObservableObject {
         print("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
         print("🔍 Track streamKey: \(track.streamKey ?? "nil")")
         print("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
-        
-        if let sourceKey = track.sourceCompositeKey,
+
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
            let provider = syncProviders[sourceKey] {
             // Parse the composite key to extract serverId
             let components = sourceKey.split(separator: ":")
@@ -959,8 +959,12 @@ public final class SyncCoordinator: ObservableObject {
         var ids: [String] = []
 
         for track in tracks {
-            guard let trackServerSource = await resolvedServerSourceKey(for: track),
-                  trackServerSource == targetServerSourceKey else { continue }
+            if let trackServerSource = await resolvedServerSourceKey(for: track) {
+                guard trackServerSource == targetServerSourceKey else { continue }
+            } else {
+                // If source is unknown and app only has one server, allow it through.
+                guard hasSingleServerMatching(targetServerSourceKey) else { continue }
+            }
             guard !seen.contains(track.id) else { continue }
             seen.insert(track.id)
             ids.append(track.id)
@@ -980,6 +984,36 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         return nil
+    }
+
+    private func resolvedTrackSourceCompositeKey(for track: Track) async -> String? {
+        if let source = track.sourceCompositeKey {
+            return source
+        }
+
+        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+           let source = cachedTrack.sourceCompositeKey {
+            print("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
+            return source
+        }
+
+        // Last resort: single-provider assumption when app is connected to one library source.
+        if syncProviders.count == 1, let onlyKey = syncProviders.keys.first {
+            print("🎵 Resolved missing track source via single-provider fallback: \(track.id) -> \(onlyKey)")
+            return onlyKey
+        }
+
+        print("⚠️ Could not resolve source key for track: \(track.id)")
+        return nil
+    }
+
+    private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
+        let uniqueServerSources = Set(
+            syncProviders.keys.compactMap { key in
+                self.serverSourceKey(from: key)
+            }
+        )
+        return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
     }
 
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
