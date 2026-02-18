@@ -32,6 +32,13 @@ public struct MediaHeaderData {
     }
 }
 
+public struct PlaylistDetailMenuActions {
+    let canRename: Bool
+    let canEdit: Bool
+    let onRename: () -> Void
+    let onEdit: () -> Void
+}
+
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
@@ -45,6 +52,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let playlistMenuActions: PlaylistDetailMenuActions?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -64,7 +72,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         showFilter: Bool = true,
-        mediaType: PinnedItemType? = nil
+        mediaType: PinnedItemType? = nil,
+        playlistMenuActions: PlaylistDetailMenuActions? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -75,42 +84,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.playlistMenuActions = playlistMenuActions
     }
 
     public var body: some View {
-        Group {
-            if showFilter {
-                baseContent
-                    .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+        contentWithOptionalFilter
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if shouldShowStandaloneFilterButton {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    // Badge indicator when filters are active
-                                    if viewModel.filterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
+                            if viewModel.filterOptions.hasActiveFilters {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
                             }
                         }
                     }
-                    .sheet(isPresented: $showFilterSheet) {
-                        FilterSheet(
-                            filterOptions: $viewModel.filterOptions
-                        )
-                    }
-            } else {
-                baseContent
+                }
             }
-        }
-        .toolbar {
             // Pin/Unpin menu button
             ToolbarItem(placement: .navigationBarTrailing) {
                 if let mediaType = mediaType,
@@ -154,10 +151,40 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    @ViewBuilder
+    private var contentWithOptionalFilter: some View {
+        if showFilter {
+            baseContent
+                .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
+                .sheet(isPresented: $showFilterSheet) {
+                    FilterSheet(filterOptions: $viewModel.filterOptions)
+                }
+        } else {
+            baseContent
+        }
+    }
+
+    private var shouldShowStandaloneFilterButton: Bool {
+        showFilter && (mediaType == nil || headerData.ratingKey == nil)
+    }
+
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
         let isPinned = pinManager.isPinned(id: ratingKey)
         return Menu {
+            if showFilter {
+                Button {
+                    showFilterSheet = true
+                } label: {
+                    Label(
+                        "Filters",
+                        systemImage: viewModel.filterOptions.hasActiveFilters
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
+                    )
+                }
+            }
+
             Button {
                 if isPinned {
                     pinManager.unpin(id: ratingKey)
@@ -197,6 +224,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Add to Playlist...", systemImage: "text.badge.plus")
                 }
                 .disabled(viewModel.filteredTracks.isEmpty)
+            }
+
+            if let playlistMenuActions {
+                Button {
+                    playlistMenuActions.onRename()
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .disabled(!playlistMenuActions.canRename)
+
+                Button {
+                    playlistMenuActions.onEdit()
+                } label: {
+                    Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                }
+                .disabled(!playlistMenuActions.canEdit)
             }
         } label: {
             Image(systemName: "ellipsis.circle")

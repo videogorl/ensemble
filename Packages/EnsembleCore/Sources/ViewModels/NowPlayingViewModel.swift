@@ -324,16 +324,16 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func defaultPlaylistServerSourceKey(for tracks: [Track]) -> String? {
-        // Prefer current track's server if available.
-        if let currentTrack,
-           let source = serverSourceKey(from: currentTrack.sourceCompositeKey) {
-            return source
-        }
-
+        // Prefer the source from the explicitly provided tracks first.
         for track in tracks {
             if let source = serverSourceKey(from: track.sourceCompositeKey) {
                 return source
             }
+        }
+
+        if let currentTrack,
+           let source = serverSourceKey(from: currentTrack.sourceCompositeKey) {
+            return source
         }
         return nil
     }
@@ -413,6 +413,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 return count
             }
             return count + (trackServerSourceKey == playlistServerSourceKey ? 1 : 0)
+        }
+    }
+
+    public func compatibleTrackCount(_ tracks: [Track], forServerSourceKey serverSourceKey: String?) -> Int {
+        guard let serverSourceKey else { return 0 }
+        return tracks.reduce(0) { count, track in
+            guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey) else {
+                return count
+            }
+            return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
         }
     }
 

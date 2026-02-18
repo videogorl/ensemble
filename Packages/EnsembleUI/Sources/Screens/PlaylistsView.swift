@@ -183,7 +183,19 @@ public struct PlaylistDetailView: View {
                     showArtwork: true,
                     showTrackNumbers: false,
                     groupByDisc: false,
-                    mediaType: .playlist
+                    mediaType: .playlist,
+                    playlistMenuActions: PlaylistDetailMenuActions(
+                        canRename: !viewModel.playlist.isSmart,
+                        canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
+                        onRename: {
+                            renameTitle = viewModel.playlist.title
+                            showRenamePrompt = true
+                        },
+                        onEdit: {
+                            editedTracks = viewModel.tracks
+                            isEditingPlaylist = true
+                        }
+                    )
                 )
             }
         }
@@ -199,26 +211,6 @@ public struct PlaylistDetailView: View {
                         }
                     }
                     .disabled(isSavingPlaylistEdits)
-                } else {
-                    Menu {
-                        Button {
-                            renameTitle = viewModel.playlist.title
-                            showRenamePrompt = true
-                        } label: {
-                            Label("Rename", systemImage: "pencil")
-                        }
-                        .disabled(viewModel.playlist.isSmart)
-
-                        Button {
-                            editedTracks = viewModel.tracks
-                            isEditingPlaylist = true
-                        } label: {
-                            Label("Edit Playlist", systemImage: "slider.horizontal.3")
-                        }
-                        .disabled(viewModel.playlist.isSmart || viewModel.tracks.isEmpty)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
                 }
             }
             ToolbarItem(placement: .navigationBarLeading) {

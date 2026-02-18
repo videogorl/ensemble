@@ -41,6 +41,9 @@ public struct PlaylistPickerSheet: View {
                 Section("Playlists") {
                     if isLoading {
                         ProgressView("Loading playlists...")
+                    } else if compatibleTrackCountForSelectedServer == 0 {
+                        Text("No compatible tracks for this server.")
+                            .foregroundColor(.secondary)
                     } else if filteredPlaylists.isEmpty {
                         Text("No playlists found for this server.")
                             .foregroundColor(.secondary)
@@ -62,7 +65,11 @@ public struct PlaylistPickerSheet: View {
                                     Spacer()
                                 }
                             }
-                            .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
+                            .disabled(
+                                isSubmitting ||
+                                nowPlayingVM.isPlaylistMutationInProgress ||
+                                nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+                            )
                         }
                     }
                 }
@@ -74,7 +81,12 @@ public struct PlaylistPickerSheet: View {
                         } label: {
                             Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
                         }
-                        .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress || selectedServerSourceKey == nil)
+                        .disabled(
+                            isSubmitting ||
+                            nowPlayingVM.isPlaylistMutationInProgress ||
+                            selectedServerSourceKey == nil ||
+                            compatibleTrackCountForSelectedServer == 0
+                        )
                     }
                 }
             }
@@ -95,8 +107,17 @@ public struct PlaylistPickerSheet: View {
             }
             .task {
                 if selectedServerSourceKey == nil {
-                    selectedServerSourceKey = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
-                        ?? serverOptions.first?.id
+                    let preferred = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
+                    if let preferred,
+                       nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: preferred) > 0 {
+                        selectedServerSourceKey = preferred
+                    } else if let compatible = serverOptions.first(where: {
+                        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0
+                    }) {
+                        selectedServerSourceKey = compatible.id
+                    } else {
+                        selectedServerSourceKey = serverOptions.first?.id
+                    }
                 }
                 await loadPlaylists()
             }
@@ -144,6 +165,10 @@ public struct PlaylistPickerSheet: View {
 
     private var shouldShowCreateAction: Bool {
         !newPlaylistName.isEmpty && !hasExactNameMatch
+    }
+
+    private var compatibleTrackCountForSelectedServer: Int {
+        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: selectedServerSourceKey)
     }
 
     private func loadPlaylists() async {
