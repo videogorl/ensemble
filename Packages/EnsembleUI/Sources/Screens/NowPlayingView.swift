@@ -14,7 +14,6 @@ public struct NowPlayingView: View {
     }
 
     @ObservedObject var viewModel: NowPlayingViewModel
-    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
@@ -109,14 +108,6 @@ public struct NowPlayingView: View {
             }
 
         }
-        .appToastOverlay(
-            toastCenter: toastCenter,
-            horizontalPadding: 16,
-            bottomPadding: 110,
-            onToastTap: {
-                dismiss()
-            }
-        )
     }
 
     // Fixed background gradient
