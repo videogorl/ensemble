@@ -339,6 +339,27 @@ public final class NowPlayingViewModel: ObservableObject {
         return nil
     }
 
+    public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
+        if let inferred = defaultPlaylistServerSourceKey(for: tracks) {
+            return inferred
+        }
+
+        for track in tracks {
+            if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+               let source = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+                return source
+            }
+        }
+
+        if let currentTrack,
+           let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: currentTrack.id),
+           let source = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+            return source
+        }
+
+        return nil
+    }
+
     public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
         try await syncCoordinator.fetchPlaylists(forServerSourceKey: sourceKey)
     }
@@ -456,7 +477,8 @@ public final class NowPlayingViewModel: ObservableObject {
         guard let playlistServerSourceKey = playlist.sourceCompositeKey else { return 0 }
         return tracks.reduce(0) { count, track in
             guard let trackServerSourceKey = serverSourceKey(from: track.sourceCompositeKey) else {
-                return count
+                // Unknown source should not hard-block selection; mutation flow resolves via cache lookup.
+                return count + 1
             }
             return count + (trackServerSourceKey == playlistServerSourceKey ? 1 : 0)
         }
@@ -466,7 +488,7 @@ public final class NowPlayingViewModel: ObservableObject {
         guard let serverSourceKey else { return 0 }
         return tracks.reduce(0) { count, track in
             guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey) else {
-                return count
+                return count + 1
             }
             return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
         }
@@ -477,13 +499,17 @@ public final class NowPlayingViewModel: ObservableObject {
         var seen = Set<String>()
         var filtered: [Track] = []
         for track in tracks {
-            guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey),
-                  trackServerSourceKey == serverSourceKey else {
+            if let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey),
+               trackServerSourceKey != serverSourceKey {
                 continue
             }
             guard !seen.contains(track.id) else { continue }
             seen.insert(track.id)
-            filtered.append(track)
+            if track.sourceCompositeKey == nil {
+                filtered.append(trackWithSourceCompositeKey(track, sourceCompositeKey: serverSourceKey))
+            } else {
+                filtered.append(track)
+            }
         }
         return filtered
     }
@@ -664,5 +690,32 @@ public final class NowPlayingViewModel: ObservableObject {
         let components = sourceCompositeKey.split(separator: ":")
         guard components.count >= 3 else { return nil }
         return "\(components[0]):\(components[1]):\(components[2])"
+    }
+
+    private func trackWithSourceCompositeKey(_ track: Track, sourceCompositeKey: String) -> Track {
+        Track(
+            id: track.id,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            albumRatingKey: track.albumRatingKey,
+            artistRatingKey: track.artistRatingKey,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration,
+            thumbPath: track.thumbPath,
+            fallbackThumbPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            streamKey: track.streamKey,
+            streamId: track.streamId,
+            localFilePath: track.localFilePath,
+            dateAdded: track.dateAdded,
+            dateModified: track.dateModified,
+            lastPlayed: track.lastPlayed,
+            rating: track.rating,
+            playCount: track.playCount,
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 }

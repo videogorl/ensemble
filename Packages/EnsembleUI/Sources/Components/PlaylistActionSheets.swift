@@ -84,7 +84,8 @@ public struct PlaylistPickerSheet: View {
             }
             .task {
                 if inferredServerSourceKey == nil {
-                    inferredServerSourceKey = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
+                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+                    print("🎵 PlaylistPicker inferred server source: \(inferredServerSourceKey ?? "nil"), tracks: \(tracks.count)")
                 }
                 await loadPlaylists()
             }
@@ -124,7 +125,10 @@ public struct PlaylistPickerSheet: View {
     }
 
     private var compatibleTrackCountForSelectedServer: Int {
-        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
+        guard !tracks.isEmpty else { return 0 }
+        // If server source is still unknown, avoid false "no compatible tracks" state.
+        guard inferredServerSourceKey != nil else { return tracks.count }
+        return nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
     }
 
     private func loadPlaylists() async {

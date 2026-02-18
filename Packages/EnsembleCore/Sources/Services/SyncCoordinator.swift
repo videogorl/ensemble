@@ -509,7 +509,7 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.duplicateName
         }
 
-        let filteredTrackIds = filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
         guard !filteredTrackIds.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
@@ -549,7 +549,7 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        let filteredTrackIds = filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
         guard !filteredTrackIds.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
@@ -602,7 +602,7 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        let filteredTrackIds = filteredTrackIDsForServer(tracks: orderedTracks, serverSourceKey: serverSourceKey)
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: orderedTracks, serverSourceKey: serverSourceKey)
         try await apiClient.clearPlaylistItems(playlistId: playlist.id)
         if !filteredTrackIds.isEmpty {
             try await apiClient.addItemsToPlaylist(
@@ -953,12 +953,13 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Keep only tracks that belong to target server, then dedupe by track id preserving order.
-    private func filteredTrackIDsForServer(tracks: [Track], serverSourceKey targetServerSourceKey: String) -> [String] {
+    /// Uses local lookup when the in-memory track source key is temporarily missing.
+    private func filteredTrackIDsForServer(tracks: [Track], serverSourceKey targetServerSourceKey: String) async -> [String] {
         var seen = Set<String>()
         var ids: [String] = []
 
         for track in tracks {
-            guard let trackServerSource = serverSourceKey(from: track.sourceCompositeKey),
+            guard let trackServerSource = await resolvedServerSourceKey(for: track),
                   trackServerSource == targetServerSourceKey else { continue }
             guard !seen.contains(track.id) else { continue }
             seen.insert(track.id)
@@ -966,6 +967,19 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         return ids
+    }
+
+    private func resolvedServerSourceKey(for track: Track) async -> String? {
+        if let parsed = serverSourceKey(from: track.sourceCompositeKey) {
+            return parsed
+        }
+
+        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+           let parsed = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+            return parsed
+        }
+
+        return nil
     }
 
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
