@@ -34,14 +34,9 @@ public extension View {
                 Color.clear.frame(height: height)
             }
         } else {
-            // iOS 15: use a real safe-area inset so scroll views can extend
-            // behind the mini player/tab bar while keeping enough bottom
-            // content inset to avoid clipping the last rows.
-            self.safeAreaInset(edge: .bottom) {
-                Color.clear
-                    .frame(height: height)
-                    .allowsHitTesting(false)
-            }
+            // iOS 15: avoid safeAreaInset host-preference recursion.
+            // Use layout padding (not overlay) to keep this path stable.
+            self.padding(.bottom, height)
         }
         #else
         self.safeAreaInset(edge: .bottom) {
