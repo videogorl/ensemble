@@ -289,7 +289,16 @@ public struct PlaylistDetailView: View {
                 Task {
                     let didDelete = await viewModel.deletePlaylist()
                     isDeletingPlaylist = false
-                    if !didDelete {
+                    if didDelete {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .success,
+                                iconSystemName: "trash.fill",
+                                title: "Deleted \(playlistTitle)",
+                                dedupeKey: "playlist-delete-success-\(viewModel.playlist.id)"
+                            )
+                        )
+                    } else {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .error,
