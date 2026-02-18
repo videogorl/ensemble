@@ -221,8 +221,14 @@ public struct PlaylistsView: View {
     private var playlistListView: some View {
         List {
             ForEach(displayedFilteredPlaylists) { playlist in
-                PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM)
-                    .if(!playlist.isSmart) { row in
+                let isPendingCreation = viewModel.isPlaylistPendingCreation(playlist)
+                PlaylistRow(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    isDisabled: isPendingCreation,
+                    statusText: isPendingCreation ? "Creating..." : nil
+                )
+                    .if(!playlist.isSmart && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
                             playlistPendingSwipeDelete = playlist
                         }

@@ -562,7 +562,44 @@ public final class SyncCoordinator: ObservableObject {
             }
         }
 
-        if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
+        if let createdRemotePlaylist = try? await apiClient.getPlaylists()
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            let isEmptyCreate = tracks.isEmpty
+            _ = try? await playlistRepository.upsertPlaylist(
+                ratingKey: createdRemotePlaylist.ratingKey,
+                key: createdRemotePlaylist.key,
+                title: createdRemotePlaylist.title,
+                summary: createdRemotePlaylist.summary,
+                compositePath: createdRemotePlaylist.composite,
+                isSmart: createdRemotePlaylist.smart ?? false,
+                duration: isEmptyCreate ? 0 : createdRemotePlaylist.duration,
+                trackCount: isEmptyCreate ? 0 : createdRemotePlaylist.leafCount,
+                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: serverSourceKey
+            )
+            if isEmptyCreate {
+                try? await playlistRepository.setPlaylistTracks([], forPlaylist: createdRemotePlaylist.ratingKey, sourceCompositeKey: serverSourceKey)
+            }
+
+            persistLastPlaylistTarget(
+                from: Playlist(
+                    id: createdRemotePlaylist.ratingKey,
+                    key: createdRemotePlaylist.key,
+                    title: createdRemotePlaylist.title,
+                    summary: createdRemotePlaylist.summary,
+                    isSmart: createdRemotePlaylist.smart ?? false,
+                    trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
+                    duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
+                    compositePath: createdRemotePlaylist.composite,
+                    dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    sourceCompositeKey: serverSourceKey
+                )
+            )
+        } else if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
             .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             persistLastPlaylistTarget(from: createdPlaylist)
         }
