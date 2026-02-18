@@ -85,7 +85,7 @@ public struct MainTabView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
+        let rootView = ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 // Connection status banner at top
                 if !isImmersiveMode {
@@ -140,9 +140,6 @@ public struct MainTabView: View {
             }
 
         }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
-        }
         .sheet(isPresented: $showingSyncPanel) {
             SyncPanelView()
         }
@@ -165,6 +162,22 @@ public struct MainTabView: View {
                 isImmersiveMode = isHidden
             }
         }
+
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            rootView.sheet(isPresented: $showingNowPlaying) {
+                NowPlayingView(viewModel: nowPlayingVM)
+            }
+        } else {
+            rootView.fullScreenCover(isPresented: $showingNowPlaying) {
+                NowPlayingView(viewModel: nowPlayingVM)
+            }
+        }
+        #else
+        rootView.sheet(isPresented: $showingNowPlaying) {
+            NowPlayingView(viewModel: nowPlayingVM)
+        }
+        #endif
     }
 
     @ViewBuilder

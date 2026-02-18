@@ -25,23 +25,12 @@ public extension View {
     }
 
     /// Adds bottom spacing for the mini player/tab bar area.
-    /// Uses safeAreaInset on iOS 16+ and a plain padding fallback on iOS 15
-    /// to avoid scroll-view safe-area layout issues.
+    /// Uses a clear safe-area inset so content can scroll above the mini player.
     @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: height)
-            }
-        } else {
-            self.padding(.bottom, height)
-        }
-        #else
         self.safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: height)
         }
-        #endif
     }
 
     /// Apply a wiggle animation to the view, useful for edit modes
