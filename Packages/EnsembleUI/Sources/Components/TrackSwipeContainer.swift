@@ -48,7 +48,7 @@ public struct TrackSwipeContainer<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .clipped()
-        .gesture(dragGesture, including: .all)
+        .highPriorityGesture(dragGesture)
         .simultaneousGesture(
             TapGesture().onEnded {
                 if offset != 0 {
