@@ -34,8 +34,6 @@ public struct NowPlayingView: View {
     @State private var playlistPickerTracks: [Track] = []
     @State private var playlistPickerTitle = "Add to Playlist"
     @State private var lastPlaylistQuickTarget: Playlist?
-    @State private var playbackTick: Int = 0
-    private let playbackTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -98,10 +96,6 @@ public struct NowPlayingView: View {
             }
             .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
                 Task { await refreshLastPlaylistQuickTarget() }
-            }
-            .onReceive(playbackTimer) { _ in
-                guard viewModel.hasCurrentTrack else { return }
-                playbackTick &+= 1
             }
         }
     }
@@ -216,16 +210,18 @@ public struct NowPlayingView: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     // Waveform background
-                    WaveformView(
-                        progress: isDraggingSlider ? localProgress : liveProgress,
-                        color: .white,
-                        heights: viewModel.waveformHeights
-                    )
-                    .frame(width: geometry.size.width)
-                    .id(track.id) // Force view reset when track changes
-                    .transition(.opacity)
-                    .animation(.easeInOut, value: track.id)
-                    .opacity(0.8)
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        WaveformView(
+                            progress: isDraggingSlider ? localProgress : viewModel.progress,
+                            color: .white,
+                            heights: viewModel.waveformHeights
+                        )
+                        .frame(width: geometry.size.width)
+                        .id(track.id) // Force view reset when track changes
+                        .transition(.opacity)
+                        .animation(.easeInOut, value: track.id)
+                        .opacity(0.8)
+                    }
                     
                     // Invisible interaction layer
                     Color.clear
@@ -282,10 +278,18 @@ public struct NowPlayingView: View {
 
             // Time labels with scrub indicator in center
             HStack {
-                Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : liveCurrentTimeText)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(.white.opacity(0.7))
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime(localProgress * viewModel.duration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedCurrentTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
 
                 Spacer()
                 
@@ -296,28 +300,21 @@ public struct NowPlayingView: View {
                 
                 Spacer()
 
-                Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : liveRemainingTimeText)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(.white.opacity(0.7))
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime((1 - localProgress) * viewModel.duration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedRemainingTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
             }
         }
         .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 0)
-    }
-
-    private var liveProgress: Double {
-        _ = playbackTick
-        return viewModel.progress
-    }
-
-    private var liveCurrentTimeText: String {
-        _ = playbackTick
-        return viewModel.formattedCurrentTime
-    }
-
-    private var liveRemainingTimeText: String {
-        _ = playbackTick
-        return viewModel.formattedRemainingTime
     }
     
     // Scrub speed indicator (no background)

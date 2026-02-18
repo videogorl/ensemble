@@ -150,6 +150,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var shouldSkipNextLoadAfterLocalEdit = false
 
     public init(
         playlist: Playlist,
@@ -175,6 +176,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func loadTracks() async {
+        if shouldSkipNextLoadAfterLocalEdit {
+            shouldSkipNextLoadAfterLocalEdit = false
+            return
+        }
+
         isLoading = true
         error = nil
 
@@ -247,6 +253,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func applyEditedTracksLocally(_ editedTracks: [Track]) {
+        shouldSkipNextLoadAfterLocalEdit = true
         tracks = editedTracks
         playlist = Playlist(
             id: playlist.id,
@@ -273,6 +280,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)
+                self.shouldSkipNextLoadAfterLocalEdit = false
                 await self.loadTracks()
             }
         } catch {

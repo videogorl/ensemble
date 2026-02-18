@@ -12,8 +12,6 @@ public struct MiniPlayer: View {
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
     @State private var currentLoadTrackID: String?
-    @State private var playbackTick: Int = 0
-    private let playbackTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -146,9 +144,11 @@ public struct MiniPlayer: View {
 
                 // Progress bar at the bottom
                 GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: geometry.size.width * liveProgress)
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(width: geometry.size.width * viewModel.progress)
+                    }
                 }
                 .frame(height: 3)
             } else {
@@ -236,15 +236,6 @@ public struct MiniPlayer: View {
                 loadArtworkImage(for: track)
             }
         }
-        .onReceive(playbackTimer) { _ in
-            guard viewModel.hasCurrentTrack else { return }
-            playbackTick &+= 1
-        }
-    }
-
-    private var liveProgress: Double {
-        _ = playbackTick
-        return viewModel.progress
     }
 
     private func loadArtworkImage(for track: Track) {
