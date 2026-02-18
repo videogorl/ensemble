@@ -20,6 +20,10 @@ public struct PlaylistsView: View {
     @State private var createServerOptions: [PlaylistServerOption] = []
     @State private var showCreateServerPicker = false
     @State private var creatingPlaylistToastID: UUID?
+    @State private var playlistPendingRename: Playlist?
+    @State private var renamePlaylistTitle = ""
+    @State private var playlistForEditSheet: Playlist?
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -85,6 +89,37 @@ public struct PlaylistsView: View {
                 }
             } message: {
                 Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
+            }
+            .alert("Rename Playlist", isPresented: Binding(
+                get: { playlistPendingRename != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        playlistPendingRename = nil
+                    }
+                }
+            )) {
+                TextField("Playlist name", text: $renamePlaylistTitle)
+                Button("Cancel", role: .cancel) {
+                    playlistPendingRename = nil
+                    renamePlaylistTitle = ""
+                }
+                Button("Save") {
+                    guard let playlist = playlistPendingRename else { return }
+                    playlistPendingRename = nil
+                    renamePlaylist(playlist, to: renamePlaylistTitle)
+                    renamePlaylistTitle = ""
+                }
+            } message: {
+                Text("Choose a new name for this playlist.")
+            }
+            .sheet(item: $playlistForEditSheet) { playlist in
+                NavigationView {
+                    PlaylistDetailView(
+                        playlist: playlist,
+                        nowPlayingVM: nowPlayingVM,
+                        startInEditMode: true
+                    )
+                }
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
@@ -228,6 +263,11 @@ public struct PlaylistsView: View {
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
+                    .contextMenu {
+                        if !isPendingCreation {
+                            playlistContextMenu(playlist)
+                        }
+                    }
                     .if(!playlist.isSmart && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
                             playlistPendingSwipeDelete = playlist
@@ -399,6 +439,129 @@ public struct PlaylistsView: View {
             createServerOptions = []
         }
     }
+
+    @ViewBuilder
+    private func playlistContextMenu(_ playlist: Playlist) -> some View {
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.play(tracks: tracks)
+            }
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.shufflePlay(tracks: tracks)
+            }
+        } label: {
+            Label("Shuffle", systemImage: "shuffle")
+        }
+
+        let isPinned = pinManager.isPinned(id: playlist.id)
+        Button {
+            if isPinned {
+                pinManager.unpin(id: playlist.id)
+            } else {
+                pinManager.pin(
+                    id: playlist.id,
+                    sourceKey: playlist.sourceCompositeKey ?? "",
+                    type: .playlist,
+                    title: playlist.title
+                )
+            }
+        } label: {
+            if isPinned {
+                Label("Unpin", systemImage: "pin.slash")
+            } else {
+                Label("Pin", systemImage: "pin.fill")
+            }
+        }
+
+        if !playlist.isSmart {
+            Button {
+                playlistPendingRename = playlist
+                renamePlaylistTitle = playlist.title
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+
+            Button {
+                playlistForEditSheet = playlist
+            } label: {
+                Label("Edit Playlist", systemImage: "slider.horizontal.3")
+            }
+
+            Button(role: .destructive) {
+                playlistPendingSwipeDelete = playlist
+            } label: {
+                Label("Delete Playlist", systemImage: "trash")
+            }
+        }
+    }
+
+    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
+        Task {
+            let tracks = await resolveTracks(for: playlist)
+            guard !tracks.isEmpty else {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "No tracks available",
+                            message: "Try again after this playlist finishes syncing.",
+                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
+                        )
+                    )
+                }
+                return
+            }
+            await MainActor.run {
+                action(tracks)
+            }
+        }
+    }
+
+    private func resolveTracks(for playlist: Playlist) async -> [Track] {
+        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        ) {
+            return cachedPlaylist.tracksArray.map { Track(from: $0) }
+        }
+        return []
+    }
+
+    private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        Task {
+            do {
+                try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
+                await viewModel.loadPlaylists()
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "pencil.circle.fill",
+                        title: "Renamed playlist",
+                        dedupeKey: "playlist-rename-success-\(playlist.id)"
+                    )
+                )
+            } catch {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not rename playlist",
+                        message: error.localizedDescription,
+                        dedupeKey: "playlist-rename-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Playlist Detail View
@@ -411,7 +574,7 @@ public struct PlaylistDetailView: View {
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
     @State private var renameTitle = ""
-    @State private var isEditingPlaylist = false
+    @State private var isEditingPlaylist: Bool
     @State private var editedTracks: [Track] = []
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
@@ -419,10 +582,11 @@ public struct PlaylistDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
-    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
+    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, startInEditMode: Bool = false) {
         self.playlist = playlist
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist))
         self.nowPlayingVM = nowPlayingVM
+        self._isEditingPlaylist = State(initialValue: startInEditMode)
     }
 
     public var body: some View {

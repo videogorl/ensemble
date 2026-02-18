@@ -249,7 +249,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Button {
                     presentPlaylistPicker(with: viewModel.filteredTracks)
                 } label: {
-                    Label("Add to Playlist...", systemImage: "text.badge.plus")
+                    Label("Add to Playlist…", systemImage: "text.badge.plus")
                 }
                 .disabled(viewModel.filteredTracks.isEmpty)
             }
@@ -550,6 +550,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
                 }
             },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
             canAddToRecentPlaylist: { track in
                 guard let lastPlaylistQuickTarget else { return false }
                 return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
@@ -579,6 +587,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
                         }
                     },
+                    onToggleFavorite: {
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    isFavorited: nowPlayingVM.isTrackFavorited(track),
                     recentPlaylistTitle: {
                         guard let lastPlaylistQuickTarget,
                               nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }

@@ -70,7 +70,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
-- `SettingsManager` (@MainActor) -- Manages accent colors and customizable tab configuration
+- `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
@@ -105,6 +105,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` -- Async loading wrappers for detail views
 - `WaveformView` -- Audio waveform visualization with real Plex loudness data or fallback generation
 - `CoverFlowView` -- 3D carousel view with perspective rotation, scaling, and tap-to-zoom/flip interactions
+- `TrackSwipeContainer` -- Shared swipe-action wrapper for track rows on iOS/iPadOS
+- `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 
 ## Key Architectural Patterns
 
@@ -234,6 +236,8 @@ Dynamic home screen powered by Plex's hub system:
 - `AppAccentColor` enum: `.purple` (default), `.blue`, `.pink`, `.red`, `.orange`, `.yellow`, `.green`
 - `TabItem` enum: 10 tabs, users can enable/disable via Settings
 - Default enabled: Home, Artists, Playlists, Search
+- `TrackSwipeAction` enum + `TrackSwipeLayout` model define 2 leading and 2 trailing swipe slots
+- Layout is persisted in `@AppStorage` and sanitized to prevent duplicate action assignment
 
 ## Subsystem: Favorites
 
@@ -258,6 +262,15 @@ Server-backed playlist mutations with automatic local cache refresh:
 - Smart playlists are read-only; all mutations throw `PlaylistMutationError.smartPlaylistReadOnly`
 - All successful mutations trigger server refresh + CoreData update for the affected source
 - UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
+
+## Subsystem: Gesture Actions
+
+iOS/iPadOS gesture system for track swipe actions and long-press media actions:
+
+- Track swipe actions are layout-driven from `SettingsManager.trackSwipeLayout` and shared across Songs/Favorites/Mood/Search/detail track lists
+- SwiftUI track surfaces use `TrackSwipeContainer`; UIKit-backed detail lists use `MediaTrackList` `UIContextualAction` APIs
+- `NowPlayingViewModel` exposes `setTrackFavorite(_:for:)` and `toggleTrackFavorite(_:)` for non-current track favorite mutations
+- Album/artist/playlist cards and search rows expose `contextMenu` actions aligned with detail-view capabilities
 
 ## Subsystem: Pinned Content
 

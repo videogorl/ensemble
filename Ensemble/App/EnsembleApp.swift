@@ -18,6 +18,7 @@ struct EnsembleApp: App {
         WindowGroup {
             RootView()
                 .environment(\.dependencies, DependencyContainer.shared)
+                .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onOpenURL { url in
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }

@@ -54,7 +54,6 @@ public struct MainTabView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dependencies) private var deps
     
     #if os(iOS)
@@ -140,13 +139,6 @@ public struct MainTabView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if !isImmersiveMode {
-                ToastHostView(
-                    toastCenter: toastCenter,
-                    horizontalPadding: 16,
-                    bottomPadding: nowPlayingVM.currentTrack != nil && !isKeyboardVisible ? 140 : 78
-                )
-            }
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
@@ -352,7 +344,6 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dependencies) private var deps
 
     @State private var selection: SidebarSection? = .home
@@ -436,12 +427,6 @@ public struct SidebarView: View {
             }
             .zIndex(2)
 
-            ToastHostView(
-                toastCenter: toastCenter,
-                horizontalPadding: 16,
-                bottomPadding: 84
-            )
-            .zIndex(3)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)

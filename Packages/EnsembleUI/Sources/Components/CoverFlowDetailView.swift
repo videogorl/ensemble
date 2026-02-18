@@ -74,6 +74,14 @@ struct CoverFlowDetailView: View {
                     onAddToRecentPlaylist: { track in
                         addToRecentPlaylist(track)
                     },
+                    onToggleFavorite: { track in
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    isTrackFavorited: { track in
+                        nowPlayingVM.isTrackFavorited(track)
+                    },
                     canAddToRecentPlaylist: { track in
                         recentPlaylistTitle(for: track) != nil
                     },

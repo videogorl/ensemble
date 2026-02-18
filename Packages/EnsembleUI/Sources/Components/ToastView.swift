@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct ToastHostView: View {
     @ObservedObject var toastCenter: ToastCenter
@@ -36,10 +39,142 @@ public struct ToastHostView: View {
     }
 }
 
+public extension View {
+    @ViewBuilder
+    func installGlobalToastWindow(toastCenter: ToastCenter) -> some View {
+        #if os(iOS)
+        background(
+            GlobalToastWindowHost(toastCenter: toastCenter)
+                .frame(width: 0, height: 0)
+        )
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(iOS)
+/// Installs a dedicated top-level toast window so toasts appear above sheets and app chrome.
+public struct GlobalToastWindowHost: UIViewControllerRepresentable {
+    private let toastCenter: ToastCenter
+
+    public init(toastCenter: ToastCenter) {
+        self.toastCenter = toastCenter
+    }
+
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(toastCenter: toastCenter)
+    }
+
+    public func makeUIViewController(context: Context) -> UIViewController {
+        let controller = UIViewController()
+        controller.view.isHidden = true
+        controller.view.isUserInteractionEnabled = false
+        return controller
+    }
+
+    public func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        context.coordinator.toastCenter = toastCenter
+        context.coordinator.refreshRootView()
+
+        DispatchQueue.main.async {
+            context.coordinator.attach(to: uiViewController.view.window?.windowScene)
+        }
+    }
+
+    public static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    public final class Coordinator {
+        fileprivate var toastCenter: ToastCenter
+        private var overlayWindow: PassthroughWindow?
+        private weak var attachedScene: UIWindowScene?
+
+        fileprivate init(toastCenter: ToastCenter) {
+            self.toastCenter = toastCenter
+        }
+
+        fileprivate func attach(to scene: UIWindowScene?) {
+            guard let scene else {
+                detach()
+                return
+            }
+
+            if attachedScene === scene, overlayWindow != nil {
+                refreshRootView()
+                return
+            }
+
+            detach()
+            attachedScene = scene
+
+            let window = PassthroughWindow(windowScene: scene)
+            window.backgroundColor = .clear
+            window.windowLevel = .alert + 1
+
+            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter))
+            host.view.backgroundColor = .clear
+            window.rootViewController = host
+            window.isHidden = false
+
+            overlayWindow = window
+        }
+
+        fileprivate func refreshRootView() {
+            guard let host = overlayWindow?.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
+            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter)
+        }
+
+        fileprivate func detach() {
+            overlayWindow?.isHidden = true
+            overlayWindow?.rootViewController = nil
+            overlayWindow = nil
+            attachedScene = nil
+        }
+    }
+}
+
+private final class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hitView = super.hitTest(point, with: event)
+        if hitView === rootViewController?.view {
+            return nil
+        }
+        return hitView
+    }
+}
+
+private struct GlobalToastOverlayRootView: View {
+    @ObservedObject var toastCenter: ToastCenter
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .overlay(alignment: .bottom) {
+                    ToastHostView(
+                        toastCenter: toastCenter,
+                        horizontalPadding: 16,
+                        // Account for safe-area when rendering in a window that
+                        // ignores safe areas so the toast stays above mini player.
+                        bottomPadding: baseBottomPadding + geometry.safeAreaInsets.bottom
+                    )
+                }
+                .ignoresSafeArea()
+        }
+    }
+
+    private var baseBottomPadding: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 84 : 140
+    }
+}
+#endif
+
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
     let onToastTap: (() -> Void)?
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -108,6 +243,6 @@ public struct ToastBannerView: View {
     }
 
     private var accentColor: Color {
-        Color.accentColor
+        settingsManager.accentColor.color
     }
 }

@@ -171,6 +171,18 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 
+## Adding Track Swipe or Long-Press Actions
+
+Use these patterns when extending gesture actions:
+
+1. Add/adjust action definitions in `SettingsManager.TrackSwipeAction` and keep `TrackSwipeLayout.default` sane (2 leading + 2 trailing).
+2. Ensure layout sanitization prevents duplicate assignments and malformed persisted payloads.
+3. For SwiftUI track rows, wrap row content in `TrackSwipeContainer` and pass closures for play next/last, add-to-playlist, and favorite toggle.
+4. For detail track tables, map the same actions in `MediaTrackList` via `leadingSwipeActionsConfigurationForRowAt` / `trailingSwipeActionsConfigurationForRowAt`.
+5. For favorite mutations, call `NowPlayingViewModel.toggleTrackFavorite(_:)` or `setTrackFavorite(_:for:)` so server rating + local cache stay consistent.
+6. For album/artist/playlist long-press, use `contextMenu` and mirror detail-view capabilities; keep Search playlist menus non-destructive.
+7. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
+
 ## Triggering Incremental vs Full Sync
 
 ```swift
