@@ -100,6 +100,16 @@ public final class PlaylistViewModel: ObservableObject {
         // Reload from updated cache
         await loadPlaylists()
     }
+
+    public func deletePlaylist(_ playlist: Playlist) async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
     
     public var sortedPlaylists: [Playlist] {
         switch playlistSortOption {

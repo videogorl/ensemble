@@ -12,6 +12,9 @@ public struct PlaylistsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
+    @State private var playlistPendingSwipeDelete: Playlist?
+    @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
+    @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -33,6 +36,25 @@ public struct PlaylistsView: View {
                     playlistListView
                 }
             }
+            .alert("Delete Playlist?", isPresented: Binding(
+                get: { playlistPendingSwipeDelete != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        playlistPendingSwipeDelete = nil
+                    }
+                }
+            )) {
+                Button("Cancel", role: .cancel) {
+                    playlistPendingSwipeDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    guard let playlist = playlistPendingSwipeDelete else { return }
+                    playlistPendingSwipeDelete = nil
+                    startOptimisticDelete(for: playlist)
+                }
+            } message: {
+                Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
+            }
             .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
@@ -49,9 +71,15 @@ public struct PlaylistsView: View {
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.remove(playlistID)
+                if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+                    deps.toastCenter.dismiss(id: toastID)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionSucceeded)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
+                if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+                    deps.toastCenter.dismiss(id: toastID)
+                }
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
@@ -147,6 +175,11 @@ public struct PlaylistsView: View {
         List {
             ForEach(displayedFilteredPlaylists) { playlist in
                 PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                    .if(!playlist.isSmart) { row in
+                        row.standardDeleteSwipeAction {
+                            playlistPendingSwipeDelete = playlist
+                        }
+                    }
             }
         }
         .listStyle(.plain)
@@ -186,6 +219,62 @@ public struct PlaylistsView: View {
 
     private var displayedFilteredPlaylists: [Playlist] {
         viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+    }
+
+    private func startOptimisticDelete(for playlist: Playlist) {
+        guard !pendingDeletionPlaylistIDs.contains(playlist.id) else { return }
+        guard !playlist.isSmart else { return }
+
+        let deletingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "trash",
+            title: "Deleting \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: "playlist-delete-pending-\(playlist.id)",
+            showsActivityIndicator: true
+        )
+        deletingToastIDsByPlaylistID[playlist.id] = deletingToast.id
+        deps.toastCenter.show(deletingToast)
+
+        NotificationCenter.default.post(
+            name: .playlistDeletionStarted,
+            object: nil,
+            userInfo: ["playlistID": playlist.id]
+        )
+
+        Task {
+            let didDelete = await viewModel.deletePlaylist(playlist)
+            if didDelete {
+                NotificationCenter.default.post(
+                    name: .playlistDeletionSucceeded,
+                    object: nil,
+                    userInfo: ["playlistID": playlist.id]
+                )
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "trash.fill",
+                        title: "Deleted \(playlist.title)",
+                        dedupeKey: "playlist-delete-success-\(playlist.id)"
+                    )
+                )
+            } else {
+                NotificationCenter.default.post(
+                    name: .playlistDeletionFailed,
+                    object: nil,
+                    userInfo: ["playlistID": playlist.id]
+                )
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not delete \(playlist.title)",
+                        message: viewModel.error ?? "Try again later.",
+                        dedupeKey: "playlist-delete-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
     }
 }
 
