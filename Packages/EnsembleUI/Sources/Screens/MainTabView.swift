@@ -86,9 +86,16 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            // Keep mini-player spacing consistent across devices:
-            // 56pt above tab bar + any bottom safe-area inset (home indicator).
-            let miniPlayerBottomLift = 56 + geometry.safeAreaInsets.bottom
+            // Keep mini-player spacing aligned with the active tab bar style.
+            // iOS 18 floating tab bars already sit above the home indicator, so
+            // adding safe-area bottom again pushes mini-player too high.
+            let miniPlayerBottomLift: CGFloat = {
+                if #available(iOS 18.0, *) {
+                    return 56
+                } else {
+                    return 56 + geometry.safeAreaInsets.bottom
+                }
+            }()
 
             let rootView = ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
