@@ -2,6 +2,12 @@ import EnsembleCore
 import SwiftUI
 
 public struct SearchView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var viewModel: SearchViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
@@ -9,6 +15,7 @@ public struct SearchView: View {
     @StateObject private var pinnedVM: PinnedViewModel
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
         self._viewModel = StateObject(wrappedValue: viewModel ?? DependencyContainer.shared.makeSearchViewModel())
@@ -44,6 +51,9 @@ public struct SearchView: View {
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
 
         if #available(iOS 18.0, macOS 15.0, *) {
@@ -721,10 +731,56 @@ public struct SearchView: View {
                         } label: {
                             Label("Add to Queue", systemImage: "text.badge.plus")
                         }
+
+                        if let recentTitle = recentPlaylistTitle(for: track) {
+                            Button {
+                                addToRecentPlaylist(track)
+                            } label: {
+                                Label("Add to \(recentTitle)", systemImage: "clock.arrow.circlepath")
+                            }
+                        }
+
+                        Button {
+                            presentPlaylistPicker(with: [track])
+                        } label: {
+                            Label("Add to Playlist...", systemImage: "text.badge.plus")
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
     
     private func compactSection<T: Identifiable, Content: View>(

@@ -218,6 +218,10 @@ public struct MediaTrackList: UIViewRepresentable {
     let onTrackTap: (Track, Int) -> Void
     let onPlayNext: ((Track) -> Void)?
     let onPlayLast: ((Track) -> Void)?
+    let onAddToPlaylist: ((Track) -> Void)?
+    let onAddToRecentPlaylist: ((Track) -> Void)?
+    let canAddToRecentPlaylist: ((Track) -> Bool)?
+    let recentPlaylistTitle: String?
     
     @Environment(\.dependencies) private var dependencies
     
@@ -229,6 +233,10 @@ public struct MediaTrackList: UIViewRepresentable {
         currentTrackId: String? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
+        onAddToPlaylist: ((Track) -> Void)? = nil,
+        onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
+        recentPlaylistTitle: String? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.tracks = tracks
@@ -238,6 +246,10 @@ public struct MediaTrackList: UIViewRepresentable {
         self.currentTrackId = currentTrackId
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
+        self.onAddToPlaylist = onAddToPlaylist
+        self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.canAddToRecentPlaylist = canAddToRecentPlaylist
+        self.recentPlaylistTitle = recentPlaylistTitle
         self.onTrackTap = onTrackTap
     }
     
@@ -290,6 +302,10 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onTrackTap = onTrackTap
         context.coordinator.onPlayNext = onPlayNext
         context.coordinator.onPlayLast = onPlayLast
+        context.coordinator.onAddToPlaylist = onAddToPlaylist
+        context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
+        context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
+        context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
         
         // Only reload if data actually changed
@@ -328,6 +344,10 @@ public struct MediaTrackList: UIViewRepresentable {
             onTrackTap: onTrackTap,
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
+            onAddToPlaylist: onAddToPlaylist,
+            onAddToRecentPlaylist: onAddToRecentPlaylist,
+            canAddToRecentPlaylist: canAddToRecentPlaylist,
+            recentPlaylistTitle: recentPlaylistTitle,
             artworkLoader: dependencies.artworkLoader
         )
     }
@@ -353,6 +373,10 @@ public struct MediaTrackList: UIViewRepresentable {
         var onTrackTap: (Track, Int) -> Void
         var onPlayNext: ((Track) -> Void)?
         var onPlayLast: ((Track) -> Void)?
+        var onAddToPlaylist: ((Track) -> Void)?
+        var onAddToRecentPlaylist: ((Track) -> Void)?
+        var canAddToRecentPlaylist: ((Track) -> Bool)?
+        var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
         
         init(
@@ -364,6 +388,10 @@ public struct MediaTrackList: UIViewRepresentable {
             onTrackTap: @escaping (Track, Int) -> Void,
             onPlayNext: ((Track) -> Void)?,
             onPlayLast: ((Track) -> Void)?,
+            onAddToPlaylist: ((Track) -> Void)?,
+            onAddToRecentPlaylist: ((Track) -> Void)?,
+            canAddToRecentPlaylist: ((Track) -> Bool)?,
+            recentPlaylistTitle: String?,
             artworkLoader: ArtworkLoaderProtocol
         ) {
             self.tracks = tracks
@@ -374,6 +402,10 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onTrackTap = onTrackTap
             self.onPlayNext = onPlayNext
             self.onPlayLast = onPlayLast
+            self.onAddToPlaylist = onAddToPlaylist
+            self.onAddToRecentPlaylist = onAddToRecentPlaylist
+            self.canAddToRecentPlaylist = canAddToRecentPlaylist
+            self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
         }
         
@@ -448,10 +480,8 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
-            let globalIndex = tracks.firstIndex(where: { $0.id == track.id }) ?? 0
-            
             // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil else { return nil }
+            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var actions: [UIAction] = []
@@ -465,6 +495,21 @@ public struct MediaTrackList: UIViewRepresentable {
                 if let onPlayLast = self?.onPlayLast {
                     actions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
                         onPlayLast(track)
+                    })
+                }
+
+                if let onAddToRecentPlaylist = self?.onAddToRecentPlaylist,
+                   let canAddToRecentPlaylist = self?.canAddToRecentPlaylist,
+                   canAddToRecentPlaylist(track),
+                   let recentPlaylistTitle = self?.recentPlaylistTitle {
+                    actions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                        onAddToRecentPlaylist(track)
+                    })
+                }
+
+                if let onAddToPlaylist = self?.onAddToPlaylist {
+                    actions.append(UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
+                        onAddToPlaylist(track)
                     })
                 }
                 

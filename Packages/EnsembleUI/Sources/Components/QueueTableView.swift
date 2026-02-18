@@ -233,6 +233,10 @@ public struct QueueTableView: UIViewRepresentable {
     let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
     let onPlayNext: (Track) -> Void
     let onPlayLast: (Track) -> Void
+    let onAddToPlaylist: ((Track) -> Void)?
+    let onAddToRecentPlaylist: ((Track) -> Void)?
+    let canAddToRecentPlaylist: ((Track) -> Bool)?
+    let recentPlaylistTitle: String?
     let onRemoveFromQueue: (Int) -> Void
     let onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
 
@@ -247,6 +251,10 @@ public struct QueueTableView: UIViewRepresentable {
         onHistoryTap: @escaping (QueueItem, Int) -> Void,
         onPlayNext: @escaping (Track) -> Void,
         onPlayLast: @escaping (Track) -> Void,
+        onAddToPlaylist: ((Track) -> Void)? = nil,
+        onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
+        recentPlaylistTitle: String? = nil,
         onRemoveFromQueue: @escaping (Int) -> Void,
         onMoveItem: @escaping (String, Int, Int) -> Void
     ) {
@@ -258,6 +266,10 @@ public struct QueueTableView: UIViewRepresentable {
         self.onHistoryTap = onHistoryTap
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
+        self.onAddToPlaylist = onAddToPlaylist
+        self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.canAddToRecentPlaylist = canAddToRecentPlaylist
+        self.recentPlaylistTitle = recentPlaylistTitle
         self.onRemoveFromQueue = onRemoveFromQueue
         self.onMoveItem = onMoveItem
     }
@@ -298,6 +310,10 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onHistoryTap = onHistoryTap
         context.coordinator.onPlayNext = onPlayNext
         context.coordinator.onPlayLast = onPlayLast
+        context.coordinator.onAddToPlaylist = onAddToPlaylist
+        context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
+        context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
+        context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
         context.coordinator.onMoveItem = onMoveItem
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -338,6 +354,10 @@ public struct QueueTableView: UIViewRepresentable {
             onHistoryTap: onHistoryTap,
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
+            onAddToPlaylist: onAddToPlaylist,
+            onAddToRecentPlaylist: onAddToRecentPlaylist,
+            canAddToRecentPlaylist: canAddToRecentPlaylist,
+            recentPlaylistTitle: recentPlaylistTitle,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
             artworkLoader: dependencies.artworkLoader
@@ -355,6 +375,10 @@ public struct QueueTableView: UIViewRepresentable {
         var onHistoryTap: (QueueItem, Int) -> Void
         var onPlayNext: (Track) -> Void
         var onPlayLast: (Track) -> Void
+        var onAddToPlaylist: ((Track) -> Void)?
+        var onAddToRecentPlaylist: ((Track) -> Void)?
+        var canAddToRecentPlaylist: ((Track) -> Bool)?
+        var recentPlaylistTitle: String?
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
         var artworkLoader: ArtworkLoaderProtocol
@@ -392,6 +416,10 @@ public struct QueueTableView: UIViewRepresentable {
             onHistoryTap: @escaping (QueueItem, Int) -> Void,
             onPlayNext: @escaping (Track) -> Void,
             onPlayLast: @escaping (Track) -> Void,
+            onAddToPlaylist: ((Track) -> Void)?,
+            onAddToRecentPlaylist: ((Track) -> Void)?,
+            canAddToRecentPlaylist: ((Track) -> Bool)?,
+            recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
             onMoveItem: @escaping (String, Int, Int) -> Void,
             artworkLoader: ArtworkLoaderProtocol
@@ -404,6 +432,10 @@ public struct QueueTableView: UIViewRepresentable {
             self.onHistoryTap = onHistoryTap
             self.onPlayNext = onPlayNext
             self.onPlayLast = onPlayLast
+            self.onAddToPlaylist = onAddToPlaylist
+            self.onAddToRecentPlaylist = onAddToRecentPlaylist
+            self.canAddToRecentPlaylist = canAddToRecentPlaylist
+            self.recentPlaylistTitle = recentPlaylistTitle
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
@@ -571,10 +603,29 @@ public struct QueueTableView: UIViewRepresentable {
                 let playLast = UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
                     self.onPlayLast(item.track)
                 }
+                var actions: [UIAction] = [playNext, playLast]
+                if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
+                   let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
+                   canAddToRecentPlaylist(item.track),
+                   let recentPlaylistTitle = self.recentPlaylistTitle {
+                    actions.append(
+                        UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                            onAddToRecentPlaylist(item.track)
+                        }
+                    )
+                }
+                if let onAddToPlaylist = self.onAddToPlaylist {
+                    actions.append(
+                        UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
+                            onAddToPlaylist(item.track)
+                        }
+                    )
+                }
                 let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                     self.onRemoveFromQueue(absoluteIndex)
                 }
-                return UIMenu(children: [playNext, playLast, remove])
+                actions.append(remove)
+                return UIMenu(children: actions)
             }
         }
         

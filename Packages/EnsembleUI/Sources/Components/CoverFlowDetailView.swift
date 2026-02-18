@@ -3,6 +3,12 @@ import EnsembleCore
 
 /// Inline track list view for CoverFlow - loads and displays tracks for selected album/playlist
 struct CoverFlowDetailView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     enum ContentType {
         case album(String)
         case playlist(String)
@@ -15,6 +21,7 @@ struct CoverFlowDetailView: View {
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var error: Error?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -54,7 +61,23 @@ struct CoverFlowDetailView: View {
                     showArtwork: true,
                     showTrackNumbers: true,
                     groupByDisc: false,
-                    currentTrackId: nowPlayingVM.currentTrack?.id
+                    currentTrackId: nowPlayingVM.currentTrack?.id,
+                    onPlayNext: { track in
+                        nowPlayingVM.playNext(track)
+                    },
+                    onPlayLast: { track in
+                        nowPlayingVM.playLast(track)
+                    },
+                    onAddToPlaylist: { track in
+                        presentPlaylistPicker(with: [track])
+                    },
+                    onAddToRecentPlaylist: { track in
+                        addToRecentPlaylist(track)
+                    },
+                    canAddToRecentPlaylist: { track in
+                        recentPlaylistTitle(for: track) != nil
+                    },
+                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
                 ) { track, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
@@ -70,7 +93,10 @@ struct CoverFlowDetailView: View {
                                 showArtwork: true,
                                 isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                                 onPlayNext: { nowPlayingVM.playNext(track) },
-                                onPlayLast: { nowPlayingVM.playLast(track) }
+                                onPlayLast: { nowPlayingVM.playLast(track) },
+                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                recentPlaylistTitle: recentPlaylistTitle(for: track)
                             ) {
                                 nowPlayingVM.play(tracks: tracks, startingAt: index)
                             }
@@ -84,6 +110,9 @@ struct CoverFlowDetailView: View {
         }
         .task(id: contentTypeId) {
             await loadTracks()
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
     
@@ -118,6 +147,38 @@ struct CoverFlowDetailView: View {
             self.error = error
             isLoading = false
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 }
 

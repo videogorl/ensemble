@@ -10,9 +10,16 @@ import AppKit
 /// View showing favorited/loved tracks (rated 4+ stars)
 /// Offline-first hub that displays tracks from CoreData across all servers and libraries
 public struct FavoritesView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var viewModel: FavoritesViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -82,6 +89,9 @@ public struct FavoritesView: View {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
     
@@ -179,7 +189,10 @@ public struct FavoritesView: View {
                             showArtwork: true,
                             isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                             onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) }
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            recentPlaylistTitle: recentPlaylistTitle(for: track)
                         ) {
                             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                         }
@@ -198,5 +211,37 @@ public struct FavoritesView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 }

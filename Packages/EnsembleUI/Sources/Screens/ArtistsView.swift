@@ -191,6 +191,12 @@ public struct ArtistsView: View {
 // MARK: - Artist Detail View
 
 public struct ArtistDetailView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var viewModel: ArtistDetailViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
 
@@ -198,6 +204,7 @@ public struct ArtistDetailView: View {
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     public init(
         artist: Artist,
@@ -270,6 +277,9 @@ public struct ArtistDetailView: View {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
             await loadArtworkImage()
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
 
@@ -549,7 +559,10 @@ public struct ArtistDetailView: View {
                         showArtwork: true,
                         isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                         onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) }
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                        recentPlaylistTitle: recentPlaylistTitle(for: track)
                     ) {
                         nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
                     }
@@ -563,5 +576,37 @@ public struct ArtistDetailView: View {
                 }
             }
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 }

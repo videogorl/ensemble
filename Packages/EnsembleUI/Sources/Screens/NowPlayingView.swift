@@ -646,6 +646,21 @@ public struct NowPlayingView: View {
                     onPlayLast: { track in
                         viewModel.playLast(track)
                     },
+                    onAddToPlaylist: { track in
+                        presentPlaylistPicker(with: [track], title: "Add to Playlist")
+                    },
+                    onAddToRecentPlaylist: { track in
+                        guard let lastPlaylistQuickTarget,
+                              viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
+                        Task {
+                            _ = try? await viewModel.addTracks([track], to: lastPlaylistQuickTarget)
+                        }
+                    },
+                    canAddToRecentPlaylist: { track in
+                        guard let lastPlaylistQuickTarget else { return false }
+                        return viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+                    },
+                    recentPlaylistTitle: lastPlaylistQuickTarget?.title,
                     onRemoveFromQueue: { absoluteIndex in
                         // Use captured index for consistency
                         viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
