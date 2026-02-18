@@ -220,6 +220,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let onPlayLast: ((Track) -> Void)?
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
+    let onToggleFavorite: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     
@@ -235,6 +236,7 @@ public struct MediaTrackList: UIViewRepresentable {
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        onToggleFavorite: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -248,6 +250,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.onToggleFavorite = onToggleFavorite
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onTrackTap = onTrackTap
@@ -304,6 +307,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onPlayLast = onPlayLast
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
+        context.coordinator.onToggleFavorite = onToggleFavorite
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -348,6 +352,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onPlayLast: onPlayLast,
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
+            onToggleFavorite: onToggleFavorite,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             artworkLoader: dependencies.artworkLoader
@@ -377,6 +382,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var onPlayLast: ((Track) -> Void)?
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
+        var onToggleFavorite: ((Track) -> Void)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
@@ -392,6 +398,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onPlayLast: ((Track) -> Void)?,
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
+            onToggleFavorite: ((Track) -> Void)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             artworkLoader: ArtworkLoaderProtocol
@@ -406,6 +413,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onPlayLast = onPlayLast
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
+            self.onToggleFavorite = onToggleFavorite
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
@@ -483,7 +491,7 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil else { return nil }
+            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var actions: [UIAction] = []
@@ -510,12 +518,110 @@ public struct MediaTrackList: UIViewRepresentable {
                 }
 
                 if let onAddToPlaylist = self?.onAddToPlaylist {
-                    actions.append(UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
+                    actions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
                         onAddToPlaylist(track)
+                    })
+                }
+
+                if let onToggleFavorite = self?.onToggleFavorite {
+                    let isFavorited = track.rating >= 8
+                    actions.append(UIAction(
+                        title: isFavorited ? "Unfavorite" : "Favorite",
+                        image: UIImage(systemName: isFavorited ? "heart.slash" : "heart")
+                    ) { _ in
+                        onToggleFavorite(track)
                     })
                 }
                 
                 return UIMenu(children: actions)
+            }
+        }
+
+        public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.leading
+            let actions = swipeActions(from: configured, track: track)
+            guard !actions.isEmpty else { return nil }
+
+            let configuration = UISwipeActionsConfiguration(actions: actions)
+            configuration.performsFirstActionWithFullSwipe = true
+            return configuration
+        }
+
+        public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            let configured = DependencyContainer.shared.settingsManager.trackSwipeLayout.trailing
+            let actions = swipeActions(from: configured, track: track)
+            guard !actions.isEmpty else { return nil }
+
+            let configuration = UISwipeActionsConfiguration(actions: actions)
+            configuration.performsFirstActionWithFullSwipe = true
+            return configuration
+        }
+
+        private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
+            configured.compactMap { candidate in
+                guard let action = candidate, isSwipeActionSupported(action) else { return nil }
+                let contextual = UIContextualAction(style: .normal, title: swipeTitle(for: action, track: track)) { [weak self] _, _, completion in
+                    self?.executeSwipeAction(action, track: track)
+                    completion(true)
+                }
+                contextual.backgroundColor = UIColor(swipeTint(for: action, track: track))
+                contextual.image = UIImage(systemName: swipeIcon(for: action, track: track))
+                return contextual
+            }
+        }
+
+        private func isSwipeActionSupported(_ action: TrackSwipeAction) -> Bool {
+            switch action {
+            case .playNext:
+                return onPlayNext != nil
+            case .playLast:
+                return onPlayLast != nil
+            case .addToPlaylist:
+                return onAddToPlaylist != nil
+            case .favoriteToggle:
+                return onToggleFavorite != nil
+            }
+        }
+
+        private func executeSwipeAction(_ action: TrackSwipeAction, track: Track) {
+            switch action {
+            case .playNext:
+                onPlayNext?(track)
+            case .playLast:
+                onPlayLast?(track)
+            case .addToPlaylist:
+                onAddToPlaylist?(track)
+            case .favoriteToggle:
+                onToggleFavorite?(track)
+            }
+        }
+
+        private func swipeTitle(for action: TrackSwipeAction, track: Track) -> String {
+            switch action {
+            case .favoriteToggle:
+                return track.rating >= 8 ? "Unfavorite" : "Favorite"
+            default:
+                return action.title
+            }
+        }
+
+        private func swipeIcon(for action: TrackSwipeAction, track: Track) -> String {
+            switch action {
+            case .favoriteToggle:
+                return track.rating >= 8 ? "heart.slash.fill" : "heart.fill"
+            default:
+                return action.systemImage
+            }
+        }
+
+        private func swipeTint(for action: TrackSwipeAction, track: Track) -> Color {
+            switch action {
+            case .favoriteToggle:
+                return track.rating >= 8 ? .gray : .pink
+            default:
+                return action.tint
             }
         }
     }

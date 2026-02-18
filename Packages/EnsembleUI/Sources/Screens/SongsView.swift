@@ -226,21 +226,34 @@ public struct SongsView: View {
         Section(header: sectionHeader(section.letter)) {
             VStack(spacing: 0) {
                 ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(
+                    TrackSwipeContainer(
                         track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        nowPlayingVM: nowPlayingVM,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                        recentPlaylistTitle: recentPlaylistTitle(for: track),
-                        onTap: {
-                            if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                    ) {
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onToggleFavorite: {
+                                Task {
+                                    await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            recentPlaylistTitle: recentPlaylistTitle(for: track),
+                            onTap: {
+                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                     .id(track.id)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -273,10 +286,16 @@ public struct SongsView: View {
             onAddToRecentPlaylist: { track in
                 addToRecentPlaylist(track)
             },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
             canAddToRecentPlaylist: { track in
                 recentPlaylistTitle(for: track) != nil
             },
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+            nowPlayingVM: nowPlayingVM
         ) { track, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }

@@ -12,6 +12,7 @@ public struct TrackRow: View {
     let onPlayLast: (() -> Void)?
     let onAddToPlaylist: (() -> Void)?
     let onAddToRecentPlaylist: (() -> Void)?
+    let onToggleFavorite: (() -> Void)?
     let recentPlaylistTitle: String?
 
     public init(
@@ -24,6 +25,7 @@ public struct TrackRow: View {
         onPlayLast: (() -> Void)? = nil,
         onAddToPlaylist: (() -> Void)? = nil,
         onAddToRecentPlaylist: (() -> Void)? = nil,
+        onToggleFavorite: (() -> Void)? = nil,
         recentPlaylistTitle: String? = nil,
         onTap: @escaping () -> Void
     ) {
@@ -36,6 +38,7 @@ public struct TrackRow: View {
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.onToggleFavorite = onToggleFavorite
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onTap = onTap
     }
@@ -110,7 +113,16 @@ public struct TrackRow: View {
             }
             if let onAddToPlaylist = onAddToPlaylist {
                 Button(action: onAddToPlaylist) {
-                    Label("Add to Playlist...", systemImage: "text.badge.plus")
+                    Label("Add to Playlist…", systemImage: "text.badge.plus")
+                }
+            }
+            if let onToggleFavorite = onToggleFavorite {
+                Button(action: onToggleFavorite) {
+                    if track.rating >= 8 {
+                        Label("Unfavorite", systemImage: "heart.slash")
+                    } else {
+                        Label("Favorite", systemImage: "heart")
+                    }
                 }
             }
         }
@@ -144,8 +156,10 @@ public struct TrackListView: View {
     let onPlayLast: ((Track) -> Void)?
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
+    let onToggleFavorite: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
+    let nowPlayingVM: NowPlayingViewModel?
 
     public init(
         tracks: [Track],
@@ -157,8 +171,10 @@ public struct TrackListView: View {
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        onToggleFavorite: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
+        nowPlayingVM: NowPlayingViewModel? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.tracks = tracks
@@ -170,15 +186,17 @@ public struct TrackListView: View {
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.onToggleFavorite = onToggleFavorite
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.nowPlayingVM = nowPlayingVM
         self.onTrackTap = onTrackTap
     }
 
     public var body: some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(
+                let row = TrackRow(
                     track: track,
                     showArtwork: showArtwork,
                     showTrackNumber: showTrackNumbers,
@@ -188,9 +206,26 @@ public struct TrackListView: View {
                     onPlayLast: onPlayLast != nil ? { onPlayLast?(track) } : nil,
                     onAddToPlaylist: onAddToPlaylist != nil ? { onAddToPlaylist?(track) } : nil,
                     onAddToRecentPlaylist: onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true) ? { onAddToRecentPlaylist?(track) } : nil,
+                    onToggleFavorite: onToggleFavorite != nil ? { onToggleFavorite?(track) } : nil,
                     recentPlaylistTitle: recentPlaylistTitle
                 ) {
                     onTrackTap(track, index)
+                }
+
+                Group {
+                    if let nowPlayingVM {
+                        TrackSwipeContainer(
+                            track: track,
+                            nowPlayingVM: nowPlayingVM,
+                            onPlayNext: onPlayNext != nil ? { onPlayNext?(track) } : nil,
+                            onPlayLast: onPlayLast != nil ? { onPlayLast?(track) } : nil,
+                            onAddToPlaylist: onAddToPlaylist != nil ? { onAddToPlaylist?(track) } : nil
+                        ) {
+                            row
+                        }
+                    } else {
+                        row
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
