@@ -203,10 +203,13 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditingPlaylist {
                     Button("Save") {
+                        let editedSnapshot = editedTracks
+                        viewModel.applyEditedTracksLocally(editedSnapshot)
                         isSavingPlaylistEdits = true
                         isEditingPlaylist = false
+                        editedTracks = []
                         Task {
-                            await viewModel.saveEditedTracks(editedTracks)
+                            await viewModel.saveEditedTracks(editedSnapshot)
                             isSavingPlaylistEdits = false
                         }
                     }
@@ -280,5 +283,8 @@ public struct PlaylistDetailView: View {
         .listStyle(.plain)
         .navigationTitle(playlist.title)
         .environment(\.editMode, .constant(.active))
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 110)
+        }
     }
 }

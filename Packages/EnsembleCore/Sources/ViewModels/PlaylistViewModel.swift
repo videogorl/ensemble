@@ -246,8 +246,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
-    public func saveEditedTracks(_ editedTracks: [Track]) async {
-        // Optimistically update local detail state so UI exits edit mode immediately.
+    public func applyEditedTracksLocally(_ editedTracks: [Track]) {
         tracks = editedTracks
         playlist = Playlist(
             id: playlist.id,
@@ -263,6 +262,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             lastPlayed: playlist.lastPlayed,
             sourceCompositeKey: playlist.sourceCompositeKey
         )
+    }
+
+    public func saveEditedTracks(_ editedTracks: [Track]) async {
+        // Apply immediately so playlist detail reflects edits before network roundtrip.
+        applyEditedTracksLocally(editedTracks)
 
         do {
             try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
