@@ -315,6 +315,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
+        context.coordinator.toastCenter = dependencies.toastCenter
         
         // Only reload if data actually changed
         if dataChanged {
@@ -360,7 +361,8 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
-            artworkLoader: dependencies.artworkLoader
+            artworkLoader: dependencies.artworkLoader,
+            toastCenter: dependencies.toastCenter
         )
     }
     
@@ -392,6 +394,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
+        var toastCenter: ToastCenter
         
         init(
             tracks: [Track],
@@ -408,7 +411,8 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
-            artworkLoader: ArtworkLoaderProtocol
+            artworkLoader: ArtworkLoaderProtocol,
+            toastCenter: ToastCenter
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
@@ -425,6 +429,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
+            self.toastCenter = toastCenter
         }
         
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -597,12 +602,52 @@ public struct MediaTrackList: UIViewRepresentable {
             switch action {
             case .playNext:
                 onPlayNext?(track)
+                showSwipeConfirmation(for: action, track: track)
             case .playLast:
                 onPlayLast?(track)
+                showSwipeConfirmation(for: action, track: track)
             case .addToPlaylist:
                 onAddToPlaylist?(track)
+                showSwipeConfirmation(for: action, track: track)
             case .favoriteToggle:
                 onToggleFavorite?(track)
+            }
+        }
+
+        private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
+            let toast: ToastPayload
+
+            switch action {
+            case .playNext:
+                toast = ToastPayload(
+                    style: .success,
+                    iconSystemName: "text.insert",
+                    title: "Play Next",
+                    message: "Added \(track.title).",
+                    dedupeKey: "swipe-play-next-\(track.id)"
+                )
+            case .playLast:
+                toast = ToastPayload(
+                    style: .success,
+                    iconSystemName: "text.append",
+                    title: "Play Last",
+                    message: "Queued \(track.title) for later.",
+                    dedupeKey: "swipe-play-last-\(track.id)"
+                )
+            case .addToPlaylist:
+                toast = ToastPayload(
+                    style: .info,
+                    iconSystemName: "text.badge.plus",
+                    title: "Add to Playlist…",
+                    message: "Choose a playlist to continue.",
+                    dedupeKey: "swipe-add-to-playlist-\(track.id)"
+                )
+            case .favoriteToggle:
+                return
+            }
+
+            Task { @MainActor in
+                toastCenter.show(toast)
             }
         }
 

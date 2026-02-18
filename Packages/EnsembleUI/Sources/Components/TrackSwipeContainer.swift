@@ -12,6 +12,7 @@ public struct TrackSwipeContainer<Content: View>: View {
 
     @ObservedObject private var nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
 
     @State private var offset: CGFloat = 0
     @State private var dragStartOffset: CGFloat = 0
@@ -231,14 +232,54 @@ public struct TrackSwipeContainer<Content: View>: View {
         switch action {
         case .playNext:
             onPlayNext?()
+            showSwipeConfirmation(for: action, track: track)
         case .playLast:
             onPlayLast?()
+            showSwipeConfirmation(for: action, track: track)
         case .addToPlaylist:
             onAddToPlaylist?()
+            showSwipeConfirmation(for: action, track: track)
         case .favoriteToggle:
             Task {
                 await nowPlayingVM.toggleTrackFavorite(track)
             }
+        }
+    }
+
+    private func showSwipeConfirmation(for action: TrackSwipeAction, track: Track) {
+        switch action {
+        case .playNext:
+            toastCenter.show(
+                ToastPayload(
+                    style: .success,
+                    iconSystemName: "text.insert",
+                    title: "Play Next",
+                    message: "Added \(track.title).",
+                    dedupeKey: "swipe-play-next-\(track.id)"
+                )
+            )
+        case .playLast:
+            toastCenter.show(
+                ToastPayload(
+                    style: .success,
+                    iconSystemName: "text.append",
+                    title: "Play Last",
+                    message: "Queued \(track.title) for later.",
+                    dedupeKey: "swipe-play-last-\(track.id)"
+                )
+            )
+        case .addToPlaylist:
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "text.badge.plus",
+                    title: "Add to Playlist…",
+                    message: "Choose a playlist to continue.",
+                    dedupeKey: "swipe-add-to-playlist-\(track.id)"
+                )
+            )
+        case .favoriteToggle:
+            break
         }
     }
     #endif
