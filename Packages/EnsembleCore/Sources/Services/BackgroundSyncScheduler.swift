@@ -1,5 +1,8 @@
 import BackgroundTasks
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 #if os(iOS)
 /// Manages iOS background app refresh for syncing
@@ -14,12 +17,28 @@ public final class BackgroundSyncScheduler {
     /// Schedule the next background refresh
     /// Call this at app launch and after each background refresh completes
     public func scheduleAppRefresh() {
+        #if targetEnvironment(simulator)
+        #if DEBUG
+        print("ℹ️ Background refresh scheduling skipped on simulator")
+        #endif
+        return
+        #endif
+
         guard #available(iOS 16.0, *) else {
             #if DEBUG
             print("ℹ️ Background refresh scheduling skipped on iOS 15")
             #endif
             return
         }
+
+        #if canImport(UIKit)
+        guard UIApplication.shared.backgroundRefreshStatus == .available else {
+            #if DEBUG
+            print("ℹ️ Background refresh unavailable; skipping schedule")
+            #endif
+            return
+        }
+        #endif
 
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         
