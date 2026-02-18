@@ -14,6 +14,13 @@ public final class BackgroundSyncScheduler {
     /// Schedule the next background refresh
     /// Call this at app launch and after each background refresh completes
     public func scheduleAppRefresh() {
+        guard #available(iOS 16.0, *) else {
+            #if DEBUG
+            print("ℹ️ Background refresh scheduling skipped on iOS 15")
+            #endif
+            return
+        }
+
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         
         // Request earliest execution in 15 minutes (system decides actual timing)
