@@ -72,6 +72,10 @@ public struct ToastBannerView: View {
         .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture {
+            if toast.tapHandler != nil {
+                toastCenter.triggerTap(for: toast.id)
+                return
+            }
             // Allow full-toast dismissal only for non-action toasts.
             guard toast.action == nil else { return }
             toastCenter.dismiss(id: toast.id)

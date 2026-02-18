@@ -83,11 +83,8 @@ public struct PlaylistPickerSheet: View {
                 }
             }
             .task {
-                let sample = tracks.prefix(5).map { "\($0.id)=\($0.sourceCompositeKey ?? "nil")" }.joined(separator: ", ")
-                print("🎵 PlaylistPicker incoming tracks (\(tracks.count)): \(sample)")
                 if inferredServerSourceKey == nil {
                     inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
-                    print("🎵 PlaylistPicker inferred server source: \(inferredServerSourceKey ?? "nil"), tracks: \(tracks.count)")
                 }
                 await loadPlaylists()
             }

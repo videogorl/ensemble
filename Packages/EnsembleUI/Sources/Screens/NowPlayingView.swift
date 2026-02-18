@@ -102,6 +102,13 @@ public struct NowPlayingView: View {
             .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
                 Task { await refreshLastPlaylistQuickTarget() }
             }
+
+            ToastHostView(
+                toastCenter: toastCenter,
+                horizontalPadding: 28,
+                bottomPadding: 110
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
     }
 
@@ -142,13 +149,6 @@ public struct NowPlayingView: View {
             controlsView
                 .padding(.top, 32)
 
-            ToastHostView(
-                toastCenter: toastCenter,
-                horizontalPadding: 28,
-                bottomPadding: 0
-            )
-            .padding(.top, 16)
-            
             // Push secondary controls to bottom with spacer
             Spacer()
             

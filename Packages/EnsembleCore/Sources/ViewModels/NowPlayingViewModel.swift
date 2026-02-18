@@ -390,6 +390,11 @@ public final class NowPlayingViewModel: ObservableObject {
                         iconSystemName: "exclamationmark.triangle.fill",
                         title: "Added to \(playlist.title)",
                         message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
+                        tapHandler: { [weak self] in
+                            self?.navigationCoordinator.navigateFromNowPlaying(
+                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                            )
+                        },
                         dedupeKey: "playlist-add-\(playlist.id)"
                     )
                 )
@@ -400,6 +405,11 @@ public final class NowPlayingViewModel: ObservableObject {
                         iconSystemName: "checkmark.circle.fill",
                         title: "Added to \(playlist.title)",
                         message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+                        tapHandler: { [weak self] in
+                            self?.navigationCoordinator.navigateFromNowPlaying(
+                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                            )
+                        },
                         dedupeKey: "playlist-add-\(playlist.id)"
                     )
                 )
