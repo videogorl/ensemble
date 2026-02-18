@@ -161,7 +161,8 @@ public struct TrackSwipeContainer<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundColor(.white)
         }
-        .frame(width: actionWidth, maxHeight: .infinity)
+        .frame(width: actionWidth)
+        .frame(maxHeight: .infinity)
         .background(actionTint(for: action))
         .contentShape(Rectangle())
     }
