@@ -306,7 +306,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
-                        iconSystemName: "trash.fill",
+                        iconSystemName: "checkmark.circle.fill",
                         title: "Deleted \(playlist.title)",
                         dedupeKey: "playlist-delete-success-\(playlist.id)"
                     )
@@ -561,7 +561,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .success,
-                                iconSystemName: "trash.fill",
+                                iconSystemName: "checkmark.circle.fill",
                                 title: "Deleted \(playlistTitle)",
                                 dedupeKey: "playlist-delete-success-\(playlistID)"
                             )
