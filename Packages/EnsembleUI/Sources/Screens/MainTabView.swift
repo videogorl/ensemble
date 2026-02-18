@@ -135,7 +135,9 @@ public struct MainTabView: View {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }
-                .padding(.bottom, 56) // Offset to sit above native TabBar on iPhone
+                // Use offset instead of bottom padding so we don't create a transparent
+                // hit-testing area that blocks interaction with the native tab bar.
+                .offset(y: -56)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
