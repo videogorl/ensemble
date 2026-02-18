@@ -149,19 +149,23 @@ private struct GlobalToastOverlayRootView: View {
     @ObservedObject var toastCenter: ToastCenter
 
     var body: some View {
-        Color.clear
-            .overlay(alignment: .bottom) {
-                ToastHostView(
-                    toastCenter: toastCenter,
-                    horizontalPadding: 16,
-                    bottomPadding: bottomPadding
-                )
-            }
-            .ignoresSafeArea()
+        GeometryReader { geometry in
+            Color.clear
+                .overlay(alignment: .bottom) {
+                    ToastHostView(
+                        toastCenter: toastCenter,
+                        horizontalPadding: 16,
+                        // Account for safe-area when rendering in a window that
+                        // ignores safe areas so the toast stays above mini player.
+                        bottomPadding: baseBottomPadding + geometry.safeAreaInsets.bottom
+                    )
+                }
+                .ignoresSafeArea()
+        }
     }
 
-    private var bottomPadding: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 96 : 140
+    private var baseBottomPadding: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 84 : 140
     }
 }
 #endif
@@ -170,6 +174,7 @@ public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
     let onToastTap: (() -> Void)?
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -238,6 +243,6 @@ public struct ToastBannerView: View {
     }
 
     private var accentColor: Color {
-        Color.accentColor
+        settingsManager.accentColor.color
     }
 }
