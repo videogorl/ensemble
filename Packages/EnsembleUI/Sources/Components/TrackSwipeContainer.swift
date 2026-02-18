@@ -41,9 +41,9 @@ public struct TrackSwipeContainer<Content: View>: View {
             backgroundActions
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .offset(x: offset)
-                .contentShape(Rectangle())
                 .background(Color(.systemBackground))
+                .contentShape(Rectangle())
+                .offset(x: offset)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
