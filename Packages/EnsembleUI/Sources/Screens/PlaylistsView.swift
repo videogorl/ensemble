@@ -158,6 +158,9 @@ public struct PlaylistDetailView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     
     private let playlist: Playlist
+    @State private var showRenamePrompt = false
+    @State private var renameTitle = ""
+    @State private var showEditSheet = false
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -176,6 +179,49 @@ public struct PlaylistDetailView: View {
             groupByDisc: false,
             mediaType: .playlist
         )
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button {
+                        renameTitle = viewModel.playlist.title
+                        showRenamePrompt = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                    .disabled(viewModel.playlist.isSmart)
+
+                    Button {
+                        showEditSheet = true
+                    } label: {
+                        Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                    }
+                    .disabled(viewModel.playlist.isSmart || viewModel.filteredTracks.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+            }
+        }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renameTitle)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                Task {
+                    await viewModel.renamePlaylist(to: renameTitle)
+                }
+            }
+        } message: {
+            Text("Choose a new playlist name.")
+        }
+        .sheet(isPresented: $showEditSheet) {
+            PlaylistEditSheet(
+                tracks: viewModel.filteredTracks,
+                onSave: { updatedTracks in
+                    Task {
+                        await viewModel.saveEditedTracks(updatedTracks)
+                    }
+                }
+            )
+        }
     }
     
     private var headerData: MediaHeaderData {
@@ -197,5 +243,52 @@ public struct PlaylistDetailView: View {
             sourceKey: playlist.sourceCompositeKey,
             ratingKey: playlist.id
         )
+    }
+}
+
+private struct PlaylistEditSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var tracks: [Track]
+    let onSave: ([Track]) -> Void
+
+    init(tracks: [Track], onSave: @escaping ([Track]) -> Void) {
+        _tracks = State(initialValue: tracks)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(tracks, id: \.id) { track in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(track.title)
+                        Text(track.artistName ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onMove { source, destination in
+                    tracks.move(fromOffsets: source, toOffset: destination)
+                }
+                .onDelete { offsets in
+                    tracks.remove(atOffsets: offsets)
+                }
+            }
+            .navigationTitle("Edit Playlist")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(tracks)
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    EditButton()
+                }
+            }
+        }
     }
 }

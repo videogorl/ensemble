@@ -30,6 +30,9 @@ public struct NowPlayingView: View {
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
     @State private var lastScrubRate: Double = 1.0
+    @State private var showPlaylistPicker = false
+    @State private var playlistPickerTracks: [Track] = []
+    @State private var playlistPickerTitle = "Add to Playlist"
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -76,6 +79,27 @@ public struct NowPlayingView: View {
                 if let track = viewModel.currentTrack {
                     loadArtworkImage(for: track)
                 }
+            }
+            .sheet(isPresented: $showPlaylistPicker) {
+                PlaylistPickerSheet(
+                    nowPlayingVM: viewModel,
+                    tracks: playlistPickerTracks,
+                    title: playlistPickerTitle
+                )
+            }
+            .alert("Playlist Update", isPresented: Binding(
+                get: { viewModel.playlistOperationMessage != nil },
+                set: { newValue in
+                    if !newValue {
+                        viewModel.clearPlaylistOperationMessage()
+                    }
+                }
+            )) {
+                Button("OK", role: .cancel) {
+                    viewModel.clearPlaylistOperationMessage()
+                }
+            } message: {
+                Text(viewModel.playlistOperationMessage ?? "")
             }
         }
     }
@@ -435,9 +459,22 @@ public struct NowPlayingView: View {
             // More actions
             Menu {
                 Button {
-                    // Add to playlist
+                    guard let currentTrack = viewModel.currentTrack else { return }
+                    playlistPickerTracks = [currentTrack]
+                    playlistPickerTitle = "Add to Playlist"
+                    showPlaylistPicker = true
                 } label: {
                     Label("Add to Playlist", systemImage: "text.badge.plus")
+                }
+
+                Button {
+                    let snapshot = viewModel.queueSnapshotForPlaylistSave()
+                    guard !snapshot.isEmpty else { return }
+                    playlistPickerTracks = snapshot
+                    playlistPickerTitle = "Save Current Queue"
+                    showPlaylistPicker = true
+                } label: {
+                    Label("Save Current Queue", systemImage: "square.and.arrow.down")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -553,6 +590,20 @@ public struct NowPlayingView: View {
                         .padding(.vertical, 16)
                     }
                 }
+
+                Button {
+                    let snapshot = viewModel.queueSnapshotForPlaylistSave()
+                    guard !snapshot.isEmpty else { return }
+                    playlistPickerTracks = snapshot
+                    playlistPickerTitle = "Save Current Queue"
+                    showPlaylistPicker = true
+                } label: {
+                    Label("Save Current Queue", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
             } else {
                 Text("Queue is empty")
                     .foregroundColor(.secondary)

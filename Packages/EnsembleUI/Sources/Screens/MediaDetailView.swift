@@ -49,6 +49,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
+    @State private var showPlaylistPicker = false
+    @State private var playlistPickerTracks: [Track] = []
     @Environment(\.dependencies) private var deps
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
@@ -119,6 +121,27 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
+        .sheet(isPresented: $showPlaylistPicker) {
+            PlaylistPickerSheet(
+                nowPlayingVM: nowPlayingVM,
+                tracks: playlistPickerTracks,
+                title: "Add Album to Playlist"
+            )
+        }
+        .alert("Playlist Update", isPresented: Binding(
+            get: { nowPlayingVM.playlistOperationMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    nowPlayingVM.clearPlaylistOperationMessage()
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {
+                nowPlayingVM.clearPlaylistOperationMessage()
+            }
+        } message: {
+            Text(nowPlayingVM.playlistOperationMessage ?? "")
+        }
         .task {
             await viewModel.loadTracks()
             if let path = headerData.artworkPath {
@@ -148,6 +171,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } else {
                     Label("Pin", systemImage: "pin.fill")
                 }
+            }
+
+            if viewModel is AlbumDetailViewModel {
+                Button {
+                    playlistPickerTracks = viewModel.filteredTracks
+                    showPlaylistPicker = true
+                } label: {
+                    Label("Add to Playlist...", systemImage: "text.badge.plus")
+                }
+                .disabled(viewModel.filteredTracks.isEmpty)
             }
         } label: {
             Image(systemName: "ellipsis.circle")
