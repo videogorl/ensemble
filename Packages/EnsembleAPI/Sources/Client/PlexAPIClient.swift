@@ -95,7 +95,10 @@ public actor PlexAPIClient {
             self.clientIdentifier = existingId
         } else {
             let newId = UUID().uuidString
-            try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)
+            // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
+            if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
+                print("⚠️ [PlexAPIClient] Failed to persist client identifier to keychain")
+            }
             self.clientIdentifier = newId
         }
 

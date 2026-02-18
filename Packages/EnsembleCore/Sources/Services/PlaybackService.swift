@@ -2198,7 +2198,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        print("🔄 Failed to decode queue data in any format")
+        print("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
     }
 
     /// Restore queue from QueueItem array without starting playback
