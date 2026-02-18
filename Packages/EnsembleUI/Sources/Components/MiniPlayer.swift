@@ -148,7 +148,7 @@ public struct MiniPlayer: View {
                 GeometryReader { geometry in
                     Rectangle()
                         .fill(Color.accentColor)
-                        .frame(width: geometry.size.width * viewModel.progress)
+                        .frame(width: geometry.size.width * liveProgress)
                 }
                 .frame(height: 3)
             } else {
@@ -240,6 +240,11 @@ public struct MiniPlayer: View {
             guard viewModel.hasCurrentTrack else { return }
             playbackTick &+= 1
         }
+    }
+
+    private var liveProgress: Double {
+        _ = playbackTick
+        return viewModel.progress
     }
 
     private func loadArtworkImage(for track: Track) {

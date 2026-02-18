@@ -217,7 +217,7 @@ public struct NowPlayingView: View {
                 ZStack(alignment: .leading) {
                     // Waveform background
                     WaveformView(
-                        progress: isDraggingSlider ? localProgress : viewModel.progress,
+                        progress: isDraggingSlider ? localProgress : liveProgress,
                         color: .white,
                         heights: viewModel.waveformHeights
                     )
@@ -282,7 +282,7 @@ public struct NowPlayingView: View {
 
             // Time labels with scrub indicator in center
             HStack {
-                Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : viewModel.formattedCurrentTime)
+                Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : liveCurrentTimeText)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
@@ -296,13 +296,28 @@ public struct NowPlayingView: View {
                 
                 Spacer()
 
-                Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : viewModel.formattedRemainingTime)
+                Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : liveRemainingTimeText)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundColor(.white.opacity(0.7))
             }
         }
         .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 0)
+    }
+
+    private var liveProgress: Double {
+        _ = playbackTick
+        return viewModel.progress
+    }
+
+    private var liveCurrentTimeText: String {
+        _ = playbackTick
+        return viewModel.formattedCurrentTime
+    }
+
+    private var liveRemainingTimeText: String {
+        _ = playbackTick
+        return viewModel.formattedRemainingTime
     }
     
     // Scrub speed indicator (no background)
