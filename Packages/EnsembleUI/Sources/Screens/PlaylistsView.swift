@@ -233,6 +233,7 @@ public struct PlaylistDetailView: View {
         } message: {
             Text("Choose a new playlist name.")
         }
+        .navigationBarBackButtonHidden(isEditingPlaylist)
     }
     
     private var headerData: MediaHeaderData {

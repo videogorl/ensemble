@@ -72,6 +72,8 @@ public final class SyncCoordinator: ObservableObject {
     private static let lastPlaylistIdKey = "NowPlaying.LastPlaylist.ID"
     private static let lastPlaylistTitleKey = "NowPlaying.LastPlaylist.Title"
     private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
+    private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
+    private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
 
     public init(
         accountManager: AccountManager,
@@ -87,6 +89,7 @@ public final class SyncCoordinator: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
+        self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
         // Observe network state changes
@@ -991,8 +994,23 @@ public final class SyncCoordinator: ObservableObject {
             title: playlist.title,
             sourceCompositeKey: playlist.sourceCompositeKey
         )
+        if let serverSourceKey = playlist.sourceCompositeKey {
+            lastPlaylistTargetsByServer[serverSourceKey] = target
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
         Self.saveLastPlaylistTarget(target)
         lastPlaylistTarget = target
+    }
+
+    public func lastPlaylistTarget(forServerSourceKey serverSourceKey: String?) -> LastPlaylistTarget? {
+        guard let serverSourceKey else { return lastPlaylistTarget }
+        if let target = lastPlaylistTargetsByServer[serverSourceKey] {
+            return target
+        }
+        if let lastPlaylistTarget, lastPlaylistTarget.sourceCompositeKey == serverSourceKey {
+            return lastPlaylistTarget
+        }
+        return nil
     }
 
     private static func saveLastPlaylistTarget(_ target: LastPlaylistTarget) {
@@ -1015,6 +1033,21 @@ public final class SyncCoordinator: ObservableObject {
             title: title,
             sourceCompositeKey: defaults.string(forKey: lastPlaylistSourceKey)
         )
+    }
+
+    private static func saveLastPlaylistTargetsByServer(_ targets: [String: LastPlaylistTarget]) {
+        let defaults = UserDefaults.standard
+        guard let data = try? JSONEncoder().encode(targets) else { return }
+        defaults.set(data, forKey: lastPlaylistTargetsByServerKey)
+    }
+
+    private static func loadLastPlaylistTargetsByServer() -> [String: LastPlaylistTarget] {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: lastPlaylistTargetsByServerKey),
+              let decoded = try? JSONDecoder().decode([String: LastPlaylistTarget].self, from: data) else {
+            return [:]
+        }
+        return decoded
     }
     
     // MARK: - Network Monitoring

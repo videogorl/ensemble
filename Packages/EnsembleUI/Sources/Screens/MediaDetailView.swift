@@ -126,22 +126,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 title: "Add Album to Playlist"
             )
         }
-        .task(id: nowPlayingVM.lastPlaylistTarget?.id) {
-            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget()
-        }
-        .alert("Playlist Update", isPresented: Binding(
-            get: { nowPlayingVM.playlistOperationMessage != nil && !showPlaylistPicker },
-            set: { newValue in
-                if !newValue {
-                    nowPlayingVM.clearPlaylistOperationMessage()
-                }
-            }
-        )) {
-            Button("OK", role: .cancel) {
-                nowPlayingVM.clearPlaylistOperationMessage()
-            }
-        } message: {
-            Text(nowPlayingVM.playlistOperationMessage ?? "")
+        .task(id: quickTargetRefreshKey) {
+            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget(for: viewModel.filteredTracks)
         }
         .task {
             await viewModel.loadTracks()
@@ -166,6 +152,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var shouldShowStandaloneFilterButton: Bool {
         showFilter && (mediaType == nil || headerData.ratingKey == nil)
+    }
+
+    private var quickTargetRefreshKey: String {
+        let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
+        let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
+        return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
     /// Toolbar menu with Pin/Unpin action

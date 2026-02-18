@@ -88,22 +88,12 @@ public struct NowPlayingView: View {
                     title: playlistPickerTitle
                 )
             }
-            .task(id: viewModel.lastPlaylistTarget?.id) {
-                lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget()
-            }
-            .alert("Playlist Update", isPresented: Binding(
-                get: { viewModel.playlistOperationMessage != nil && !showPlaylistPicker },
-                set: { newValue in
-                    if !newValue {
-                        viewModel.clearPlaylistOperationMessage()
-                    }
+            .task(id: viewModel.currentTrack?.id) {
+                if let currentTrack = viewModel.currentTrack {
+                    lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+                } else {
+                    lastPlaylistQuickTarget = nil
                 }
-            )) {
-                Button("OK", role: .cancel) {
-                    viewModel.clearPlaylistOperationMessage()
-                }
-            } message: {
-                Text(viewModel.playlistOperationMessage ?? "")
             }
         }
     }

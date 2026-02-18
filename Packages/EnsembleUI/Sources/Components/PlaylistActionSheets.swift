@@ -9,7 +9,7 @@ public struct PlaylistPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var playlists: [Playlist] = []
     @State private var isLoading = true
-    @State private var selectedServerSourceKey: String?
+    @State private var inferredServerSourceKey: String?
     @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
@@ -23,29 +23,14 @@ public struct PlaylistPickerSheet: View {
     public var body: some View {
         NavigationView {
             List {
-                if shouldShowServerPicker {
-                    Section("Server") {
-                        Picker("Server", selection: Binding(
-                            get: { selectedServerSourceKey ?? "" },
-                            set: { selectedServerSourceKey = $0.isEmpty ? nil : $0 }
-                        )) {
-                            ForEach(serverOptions) { option in
-                                Text(option.name).tag(option.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
-                    }
-                }
-
                 Section("Playlists") {
                     if isLoading {
                         ProgressView("Loading playlists...")
                     } else if compatibleTrackCountForSelectedServer == 0 {
-                        Text("No compatible tracks for this server.")
+                        Text("No compatible tracks are available for playlist updates.")
                             .foregroundColor(.secondary)
                     } else if filteredPlaylists.isEmpty {
-                        Text("No playlists found for this server.")
+                        Text("No playlists found.")
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(filteredPlaylists) { playlist in
@@ -84,7 +69,7 @@ public struct PlaylistPickerSheet: View {
                         .disabled(
                             isSubmitting ||
                             nowPlayingVM.isPlaylistMutationInProgress ||
-                            selectedServerSourceKey == nil ||
+                            inferredServerSourceKey == nil ||
                             compatibleTrackCountForSelectedServer == 0
                         )
                     }
@@ -106,23 +91,10 @@ public struct PlaylistPickerSheet: View {
                 Text(errorMessage ?? "")
             }
             .task {
-                if selectedServerSourceKey == nil {
-                    let preferred = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
-                    if let preferred,
-                       nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: preferred) > 0 {
-                        selectedServerSourceKey = preferred
-                    } else if let compatible = serverOptions.first(where: {
-                        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0
-                    }) {
-                        selectedServerSourceKey = compatible.id
-                    } else {
-                        selectedServerSourceKey = serverOptions.first?.id
-                    }
+                if inferredServerSourceKey == nil {
+                    inferredServerSourceKey = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
                 }
                 await loadPlaylists()
-            }
-            .onChange(of: selectedServerSourceKey) { _ in
-                Task { await loadPlaylists() }
             }
             .overlay {
                 if isSubmitting {
@@ -136,14 +108,6 @@ public struct PlaylistPickerSheet: View {
                 }
             }
         }
-    }
-
-    private var serverOptions: [PlaylistServerOption] {
-        nowPlayingVM.playlistServerOptions()
-    }
-
-    private var shouldShowServerPicker: Bool {
-        serverOptions.count > 1
     }
 
     private var filteredPlaylists: [Playlist] {
@@ -168,14 +132,14 @@ public struct PlaylistPickerSheet: View {
     }
 
     private var compatibleTrackCountForSelectedServer: Int {
-        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: selectedServerSourceKey)
+        nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
     }
 
     private func loadPlaylists() async {
         isLoading = true
         defer { isLoading = false }
         do {
-            playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: selectedServerSourceKey)
+            playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
                 .filter { !$0.isSmart }
                 .sorted { lhs, rhs in
                     (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
@@ -187,11 +151,16 @@ public struct PlaylistPickerSheet: View {
 
     private func addToPlaylist(_ playlist: Playlist) async {
         guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
+        guard !compatibleTracks.isEmpty else {
+            errorMessage = PlaylistMutationError.emptySelection.localizedDescription
+            return
+        }
         isSubmitting = true
         defer { isSubmitting = false }
 
         do {
-            _ = try await nowPlayingVM.addTracks(tracks, to: playlist)
+            _ = try await nowPlayingVM.addTracks(compatibleTracks, to: playlist)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -199,7 +168,12 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func createPlaylist(named name: String) async {
-        guard let selectedServerSourceKey else { return }
+        guard let inferredServerSourceKey else { return }
+        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
+        guard !compatibleTracks.isEmpty else {
+            errorMessage = PlaylistMutationError.emptySelection.localizedDescription
+            return
+        }
         guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
         isSubmitting = true
         defer { isSubmitting = false }
@@ -207,8 +181,8 @@ public struct PlaylistPickerSheet: View {
         do {
             _ = try await nowPlayingVM.createPlaylist(
                 title: name,
-                tracks: tracks,
-                serverSourceKey: selectedServerSourceKey
+                tracks: compatibleTracks,
+                serverSourceKey: inferredServerSourceKey
             )
             dismiss()
         } catch {

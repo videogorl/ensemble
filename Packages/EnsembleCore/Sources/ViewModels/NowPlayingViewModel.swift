@@ -39,7 +39,7 @@ public struct PlaylistServerOption: Identifiable, Equatable {
     public let name: String
 }
 
-public struct LastPlaylistTarget: Equatable, Sendable {
+public struct LastPlaylistTarget: Equatable, Sendable, Codable {
     public let id: String
     public let title: String
     public let sourceCompositeKey: String?
@@ -406,6 +406,19 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    public func resolveLastPlaylistTarget(for tracks: [Track]) async -> Playlist? {
+        let serverSourceKey = defaultPlaylistServerSourceKey(for: tracks)
+        guard let target = syncCoordinator.lastPlaylistTarget(forServerSourceKey: serverSourceKey) else {
+            return nil
+        }
+        do {
+            let playlists = try await loadPlaylists(forServerSourceKey: serverSourceKey)
+            return playlists.first { $0.id == target.id }
+        } catch {
+            return nil
+        }
+    }
+
     public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
         guard let playlistServerSourceKey = playlist.sourceCompositeKey else { return 0 }
         return tracks.reduce(0) { count, track in
@@ -424,6 +437,22 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
         }
+    }
+
+    public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
+        guard let serverSourceKey else { return [] }
+        var seen = Set<String>()
+        var filtered: [Track] = []
+        for track in tracks {
+            guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey),
+                  trackServerSourceKey == serverSourceKey else {
+                continue
+            }
+            guard !seen.contains(track.id) else { continue }
+            seen.insert(track.id)
+            filtered.append(track)
+        }
+        return filtered
     }
 
     /// Queue snapshot used by "Save current queue":
