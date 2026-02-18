@@ -6,7 +6,7 @@ final class TrackSwipeLayoutTests: XCTestCase {
         let layout = TrackSwipeLayout.default
 
         XCTAssertEqual(layout.leading, [.playNext, .playLast])
-        XCTAssertEqual(layout.trailing, [.addToPlaylist, .favoriteToggle])
+        XCTAssertEqual(layout.trailing, [.favoriteToggle, .addToPlaylist])
     }
 
     func testSanitizeTrimsToTwoSlotsPerEdge() {

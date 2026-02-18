@@ -69,7 +69,7 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     public static var `default`: TrackSwipeLayout {
         TrackSwipeLayout(
             leading: [.playNext, .playLast],
-            trailing: [.addToPlaylist, .favoriteToggle]
+            trailing: [.favoriteToggle, .addToPlaylist]
         )
     }
 

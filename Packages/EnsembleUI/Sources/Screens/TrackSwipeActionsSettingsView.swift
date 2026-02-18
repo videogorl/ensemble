@@ -5,20 +5,11 @@ public struct TrackSwipeActionsSettingsView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var leadingSlots: [TrackSwipeAction?] = []
     @State private var trailingSlots: [TrackSwipeAction?] = []
-    @State private var errorMessage: String?
 
     public init() {}
 
     public var body: some View {
         List {
-            if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundColor(.red)
-                }
-            }
-
             Section {
                 ForEach(Array(leadingSlots.enumerated()), id: \.offset) { index, _ in
                     Picker("Slot \(index + 1)", selection: slotBinding(edge: .leading, index: index)) {
@@ -61,7 +52,6 @@ public struct TrackSwipeActionsSettingsView: View {
                 Button("Reset to Defaults") {
                     settingsManager.resetTrackSwipeLayoutToDefaults()
                     syncFromSettings()
-                    errorMessage = nil
                 }
             }
         }
@@ -100,29 +90,23 @@ public struct TrackSwipeActionsSettingsView: View {
     }
 
     private func updateSlot(edge: TrackSwipeEdge, index: Int, value: TrackSwipeAction?) {
-        if let value, isDuplicate(value, excluding: (edge: edge, index: index)) {
-            errorMessage = "\"\(value.title)\" is already assigned to another slot."
-            return
+        let currentValue = slotValue(edge: edge, index: index)
+        if let value, let existingLocation = location(of: value, excluding: (edge: edge, index: index)) {
+            setSlot(value, edge: edge, index: index)
+            setSlot(currentValue, edge: existingLocation.edge, index: existingLocation.index)
+        } else {
+            setSlot(value, edge: edge, index: index)
         }
-
-        switch edge {
-        case .leading:
-            leadingSlots[index] = value
-        case .trailing:
-            trailingSlots[index] = value
-        }
-
-        errorMessage = nil
         persistLayout()
     }
 
-    private func isDuplicate(_ action: TrackSwipeAction, excluding location: (edge: TrackSwipeEdge, index: Int)) -> Bool {
+    private func location(of action: TrackSwipeAction, excluding location: (edge: TrackSwipeEdge, index: Int)) -> (edge: TrackSwipeEdge, index: Int)? {
         for (index, candidate) in leadingSlots.enumerated() {
             if location.edge == .leading && location.index == index {
                 continue
             }
             if candidate == action {
-                return true
+                return (.leading, index)
             }
         }
         for (index, candidate) in trailingSlots.enumerated() {
@@ -130,10 +114,28 @@ public struct TrackSwipeActionsSettingsView: View {
                 continue
             }
             if candidate == action {
-                return true
+                return (.trailing, index)
             }
         }
-        return false
+        return nil
+    }
+
+    private func slotValue(edge: TrackSwipeEdge, index: Int) -> TrackSwipeAction? {
+        switch edge {
+        case .leading:
+            return leadingSlots[index]
+        case .trailing:
+            return trailingSlots[index]
+        }
+    }
+
+    private func setSlot(_ value: TrackSwipeAction?, edge: TrackSwipeEdge, index: Int) {
+        switch edge {
+        case .leading:
+            leadingSlots[index] = value
+        case .trailing:
+            trailingSlots[index] = value
+        }
     }
 
     private func persistLayout() {
