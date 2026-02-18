@@ -42,22 +42,22 @@ public struct NowPlayingView: View {
                 backgroundGradientView
 
                 // Content with scrollable queue
-                if let track = viewModel.currentTrack {
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 0) {
-                            // Now Playing content (full screen height)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Now Playing content (full screen height)
+                        if let track = viewModel.currentTrack {
                             nowPlayingContent(track: track, geometry: geometry)
                                 .frame(height: geometry.size.height)
-
-                            // Queue section
-                            queueSection(geometry: geometry)
+                        } else {
+                            nowPlayingEmptyContent(geometry: geometry)
+                                .frame(height: geometry.size.height)
                         }
+
+                        // Queue section
+                        queueSection(geometry: geometry)
                     }
-                    .frame(width: geometry.size.width)
-                } else {
-                    emptyStateView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(width: geometry.size.width)
 
                 // Error overlay (when playback fails)
                 if case .failed(let errorMessage) = viewModel.playbackState {
@@ -70,6 +70,11 @@ public struct NowPlayingView: View {
             .onChange(of: viewModel.currentTrack) { newTrack in
                 if let track = newTrack {
                     loadArtworkImage(for: track)
+                } else {
+                    currentLoadTrackID = nil
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        artworkImage = nil
+                    }
                 }
             }
             .onAppear {
@@ -122,6 +127,53 @@ public struct NowPlayingView: View {
             
             // Secondary controls at bottom (shuffle, repeat, heart, airplay)
             secondaryControlsView
+                .padding(.bottom, 20)
+        }
+    }
+
+    // Empty-state version of the Now Playing layout
+    private func nowPlayingEmptyContent(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            dismissHandle
+
+            let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 64))
+                        .foregroundColor(.white.opacity(0.35))
+                )
+                .frame(width: artworkSize, height: artworkSize)
+                .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: 8)
+                .padding(.top, 40)
+                .padding(.bottom, 60)
+
+            VStack(spacing: 8) {
+                Text("Nothing Playing")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+
+                Text("Play music from your library to start listening")
+                    .font(.callout)
+                    .foregroundColor(.white.opacity(0.75))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 16)
+
+            controlsView
+                .opacity(0.5)
+                .allowsHitTesting(false)
+                .padding(.top, 32)
+
+            Spacer()
+
+            secondaryControlsView
+                .opacity(0.5)
+                .allowsHitTesting(false)
                 .padding(.bottom, 20)
         }
     }
@@ -568,23 +620,6 @@ public struct NowPlayingView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(24)
         #endif
-    }
-    
-    // Empty state
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "music.note")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-
-            Text("Nothing Playing")
-                .font(.title2)
-                .foregroundColor(.secondary)
-
-            Button("Dismiss") {
-                dismiss()
-            }
-        }
     }
     
     // Helper: Load artwork image for blurred background
