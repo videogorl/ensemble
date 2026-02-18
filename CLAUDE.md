@@ -14,8 +14,9 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `code-style` | Writing any Swift code — contains mandatory rules (e.g. `#if DEBUG` for all prints, edge case handling) |
 | `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
 | `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
+| `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
 
-**When in doubt, load all six.** They are small and the cost of reading them is far lower than making a wrong decision.
+**When in doubt, load all seven.** They are small and the cost of reading them is far lower than making a wrong decision.
 
 
 ## Workflow (MUST follow for every task)
@@ -23,6 +24,11 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 **Commit discipline:**
 - Git commit after each logical "step" when implementing a plan
 - Always commit before waiting for the user to test (so changes can be rolled back if context is lost or something breaks)
+
+**Testing discipline:**
+- After implementing a non-trivial feature or refactor, run `swift test --package-path Packages/<affected-package>` before committing
+- If tests fail, fix them before committing — never commit a broken test suite
+- For major architectural changes, write tests for new services/repositories first (see `testing` skill)
 
 
 ## Troubleshooting

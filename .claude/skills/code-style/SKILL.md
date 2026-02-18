@@ -29,6 +29,7 @@ Keep the following documents in sync when making changes:
 | New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
 | New known bug, limitation, or tech debt | `known-issues` skill |
 | Feature shipped or roadmap item completed | `README.md` |
+| New test patterns or changes to what needs testing | `testing` skill |
 | Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
 ## Code Style
