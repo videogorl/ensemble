@@ -15,10 +15,21 @@ description: "Load before writing any Swift code. Contains mandatory rules that 
 
 ## Change Documentation
 
-- **Update CLAUDE.md:** When making architectural changes, update with new patterns and conventions
-- **Update README.md:** Keep user-facing documentation in sync with implemented features
 - **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
 - **Code comments:** Leave comments in code so future developers (including AI assistants) understand the design
+
+Keep the following documents in sync when making changes:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
 ## Code Style
 

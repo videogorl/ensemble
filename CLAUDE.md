@@ -97,7 +97,20 @@ This project is connected to Xcode's MCP server: please use it to inform you of 
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
 
-As you make big architectural changes, please update this document, the skills files, and the README.md as necessary.
+As you make changes, keep the following documents in sync:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
+
+When in doubt: if a future agent session wouldn't know about it by reading the skills, document it.
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
 
