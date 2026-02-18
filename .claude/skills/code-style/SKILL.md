@@ -27,6 +27,27 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 - Don't over-comment -- focus on complex logic and architectural decisions
 - Do not use emojis (except in debugging)
 
+## Debug Logging
+
+**All `print()` calls must be wrapped in `#if DEBUG / #endif`** — this keeps debug output out of release/TestFlight builds:
+
+```swift
+#if DEBUG
+print("[MyService] Something happened: \(value)")
+#endif
+```
+
+For consecutive prints, wrap the group under a single `#if DEBUG`:
+
+```swift
+#if DEBUG
+print("[MyService] State: \(state)")
+print("[MyService] Detail: \(detail)")
+#endif
+```
+
+Never add a bare `print()` outside of a `#if DEBUG` block. The entire codebase enforces this — zero unguarded calls.
+
 ## Preserve Existing Functionality
 
 - **Don't remove features** when refactoring unless explicitly directed
