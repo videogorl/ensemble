@@ -74,7 +74,9 @@ public final class PlaylistViewModel: ObservableObject {
     public func refreshFromServer() async {
         // Check if offline
         if syncCoordinator.isOffline {
+            #if DEBUG
             print("📴 Offline - loading playlists from cache only")
+            #endif
             await loadPlaylists()
             return
         }
@@ -82,14 +84,18 @@ public final class PlaylistViewModel: ObservableObject {
         error = nil
 
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        #if DEBUG
         print("🔄 Starting playlist sync (detached)...")
+        #endif
         await withCheckedContinuation { continuation in
             Task.detached { [syncCoordinator] in
                 await syncCoordinator.syncPlaylistsOnly()
                 continuation.resume()
             }
         }
+        #if DEBUG
         print("✅ Playlist sync complete")
+        #endif
 
         // Reload from updated cache
         await loadPlaylists()

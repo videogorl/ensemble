@@ -242,7 +242,9 @@ public struct MiniPlayer: View {
         let trackID = track.id
         currentLoadTrackID = trackID
         
+        #if DEBUG
         print("🎨 MiniPlayer: Loading artwork for \(track.title)")
+        #endif
         
         Task {
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
@@ -253,12 +255,16 @@ public struct MiniPlayer: View {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 200
             ) {
+                #if DEBUG
                 print("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
+                #endif
                 let request = ImageRequest(url: artworkURL)
                 
                 // Try synchronous cache lookup first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    #if DEBUG
                     print("🎨 MiniPlayer: Using cached image for \(track.title)")
+                    #endif
                     await MainActor.run {
                         if self.currentLoadTrackID == trackID {
                             self.artworkImage = cachedImage.image
@@ -268,9 +274,13 @@ public struct MiniPlayer: View {
                 }
                 
                 // Load asynchronously if not cached
+                #if DEBUG
                 print("🎨 MiniPlayer: Loading from network for \(track.title)")
+                #endif
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                    #if DEBUG
                     print("🎨 MiniPlayer: Loaded image for \(track.title)")
+                    #endif
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
@@ -282,10 +292,14 @@ public struct MiniPlayer: View {
                         }
                     }
                 } else {
+                    #if DEBUG
                     print("🎨 MiniPlayer: Failed to load image for \(track.title)")
+                    #endif
                 }
             } else {
+                #if DEBUG
                 print("🎨 MiniPlayer: No artwork URL for \(track.title)")
+                #endif
             }
         }
     }

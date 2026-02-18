@@ -590,25 +590,35 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func playArtistRadio(for artist: Artist) {
+        #if DEBUG
         print("🎙️ NowPlayingViewModel.playArtistRadio() called for: \(artist.name)")
+        #endif
         Task {
             // This will be handled by the view passing filteredTracks from the detail view
             // For now this is a placeholder for backwards compatibility
+            #if DEBUG
             print("⚠️ Use enableRadio(tracks:) instead")
+            #endif
         }
     }
 
     public func playAlbumRadio(for album: Album) {
+        #if DEBUG
         print("🎙️ NowPlayingViewModel.playAlbumRadio() called for: \(album.title)")
+        #endif
         Task {
             // This will be handled by the view passing filteredTracks from the detail view
             // For now this is a placeholder for backwards compatibility
+            #if DEBUG
             print("⚠️ Use enableRadio(tracks:) instead")
+            #endif
         }
     }
 
     public func enableRadio(tracks: [Track]) {
+        #if DEBUG
         print("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
+        #endif
         Task {
             await playbackService.enableRadio(tracks: tracks)
         }
@@ -663,7 +673,9 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.isUpdatingRating = false
                 }
             } catch {
+                #if DEBUG
                 print("Failed to update rating: \(error)")
+                #endif
                 // Revert on error
                 await MainActor.run {
                     self.isUpdatingRating = false

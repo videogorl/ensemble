@@ -131,7 +131,9 @@ public final class AddPlexAccountViewModel: ObservableObject {
             let client = PlexAPIClient(connection: connection, keychain: keychain)
             
             // Proactively test connections to avoid waiting for timeout
+            #if DEBUG
             print("📚 Testing server connections before loading libraries...")
+            #endif
             await client.refreshConnection()
             
             let sections = try await client.getMusicLibrarySections()

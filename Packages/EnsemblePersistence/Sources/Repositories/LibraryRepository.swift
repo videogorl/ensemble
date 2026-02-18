@@ -803,14 +803,20 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         for object in objects {
                             context.delete(object)
                         }
+                        #if DEBUG
                         print("🗑️ Deleted \(objects.count) \(entityName) objects")
+                        #endif
                     }
                     
                     try context.save()
+                    #if DEBUG
                     print("✅ All library data deleted successfully")
+                    #endif
                     continuation.resume()
                 } catch {
+                    #if DEBUG
                     print("❌ Failed to delete library data: \(error)")
+                    #endif
                     continuation.resume(throwing: error)
                 }
             }

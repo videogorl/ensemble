@@ -52,13 +52,17 @@ public final class HomeViewModel: ObservableObject {
                         let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
                         let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
                         self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
+                        #if DEBUG
                         print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
+                        #endif
                     } else {
                         self.hubs = cached
                     }
                 }
             } catch {
+                #if DEBUG
                 print("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
+                #endif
             }
         }
         
@@ -108,7 +112,9 @@ public final class HomeViewModel: ObservableObject {
         
         // Identify the primary source key and name for ordering
         updateCurrentSource()
+        #if DEBUG
         print("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
+        #endif
         
         // Create a new load task
         loadTask = Task { @MainActor in
@@ -297,13 +303,17 @@ public final class HomeViewModel: ObservableObject {
             // Merge and group hubs
             let fetchedHubsResult = mergeAndGroupHubs(finalHubs)
 
+            #if DEBUG
             print("[HubOrder] Fetched hubs count=\(fetchedHubsResult.count)")
+            #endif
 
             // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
             // This ensures reset always has a baseline to return to
             if let sourceKey = currentSourceKey {
                 let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
+                #if DEBUG
                 print("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
+                #endif
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
 
@@ -521,12 +531,16 @@ public final class HomeViewModel: ObservableObject {
         updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
+        #if DEBUG
         print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
+        #endif
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Apply cached default order immediately
         let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        #if DEBUG
         print("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
+        #endif
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
         if isEditingOrder {
@@ -537,7 +551,9 @@ public final class HomeViewModel: ObservableObject {
         lastLoadTime = nil
         
         // Reload hubs to get fresh data from server
+        #if DEBUG
         print("[HubOrder] Triggering background refresh from server")
+        #endif
         Task {
             await loadHubs(applySavedOrder: false)
             if isEditingOrder {
@@ -552,7 +568,9 @@ public final class HomeViewModel: ObservableObject {
     public func startPeriodicRefresh() {
         stopPeriodicRefresh()  // Stop any existing timer
         
+        #if DEBUG
         print("⏰ Starting periodic hub refresh (every 10 minutes)")
+        #endif
         hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
             // No [weak self] here — the outer Timer closure already captures self weakly
             Task { @MainActor in
@@ -560,11 +578,15 @@ public final class HomeViewModel: ObservableObject {
                 
                 // Don't refresh if offline
                 guard !self.syncCoordinator.isOffline else {
+                    #if DEBUG
                     print("📴 Offline - skipping periodic hub refresh")
+                    #endif
                     return
                 }
                 
+                #if DEBUG
                 print("⏰ Periodic hub refresh triggered")
+                #endif
                 await self.refresh()
             }
         }
@@ -574,7 +596,9 @@ public final class HomeViewModel: ObservableObject {
     public func stopPeriodicRefresh() {
         hubRefreshTimer?.invalidate()
         hubRefreshTimer = nil
+        #if DEBUG
         print("🛑 Stopped periodic hub refresh")
+        #endif
     }
 }
 

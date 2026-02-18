@@ -320,7 +320,9 @@ public final class SearchViewModel: ObservableObject {
                     self?.recommendedItems = Array(results.recommendedItems.prefix(6))
                 }
             } catch {
+                #if DEBUG
                 print("ℹ️ No cached explore content available")
+                #endif
             }
         }
         
@@ -414,7 +416,9 @@ public final class SearchViewModel: ObservableObject {
                     }
                 } catch {
                     // Silently continue on error - will use cached data
+                    #if DEBUG
                     print("⚠️ Failed to fetch hubs: \(error)")
+                    #endif
                 }
             }
             
@@ -422,9 +426,13 @@ public final class SearchViewModel: ObservableObject {
             if !freshHubs.isEmpty {
                 do {
                     try await self.hubRepository.saveHubs(freshHubs)
+                    #if DEBUG
                     print("✅ Cached \(freshHubs.count) hubs for offline use")
+                    #endif
                 } catch {
+                    #if DEBUG
                     print("⚠️ Failed to cache hubs: \(error)")
+                    #endif
                 }
             }
             
