@@ -1,0 +1,30 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/ArtworkColorExtractor.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkColorExtractor.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkColorExtractor.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkColorExtractor.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkColorExtractor.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkColorExtractor.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/ArtworkView.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkView.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkView.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkView.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkView.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ArtworkView.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/BlurredArtworkBackground.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/BlurredArtworkBackground.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/BlurredArtworkBackground.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/BlurredArtworkBackground.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/BlurredArtworkBackground.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/BlurredArtworkBackground.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/ChromeVisibilityPreferenceKey.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ChromeVisibilityPreferenceKey.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ChromeVisibilityPreferenceKey.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ChromeVisibilityPreferenceKey.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ChromeVisibilityPreferenceKey.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/x86_64/ChromeVisibilityPreferenceKey.swiftdeps"
+  }
+}

@@ -21,9 +21,7 @@ public struct PlaylistsView: View {
                 } else if viewModel.playlists.isEmpty {
                     emptyView
                 } else if isLandscape {
-                    coverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
+                    landscapeCoverFlowView
                 } else {
                     playlistListView
                 }
@@ -86,6 +84,16 @@ public struct PlaylistsView: View {
             #endif
             }
         }
+    }
+
+    private var landscapeCoverFlowView: some View {
+        #if os(iOS)
+        coverFlowView
+            .navigationBarHidden(true)
+            .statusBar(hidden: true)
+        #else
+        coverFlowView
+        #endif
     }
 
     private var loadingView: some View {
@@ -200,6 +208,7 @@ public struct PlaylistDetailView: View {
             }
         }
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditingPlaylist {
                     Button("Save") {
@@ -224,6 +233,32 @@ public struct PlaylistDetailView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if isEditingPlaylist {
+                    Button("Save") {
+                        let editedSnapshot = editedTracks
+                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        isSavingPlaylistEdits = true
+                        isEditingPlaylist = false
+                        editedTracks = []
+                        Task {
+                            await viewModel.saveEditedTracks(editedSnapshot)
+                            isSavingPlaylistEdits = false
+                        }
+                    }
+                    .disabled(isSavingPlaylistEdits)
+                }
+            }
+            ToolbarItem(placement: .automatic) {
+                if isEditingPlaylist {
+                    Button("Cancel") {
+                        isEditingPlaylist = false
+                        editedTracks = []
+                    }
+                }
+            }
+            #endif
         }
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
             TextField("Playlist name", text: $renameTitle)
@@ -236,7 +271,9 @@ public struct PlaylistDetailView: View {
         } message: {
             Text("Choose a new playlist name.")
         }
+        #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)
+        #endif
     }
     
     private var headerData: MediaHeaderData {
@@ -282,7 +319,9 @@ public struct PlaylistDetailView: View {
         }
         .listStyle(.plain)
         .navigationTitle(playlist.title)
+        #if os(iOS)
         .environment(\.editMode, .constant(.active))
+        #endif
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 110)
         }

@@ -253,9 +253,15 @@ public struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 artistPinMenuButton
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                artistPinMenuButton
+            }
+            #endif
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
@@ -385,7 +391,7 @@ public struct ArtistDetailView: View {
                 .padding()
             }
         }
-        .frame(height: UIScreen.main.bounds.width) // 1:1 square aspect ratio
+        .aspectRatio(1, contentMode: .fit)
     }
 
     // MARK: - Action Buttons

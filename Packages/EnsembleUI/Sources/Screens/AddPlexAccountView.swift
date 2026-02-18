@@ -11,37 +11,36 @@ public struct AddPlexAccountView: View {
 
     public var body: some View {
         NavigationView {
-            VStack(spacing: 32) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 24) {
+                    // App icon
+                    VStack(spacing: 16) {
+                        Image(systemName: "music.note.house.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(.accentColor)
 
-                // App icon
-                VStack(spacing: 16) {
-                    Image(systemName: "music.note.house.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.accentColor)
+                        Text("Add Plex Account")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
 
-                    Text("Add Plex Account")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                    // Auth content
+                    authContent
+
+                    // Error message
+                    if let error = viewModel.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
                 }
-
-                Spacer()
-
-                // Auth content
-                authContent
-
-                Spacer()
-
-                // Error message
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
+                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
             }
-            .padding()
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -66,6 +65,9 @@ public struct AddPlexAccountView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 720, minHeight: 560)
+        #endif
     }
 
     @ViewBuilder
@@ -123,9 +125,12 @@ public struct AddPlexAccountView: View {
             Text(code)
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
                 .tracking(8)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
+                .frame(maxWidth: 320)
 
             Link(destination: linkURL) {
                 HStack {
@@ -133,6 +138,7 @@ public struct AddPlexAccountView: View {
                     Image(systemName: "arrow.up.right.square")
                 }
                 .font(.headline)
+                .lineLimit(1)
             }
 
             Text("Waiting for authorization...")

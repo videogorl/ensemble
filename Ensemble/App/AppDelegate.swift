@@ -1,3 +1,4 @@
+#if os(iOS)
 import AVFoundation
 import UIKit
 import EnsembleCore
@@ -130,3 +131,4 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 }
+#endif

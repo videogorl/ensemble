@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/PlexAccountConfig.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/PlexAccountConfig.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/PlexAccountConfig.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/PlexAccountConfig.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/PlexAccountConfig.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/PlexAccountConfig.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/AccountManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/AccountManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/AccountManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/AccountManager.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/AccountManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/AccountManager.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/ArtworkLoader.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/ArtworkLoader.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/ArtworkLoader.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/ArtworkLoader.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/x86_64/ArtworkLoader.swiftdeps"
+  }
+}

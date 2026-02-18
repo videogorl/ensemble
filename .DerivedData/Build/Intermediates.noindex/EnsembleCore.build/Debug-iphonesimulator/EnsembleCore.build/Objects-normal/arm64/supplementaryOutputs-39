@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlexRadioProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/QueueManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/QueueManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/QueueManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/QueueManager.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/QueueManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/QueueManager.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/RadioProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/RadioProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/RadioProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/RadioProvider.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/RadioProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug-iphonesimulator/EnsembleCore.build/Objects-normal/arm64/RadioProvider.swiftdeps"
+  }
+}
