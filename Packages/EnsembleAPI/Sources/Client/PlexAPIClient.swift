@@ -594,13 +594,14 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
-        let uri = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
-        let query: [String: String] = [
+        var query: [String: String] = [
             "type": "audio",
             "title": title,
-            "smart": "0",
-            "uri": uri
+            "smart": "0"
         ]
+        if !trackRatingKeys.isEmpty {
+            query["uri"] = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
+        }
 
         _ = try await serverRequestPOST(path: "/playlists", query: query)
     }

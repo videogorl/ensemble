@@ -522,7 +522,7 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
-        guard !filteredTrackIds.isEmpty else {
+        guard tracks.isEmpty || !filteredTrackIds.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
 

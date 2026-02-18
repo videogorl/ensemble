@@ -110,6 +110,21 @@ public final class PlaylistViewModel: ObservableObject {
             return false
         }
     }
+
+    public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
+        do {
+            _ = try await syncCoordinator.createPlaylist(
+                title: title,
+                tracks: [],
+                serverSourceKey: serverSourceKey
+            )
+            await loadPlaylists()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
     
     public var sortedPlaylists: [Playlist] {
         switch playlistSortOption {

@@ -14,6 +14,12 @@ public struct PlaylistsView: View {
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
+    @State private var showCreatePlaylistPrompt = false
+    @State private var newPlaylistName = ""
+    @State private var pendingCreatePlaylistName = ""
+    @State private var createServerOptions: [PlaylistServerOption] = []
+    @State private var showCreateServerPicker = false
+    @State private var creatingPlaylistToastID: UUID?
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -34,6 +40,31 @@ public struct PlaylistsView: View {
                     landscapeCoverFlowView
                 } else {
                     playlistListView
+                }
+            }
+            .alert("New Playlist", isPresented: $showCreatePlaylistPrompt) {
+                TextField("Playlist name", text: $newPlaylistName)
+                Button("Cancel", role: .cancel) {
+                    newPlaylistName = ""
+                }
+                Button("Create") {
+                    let trimmed = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    newPlaylistName = ""
+                    guard !trimmed.isEmpty else { return }
+                    startCreatePlaylistFlow(named: trimmed)
+                }
+            } message: {
+                Text("Choose a name for your playlist.")
+            }
+            .confirmationDialog("Choose Server", isPresented: $showCreateServerPicker, titleVisibility: .visible) {
+                ForEach(createServerOptions) { option in
+                    Button(option.name) {
+                        createPlaylist(named: pendingCreatePlaylistName, serverSourceKey: option.id)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingCreatePlaylistName = ""
+                    createServerOptions = []
                 }
             }
             .alert("Delete Playlist?", isPresented: Binding(
@@ -91,43 +122,59 @@ public struct PlaylistsView: View {
             .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !effectivePlaylists.isEmpty && !isLandscape {
-                    Menu {
-                        ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                            Button {
-                                viewModel.playlistSortOption = option
-                            } label: {
-                                HStack {
-                                    Text(option.rawValue)
-                                    if viewModel.playlistSortOption == option {
-                                        Image(systemName: "checkmark")
+                if !isLandscape {
+                    HStack(spacing: 16) {
+                        Button {
+                            showCreatePlaylistPrompt = true
+                        } label: {
+                            Label("New Playlist", systemImage: "plus")
+                        }
+
+                        Menu {
+                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    viewModel.playlistSortOption = option
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if viewModel.playlistSortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
-                    } label: {
-                        Label("Sort By", systemImage: "arrow.up.arrow.down")
                     }
                 }
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !effectivePlaylists.isEmpty && !isLandscape {
-                    Menu {
-                        ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                            Button {
-                                viewModel.playlistSortOption = option
-                            } label: {
-                                HStack {
-                                    Text(option.rawValue)
-                                    if viewModel.playlistSortOption == option {
-                                        Image(systemName: "checkmark")
+                if !isLandscape {
+                    HStack(spacing: 16) {
+                        Button {
+                            showCreatePlaylistPrompt = true
+                        } label: {
+                            Label("New Playlist", systemImage: "plus")
+                        }
+
+                        Menu {
+                            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
+                                Button {
+                                    viewModel.playlistSortOption = option
+                                } label: {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if viewModel.playlistSortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
-                    } label: {
-                        Label("Sort By", systemImage: "arrow.up.arrow.down")
                     }
                 }
             }
@@ -274,6 +321,76 @@ public struct PlaylistsView: View {
                     )
                 )
             }
+        }
+    }
+
+    private func startCreatePlaylistFlow(named title: String) {
+        let options = nowPlayingVM.playlistServerOptions()
+        guard !options.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "wifi.exclamationmark",
+                    title: "No servers available",
+                    message: "Connect a Plex server to create playlists.",
+                    dedupeKey: "playlist-create-no-server"
+                )
+            )
+            return
+        }
+
+        if options.count == 1, let option = options.first {
+            createPlaylist(named: title, serverSourceKey: option.id)
+            return
+        }
+
+        pendingCreatePlaylistName = title
+        createServerOptions = options
+        showCreateServerPicker = true
+    }
+
+    private func createPlaylist(named title: String, serverSourceKey: String) {
+        let creatingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "plus.circle",
+            title: "Creating \(title)...",
+            isPersistent: true,
+            dedupeKey: "playlist-create-pending-\(title.lowercased())",
+            showsActivityIndicator: true
+        )
+        creatingPlaylistToastID = creatingToast.id
+        deps.toastCenter.show(creatingToast)
+
+        Task {
+            let didCreate = await viewModel.createPlaylist(title: title, serverSourceKey: serverSourceKey)
+            if let creatingPlaylistToastID {
+                deps.toastCenter.dismiss(id: creatingPlaylistToastID)
+            }
+            creatingPlaylistToastID = nil
+
+            if didCreate {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "plus.circle.fill",
+                        title: "Created \(title)",
+                        dedupeKey: "playlist-create-success-\(title.lowercased())"
+                    )
+                )
+            } else {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not create \(title)",
+                        message: viewModel.error ?? "Try again later.",
+                        dedupeKey: "playlist-create-error-\(title.lowercased())"
+                    )
+                )
+            }
+
+            pendingCreatePlaylistName = ""
+            createServerOptions = []
         }
     }
 }
