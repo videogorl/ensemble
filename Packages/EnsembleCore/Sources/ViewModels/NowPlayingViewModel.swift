@@ -76,6 +76,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var showHistory: Bool = false
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
+    @Published private var optimisticTrackRatings: [String: Int] = [:]
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -86,6 +87,9 @@ public final class NowPlayingViewModel: ObservableObject {
     
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
+    private var favoriteUpdatesInFlight = Set<String>()
+    internal var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
+    internal var trackRatingStoreHandlerForTesting: ((String, Int) async throws -> Void)?
 
     public init(
         playbackService: PlaybackServiceProtocol,
@@ -173,7 +177,7 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.currentRating = .none
                     return
                 }
-                self.currentRating = TrackRating.from(rating: track.rating)
+                self.currentRating = TrackRating.from(rating: self.trackDisplayRating(for: track))
             }
             .store(in: &cancellables)
     }
@@ -625,6 +629,83 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Rating Management
+
+    public func isTrackFavorited(_ track: Track) -> Bool {
+        trackDisplayRating(for: track) >= 8
+    }
+
+    public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
+        guard !favoriteUpdatesInFlight.contains(track.id) else { return }
+        favoriteUpdatesInFlight.insert(track.id)
+        defer { favoriteUpdatesInFlight.remove(track.id) }
+
+        let plexRating: Int? = isFavorite ? 10 : nil
+        let optimisticRating = isFavorite ? 10 : 0
+        let previousRating = trackDisplayRating(for: track)
+        let loadingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "heart.fill",
+            title: isFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
+            isPersistent: true,
+            dedupeKey: "favorite-toggle-loading-\(track.id)",
+            showsActivityIndicator: true
+        )
+        toastCenter.show(loadingToast)
+        defer { toastCenter.dismiss(id: loadingToast.id) }
+
+        do {
+            // Optimistically update local state so UI reflects the change immediately.
+            optimisticTrackRatings[track.id] = optimisticRating
+            try await storeTrackRating(trackId: track.id, rating: optimisticRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
+
+            if let trackRatingMutationHandlerForTesting {
+                try await trackRatingMutationHandlerForTesting(track, plexRating)
+            } else {
+                try await syncCoordinator.rateTrack(track: track, rating: plexRating)
+            }
+
+            if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
+                let refreshedTrack = Track(from: updatedTrack)
+                optimisticTrackRatings[track.id] = refreshedTrack.rating
+                updateCurrentTrackIfNeeded(refreshedTrack)
+            } else {
+                optimisticTrackRatings[track.id] = optimisticRating
+            }
+
+            toastCenter.show(
+                ToastPayload(
+                    style: .success,
+                    iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
+                    title: isFavorite ? "Added to Favorites" : "Removed from Favorites",
+                    message: track.title,
+                    dedupeKey: "favorite-toggle-success-\(track.id)-\(isFavorite ? 1 : 0)"
+                )
+            )
+        } catch {
+            // Roll back optimistic state if server mutation fails.
+            optimisticTrackRatings[track.id] = previousRating
+            try? await storeTrackRating(trackId: track.id, rating: previousRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+
+            toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Could not update favorite",
+                    message: error.localizedDescription,
+                    dedupeKey: "favorite-toggle-error-\(track.id)"
+                )
+            )
+            #if DEBUG
+            print("Failed to set favorite state: \(error)")
+            #endif
+        }
+    }
+
+    public func toggleTrackFavorite(_ track: Track) async {
+        await setTrackFavorite(!isTrackFavorited(track), for: track)
+    }
     
     /// Toggle rating through three states: none → loved → disliked → none
     public func toggleRating() {
@@ -641,30 +722,45 @@ public final class NowPlayingViewModel: ObservableObject {
                 newRating = .none
             }
             
+            let previousRating = trackDisplayRating(for: track)
+            let nextPlexRating = newRating.plexRating
+            let nextDisplayRating = nextPlexRating ?? 0
+
             // Mark that we're updating to prevent overwriting
             await MainActor.run {
                 self.isUpdatingRating = true
                 self.currentRating = newRating
+                self.optimisticTrackRatings[track.id] = nextDisplayRating
             }
             
             // Send to server
             do {
-                try await syncCoordinator.rateTrack(
-                    track: track,
-                    rating: newRating.plexRating
-                )
-                
-                // Update in CoreData
-                try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
+                // Apply optimistic local update for immediate consistency with swipe-driven state.
+                try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
+                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+
+                if let trackRatingMutationHandlerForTesting {
+                    try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
+                } else {
+                    try await syncCoordinator.rateTrack(
+                        track: track,
+                        rating: nextPlexRating
+                    )
+                }
                 
                 // Refresh the track to get updated data
                 if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                     let refreshedTrack = Track(from: updatedTrack)
                     await MainActor.run {
+                        self.optimisticTrackRatings[track.id] = refreshedTrack.rating
                         // Update currentTrack if it's still the same track
                         if self.currentTrack?.id == track.id {
                             self.currentTrack = refreshedTrack
                         }
+                    }
+                } else {
+                    await MainActor.run {
+                        self.optimisticTrackRatings[track.id] = nextDisplayRating
                     }
                 }
                 
@@ -678,9 +774,12 @@ public final class NowPlayingViewModel: ObservableObject {
                 #endif
                 // Revert on error
                 await MainActor.run {
+                    self.optimisticTrackRatings[track.id] = previousRating
                     self.isUpdatingRating = false
-                    self.currentRating = TrackRating.from(rating: track.rating)
+                    self.currentRating = TrackRating.from(rating: previousRating)
                 }
+                try? await storeTrackRating(trackId: track.id, rating: previousRating)
+                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
             }
         }
     }
@@ -697,6 +796,30 @@ public final class NowPlayingViewModel: ObservableObject {
                 try context.save()
             }
         }
+    }
+
+    private func storeTrackRating(trackId: String, rating: Int) async throws {
+        if let trackRatingStoreHandlerForTesting {
+            try await trackRatingStoreHandlerForTesting(trackId, rating)
+        } else {
+            try await updateTrackRatingInDatabase(trackId: trackId, rating: rating)
+        }
+    }
+
+    private func applyCurrentTrackRatingIfNeeded(trackId: String, rating: Int) {
+        guard let currentTrack, currentTrack.id == trackId else { return }
+        self.currentTrack = trackWithRating(currentTrack, rating: rating)
+        currentRating = TrackRating.from(rating: rating)
+    }
+
+    private func updateCurrentTrackIfNeeded(_ track: Track) {
+        guard currentTrack?.id == track.id else { return }
+        currentTrack = track
+        currentRating = TrackRating.from(rating: track.rating)
+    }
+
+    private func trackDisplayRating(for track: Track) -> Int {
+        optimisticTrackRatings[track.id] ?? track.rating
     }
 
     // MARK: - Helpers
@@ -738,6 +861,33 @@ public final class NowPlayingViewModel: ObservableObject {
             rating: track.rating,
             playCount: track.playCount,
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func trackWithRating(_ track: Track, rating: Int) -> Track {
+        Track(
+            id: track.id,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            albumRatingKey: track.albumRatingKey,
+            artistRatingKey: track.artistRatingKey,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration,
+            thumbPath: track.thumbPath,
+            fallbackThumbPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            streamKey: track.streamKey,
+            streamId: track.streamId,
+            localFilePath: track.localFilePath,
+            dateAdded: track.dateAdded,
+            dateModified: track.dateModified,
+            lastPlayed: track.lastPlayed,
+            rating: rating,
+            playCount: track.playCount,
+            sourceCompositeKey: track.sourceCompositeKey
         )
     }
 }

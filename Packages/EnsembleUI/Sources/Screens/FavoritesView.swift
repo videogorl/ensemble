@@ -184,17 +184,31 @@ public struct FavoritesView: View {
                 // Track list
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
+                        TrackSwipeContainer(
                             track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            nowPlayingVM: nowPlayingVM,
                             onPlayNext: { nowPlayingVM.playNext(track) },
                             onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                            recentPlaylistTitle: recentPlaylistTitle(for: track)
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                         ) {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                            TrackRow(
+                                track: track,
+                                showArtwork: true,
+                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                onPlayNext: { nowPlayingVM.playNext(track) },
+                                onPlayLast: { nowPlayingVM.playLast(track) },
+                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                onToggleFavorite: {
+                                    Task {
+                                        await nowPlayingVM.toggleTrackFavorite(track)
+                                    }
+                                },
+                                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                                recentPlaylistTitle: recentPlaylistTitle(for: track)
+                            ) {
+                                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                            }
                         }
                         .id(track.id)
                         .padding(.horizontal)

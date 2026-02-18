@@ -92,6 +92,26 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
 - Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
 
+### Toast Presentation
+- iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
+- Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it
+- Global toast window must stay above mini player and modal sheets for consistent feedback visibility
+
+### Gesture Actions (iOS/iPadOS)
+- Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)
+- Slot 1 on each edge is full-swipe enabled; slot 2 is reveal-only
+- Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
+- Keep primary tap behavior unchanged (tap still plays/navigates as before)
+- Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
+- macOS keeps existing interaction model (no custom swipe gesture layer in v1)
+
+### Long-Press Menus
+- Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
+- Album menu: `Play`, `Shuffle`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
+- Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
+- Playlist menu on Playlists screen can include destructive/edit actions (`Rename…`, `Edit Playlist`, `Delete`) with smart-playlist guards
+- Playlist menu on Search should be non-destructive only
+
 ## Visual Design
 
 ### Artwork Display

@@ -109,6 +109,16 @@ public struct SettingsView: View {
                         Text("Audio Quality")
                     }
                 }
+
+                NavigationLink {
+                    TrackSwipeActionsSettingsView()
+                } label: {
+                    HStack {
+                        Image(systemName: "slider.horizontal.3")
+                            .frame(width: 44)
+                        Text("Track Swipe Actions")
+                    }
+                }
             }
 
             // Storage section

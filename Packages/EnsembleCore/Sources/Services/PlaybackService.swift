@@ -72,10 +72,14 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     public let track: Track
     public var source: QueueItemSource
 
-    public init(track: Track, source: QueueItemSource = .continuePlaying) {
-        self.id = UUID().uuidString
+    public init(id: String, track: Track, source: QueueItemSource = .continuePlaying) {
+        self.id = id
         self.track = track
         self.source = source
+    }
+
+    public init(track: Track, source: QueueItemSource = .continuePlaying) {
+        self.init(id: UUID().uuidString, track: track, source: source)
     }
 }
 
@@ -160,6 +164,19 @@ public protocol PlaybackServiceProtocol: AnyObject {
 // MARK: - Playback Service Implementation
 
 public final class PlaybackService: NSObject, PlaybackServiceProtocol {
+    static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
+        if isLike {
+            // Toggle between loved (10) and none (0).
+            return (currentRating >= 8) ? 0 : 10
+        }
+        // Toggle between disliked (2) and none (0).
+        return (currentRating > 0 && currentRating <= 4) ? 0 : 2
+    }
+
+    static func feedbackFlags(for rating: Int) -> (isLiked: Bool, isDisliked: Bool) {
+        (rating >= 8, rating > 0 && rating <= 4)
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
@@ -671,59 +688,104 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Like/Dislike commands
         commandCenter.likeCommand.isEnabled = true
         commandCenter.likeCommand.addTarget { [weak self] _ in
-            self?.toggleLike(isLike: true)
-            return .success
+            self?.toggleLike(isLike: true) ?? .commandFailed
         }
         
         commandCenter.dislikeCommand.isEnabled = true
         commandCenter.dislikeCommand.addTarget { [weak self] _ in
-            self?.toggleLike(isLike: false)
-            return .success
+            self?.toggleLike(isLike: false) ?? .commandFailed
         }
     }
     
-    private func toggleLike(isLike: Bool) {
-        guard let track = currentTrack else { return }
-        
-        // Use a task since this is an async operation
-        Task {
-            let currentRating = track.rating
-            let newRating: Int
-            
-            if isLike {
-                // Toggle between loved (10) and none (0)
-                newRating = (currentRating >= 8) ? 0 : 10
-            } else {
-                // Toggle between disliked (2) and none (0)
-                newRating = (currentRating > 0 && currentRating <= 4) ? 0 : 2
-            }
-            
+    private func toggleLike(isLike: Bool) -> MPRemoteCommandHandlerStatus {
+        guard let track = currentTrack else {
+            return .noActionableNowPlayingItem
+        }
+
+        // Apply optimistic rating changes so lock screen/control center feedback updates immediately.
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            let previousRating = self.trackRating(for: track.id) ?? track.rating
+            let newRating = self.toggledFeedbackRating(from: previousRating, isLike: isLike)
+
+            self.applyTrackRatingLocally(trackId: track.id, rating: newRating)
+            self.updateNowPlayingInfo()
+
             do {
-                try await syncCoordinator.rateTrack(
+                try await self.storeTrackRating(trackId: track.id, rating: newRating)
+                try await self.syncCoordinator.rateTrack(
                     track: track,
                     rating: newRating == 0 ? nil : newRating
                 )
-                
-                // Update locally
-                // Note: This matches NowPlayingViewModel's logic
-                let context = CoreDataStack.shared.newBackgroundContext()
-                try await context.perform {
-                    let request = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
-                    if let cdTrack = try context.fetch(request).first {
-                        cdTrack.rating = Int16(newRating)
-                        try context.save()
-                    }
-                }
-                
-                // We don't have a direct way to update the Track object here easily 
-                // without a repository, but the CDTrack is updated.
-                // The UI will likely refresh when it observes the change or track changes.
             } catch {
+                self.applyTrackRatingLocally(trackId: track.id, rating: previousRating)
+                self.updateNowPlayingInfo()
+                try? await self.storeTrackRating(trackId: track.id, rating: previousRating)
                 #if DEBUG
                 print("Failed to update rating from system UI: \(error)")
                 #endif
             }
+        }
+        return .success
+    }
+
+    private func toggledFeedbackRating(from currentRating: Int, isLike: Bool) -> Int {
+        Self.feedbackRating(from: currentRating, isLike: isLike)
+    }
+
+    private func trackRating(for trackId: String) -> Int? {
+        if let currentTrack, currentTrack.id == trackId {
+            return currentTrack.rating
+        }
+        if let queueTrack = queue.first(where: { $0.track.id == trackId })?.track {
+            return queueTrack.rating
+        }
+        return nil
+    }
+
+    private func storeTrackRating(trackId: String, rating: Int) async throws {
+        let context = CoreDataStack.shared.newBackgroundContext()
+        try await context.perform {
+            let request = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "ratingKey == %@", trackId)
+            if let cdTrack = try context.fetch(request).first {
+                cdTrack.rating = Int16(rating)
+                try context.save()
+            }
+        }
+    }
+
+    private func applyTrackRatingLocally(trackId: String, rating: Int) {
+        if let currentTrack, currentTrack.id == trackId {
+            self.currentTrack = trackWithRating(currentTrack, rating: rating)
+        }
+        queue = queue.map { item in
+            guard item.track.id == trackId else { return item }
+            return QueueItem(
+                id: item.id,
+                track: trackWithRating(item.track, rating: rating),
+                source: item.source
+            )
+        }
+        originalQueue = originalQueue.map { item in
+            guard item.track.id == trackId else { return item }
+            return QueueItem(
+                id: item.id,
+                track: trackWithRating(item.track, rating: rating),
+                source: item.source
+            )
+        }
+        playbackHistory = playbackHistory.map { item in
+            guard item.track.id == trackId else { return item }
+            return QueueItem(
+                id: item.id,
+                track: trackWithRating(item.track, rating: rating),
+                source: item.source
+            )
+        }
+        autoplayTracks = autoplayTracks.map { track in
+            guard track.id == trackId else { return track }
+            return trackWithRating(track, rating: rating)
         }
     }
 
@@ -917,6 +979,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .stopped
         currentTime = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        updateFeedbackCommandState(isLiked: false, isDisliked: false)
     }
     
     /// Retry playing the current track (useful after network errors)
@@ -2252,7 +2315,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Now Playing Info
 
     private func updateNowPlayingInfo() {
-        guard let track = currentTrack else { return }
+        guard let track = currentTrack else {
+            updateFeedbackCommandState(isLiked: false, isDisliked: false)
+            return
+        }
+        let feedbackFlags = Self.feedbackFlags(for: track.rating)
+        let isLiked = feedbackFlags.isLiked
+        let isDisliked = feedbackFlags.isDisliked
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
@@ -2270,6 +2339,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
         
         // Load artwork asynchronously using the injected loader
         Task {
@@ -2304,6 +2374,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.likeCommand.isActive = isLiked
+        commandCenter.dislikeCommand.isActive = isDisliked
+    }
+
+    private func trackWithRating(_ track: Track, rating: Int) -> Track {
+        Track(
+            id: track.id,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            albumRatingKey: track.albumRatingKey,
+            artistRatingKey: track.artistRatingKey,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration,
+            thumbPath: track.thumbPath,
+            fallbackThumbPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            streamKey: track.streamKey,
+            streamId: track.streamId,
+            localFilePath: track.localFilePath,
+            dateAdded: track.dateAdded,
+            dateModified: track.dateModified,
+            lastPlayed: track.lastPlayed,
+            rating: rating,
+            playCount: track.playCount,
+            sourceCompositeKey: track.sourceCompositeKey
+        )
     }
     
     // MARK: - State Restoration

@@ -23,6 +23,8 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
 - **3D CoverFlow Carousel** — Browse albums with perspective rotation, scaling, and tap-to-zoom/flip interactions
 - **Search** — Fast search across your entire library with compact result layouts
+- **Gesture Actions (iOS/iPadOS)** — Mail-style track swipe actions (`Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle) across library and search track lists
+- **Long-Press Menus** — Album, artist, and playlist cards expose context actions that match detail-view capabilities
 
 **Advanced Features:**
 - **Advanced Filtering** — Multi-select genres/artists, year ranges, sort options with persistence
@@ -42,6 +44,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Management:**
 - **Settings & Sync** — Manual library sync with progress tracking
+- **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
 - **Download Management** — Infrastructure for offline track downloads (UI complete, playback in progress)
 
