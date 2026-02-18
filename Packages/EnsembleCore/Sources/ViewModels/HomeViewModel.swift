@@ -549,7 +549,8 @@ public final class HomeViewModel: ObservableObject {
         
         print("⏰ Starting periodic hub refresh (every 10 minutes)")
         hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // No [weak self] here — the outer Timer closure already captures self weakly
+            Task { @MainActor in
                 guard let self = self else { return }
                 
                 // Don't refresh if offline
