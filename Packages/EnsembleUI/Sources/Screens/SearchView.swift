@@ -940,6 +940,14 @@ public struct SearchView: View {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
         }
 
+        if let recentTarget = nowPlayingVM.lastPlaylistTarget {
+            Button {
+                addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)
+            } label: {
+                Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
+            }
+        }
+
         let isPinned = pinManager.isPinned(id: album.id)
         Button {
             if isPinned {
@@ -1066,6 +1074,29 @@ public struct SearchView: View {
             }
             await MainActor.run {
                 action(tracks)
+            }
+        }
+    }
+
+    private func addAlbumToRecentPlaylist(_ album: Album, expectedTitle: String) {
+        withAlbumTracks(album) { tracks in
+            Task {
+                guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: tracks) else {
+                    await MainActor.run {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .warning,
+                                iconSystemName: "exclamationmark.triangle.fill",
+                                title: "Can’t add to \(expectedTitle)",
+                                message: "This album isn’t compatible with that playlist.",
+                                dedupeKey: "search-album-recent-playlist-incompatible-\(album.id)"
+                            )
+                        )
+                    }
+                    return
+                }
+
+                _ = try? await nowPlayingVM.addTracks(tracks, to: playlist)
             }
         }
     }
