@@ -74,7 +74,6 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
-    @Published public private(set) var playlistOperationMessage: String?
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
 
@@ -82,6 +81,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
+    private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
     
     // Track if we're currently updating the rating to prevent overwriting
@@ -91,12 +91,14 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService: PlaybackServiceProtocol,
         syncCoordinator: SyncCoordinator,
         libraryRepository: LibraryRepositoryProtocol,
-        navigationCoordinator: NavigationCoordinator
+        navigationCoordinator: NavigationCoordinator,
+        toastCenter: ToastCenter
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
+        self.toastCenter = toastCenter
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -361,9 +363,25 @@ public final class NowPlayingViewModel: ObservableObject {
         let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
         await MainActor.run {
             if result.skippedCount > 0 {
-                self.playlistOperationMessage = "Added \(result.addedCount) tracks. Skipped \(result.skippedCount) incompatible tracks."
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "exclamationmark.triangle.fill",
+                        title: "Added to \(playlist.title)",
+                        message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
+                        dedupeKey: "playlist-add-\(playlist.id)"
+                    )
+                )
             } else {
-                self.playlistOperationMessage = "Added \(result.addedCount) tracks to \(playlist.title)."
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "checkmark.circle.fill",
+                        title: "Added to \(playlist.title)",
+                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+                        dedupeKey: "playlist-add-\(playlist.id)"
+                    )
+                )
             }
         }
         return result
@@ -387,9 +405,25 @@ public final class NowPlayingViewModel: ObservableObject {
         )
         await MainActor.run {
             if result.skippedCount > 0 {
-                self.playlistOperationMessage = "Created playlist and added \(result.addedCount) tracks. Skipped \(result.skippedCount)."
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "plus.circle.fill",
+                        title: "Created \(title)",
+                        message: "Added \(result.addedCount), skipped \(result.skippedCount).",
+                        dedupeKey: "playlist-create-\(title.lowercased())"
+                    )
+                )
             } else {
-                self.playlistOperationMessage = "Created playlist with \(result.addedCount) tracks."
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "plus.circle.fill",
+                        title: "Created \(title)",
+                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+                        dedupeKey: "playlist-create-\(title.lowercased())"
+                    )
+                )
             }
         }
         return result
@@ -476,10 +510,6 @@ public final class NowPlayingViewModel: ObservableObject {
             deduped.append(track)
         }
         return deduped
-    }
-
-    public func clearPlaylistOperationMessage() {
-        playlistOperationMessage = nil
     }
 
     public func clearQueue() {

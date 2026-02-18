@@ -8,6 +8,7 @@ import UIKit
 
 public struct NowPlayingView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
@@ -136,6 +137,13 @@ public struct NowPlayingView: View {
             // Main playback controls
             controlsView
                 .padding(.top, 32)
+
+            ToastHostView(
+                toastCenter: toastCenter,
+                horizontalPadding: 28,
+                bottomPadding: 0
+            )
+            .padding(.top, 16)
             
             // Push secondary controls to bottom with spacer
             Spacer()

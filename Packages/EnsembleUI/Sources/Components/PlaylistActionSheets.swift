@@ -7,10 +7,10 @@ public struct PlaylistPickerSheet: View {
     let title: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
     @State private var playlists: [Playlist] = []
     @State private var isLoading = true
     @State private var inferredServerSourceKey: String?
-    @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
 
@@ -82,14 +82,6 @@ public struct PlaylistPickerSheet: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .alert("Playlist Error", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { _ in errorMessage = nil }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "")
-            }
             .task {
                 if inferredServerSourceKey == nil {
                     inferredServerSourceKey = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
@@ -145,7 +137,19 @@ public struct PlaylistPickerSheet: View {
                     (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
                 }
         } catch {
-            errorMessage = error.localizedDescription
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "wifi.exclamationmark",
+                    title: "Unable to load playlists",
+                    message: error.localizedDescription,
+                    action: ToastAction(title: "Retry") {
+                        Task { await loadPlaylists() }
+                    },
+                    isPersistent: true,
+                    dedupeKey: "playlist-load-error"
+                )
+            )
         }
     }
 
@@ -153,7 +157,15 @@ public struct PlaylistPickerSheet: View {
         guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
         let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
         guard !compatibleTracks.isEmpty else {
-            errorMessage = PlaylistMutationError.emptySelection.localizedDescription
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Playlist update skipped",
+                    message: PlaylistMutationError.emptySelection.localizedDescription,
+                    dedupeKey: "playlist-empty-selection"
+                )
+            )
             return
         }
         isSubmitting = true
@@ -163,7 +175,19 @@ public struct PlaylistPickerSheet: View {
             _ = try await nowPlayingVM.addTracks(compatibleTracks, to: playlist)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Could not add to playlist",
+                    message: error.localizedDescription,
+                    action: ToastAction(title: "Retry") {
+                        Task { await addToPlaylist(playlist) }
+                    },
+                    isPersistent: true,
+                    dedupeKey: "playlist-add-error-\(playlist.id)"
+                )
+            )
         }
     }
 
@@ -171,7 +195,15 @@ public struct PlaylistPickerSheet: View {
         guard let inferredServerSourceKey else { return }
         let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
         guard !compatibleTracks.isEmpty else {
-            errorMessage = PlaylistMutationError.emptySelection.localizedDescription
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Playlist creation skipped",
+                    message: PlaylistMutationError.emptySelection.localizedDescription,
+                    dedupeKey: "playlist-create-empty-selection"
+                )
+            )
             return
         }
         guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
@@ -186,7 +218,19 @@ public struct PlaylistPickerSheet: View {
             )
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Could not create playlist",
+                    message: error.localizedDescription,
+                    action: ToastAction(title: "Retry") {
+                        Task { await createPlaylist(named: name) }
+                    },
+                    isPersistent: true,
+                    dedupeKey: "playlist-create-error-\(name.lowercased())"
+                )
+            )
         }
     }
 }
