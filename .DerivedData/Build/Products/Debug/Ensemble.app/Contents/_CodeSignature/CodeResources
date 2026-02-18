@@ -10,7 +10,7 @@
 		</data>
 		<key>Resources/Assets.car</key>
 		<data>
-		/s/Fd+MujzRU8AYyncONOXgCeh0=
+		JwOA8R4QDjo2vxFi9hyE99UB2YE=
 		</data>
 		<key>Resources/CLAUDE.md</key>
 		<data>
@@ -43,7 +43,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Q1iFwMVLV8ek3SPvkYgXEZViPqk=
+			n363Z1nziPAZpqdquxSlmL4cVKA=
 			</data>
 			<key>requirement</key>
 			<string>identifier "Ensemble.debug" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: felicity@nysics.com (LW3R55N9E8)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
@@ -68,7 +68,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			R40CS5Q7Lb8YHJKIQEtnYdoaNw5sp7J8xnxabC9l0H8=
+			PBY+mUXcyPbFVznQLsAzO683nz12kuTdzMP26fVoLVI=
 			</data>
 		</dict>
 		<key>Resources/CLAUDE.md</key>

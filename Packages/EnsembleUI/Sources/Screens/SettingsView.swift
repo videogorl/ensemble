@@ -182,7 +182,7 @@ public struct SettingsView: View {
         .sheet(isPresented: $showingAddAccount) {
             AddPlexAccountView()
             #if os(macOS)
-                .frame(minWidth: 560, minHeight: 680)
+                .frame(width: 720, height: 560)
             #endif
         }
         .alert("Remove Music Source", isPresented: $showingDeleteAlert) {

@@ -36,7 +36,7 @@ public struct AddPlexAccountView: View {
                             .padding(.horizontal)
                     }
                 }
-                .frame(maxWidth: 520)
+                .frame(maxWidth: 620)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
@@ -66,7 +66,7 @@ public struct AddPlexAccountView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 560, minHeight: 680)
+        .frame(minWidth: 720, minHeight: 560)
         #endif
     }
 
@@ -125,9 +125,12 @@ public struct AddPlexAccountView: View {
             Text(code)
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
                 .tracking(8)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
+                .frame(maxWidth: 320)
 
             Link(destination: linkURL) {
                 HStack {
@@ -135,6 +138,7 @@ public struct AddPlexAccountView: View {
                     Image(systemName: "arrow.up.right.square")
                 }
                 .font(.headline)
+                .lineLimit(1)
             }
 
             Text("Waiting for authorization...")
