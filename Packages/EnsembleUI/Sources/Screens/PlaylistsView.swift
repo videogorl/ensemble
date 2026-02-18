@@ -36,7 +36,7 @@ public struct PlaylistsView: View {
                 await viewModel.loadPlaylists()
             }
             .refreshable {
-                await viewModel.loadPlaylists()
+                await viewModel.refreshFromServer()
             }
             .toolbar {
             #if os(iOS)
@@ -166,6 +166,11 @@ public struct PlaylistDetailView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     
     private let playlist: Playlist
+    @State private var showRenamePrompt = false
+    @State private var renameTitle = ""
+    @State private var isEditingPlaylist = false
+    @State private var editedTracks: [Track] = []
+    @State private var isSavingPlaylistEdits = false
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -174,16 +179,72 @@ public struct PlaylistDetailView: View {
     }
 
     public var body: some View {
-        MediaDetailView(
-            viewModel: viewModel,
-            nowPlayingVM: nowPlayingVM,
-            headerData: headerData,
-            navigationTitle: playlist.title,
-            showArtwork: true,
-            showTrackNumbers: false,
-            groupByDisc: false,
-            mediaType: .playlist
-        )
+        Group {
+            if isEditingPlaylist {
+                inlinePlaylistEditor
+            } else {
+                MediaDetailView(
+                    viewModel: viewModel,
+                    nowPlayingVM: nowPlayingVM,
+                    headerData: headerData,
+                    navigationTitle: playlist.title,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false,
+                    mediaType: .playlist,
+                    playlistMenuActions: PlaylistDetailMenuActions(
+                        canRename: !viewModel.playlist.isSmart,
+                        canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
+                        onRename: {
+                            renameTitle = viewModel.playlist.title
+                            showRenamePrompt = true
+                        },
+                        onEdit: {
+                            editedTracks = viewModel.tracks
+                            isEditingPlaylist = true
+                        }
+                    )
+                )
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isEditingPlaylist {
+                    Button("Save") {
+                        let editedSnapshot = editedTracks
+                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        isSavingPlaylistEdits = true
+                        isEditingPlaylist = false
+                        editedTracks = []
+                        Task {
+                            await viewModel.saveEditedTracks(editedSnapshot)
+                            isSavingPlaylistEdits = false
+                        }
+                    }
+                    .disabled(isSavingPlaylistEdits)
+                }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if isEditingPlaylist {
+                    Button("Cancel") {
+                        isEditingPlaylist = false
+                        editedTracks = []
+                    }
+                }
+            }
+        }
+        .alert("Rename Playlist", isPresented: $showRenamePrompt) {
+            TextField("Playlist name", text: $renameTitle)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                Task {
+                    await viewModel.renamePlaylist(to: renameTitle)
+                }
+            }
+        } message: {
+            Text("Choose a new playlist name.")
+        }
+        .navigationBarBackButtonHidden(isEditingPlaylist)
     }
     
     private var headerData: MediaHeaderData {
@@ -205,5 +266,33 @@ public struct PlaylistDetailView: View {
             sourceKey: playlist.sourceCompositeKey,
             ratingKey: playlist.id
         )
+    }
+
+    private var inlinePlaylistEditor: some View {
+        List {
+            ForEach(editedTracks, id: \.id) { track in
+                HStack(spacing: 12) {
+                    ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(track.title)
+                        Text(track.artistName ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .onMove { source, destination in
+                editedTracks.move(fromOffsets: source, toOffset: destination)
+            }
+            .onDelete { offsets in
+                editedTracks.remove(atOffsets: offsets)
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle(playlist.title)
+        .environment(\.editMode, .constant(.active))
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 110)
+        }
     }
 }

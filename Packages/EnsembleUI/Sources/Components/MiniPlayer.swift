@@ -144,9 +144,11 @@ public struct MiniPlayer: View {
 
                 // Progress bar at the bottom
                 GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: geometry.size.width * viewModel.progress)
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(width: geometry.size.width * viewModel.progress)
+                    }
                 }
                 .frame(height: 3)
             } else {

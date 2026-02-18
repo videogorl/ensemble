@@ -16,14 +16,14 @@ public struct AlbumCard: View {
                 Text(album.title)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .foregroundColor(.primary)
 
                 if let artist = album.artistName {
                     Text(artist)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
 
                 if let year = album.year {
@@ -46,7 +46,7 @@ public struct AlbumGrid: View {
     let onAlbumTap: ((Album) -> Void)?
 
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
     ]
 
     public init(albums: [Album], nowPlayingVM: NowPlayingViewModel, onAlbumTap: ((Album) -> Void)? = nil) {

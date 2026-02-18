@@ -49,7 +49,7 @@ public struct SongsView: View {
             .navigationTitle(isLandscape ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {
-                await libraryVM.refresh()
+                await libraryVM.refreshFromServer()
             }
             .toolbar {
                 #if os(iOS)

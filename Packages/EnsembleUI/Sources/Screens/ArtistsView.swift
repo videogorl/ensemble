@@ -28,7 +28,7 @@ public struct ArtistsView: View {
         .navigationTitle("Artists")
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
-            await libraryVM.refresh()
+            await libraryVM.refreshFromServer()
         }
         .toolbar {
             #if os(iOS)

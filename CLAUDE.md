@@ -47,9 +47,44 @@ You have access to the Gemini CLI (`gemini -p`) which leverages Google Gemini's 
 
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
 
-Right now, this app is not released to the public, and isn't in beta. As a result, we don't need to account for edge cases as we're developing the CoreData model.
+Right now, this app is in beta testing. We should account for edge cases as we're developing the CoreData model. We have a little bit of leeway with regards to asking our testers to reset their app if needed.
 
 The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
+
+
+## Recent Major Changes
+
+### Sync System Overhaul (Feb 2026)
+The sync system now supports **incremental sync** using Plex API timestamp filters (`addedAt>=`, `updatedAt>=`):
+
+- **Pull-to-refresh:** Library views perform incremental sync (fast), HomeView refreshes hubs only
+- **Startup sync:** Full sync if >24h old, incremental if >1h old, skip if fresh (<1h)
+- **Background refresh (iOS):** `BGAppRefreshTask` refreshes hubs every ~15min (system-controlled)
+- **Routine updates:** Incremental library sync every 1h, hubs every 10min while app is active
+- **Offline-first:** All syncs respect offline state, fall back to CoreData cache
+
+**Key files:**
+- `SyncCoordinator.swift` - `syncAllIncremental()`, `performStartupSync()`, periodic timers
+- `PlexMusicSourceSyncProvider.swift` - `syncLibraryIncremental(since:)`
+- `PlexAPIClient.swift` - Filtered fetch methods (e.g., `getArtists(sectionKey:addedAfter:)`)
+- `BackgroundSyncScheduler.swift` - iOS background refresh scheduling
+
+### Playlist Mutations Rollout (Feb 2026)
+Playlist management now supports server-backed mutations with local cache refresh:
+
+- **Now Playing:** add current track to playlist, save current queue snapshot
+- **Playlist Detail:** rename and edit playlist track ordering/removals
+- **Album Detail:** add full filtered album track list to playlist from the pin menu
+- **Consistency:** all successful playlist mutations trigger server refresh + CoreData update
+- **Smart playlists:** treated as read-only for mutation operations
+
+**Key files:**
+- `PlexAPIClient.swift` - Create/rename/add/remove/move playlist mutation endpoints
+- `SyncCoordinator.swift` - Playlist mutation orchestration + post-mutation playlist refresh
+- `NowPlayingViewModel.swift` - Queue snapshot logic and shared playlist action methods
+- `PlaylistViewModel.swift` - Playlist detail rename/edit mutation hooks
+- `PlaylistActionSheets.swift` - Shared add/create playlist UI sheets
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 

@@ -15,22 +15,38 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlistRepository = playlistRepository
+        self.syncCoordinator = syncCoordinator
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
-        
+
         // Load sort option from filters
         if let savedSort = PlaylistSortOption(rawValue: savedFilters.sortBy) {
             self.playlistSortOption = savedSort
         }
-        
+
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Auto-reload when sync completes
+        syncCoordinator.$isSyncing
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] syncing in
+                if !syncing {
+                    Task { @MainActor in
+                        await self?.loadPlaylists()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -52,6 +68,31 @@ public final class PlaylistViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    /// Sync playlists from server, then reload from cache
+    public func refreshFromServer() async {
+        // Check if offline
+        if syncCoordinator.isOffline {
+            print("📴 Offline - loading playlists from cache only")
+            await loadPlaylists()
+            return
+        }
+
+        error = nil
+
+        // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        print("🔄 Starting playlist sync (detached)...")
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncPlaylistsOnly()
+                continuation.resume()
+            }
+        }
+        print("✅ Playlist sync complete")
+
+        // Reload from updated cache
+        await loadPlaylists()
     }
     
     public var sortedPlaylists: [Playlist] {
@@ -107,16 +148,20 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var shouldSkipNextLoadAfterLocalEdit = false
 
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
+        self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
         
         // Save filter options when they change
@@ -131,42 +176,25 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func loadTracks() async {
+        if shouldSkipNextLoadAfterLocalEdit {
+            shouldSkipNextLoadAfterLocalEdit = false
+            return
+        }
+
         isLoading = true
         error = nil
 
         do {
-            var allTracks: [Track] = []
-            var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
-            
-            // Fetch all playlists from the repository
-            let allPlaylists = try await playlistRepository.fetchPlaylists()
-            
-            // Find all playlists with the same title as our current playlist (across all libraries)
-            let matchingPlaylists = allPlaylists.filter { $0.title == playlist.title }
-            
-            // Load tracks from each matching playlist
-            for playlist in matchingPlaylists {
-                do {
-                    let cachedPlaylist = try await playlistRepository.fetchPlaylist(ratingKey: playlist.ratingKey)
-                    if let cachedPlaylist = cachedPlaylist {
-                        let cachedTracks = cachedPlaylist.tracksArray
-                        for cdTrack in cachedTracks {
-                            let track = Track(from: cdTrack)
-                            
-                            // Dedup by ratingKey - keep first occurrence
-                            if trackMap[track.id] == nil {
-                                trackMap[track.id] = track
-                                allTracks.append(track)
-                            }
-                        }
-                    }
-                } catch {
-                    // Continue to next playlist if this one fails
-                    continue
-                }
+            if let cachedPlaylist = try await playlistRepository.fetchPlaylist(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            ) {
+                // Refresh playlist metadata from cache so title/count stays current after edits.
+                playlist = Playlist(from: cachedPlaylist)
+                tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+            } else {
+                tracks = []
             }
-            
-            tracks = allTracks
         } catch {
             self.error = error.localizedDescription
         }
@@ -213,5 +241,50 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
         
         return filtered
+    }
+
+    public func renamePlaylist(to newTitle: String) async {
+        do {
+            try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
+            await loadTracks()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    public func applyEditedTracksLocally(_ editedTracks: [Track]) {
+        shouldSkipNextLoadAfterLocalEdit = true
+        tracks = editedTracks
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: editedTracks.count,
+            duration: editedTracks.reduce(0) { $0 + $1.duration },
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+    }
+
+    public func saveEditedTracks(_ editedTracks: [Track]) async {
+        // Apply immediately so playlist detail reflects edits before network roundtrip.
+        applyEditedTracksLocally(editedTracks)
+
+        do {
+            try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            Task {
+                // Refresh from cache once post-mutation sync catches up.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.shouldSkipNextLoadAfterLocalEdit = false
+                await self.loadTracks()
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }

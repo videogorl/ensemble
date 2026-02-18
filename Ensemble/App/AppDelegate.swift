@@ -55,6 +55,31 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             print("📱 AppDelegate: Playback state restoration complete")
         }
         
+        // Perform startup sync (non-blocking, runs in background)
+        Task.detached(priority: .utility) {
+            // Wait a bit longer to ensure the app is fully initialized
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
+            print("📱 AppDelegate: Starting startup sync...")
+            let syncCoordinator = await MainActor.run {
+                DependencyContainer.shared.syncCoordinator
+            }
+            await syncCoordinator.performStartupSync()
+            print("📱 AppDelegate: Startup sync complete")
+            
+            // Start periodic sync timer after startup sync completes
+            await MainActor.run {
+                syncCoordinator.startPeriodicSync()
+            }
+        }
+        
+        // Schedule background refresh (iOS only)
+        #if os(iOS)
+        if #available(iOS 13.0, *) {
+            BackgroundSyncScheduler.shared.scheduleAppRefresh()
+        }
+        #endif
+        
         print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }
@@ -85,6 +110,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Stop network monitoring to save battery
         Task { @MainActor in
             DependencyContainer.shared.networkMonitor.stopMonitoring()
+            
+            // Stop periodic sync timers
+            DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
         }
     }
     
@@ -97,6 +125,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // (network monitor will also trigger this, but doing it immediately ensures faster failover)
             await DependencyContainer.shared.serverHealthChecker.checkAllServers()
             await DependencyContainer.shared.syncCoordinator.refreshAPIClientConnections()
+            
+            // Restart periodic sync timers
+            DependencyContainer.shared.syncCoordinator.startPeriodicSync()
         }
     }
 }

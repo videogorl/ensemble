@@ -17,7 +17,7 @@ public struct ArtistCard: View {
             Text(artist.name)
                 .font(.subheadline)
                 .fontWeight(.medium)
-                .lineLimit(1)
+                .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.primary)
         }
@@ -75,7 +75,7 @@ public struct ArtistGrid: View {
     @Environment(\.dependencies) private var deps
 
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
     ]
 
     public init(

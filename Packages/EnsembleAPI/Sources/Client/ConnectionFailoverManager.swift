@@ -39,6 +39,12 @@ public actor ConnectionFailoverManager {
 
         print("🔄 ConnectionTest[\(url)]: Testing...")
 
+        // Check if task is already cancelled
+        if Task.isCancelled {
+            print("⚠️ ConnectionTest[\(url)]: Task cancelled before test!")
+            return false
+        }
+
         do {
             let startTime = Date()
             let (_, response) = try await session.data(for: request)

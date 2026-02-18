@@ -40,6 +40,15 @@ public struct HomeView: View {
             Task.detached(priority: .userInitiated) { [viewModel] in
                 await viewModel.loadHubs()
             }
+            
+            // Start periodic hub refresh
+            await MainActor.run {
+                viewModel.startPeriodicRefresh()
+            }
+        }
+        .onDisappear {
+            // Stop periodic refresh when view disappears
+            viewModel.stopPeriodicRefresh()
         }
         .refreshable {
             await viewModel.refresh()
@@ -236,7 +245,7 @@ struct HubItemCard: View {
         switch item.type {
         case "album": return .album(id: item.id)
         case "artist": return .artist(id: item.id)
-        case "playlist": return .playlist(id: item.id)
+        case "playlist": return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default: return nil
         }
     }
@@ -249,7 +258,11 @@ struct HubItemCard: View {
         case "artist":
             ArtistDetailLoader(artistId: item.id, nowPlayingVM: nowPlayingVM)
         case "playlist":
-            PlaylistDetailLoader(playlistId: item.id, nowPlayingVM: nowPlayingVM)
+            PlaylistDetailLoader(
+                playlistId: item.id,
+                playlistSourceKey: item.sourceCompositeKey,
+                nowPlayingVM: nowPlayingVM
+            )
         default:
             EmptyView()
         }

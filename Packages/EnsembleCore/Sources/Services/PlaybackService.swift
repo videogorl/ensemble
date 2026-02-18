@@ -113,6 +113,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
+    var currentTimeValue: TimeInterval { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
@@ -178,6 +179,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
+    public var currentTimeValue: TimeInterval { currentTime }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
@@ -336,6 +338,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 if let newItem = change.newValue as? AVPlayerItem {
                     self.handleItemChange(newItem)
+                } else if (change.oldValue as? AVPlayerItem) != nil {
+                    // AVQueuePlayer naturally sets currentItem=nil when the queue is exhausted.
+                    // Defer one turn so manual queue swaps (remove/insert) don't get treated as end-of-queue.
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        await Task.yield()
+                        guard self.player?.currentItem == nil else { return }
+                        self.handleQueueExhausted()
+                    }
                 }
             }
         }
@@ -394,6 +405,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         }
+    }
+
+    /// Handles natural playback completion when AVQueuePlayer has no current item left.
+    @MainActor
+    private func handleQueueExhausted() {
+        guard !queue.isEmpty else {
+            stop()
+            return
+        }
+
+        // Cancel any pending stall retry. End-of-queue is not a recoverable stall.
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
+
+        if repeatMode == .all {
+            currentQueueIndex = 0
+            Task {
+                await playCurrentQueueItem()
+                savePlaybackState()
+                await checkAndRefreshAutoplayQueue()
+            }
+            return
+        }
+
+        if isAutoplayEnabled {
+            let nextIndex = currentQueueIndex + 1
+            if nextIndex < queue.count {
+                currentQueueIndex = nextIndex
+                Task {
+                    await playCurrentQueueItem()
+                    savePlaybackState()
+                    await checkAndRefreshAutoplayQueue()
+                }
+                return
+            }
+
+            Task { @MainActor in
+                let previousCount = queue.count
+                await refreshAutoplayQueue()
+
+                let refreshedNextIndex = currentQueueIndex + 1
+                if queue.count > previousCount, refreshedNextIndex < queue.count {
+                    currentQueueIndex = refreshedNextIndex
+                    await playCurrentQueueItem()
+                    savePlaybackState()
+                    await checkAndRefreshAutoplayQueue()
+                } else {
+                    print("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                    stop()
+                }
+            }
+            return
+        }
+
+        print("⏹️ Queue ended - stopping playback")
+        stop()
     }
     
     private func generateWaveform(for ratingKey: String) {
@@ -1001,7 +1068,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        Task {
+            await updatePlayerQueueAfterReorder()
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     public func clearQueue() {
@@ -1018,7 +1088,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         originalQueue = queue
         playbackHistory.removeAll()
         savePlaybackState()
-        Task { await checkAndRefreshAutoplayQueue() }
+        Task {
+            await updatePlayerQueueAfterReorder()
+            await checkAndRefreshAutoplayQueue()
+        }
     }
 
     /// Move a queue item by ID from source position to destination position.
@@ -1182,11 +1255,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             // Remove all autoplay items from queue and clear state
             queue.removeAll { $0.source == .autoplay }
+            originalQueue.removeAll { $0.source == .autoplay }
             isAutoplayActive = false
             autoplayTracks = []
             autoGeneratedTrackIds.removeAll()
             radioMode = .off
             savePlaybackState()
+            Task {
+                await updatePlayerQueueAfterReorder()
+            }
         }
     }
 
@@ -1829,6 +1906,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // If still buffering after 10s, try to recover
             if self.playbackState == .buffering {
+                // End-of-queue often presents as "waiting" with no current item.
+                // Treat this as completion instead of retrying the same track.
+                if self.player?.currentItem == nil {
+                    print("⏹️ Stall recovery detected empty player queue - handling as queue end")
+                    self.handleQueueExhausted()
+                    return
+                }
+
                 print("⚠️ Playback stalled for 10s - attempting recovery")
 
                 // Check if network is available
@@ -1989,36 +2074,42 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let currentIndexKey = "com.ensemble.playback.currentIndex"
     private let currentTimeKey = "com.ensemble.playback.currentTime"
     
-    /// Save playback state to UserDefaults
+    /// Save playback state to UserDefaults.
+    /// Captures a snapshot of the current queue on the calling thread, then
+    /// offloads the JSON encoding and disk write to a background thread so the
+    /// main/audio thread is never blocked.
     private func savePlaybackState() {
-        print("💾 savePlaybackState() called, queue.count: \(queue.count)")
+        // Capture value-type snapshots immediately (cheap, no allocation of new memory).
+        let queueSnapshot = queue
+        let historySnapshot = playbackHistory
+        let indexSnapshot = currentQueueIndex
+        let timeSnapshot = currentTime
 
-        guard !queue.isEmpty || !playbackHistory.isEmpty else {
-            print("💾 Queue and history are empty, clearing saved state")
-            UserDefaults.standard.removeObject(forKey: queueKey)
-            UserDefaults.standard.removeObject(forKey: historyKey)
-            UserDefaults.standard.removeObject(forKey: currentIndexKey)
-            UserDefaults.standard.removeObject(forKey: currentTimeKey)
-            return
+        let queueKey = self.queueKey
+        let historyKey = self.historyKey
+        let currentIndexKey = self.currentIndexKey
+        let currentTimeKey = self.currentTimeKey
+
+        Task.detached(priority: .utility) {
+            guard !queueSnapshot.isEmpty || !historySnapshot.isEmpty else {
+                UserDefaults.standard.removeObject(forKey: queueKey)
+                UserDefaults.standard.removeObject(forKey: historyKey)
+                UserDefaults.standard.removeObject(forKey: currentIndexKey)
+                UserDefaults.standard.removeObject(forKey: currentTimeKey)
+                return
+            }
+
+            let encoder = JSONEncoder()
+
+            if let encodedQueue = try? encoder.encode(queueSnapshot) {
+                UserDefaults.standard.set(encodedQueue, forKey: queueKey)
+            }
+            if let encodedHistory = try? encoder.encode(historySnapshot) {
+                UserDefaults.standard.set(encodedHistory, forKey: historyKey)
+            }
+            UserDefaults.standard.set(indexSnapshot, forKey: currentIndexKey)
+            UserDefaults.standard.set(timeSnapshot, forKey: currentTimeKey)
         }
-
-        print("💾 Encoding \(queue.count) queue items, \(playbackHistory.count) history items, current index: \(currentQueueIndex), time: \(currentTime)s")
-
-        let encoder = JSONEncoder()
-
-        // Encode full QueueItem array (includes source tags)
-        if let encodedQueue = try? encoder.encode(queue) {
-            UserDefaults.standard.set(encodedQueue, forKey: queueKey)
-        }
-        
-        // Encode history
-        if let encodedHistory = try? encoder.encode(playbackHistory) {
-            UserDefaults.standard.set(encodedHistory, forKey: historyKey)
-        }
-
-        UserDefaults.standard.set(currentQueueIndex, forKey: currentIndexKey)
-        UserDefaults.standard.set(currentTime, forKey: currentTimeKey)
-        print("💾 Saved to UserDefaults")
     }
     
     /// Restore playback state from UserDefaults
@@ -2140,4 +2231,3 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
     }
 }
-

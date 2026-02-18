@@ -7,7 +7,14 @@ import UIKit
 #endif
 
 public struct NowPlayingView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
@@ -30,6 +37,8 @@ public struct NowPlayingView: View {
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
     @State private var lastScrubRate: Double = 1.0
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var lastPlaylistQuickTarget: Playlist?
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -42,22 +51,22 @@ public struct NowPlayingView: View {
                 backgroundGradientView
 
                 // Content with scrollable queue
-                if let track = viewModel.currentTrack {
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 0) {
-                            // Now Playing content (full screen height)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Now Playing content (full screen height)
+                        if let track = viewModel.currentTrack {
                             nowPlayingContent(track: track, geometry: geometry)
                                 .frame(height: geometry.size.height)
-
-                            // Queue section
-                            queueSection(geometry: geometry)
+                        } else {
+                            nowPlayingEmptyContent(geometry: geometry)
+                                .frame(height: geometry.size.height)
                         }
+
+                        // Queue section
+                        queueSection(geometry: geometry)
                     }
-                    .frame(width: geometry.size.width)
-                } else {
-                    emptyStateView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(width: geometry.size.width)
 
                 // Error overlay (when playback fails)
                 if case .failed(let errorMessage) = viewModel.playbackState {
@@ -70,6 +79,11 @@ public struct NowPlayingView: View {
             .onChange(of: viewModel.currentTrack) { newTrack in
                 if let track = newTrack {
                     loadArtworkImage(for: track)
+                } else {
+                    currentLoadTrackID = nil
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        artworkImage = nil
+                    }
                 }
             }
             .onAppear {
@@ -77,6 +91,32 @@ public struct NowPlayingView: View {
                     loadArtworkImage(for: track)
                 }
             }
+            .sheet(item: $playlistPickerPayload) { payload in
+                PlaylistPickerSheet(
+                    nowPlayingVM: viewModel,
+                    tracks: payload.tracks,
+                    title: payload.title
+                )
+            }
+            .task {
+                await refreshLastPlaylistQuickTarget()
+            }
+            .onChange(of: viewModel.currentTrack?.id) { _ in
+                Task { await refreshLastPlaylistQuickTarget() }
+            }
+            .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
+                Task { await refreshLastPlaylistQuickTarget() }
+            }
+
+            ToastHostView(
+                toastCenter: toastCenter,
+                horizontalPadding: 28,
+                bottomPadding: 110,
+                onToastTap: {
+                    dismiss()
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
     }
 
@@ -116,12 +156,59 @@ public struct NowPlayingView: View {
             // Main playback controls
             controlsView
                 .padding(.top, 32)
-            
+
             // Push secondary controls to bottom with spacer
             Spacer()
             
             // Secondary controls at bottom (shuffle, repeat, heart, airplay)
             secondaryControlsView
+                .padding(.bottom, 20)
+        }
+    }
+
+    // Empty-state version of the Now Playing layout
+    private func nowPlayingEmptyContent(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            dismissHandle
+
+            let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 64))
+                        .foregroundColor(.white.opacity(0.35))
+                )
+                .frame(width: artworkSize, height: artworkSize)
+                .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: 8)
+                .padding(.top, 40)
+                .padding(.bottom, 60)
+
+            VStack(spacing: 8) {
+                Text("Nothing Playing")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+
+                Text("Play music from your library to start listening")
+                    .font(.callout)
+                    .foregroundColor(.white.opacity(0.75))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 16)
+
+            controlsView
+                .opacity(0.5)
+                .allowsHitTesting(false)
+                .padding(.top, 32)
+
+            Spacer()
+
+            secondaryControlsView
+                .opacity(0.5)
+                .allowsHitTesting(false)
                 .padding(.bottom, 20)
         }
     }
@@ -190,16 +277,18 @@ public struct NowPlayingView: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     // Waveform background
-                    WaveformView(
-                        progress: isDraggingSlider ? localProgress : viewModel.progress,
-                        color: .white,
-                        heights: viewModel.waveformHeights
-                    )
-                    .frame(width: geometry.size.width)
-                    .id(track.id) // Force view reset when track changes
-                    .transition(.opacity)
-                    .animation(.easeInOut, value: track.id)
-                    .opacity(0.8)
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        WaveformView(
+                            progress: isDraggingSlider ? localProgress : viewModel.progress,
+                            color: .white,
+                            heights: viewModel.waveformHeights
+                        )
+                        .frame(width: geometry.size.width)
+                        .id(track.id) // Force view reset when track changes
+                        .transition(.opacity)
+                        .animation(.easeInOut, value: track.id)
+                        .opacity(0.8)
+                    }
                     
                     // Invisible interaction layer
                     Color.clear
@@ -256,10 +345,18 @@ public struct NowPlayingView: View {
 
             // Time labels with scrub indicator in center
             HStack {
-                Text(isDraggingSlider ? formatTime(localProgress * viewModel.duration) : viewModel.formattedCurrentTime)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(.white.opacity(0.7))
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime(localProgress * viewModel.duration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedCurrentTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
 
                 Spacer()
                 
@@ -270,10 +367,18 @@ public struct NowPlayingView: View {
                 
                 Spacer()
 
-                Text(isDraggingSlider ? formatTime((1 - localProgress) * viewModel.duration) : viewModel.formattedRemainingTime)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundColor(.white.opacity(0.7))
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime((1 - localProgress) * viewModel.duration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedRemainingTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
             }
         }
         .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 0)
@@ -434,15 +539,39 @@ public struct NowPlayingView: View {
 
             // More actions
             Menu {
+                if let lastPlaylistQuickTarget {
+                    if let currentTrack = viewModel.currentTrack,
+                       viewModel.compatibleTrackCount([currentTrack], for: lastPlaylistQuickTarget) > 0 {
+                        Button {
+                            Task {
+                                _ = try? await viewModel.addTracks([currentTrack], to: lastPlaylistQuickTarget)
+                            }
+                        } label: {
+                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+                }
+
                 Button {
-                    // Add to playlist
+                    guard let currentTrack = viewModel.currentTrack else { return }
+                    presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
                 } label: {
-                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                    Label("Add to Playlist...", systemImage: "text.badge.plus")
+                }
+
+                Button {
+                    let snapshot = viewModel.queueSnapshotForPlaylistSave()
+                    presentPlaylistPicker(with: snapshot, title: "Save Current Queue")
+                } label: {
+                    Label("Save Current Queue", systemImage: "square.and.arrow.down")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
                     .foregroundColor(.white.opacity(0.7))
+            }
+            .transaction { transaction in
+                transaction.animation = nil
             }
         }
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
@@ -553,6 +682,17 @@ public struct NowPlayingView: View {
                         .padding(.vertical, 16)
                     }
                 }
+
+                Button {
+                    let snapshot = viewModel.queueSnapshotForPlaylistSave()
+                    presentPlaylistPicker(with: snapshot, title: "Save Current Queue")
+                } label: {
+                    Label("Save Current Queue", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
             } else {
                 Text("Queue is empty")
                     .foregroundColor(.secondary)
@@ -568,23 +708,6 @@ public struct NowPlayingView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(24)
         #endif
-    }
-    
-    // Empty state
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "music.note")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-
-            Text("Nothing Playing")
-                .font(.title2)
-                .foregroundColor(.secondary)
-
-            Button("Dismiss") {
-                dismiss()
-            }
-        }
     }
     
     // Helper: Load artwork image for blurred background
@@ -646,6 +769,31 @@ public struct NowPlayingView: View {
             deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
             dismiss()
         }
+    }
+
+    @MainActor
+    private func refreshLastPlaylistQuickTarget() async {
+        guard let currentTrack = viewModel.currentTrack else {
+            lastPlaylistQuickTarget = nil
+            return
+        }
+        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again in a moment.",
+                    dedupeKey: "playlist-picker-empty-\(title)"
+                )
+            )
+            return
+        }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
     
     // Helper: Start rapid seeking
