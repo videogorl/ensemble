@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: "Ensemble coding standards: comment guidelines, naming conventions, development guidelines, memory/performance targets, testing policy"
+description: "Load before writing any Swift code. Contains mandatory rules that override defaults: #if DEBUG required for all print() calls, edge case handling required (active beta), memory targets, MVVM pattern, debug logging conventions."
 ---
 
 # Ensemble Code Style & Development Guidelines
