@@ -135,9 +135,12 @@ public struct MainTabView: View {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }
-                // Use offset instead of bottom padding so we don't create a transparent
-                // hit-testing area that blocks interaction with the native tab bar.
-                .offset(y: -56)
+                // Position above the native tab bar using layout alignment so the
+                // interactive frame moves with the mini player (no hidden touch blocker).
+                .alignmentGuide(.bottom) { dimensions in
+                    dimensions[.bottom] + 56
+                }
+                .zIndex(2)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
