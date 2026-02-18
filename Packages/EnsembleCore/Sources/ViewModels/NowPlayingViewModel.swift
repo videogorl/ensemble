@@ -34,11 +34,32 @@ public enum TrackRating: Equatable {
     }
 }
 
+public struct PlaylistServerOption: Identifiable, Equatable {
+    public let id: String   // server-level source key: plex:account:server
+    public let name: String
+}
+
+public struct LastPlaylistTarget: Equatable, Sendable, Codable {
+    public let id: String
+    public let title: String
+    public let sourceCompositeKey: String?
+}
+
+public enum PlaylistActionError: LocalizedError {
+    case operationInProgress
+
+    public var errorDescription: String? {
+        switch self {
+        case .operationInProgress:
+            return "A playlist update is already in progress. Please wait."
+        }
+    }
+}
+
 @MainActor
 public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var playbackState: PlaybackState = .stopped
-    @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
@@ -53,11 +74,14 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
+    @Published public private(set) var isPlaylistMutationInProgress = false
+    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
+    private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
     
     // Track if we're currently updating the rating to prevent overwriting
@@ -67,12 +91,15 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService: PlaybackServiceProtocol,
         syncCoordinator: SyncCoordinator,
         libraryRepository: LibraryRepositoryProtocol,
-        navigationCoordinator: NavigationCoordinator
+        navigationCoordinator: NavigationCoordinator,
+        toastCenter: ToastCenter
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
+        self.toastCenter = toastCenter
+        self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
 
@@ -84,10 +111,6 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.playbackStatePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$playbackState)
-
-        playbackService.currentTimePublisher
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$currentTime)
 
         playbackService.queuePublisher
             .receive(on: DispatchQueue.main)
@@ -133,6 +156,10 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$recommendationsExhausted)
 
+        syncCoordinator.$lastPlaylistTarget
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastPlaylistTarget)
+
         // Update duration when track changes
         $currentTrack
             .compactMap { $0?.duration }
@@ -152,6 +179,10 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Computed Properties
+
+    public var currentTime: TimeInterval {
+        playbackService.currentTimeValue
+    }
 
     public var progress: Double {
         guard duration > 0 else { return 0 }
@@ -277,6 +308,244 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func removeFromQueue(at index: Int) {
         playbackService.removeFromQueue(at: index)
+    }
+
+    // MARK: - Playlist Management
+
+    /// Candidate server options for playlist creation. Deduplicated at server level.
+    public func playlistServerOptions() -> [PlaylistServerOption] {
+        var options: [PlaylistServerOption] = []
+        for account in syncCoordinator.accountManager.plexAccounts {
+            for server in account.servers {
+                let sourceKey = "plex:\(account.id):\(server.id)"
+                options.append(PlaylistServerOption(id: sourceKey, name: server.name))
+            }
+        }
+        return options.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    public func defaultPlaylistServerSourceKey(for tracks: [Track]) -> String? {
+        // Prefer the source from the explicitly provided tracks first.
+        for track in tracks {
+            if let source = serverSourceKey(from: track.sourceCompositeKey) {
+                return source
+            }
+        }
+
+        if let currentTrack,
+           let source = serverSourceKey(from: currentTrack.sourceCompositeKey) {
+            return source
+        }
+        return nil
+    }
+
+    public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
+        if let inferred = defaultPlaylistServerSourceKey(for: tracks) {
+            return inferred
+        }
+
+        for track in tracks {
+            if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+               let source = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+                return source
+            }
+        }
+
+        if let currentTrack,
+           let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: currentTrack.id),
+           let source = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+            return source
+        }
+
+        return nil
+    }
+
+    public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
+        try await syncCoordinator.fetchPlaylists(forServerSourceKey: sourceKey)
+    }
+
+    public func addCurrentTrack(to playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        guard let currentTrack else {
+            throw PlaylistMutationError.emptySelection
+        }
+        return try await addTracks([currentTrack], to: playlist)
+    }
+
+    public func addTracks(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
+        let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+        await MainActor.run {
+            if result.skippedCount > 0 {
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "exclamationmark.triangle.fill",
+                        title: "Added to \(playlist.title)",
+                        message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
+                        tapHandler: { [weak self] in
+                            self?.navigationCoordinator.navigateFromNowPlaying(
+                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                            )
+                        },
+                        dedupeKey: "playlist-add-\(playlist.id)"
+                    )
+                )
+            } else {
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "checkmark.circle.fill",
+                        title: "Added to \(playlist.title)",
+                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+                        tapHandler: { [weak self] in
+                            self?.navigationCoordinator.navigateFromNowPlaying(
+                                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                            )
+                        },
+                        dedupeKey: "playlist-add-\(playlist.id)"
+                    )
+                )
+            }
+        }
+        return result
+    }
+
+    public func createPlaylist(
+        title: String,
+        tracks: [Track],
+        serverSourceKey: String
+    ) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
+        let result = try await syncCoordinator.createPlaylist(
+            title: title,
+            tracks: tracks,
+            serverSourceKey: serverSourceKey
+        )
+        await MainActor.run {
+            if result.skippedCount > 0 {
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "plus.circle.fill",
+                        title: "Created \(title)",
+                        message: "Added \(result.addedCount), skipped \(result.skippedCount).",
+                        dedupeKey: "playlist-create-\(title.lowercased())"
+                    )
+                )
+            } else {
+                self.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "plus.circle.fill",
+                        title: "Created \(title)",
+                        message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
+                        dedupeKey: "playlist-create-\(title.lowercased())"
+                    )
+                )
+            }
+        }
+        return result
+    }
+
+    public func resolveLastPlaylistTarget() async -> Playlist? {
+        guard let lastPlaylistTarget else { return nil }
+        do {
+            let playlists = try await loadPlaylists(forServerSourceKey: lastPlaylistTarget.sourceCompositeKey)
+            return playlists.first { $0.id == lastPlaylistTarget.id }
+        } catch {
+            return nil
+        }
+    }
+
+    public func resolveLastPlaylistTarget(for tracks: [Track]) async -> Playlist? {
+        let serverSourceKey = defaultPlaylistServerSourceKey(for: tracks)
+        guard let target = syncCoordinator.lastPlaylistTarget(forServerSourceKey: serverSourceKey) else {
+            return nil
+        }
+        do {
+            let playlists = try await loadPlaylists(forServerSourceKey: serverSourceKey)
+            return playlists.first { $0.id == target.id }
+        } catch {
+            return nil
+        }
+    }
+
+    public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
+        guard let playlistServerSourceKey = playlist.sourceCompositeKey else { return 0 }
+        return tracks.reduce(0) { count, track in
+            guard let trackServerSourceKey = serverSourceKey(from: track.sourceCompositeKey) else {
+                // Unknown source should not hard-block selection; mutation flow resolves via cache lookup.
+                return count + 1
+            }
+            return count + (trackServerSourceKey == playlistServerSourceKey ? 1 : 0)
+        }
+    }
+
+    public func compatibleTrackCount(_ tracks: [Track], forServerSourceKey serverSourceKey: String?) -> Int {
+        guard let serverSourceKey else { return 0 }
+        return tracks.reduce(0) { count, track in
+            guard let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey) else {
+                return count + 1
+            }
+            return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
+        }
+    }
+
+    public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
+        guard let serverSourceKey else { return [] }
+        var seen = Set<String>()
+        var filtered: [Track] = []
+        for track in tracks {
+            if let trackServerSourceKey = self.serverSourceKey(from: track.sourceCompositeKey),
+               trackServerSourceKey != serverSourceKey {
+                continue
+            }
+            guard !seen.contains(track.id) else { continue }
+            seen.insert(track.id)
+            if track.sourceCompositeKey == nil {
+                filtered.append(trackWithSourceCompositeKey(track, sourceCompositeKey: serverSourceKey))
+            } else {
+                filtered.append(track)
+            }
+        }
+        return filtered
+    }
+
+    /// Queue snapshot used by "Save current queue":
+    /// history + current + upcoming, excluding autoplay tracks and deduping by track id.
+    public func queueSnapshotForPlaylistSave() -> [Track] {
+        var combined: [Track] = playbackHistory.map(\.track)
+        if let currentTrack {
+            combined.append(currentTrack)
+        }
+
+        let upcomingStart = max(0, currentQueueIndex + 1)
+        if upcomingStart < queue.count {
+            combined.append(contentsOf: queue[upcomingStart...].map(\.track))
+        }
+
+        var seen = Set<String>()
+        var deduped: [Track] = []
+        for track in combined {
+            if isTrackAutoGenerated(track.id) { continue }
+            guard !seen.contains(track.id) else { continue }
+            seen.insert(track.id)
+            deduped.append(track)
+        }
+        return deduped
     }
 
     public func clearQueue() {
@@ -424,5 +693,39 @@ public final class NowPlayingViewModel: ObservableObject {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
+        guard let sourceCompositeKey else { return nil }
+        let components = sourceCompositeKey.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return "\(components[0]):\(components[1]):\(components[2])"
+    }
+
+    private func trackWithSourceCompositeKey(_ track: Track, sourceCompositeKey: String) -> Track {
+        Track(
+            id: track.id,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            albumRatingKey: track.albumRatingKey,
+            artistRatingKey: track.artistRatingKey,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration,
+            thumbPath: track.thumbPath,
+            fallbackThumbPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            streamKey: track.streamKey,
+            streamId: track.streamId,
+            localFilePath: track.localFilePath,
+            dateAdded: track.dateAdded,
+            dateModified: track.dateModified,
+            lastPlayed: track.lastPlayed,
+            rating: track.rating,
+            playCount: track.playCount,
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 }

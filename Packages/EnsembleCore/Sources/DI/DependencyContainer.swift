@@ -38,6 +38,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let navigationCoordinator: NavigationCoordinator
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
+    public let toastCenter: ToastCenter
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -125,6 +126,10 @@ public final class DependencyContainer: @unchecked Sendable {
         pinManager = MainActor.assumeIsolated {
             PinManager()
         }
+
+        toastCenter = MainActor.assumeIsolated {
+            ToastCenter()
+        }
     }
 
     // MARK: - View Model Factories
@@ -144,7 +149,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playbackService: playbackService,
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
-            navigationCoordinator: navigationCoordinator
+            navigationCoordinator: navigationCoordinator,
+            toastCenter: toastCenter
         )
     }
 
@@ -179,7 +185,8 @@ public final class DependencyContainer: @unchecked Sendable {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 

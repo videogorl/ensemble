@@ -113,6 +113,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
+    var currentTimeValue: TimeInterval { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
@@ -178,6 +179,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
+    public var currentTimeValue: TimeInterval { currentTime }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }

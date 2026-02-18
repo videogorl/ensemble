@@ -54,6 +54,7 @@ public struct MainTabView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dependencies) private var deps
     
     #if os(iOS)
@@ -137,6 +138,14 @@ public struct MainTabView: View {
                 }
                 .padding(.bottom, 56) // Offset to sit above native TabBar on iPhone
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if !isImmersiveMode {
+                ToastHostView(
+                    toastCenter: toastCenter,
+                    horizontalPadding: 16,
+                    bottomPadding: nowPlayingVM.currentTrack != nil && !isKeyboardVisible ? 140 : 78
+                )
             }
         }
         .sheet(isPresented: $showingNowPlaying) {
@@ -287,8 +296,8 @@ public struct MainTabView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -343,6 +352,7 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dependencies) private var deps
 
     @State private var selection: SidebarSection? = .home
@@ -425,6 +435,13 @@ public struct SidebarView: View {
                 showingNowPlaying = true
             }
             .zIndex(2)
+
+            ToastHostView(
+                toastCenter: toastCenter,
+                horizontalPadding: 16,
+                bottomPadding: 84
+            )
+            .zIndex(3)
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
@@ -515,7 +532,7 @@ public struct SidebarView: View {
                     case .artist:
                         ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
                     case .playlist:
-                        PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+                        PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
                     }
                 }
             case .none:
@@ -535,8 +552,8 @@ public struct SidebarView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):

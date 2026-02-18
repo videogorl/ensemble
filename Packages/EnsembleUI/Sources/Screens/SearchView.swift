@@ -302,13 +302,17 @@ public struct SearchView: View {
                 }
             } else if let playlist = item.playlist {
                 if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+                    NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                         PlaylistCard(playlist: playlist)
                     }
                     .buttonStyle(.plain)
                 } else {
                     NavigationLink {
-                        PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                        PlaylistDetailLoader(
+                            playlistId: playlist.id,
+                            playlistSourceKey: playlist.sourceCompositeKey,
+                            nowPlayingVM: nowPlayingVM
+                        )
                     } label: {
                         PlaylistCard(playlist: playlist)
                     }
@@ -540,14 +544,18 @@ public struct SearchView: View {
             }
         case .playlist(let playlist, _):
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                     PlaylistCard(playlist: playlist)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditingPins)
             } else {
                 NavigationLink {
-                    PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                    PlaylistDetailLoader(
+                        playlistId: playlist.id,
+                        playlistSourceKey: playlist.sourceCompositeKey,
+                        nowPlayingVM: nowPlayingVM
+                    )
                 } label: {
                     PlaylistCard(playlist: playlist)
                 }
@@ -660,7 +668,7 @@ public struct SearchView: View {
                     items: Array(viewModel.playlistResults.prefix(5))
                 ) { playlist in
                     if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+                        NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                             CompactPlaylistRow(playlist: playlist)
                         }
                         .buttonStyle(.plain)
@@ -669,7 +677,11 @@ public struct SearchView: View {
                         })
                     } else {
                         NavigationLink {
-                            PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                            PlaylistDetailLoader(
+                                playlistId: playlist.id,
+                                playlistSourceKey: playlist.sourceCompositeKey,
+                                nowPlayingVM: nowPlayingVM
+                            )
                         } label: {
                             CompactPlaylistRow(playlist: playlist)
                         }

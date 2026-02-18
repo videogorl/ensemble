@@ -234,6 +234,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
 public struct PlexTrack: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
+    public let playlistItemID: String?
     public let parentRatingKey: String?  // Album
     public let grandparentRatingKey: String?  // Artist
     public let title: String
@@ -258,6 +259,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case key
+        case playlistItemID
         case parentRatingKey
         case grandparentRatingKey
         case title
@@ -290,6 +292,41 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public var streamURL: String? {
         guard let part = media?.first?.part?.first else { return nil }
         return part.key
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        ratingKey = try container.decode(String.self, forKey: .ratingKey)
+        key = try container.decode(String.self, forKey: .key)
+        parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
+        grandparentRatingKey = try container.decodeIfPresent(String.self, forKey: .grandparentRatingKey)
+        title = try container.decode(String.self, forKey: .title)
+        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        index = try container.decodeIfPresent(Int.self, forKey: .index)
+        parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration)
+        thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        art = try container.decodeIfPresent(String.self, forKey: .art)
+        parentThumb = try container.decodeIfPresent(String.self, forKey: .parentThumb)
+        grandparentThumb = try container.decodeIfPresent(String.self, forKey: .grandparentThumb)
+        addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
+        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        viewCount = try container.decodeIfPresent(Int.self, forKey: .viewCount)
+        lastViewedAt = try container.decodeIfPresent(Int.self, forKey: .lastViewedAt)
+        userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
+
+        if let playlistItemString = try? container.decodeIfPresent(String.self, forKey: .playlistItemID) {
+            playlistItemID = playlistItemString
+        } else if let playlistItemInt = try? container.decodeIfPresent(Int.self, forKey: .playlistItemID) {
+            playlistItemID = String(playlistItemInt)
+        } else {
+            playlistItemID = nil
+        }
     }
 }
 

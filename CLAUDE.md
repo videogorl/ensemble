@@ -69,6 +69,22 @@ The sync system now supports **incremental sync** using Plex API timestamp filte
 - `PlexAPIClient.swift` - Filtered fetch methods (e.g., `getArtists(sectionKey:addedAfter:)`)
 - `BackgroundSyncScheduler.swift` - iOS background refresh scheduling
 
+### Playlist Mutations Rollout (Feb 2026)
+Playlist management now supports server-backed mutations with local cache refresh:
+
+- **Now Playing:** add current track to playlist, save current queue snapshot
+- **Playlist Detail:** rename and edit playlist track ordering/removals
+- **Album Detail:** add full filtered album track list to playlist from the pin menu
+- **Consistency:** all successful playlist mutations trigger server refresh + CoreData update
+- **Smart playlists:** treated as read-only for mutation operations
+
+**Key files:**
+- `PlexAPIClient.swift` - Create/rename/add/remove/move playlist mutation endpoints
+- `SyncCoordinator.swift` - Playlist mutation orchestration + post-mutation playlist refresh
+- `NowPlayingViewModel.swift` - Queue snapshot logic and shared playlist action methods
+- `PlaylistViewModel.swift` - Playlist detail rename/edit mutation hooks
+- `PlaylistActionSheets.swift` - Shared add/create playlist UI sheets
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 
