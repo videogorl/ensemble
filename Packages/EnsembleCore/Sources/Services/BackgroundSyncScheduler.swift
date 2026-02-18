@@ -21,16 +21,22 @@ public final class BackgroundSyncScheduler {
         
         do {
             try BGTaskScheduler.shared.submit(request)
+            #if DEBUG
             print("📅 Background refresh scheduled (earliest: \(request.earliestBeginDate?.description ?? "now"))")
+            #endif
         } catch {
+            #if DEBUG
             print("❌ Failed to schedule background refresh: \(error.localizedDescription)")
+            #endif
         }
     }
     
     /// Cancel any pending background refresh
     public func cancelAppRefresh() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
+        #if DEBUG
         print("🚫 Background refresh cancelled")
+        #endif
     }
 }
 #endif

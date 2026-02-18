@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, pinned content)"
 ---
 
 # Ensemble Architecture

@@ -22,15 +22,21 @@ public final class ServerHealthChecker: ObservableObject {
 
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
+        #if DEBUG
         print("🏥 ServerHealthChecker: Checking all servers...")
+        #endif
 
         // Check each server concurrently using the checkServer method
         // This ensures we reuse any ongoing checks
         await withTaskGroup(of: Void.self) { group in
             for account in accountManager.plexAccounts {
+                #if DEBUG
                 print("🏥   Account: \(account.username) (ID: \(account.id))")
+                #endif
                 for server in account.servers {
+                    #if DEBUG
                     print("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
+                    #endif
 
                     group.addTask {
                         _ = await self.checkServer(accountId: account.id, serverId: server.id)
@@ -41,7 +47,9 @@ public final class ServerHealthChecker: ObservableObject {
             await group.waitForAll()
         }
 
+        #if DEBUG
         print("🏥 ServerHealthChecker: Completed checking \(serverStates.count) servers")
+        #endif
     }
 
     /// Check a specific server and return its connection state
@@ -51,7 +59,9 @@ public final class ServerHealthChecker: ObservableObject {
         
         // If there's an ongoing check for this server, wait for it
         if let ongoingTask = ongoingServerChecks[serverKey] {
+            #if DEBUG
             print("⏳ ServerHealthChecker: Waiting for ongoing check of server \(serverKey)")
+            #endif
             return await ongoingTask.value
         }
         
@@ -107,13 +117,19 @@ public final class ServerHealthChecker: ObservableObject {
         let connectionURLs = server.orderedConnections.map { $0.uri }
 
         guard !connectionURLs.isEmpty else {
+            #if DEBUG
             print("⚠️ ServerHealthChecker: No connection URLs for server \(server.name)")
+            #endif
             return .offline
         }
 
+        #if DEBUG
         print("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
+        #endif
         for (index, url) in connectionURLs.enumerated() {
+            #if DEBUG
             print("  [\(index + 1)] \(url)")
+            #endif
         }
 
         // Try to find the fastest working connection (tests in parallel for speed)
@@ -121,10 +137,14 @@ public final class ServerHealthChecker: ObservableObject {
             urls: connectionURLs,
             token: server.token
         ) {
+            #if DEBUG
             print("✅ ServerHealthChecker: Server \(server.name) is online at \(workingURL)")
+            #endif
             return .connected(url: workingURL)
         } else {
+            #if DEBUG
             print("❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed")
+            #endif
             return .offline
         }
     }

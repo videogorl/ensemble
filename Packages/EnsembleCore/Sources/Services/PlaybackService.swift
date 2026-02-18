@@ -396,7 +396,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 } else if repeatMode == .one {
                     // Handle repeat.one where the track ID and index are the same, 
                     // but it's a new AVPlayerItem (new playback)
+                    #if DEBUG
                     print("↻ Repeating track due to repeat.one mode")
+                    #endif
                     
                     Task { @MainActor in
                         // Reset timeline tracking for the repeat
@@ -456,25 +458,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     savePlaybackState()
                     await checkAndRefreshAutoplayQueue()
                 } else {
+                    #if DEBUG
                     print("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                    #endif
                     stop()
                 }
             }
             return
         }
 
+        #if DEBUG
         print("⏹️ Queue ended - stopping playback")
+        #endif
         stop()
     }
     
     private func generateWaveform(for ratingKey: String) {
+        #if DEBUG
         print("🎵 Generating waveform for track: \(ratingKey)")
+        #endif
 
         // Generate fallback waveform immediately for instant feedback
         let fallbackWaveform = self.generateFallbackWaveform(for: ratingKey)
         Task { @MainActor in
             self.waveformHeights = fallbackWaveform
+            #if DEBUG
             print("🎵 Using fallback waveform (\(fallbackWaveform.count) samples)")
+            #endif
         }
 
         // Try to fetch real waveform data from Plex server asynchronously (if sonic analysis has been performed)
@@ -483,7 +493,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Check if we have a stream ID
             guard let streamId = track.streamId else {
+                #if DEBUG
                 print("ℹ️ No stream ID available for track \(ratingKey), cannot fetch waveform")
+                #endif
                 return
             }
 
@@ -507,11 +519,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                                 // Normalize loudness values to 0.0-1.0 range for visualization
                                 let normalizedHeights = self.normalizeLoudnessData(loudness)
                                 self.waveformHeights = normalizedHeights
+                                #if DEBUG
                                 print("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
+                                #endif
                                 return
                             }
                         } catch {
+                            #if DEBUG
                             print("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
+                            #endif
                         }
                     }
                 }
@@ -593,7 +609,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
         } catch {
+            #if DEBUG
             print("Failed to setup audio session: \(error)")
+            #endif
         }
         #endif
     }
@@ -702,7 +720,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // without a repository, but the CDTrack is updated.
                 // The UI will likely refresh when it observes the change or track changes.
             } catch {
+                #if DEBUG
                 print("Failed to update rating from system UI: \(error)")
+                #endif
             }
         }
     }
@@ -802,12 +822,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let historyItem = playbackHistory[historyIndex]
         let trackId = historyItem.track.id
 
+        #if DEBUG
         print("🔙 Playing from history: \(historyItem.track.title)")
+        #endif
 
         // Check if this track already exists in the queue
         if let existingIndex = queue.firstIndex(where: { $0.track.id == trackId }) {
             // Track exists in queue - just navigate to it
+            #if DEBUG
             print("   Found in queue at index \(existingIndex)")
+            #endif
 
             // Remove tapped item and everything after from history
             playbackHistory.removeSubrange(historyIndex...)
@@ -820,7 +844,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             savePlaybackState()
         } else {
             // Track not in queue - insert it at current position
+            #if DEBUG
             print("   Not in queue, inserting at current position")
+            #endif
 
             // Remove from history
             playbackHistory.remove(at: historyIndex)
@@ -921,7 +947,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             } else if isAutoplayEnabled {
                 // Autoplay enabled: refresh to get more recommendations
+                #if DEBUG
                 print("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
+                #endif
                 Task {
                     await refreshAutoplayQueue()
                 }
@@ -1137,7 +1165,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Flatten autoplay items that now appear before the moved item
         flattenAutoplayItemsBeforeIndex(adjustedDest)
         
+        #if DEBUG
         print("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
+        #endif
         
         // Force @Published update by reassigning the queue array
         // (Required because in-place mutations don't trigger Combine notifications)
@@ -1279,7 +1309,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         let remainingTracksInQueue = queue.count - currentQueueIndex - 1
         if remainingTracksInQueue < 5 {
+            #if DEBUG
             print("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
+            #endif
             await refreshAutoplayQueue()
         }
     }
@@ -1294,24 +1326,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let tracksToRemove = futureTracksCount - maxQueueLookahead
             let removeStartIndex = queue.count - tracksToRemove
             
+            #if DEBUG
             print("🔪 Trimming \(tracksToRemove) excess auto-generated tracks from queue")
             print("   Future tracks: \(futureTracksCount) → \(maxQueueLookahead)")
+            #endif
             
             // Remove excess tracks from end of queue and update tracking
             for i in (removeStartIndex..<queue.count).reversed() {
                 let removedTrack = queue[i].track
                 if autoGeneratedTrackIds.contains(removedTrack.id) {
+                    #if DEBUG
                     print("   Removing: \(removedTrack.title)")
+                    #endif
                     autoGeneratedTrackIds.remove(removedTrack.id)
                 }
                 queue.remove(at: i)
             }
             
+            #if DEBUG
             print("✅ Queue trimmed to \(queue.count) total tracks")
+            #endif
         }
     }
 
     public func refreshAutoplayQueue() async {
+        #if DEBUG
         print("\n🔄 ═══════════════════════════════════════════════════════════")
         print("🔄 PlaybackService.refreshAutoplayQueue() called")
         print("📊 State:")
@@ -1319,10 +1358,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("  - Queue size: \(queue.count)")
         print("  - Current index: \(currentQueueIndex)")
         print("  - Current autoplayTracks: \(autoplayTracks.count)")
+        #endif
         
         guard isAutoplayEnabled else {
+            #if DEBUG
             print("❌ Early return: autoplay not enabled")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
+            #endif
             return
         }
         
@@ -1332,68 +1374,94 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check if we already have enough upcoming tracks queued
         let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
         if futureTracksCount >= maxQueueLookahead {
+            #if DEBUG
             print("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
             print("   Skipping refresh to maintain queue limit")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
+            #endif
             return
         }
+        #if DEBUG
         print("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
+        #endif
 
         // Determine the seed track: use last non-autoplay track in queue
         // This ensures autoplay generates from the last "real" track
         let seedTrack: Track?
         if let lastRealIdx = lastRealTrackIndex {
             seedTrack = queue[lastRealIdx].track
+            #if DEBUG
             print("\n🎵 Seed track selection:")
             print("  - Method: Last non-autoplay track in queue")
             print("  - Title: \(seedTrack?.title ?? "nil")")
             print("  - ID: \(seedTrack?.id ?? "nil")")
             print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            #endif
         } else if let currentTrack = currentTrack {
             seedTrack = currentTrack
+            #if DEBUG
             print("\n🎵 Seed track selection:")
             print("  - Method: Current track (no non-autoplay tracks in queue)")
             print("  - Title: \(seedTrack?.title ?? "nil")")
             print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            #endif
         } else {
             seedTrack = nil
+            #if DEBUG
             print("\n🎵 Seed track selection: FAILED - no queue or current track")
+            #endif
         }
         
         guard let seedTrack = seedTrack else {
+            #if DEBUG
             print("\n❌ Early return: no seed track available")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
+            #endif
             return
         }
 
         // Get radio provider for seed track's source
         guard let sourceKey = seedTrack.sourceCompositeKey else {
+            #if DEBUG
             print("\n❌ Early return: Seed track has NO sourceCompositeKey")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
+            #endif
             return
         }
+        #if DEBUG
         print("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
+        #endif
 
+        #if DEBUG
         print("\n🔄 Creating radio provider...")
+        #endif
         // sourceCompositeKey is already in format: sourceType:accountId:serverId:libraryId
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
+            #if DEBUG
             print("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
             print("🔄 ═══════════════════════════════════════════════════════════\n")
+            #endif
             return
         }
+        #if DEBUG
         print("✅ Radio provider created successfully")
+        #endif
 
         // Always use sonically similar for continuous radio (like Plexamp)
+        #if DEBUG
         print("\n🔄 Calling provider.getRecommendedTracks()...")
         print("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
         print("  - Limit: 10 (fetching extra to filter duplicates)")
+        #endif
         // Ask for more than we need since we'll filter out any already in queue
         let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
         
         if let tracks = recommendations {
+            #if DEBUG
             print("\n✅ Got recommendations: \(tracks.count) tracks")
+            #endif
             
             // Filter out tracks already in queue
             let existingQueueIds = Set(queue.map { $0.track.id })
@@ -1402,24 +1470,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             if uniqueNewTracks.isEmpty {
+                #if DEBUG
                 print("⚠️ All recommended tracks already in queue")
+                #endif
                 recommendationsExhausted = true
             } else {
                 for track in uniqueNewTracks.prefix(3) {
+                    #if DEBUG
                     print("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
+                    #endif
                 }
                 if uniqueNewTracks.count > 3 {
+                    #if DEBUG
                     print("  ... and \(uniqueNewTracks.count - 3) more tracks")
+                    #endif
                 }
 
                 // Add as autoplay items (appended to end of queue)
+                #if DEBUG
                 print("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
+                #endif
                 for track in uniqueNewTracks {
                     let item = QueueItem(track: track, source: .autoplay)
                     queue.append(item)
                     autoGeneratedTrackIds.insert(track.id)
                 }
+                #if DEBUG
                 print("✅ Queue now has \(queue.count) total tracks")
+                #endif
 
                 // Trim if we exceeded the limit
                 trimAutoplayQueue()
@@ -1428,34 +1506,48 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Also keep autoplayTracks as a buffer for continuous playback
             autoplayTracks = tracks
+            #if DEBUG
             print("\n✅ SUCCESS - \(uniqueNewTracks.count) new auto-generated tracks added to queue")
+            #endif
         } else {
+            #if DEBUG
             print("\n❌ provider.getRecommendedTracks() returned nil")
             print("   This could mean:")
             print("   1. getSimilarTracks API call failed")
             print("   2. The server has no sonic analysis for this track")
             print("   3. Network error or permission issue")
+            #endif
             autoplayTracks = []
             // Mark recommendations as exhausted if API returns nothing
             recommendationsExhausted = true
         }
+        #if DEBUG
         print("🔄 ═══════════════════════════════════════════════════════════\n")
+        #endif
     }
 
     public func enableRadio(tracks: [Track]) async {
+        #if DEBUG
         print("🎙️ PlaybackService.enableRadio() called")
         print("  - Input tracks: \(tracks.count)")
+        #endif
         
         guard !tracks.isEmpty else {
+            #if DEBUG
             print("❌ No tracks to queue for radio")
+            #endif
             return
         }
 
         // Create queue items as continuePlaying and shuffle
+        #if DEBUG
         print("🔄 Creating and shuffling queue...")
+        #endif
         var items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
         items.shuffle()
+        #if DEBUG
         print("✅ Queue shuffled")
+        #endif
 
         // Set queue and start from beginning
         queue = items
@@ -1468,29 +1560,41 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         clearPlayerItemCache()
 
         // Enable radio mode for continuous playback
+        #if DEBUG
         print("🔄 Enabling radio mode (autoplay with sonically similar)")
+        #endif
         isAutoplayEnabled = true
         radioMode = .trackRadio  // Will use sonically similar tracks
         UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
 
         // Start playing first track
+        #if DEBUG
         print("🔄 Starting playback...")
+        #endif
         await playCurrentQueueItem()
         savePlaybackState()
         
         // Populate autoplay queue with sonically similar tracks
+        #if DEBUG
         print("🔄 Refreshing autoplay queue for continuous playback...")
+        #endif
         await refreshAutoplayQueue()
         
+        #if DEBUG
         print("✅ Radio enabled: \(tracks.count) tracks shuffled, autoplay starting")
+        #endif
     }
 
     public func playArtistRadio(for artist: Artist) async {
+        #if DEBUG
         print("⚠️ playArtistRadio() deprecated - use enableRadio(tracks:) instead")
+        #endif
     }
 
     public func playAlbumRadio(for album: Album) async {
+        #if DEBUG
         print("⚠️ playAlbumRadio() deprecated - use enableRadio(tracks:) instead")
+        #endif
     }
 
     public func isTrackAutoGenerated(trackId: String) -> Bool {
@@ -1514,7 +1618,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         while playerItemsLRU.count > maxCachedPlayerItems {
             if let oldestId = playerItemsLRU.popLast() {
                 playerItems.removeValue(forKey: oldestId)
+                #if DEBUG
                 print("🗑️ Evicted cached player item: \(oldestId)")
+                #endif
             }
         }
     }
@@ -1534,7 +1640,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func clearPlayerItemCache() {
         playerItems.removeAll()
         playerItemsLRU.removeAll()
+        #if DEBUG
         print("🗑️ Cleared player item cache")
+        #endif
     }
 
     // MARK: - Private Methods
@@ -1547,6 +1655,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let track = queue[currentQueueIndex].track
 
+        #if DEBUG
         print("🎵 ═══════════════════════════════════════════════════════")
         print("🎵 playCurrentQueueItem() called")
         print("   Track: \(track.title)")
@@ -1554,6 +1663,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         print("   Queue index: \(currentQueueIndex)/\(queue.count)")
         print("   Has local file: \(track.localFilePath != nil)")
         print("   Cached: \(playerItems[track.id] != nil)")
+        #endif
 
         // Cancel any pending loading state transition
         loadingStateTask?.cancel()
@@ -1562,7 +1672,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check if we have a cached player item that's ready to play
         if let cachedItem = getCachedPlayerItem(for: track.id),
            cachedItem.status == .readyToPlay {
+            #if DEBUG
             print("   ✅ Using cached player item (ready)")
+            #endif
 
             // Seek to beginning since cached items retain their position
             await MainActor.run {
@@ -1578,7 +1690,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             generateWaveform(for: track.id)
             await loadAndPlay(item: cachedItem, track: track)
             Task { await prefetchNextItem() }
+            #if DEBUG
             print("🎵 ═══════════════════════════════════════════════════════")
+            #endif
             return
         }
 
@@ -1608,41 +1722,59 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Prefetch next for gapless
             Task { await prefetchNextItem() }
         } catch {
+            #if DEBUG
             print("❌ Failed to prepare track: \(error)")
+            #endif
             loadingStateTask?.cancel()
             await MainActor.run {
                 self.playbackState = .failed(error.localizedDescription)
             }
         }
+        #if DEBUG
         print("🎵 ═══════════════════════════════════════════════════════")
+        #endif
     }
     
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
+        #if DEBUG
         print("📦 Creating player item for: \(track.title)")
+        #endif
 
         // If we have a local file, use it regardless of network state
         if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
+            #if DEBUG
             print("   ✅ Using local file: \(localPath)")
+            #endif
             let url = URL(fileURLWithPath: localPath)
             return AVPlayerItem(url: url)
         }
 
         // Check network connectivity before attempting to stream
         let isConnected = await MainActor.run(body: { networkMonitor.isConnected })
+        #if DEBUG
         print("   Network connected: \(isConnected)")
+        #endif
 
         guard isConnected else {
+            #if DEBUG
             print("   ❌ No network connection - cannot stream")
+            #endif
             throw PlaybackError.offline
         }
 
         // Ensure the server connection is ready before attempting to get stream URL
+        #if DEBUG
         print("   🔄 Ensuring server connection...")
+        #endif
         do {
             try await syncCoordinator.ensureServerConnection(for: track)
+            #if DEBUG
             print("   ✅ Server connection ready")
+            #endif
         } catch {
+            #if DEBUG
             print("   ❌ Failed to ensure server connection: \(error)")
+            #endif
             throw PlaybackError.serverUnavailable
         }
 
@@ -1650,27 +1782,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // the server connection and retry once before surfacing an error to the UI.
         let streamURL: URL
         do {
+            #if DEBUG
             print("   🔄 Getting stream URL...")
+            #endif
             streamURL = try await syncCoordinator.getStreamURL(for: track)
         } catch {
+            #if DEBUG
             print("   ⚠️ Failed to get stream URL on first attempt: \(error)")
+            #endif
 
             if shouldRetryStreamURLRequest(after: error) {
+                #if DEBUG
                 print("   🔄 Refreshing server connection and retrying stream URL...")
+                #endif
                 do {
                     try await syncCoordinator.refreshConnection()
                     streamURL = try await syncCoordinator.getStreamURL(for: track)
                 } catch {
+                    #if DEBUG
                     print("   ❌ Stream URL retry failed: \(error)")
+                    #endif
                     throw mapToPlaybackError(error)
                 }
             } else {
+                #if DEBUG
                 print("   ❌ Non-retryable stream URL error: \(error)")
+                #endif
                 throw mapToPlaybackError(error)
             }
         }
 
+        #if DEBUG
         print("   ✅ Got stream URL: \(streamURL)")
+        #endif
         let asset = AVURLAsset(url: streamURL)
         let item = AVPlayerItem(asset: asset)
         // Keep a modest forward buffer for smoother playback without adding large delay.
@@ -1733,14 +1877,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if let player = self.player, !player.items().contains(item) {
                         player.insert(item, after: player.currentItem)
                         if repeatMode == .one {
+                            #if DEBUG
                             print("✅ Queued same track for repeat.one: \(nextTrack.title)")
+                            #endif
                         } else {
+                            #if DEBUG
                             print("✅ Queued next track for gapless: \(nextTrack.title)")
+                            #endif
                         }
                     }
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to prefetch next track: \(error)")
+                #endif
             }
         } else if repeatMode == .all && !queue.isEmpty {
             let nextTrack = queue[0].track
@@ -1751,11 +1901,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await MainActor.run {
                     if let player = self.player, !player.items().contains(item) {
                         player.insert(item, after: player.currentItem)
+                        #if DEBUG
                         print("✅ Queued first track for repeat all: \(nextTrack.title)")
+                        #endif
                     }
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to prefetch first track for repeat all: \(error)")
+                #endif
             }
         }
     }
@@ -1767,7 +1921,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             
             // Allow keeping the current item (index 0), remove the rest
             if items.count > 1 {
+                #if DEBUG
                 print("🔄 Re-syncing player queue. Removing \(items.count - 1) upcoming items.")
+                #endif
                 // Drop first and remove the actual items provided by the API
                 for item in items.dropFirst() {
                     player.remove(item)
@@ -1814,13 +1970,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask = nil
 
         setupObservers(for: item)
+        #if DEBUG
         print("🎵 Starting playback")
+        #endif
         player?.play()
 
         // Always set to playing - the observers will handle buffering/stall states
         // This fixes race conditions where the button shows wrong state
         playbackState = .playing
+        #if DEBUG
         print("🎵 Set playbackState = .playing")
+        #endif
     }
 
     private func setupObservers(for item: AVPlayerItem) {
@@ -1829,12 +1989,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 switch item.status {
                 case .readyToPlay:
+                    #if DEBUG
                     print("✅ Player ready to play")
+                    #endif
                     // Don't automatically set state to .playing - let timeControlStatus handle this
                     // Just update the now playing info
                     self?.updateNowPlayingInfo()
                 case .failed:
+                    #if DEBUG
                     print("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
+                    #endif
                     self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
                 default:
                     break
@@ -1847,7 +2011,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackBufferEmpty && self.playbackState == .playing {
+                    #if DEBUG
                     print("⚠️ Playback buffer empty - switching to buffering state")
+                    #endif
                     self.playbackState = .buffering
                 }
             }
@@ -1858,7 +2024,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackLikelyToKeepUp && self.playbackState == .buffering {
+                    #if DEBUG
                     print("✅ Buffer ready - resuming playback")
+                    #endif
                     self.player?.play()
                     self.playbackState = .playing
                 }
@@ -1875,21 +2043,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     case .playing:
                         // Only update to playing if we're not intentionally paused
                         if self.playbackState != .paused && self.playbackState != .stopped {
+                            #if DEBUG
                             print("✅ AVPlayer actually playing audio")
+                            #endif
                             self.playbackState = .playing
                         }
 
                     case .paused:
                         // Player is paused (but not stopped)
                         if self.playbackState == .playing || self.playbackState == .buffering {
+                            #if DEBUG
                             print("⚠️ AVPlayer paused unexpectedly")
+                            #endif
                             // Don't override user-initiated pause
                         }
 
                     case .waitingToPlayAtSpecifiedRate:
                         // Player is waiting to play (buffering, seeking, or loading)
                         if self.playbackState == .playing {
+                            #if DEBUG
                             print("⏳ AVPlayer waiting to play (buffering)")
+                            #endif
                             self.playbackState = .buffering
 
                             // Set up stall recovery with timeout
@@ -1955,22 +2129,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // End-of-queue often presents as "waiting" with no current item.
                 // Treat this as completion instead of retrying the same track.
                 if self.player?.currentItem == nil {
+                    #if DEBUG
                     print("⏹️ Stall recovery detected empty player queue - handling as queue end")
+                    #endif
                     self.handleQueueExhausted()
                     return
                 }
 
+                #if DEBUG
                 print("⚠️ Playback stalled for 10s - attempting recovery")
+                #endif
 
                 // Check if network is available
                 if !self.networkMonitor.isConnected {
+                    #if DEBUG
                     print("❌ No network connection - waiting for network")
+                    #endif
                     self.playbackState = .failed("No internet connection")
                     return
                 }
 
                 // Try to reload the current track
+                #if DEBUG
                 print("🔄 Attempting to reload current track...")
+                #endif
                 await self.retryCurrentTrack()
             }
         }
@@ -1989,26 +2171,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     guard let self = self else { return }
 
                     if isConnected {
+                        #if DEBUG
                         print("✅ Network reconnected")
+                        #endif
 
                         // If playback failed due to network, try to recover
                         if case .failed = self.playbackState {
+                            #if DEBUG
                             print("🔄 Network back - attempting to resume playback")
+                            #endif
                             await self.retryCurrentTrack()
                         }
                         // If buffering when network comes back, try to resume
                         else if self.playbackState == .buffering {
+                            #if DEBUG
                             print("🔄 Network back - attempting to resume buffering")
+                            #endif
                             self.player?.play()
                         }
                     } else {
+                        #if DEBUG
                         print("⚠️ Network disconnected during playback")
+                        #endif
 
                         // If we're streaming (not playing from local file), pause
                         if let track = self.currentTrack,
                            track.localFilePath == nil,
                            self.playbackState == .playing || self.playbackState == .buffering {
+                            #if DEBUG
                             print("⚠️ No network and streaming - switching to failed state")
+                            #endif
                             self.playbackState = .failed("Lost network connection")
                         }
                     }
@@ -2161,44 +2353,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
+        #if DEBUG
         print("🔄 restorePlaybackState() called")
+        #endif
 
         // Load History
         if let historyData = UserDefaults.standard.data(forKey: historyKey),
            let historyItems = try? JSONDecoder().decode([QueueItem].self, from: historyData) {
             playbackHistory = historyItems
+            #if DEBUG
             print("🔄 Restored \(playbackHistory.count) history items")
+            #endif
         }
 
         guard let data = UserDefaults.standard.data(forKey: queueKey) else {
+            #if DEBUG
             print("🔄 No queue data found in UserDefaults")
+            #endif
             return
         }
 
+        #if DEBUG
         print("🔄 Found queue data, size: \(data.count) bytes")
+        #endif
 
         let index = UserDefaults.standard.integer(forKey: currentIndexKey)
         let time = UserDefaults.standard.double(forKey: currentTimeKey)
 
         // Try new format first (QueueItem array with source tags)
         if let items = try? JSONDecoder().decode([QueueItem].self, from: data), !items.isEmpty {
+            #if DEBUG
             print("🔄 Decoded \(items.count) queue items (new format)")
             print("🔄 Restoring: index \(index), time \(time)s")
+            #endif
             await restoreQueueFromItems(items, index: index, time: time)
+            #if DEBUG
             print("🔄 Restoration complete - paused at \(time)s")
+            #endif
             return
         }
 
         // Fallback: old format (Track array) for migration
         if let tracks = try? JSONDecoder().decode([Track].self, from: data), !tracks.isEmpty {
+            #if DEBUG
             print("🔄 Decoded \(tracks.count) tracks (legacy format, migrating)")
+            #endif
             let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
             await restoreQueueFromItems(items, index: index, time: time)
+            #if DEBUG
             print("🔄 Restoration complete (migrated) - paused at \(time)s")
+            #endif
             return
         }
 
+        #if DEBUG
         print("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
+        #endif
     }
 
     /// Restore queue from QueueItem array without starting playback
@@ -2227,7 +2437,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let item = try await createPlayerItem(for: track)
             await loadAndPrepare(item: item, track: track, seekTo: time)
         } catch {
+            #if DEBUG
             print("❌ Failed to prepare track during restore: \(error)")
+            #endif
             playbackState = .failed(error.localizedDescription)
         }
     }
@@ -2274,7 +2486,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Set state to paused (not playing)
         playbackState = .paused
+        #if DEBUG
         print("🎵 Track prepared and paused at \(time)s")
+        #endif
         updateNowPlayingInfo()
     }
 }

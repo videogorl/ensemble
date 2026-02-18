@@ -707,7 +707,9 @@ public struct QueueTableView: UIViewRepresentable {
                 destinationAbsoluteIndex = queueItems.count
             }
             
+            #if DEBUG
             print("🎯 Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
+            #endif
             
             // Pass item ID + both absolute indices
             onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)

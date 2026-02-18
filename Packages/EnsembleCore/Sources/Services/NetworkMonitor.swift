@@ -31,7 +31,9 @@ public final class NetworkMonitor: ObservableObject {
         }
 
         monitor.start(queue: monitorQueue)
+        #if DEBUG
         print("📡 NetworkMonitor: Started monitoring")
+        #endif
     }
 
     /// Stop monitoring network state changes (for battery optimization)
@@ -43,7 +45,9 @@ public final class NetworkMonitor: ObservableObject {
         debounceTask?.cancel()
         debounceTask = nil
 
+        #if DEBUG
         print("📡 NetworkMonitor: Stopped monitoring")
+        #endif
     }
 
     // MARK: - Private Methods
@@ -69,7 +73,9 @@ public final class NetworkMonitor: ObservableObject {
 
         // Only publish if state actually changed
         if newState != networkState || newIsConnected != isConnected {
+            #if DEBUG
             print("📡 NetworkMonitor: State changed to \(newState.description)")
+            #endif
             networkState = newState
             isConnected = newIsConnected
         }

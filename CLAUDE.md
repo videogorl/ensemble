@@ -2,13 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Detailed reference material is in `.claude/skills/` and loads on-demand:
-- `architecture` -- Package structure, key types, patterns, subsystems (artwork, waveform, hubs, filtering, network, playback tracking)
-- `ui-conventions` -- Navigation, visual design, loading states, iOS 15 compat, DetailLoader pattern
-- `project-structure` -- Full file trees for all packages and targets
-- `code-style` -- Comment guidelines, naming, performance targets, testing policy
-- `known-issues` -- Critical bugs, feature gaps, tech debt
-- `common-tasks` -- Recipes for adding ViewModels, views, entities, hubs, music sources
+## Skills (MUST load before starting work)
+
+Detailed reference material lives in `.claude/skills/`. **Always load the relevant skill(s) before beginning any non-trivial task** — these files contain project-specific rules that override general Swift/SwiftUI defaults.
+
+| Skill | Load when… |
+|-------|-----------|
+| `architecture` | Designing a feature, adding a service, understanding data flow, anything touching multiple packages |
+| `ui-conventions` | Building or modifying any SwiftUI view, navigation, loading states, iOS 15 compat |
+| `project-structure` | Locating a file, deciding where a new file belongs, understanding what exists |
+| `code-style` | Writing any Swift code — contains mandatory rules (e.g. `#if DEBUG` for all prints, edge case handling) |
+| `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
+| `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
+
+**When in doubt, load all six.** They are small and the cost of reading them is far lower than making a wrong decision.
 
 
 ## Workflow (MUST follow for every task)
@@ -90,7 +97,20 @@ This project is connected to Xcode's MCP server: please use it to inform you of 
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
 
-As you make big architectural changes, please update this document, the skills files, and the README.md as necessary.
+As you make changes, keep the following documents in sync:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
+
+When in doubt: if a future agent session wouldn't know about it by reading the skills, document it.
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
 

@@ -55,7 +55,9 @@ public final class CoreDataStack: @unchecked Sendable {
             do {
                 try context.save()
             } catch {
+                #if DEBUG
                 print("CoreData save error: \(error)")
+                #endif
             }
         }
     }

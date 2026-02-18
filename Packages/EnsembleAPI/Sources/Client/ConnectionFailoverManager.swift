@@ -18,7 +18,9 @@ public actor ConnectionFailoverManager {
     /// Test a connection and return whether it's reachable
     public func testConnection(url: String, token: String) async -> Bool {
         guard URL(string: url) != nil else {
+            #if DEBUG
             print("❌ ConnectionTest[\(url)]: Invalid URL")
+            #endif
             return false
         }
 
@@ -28,7 +30,9 @@ public actor ConnectionFailoverManager {
         testURL?.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
 
         guard let requestURL = testURL?.url else {
+            #if DEBUG
             print("❌ ConnectionTest[\(url)]: Failed to build test URL")
+            #endif
             return false
         }
 
@@ -37,11 +41,15 @@ public actor ConnectionFailoverManager {
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         request.timeoutInterval = timeout
 
+        #if DEBUG
         print("🔄 ConnectionTest[\(url)]: Testing...")
+        #endif
 
         // Check if task is already cancelled
         if Task.isCancelled {
+            #if DEBUG
             print("⚠️ ConnectionTest[\(url)]: Task cancelled before test!")
+            #endif
             return false
         }
 
@@ -51,22 +59,30 @@ public actor ConnectionFailoverManager {
             let duration = Date().timeIntervalSince(startTime)
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                #if DEBUG
                 print("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
+                #endif
                 updateConnectionHealth(url: url, success: false)
                 return false
             }
 
             let isSuccessful = (200...299).contains(httpResponse.statusCode)
             if isSuccessful {
+                #if DEBUG
                 print("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s (HTTP \(httpResponse.statusCode))")
+                #endif
             } else {
+                #if DEBUG
                 print("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
+                #endif
             }
             updateConnectionHealth(url: url, success: isSuccessful)
             return isSuccessful
 
         } catch {
+            #if DEBUG
             print("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
+            #endif
             updateConnectionHealth(url: url, success: false)
             return false
         }
@@ -126,7 +142,9 @@ public actor ConnectionFailoverManager {
             
             if let bestURL = best?.0, let bestScore = best?.1 {
                 let isHTTPS = bestURL.lowercased().hasPrefix("https://")
+                #if DEBUG
                 print("🏆 Best connection: \(bestURL) (score: \(String(format: "%.2f", bestScore))s, HTTPS: \(isHTTPS))")
+                #endif
             }
             
             return best?.0

@@ -1,6 +1,6 @@
 ---
 name: project-structure
-description: "Ensemble file trees: where every file lives across all packages, app targets, and the project root. Use when finding files or understanding where things belong."
+description: "Load when locating files, deciding where a new file belongs, or verifying what already exists. Full file trees for all packages and targets."
 ---
 
 # Ensemble Project Structure

@@ -59,7 +59,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             queue: .main
         ) { _ in
             ImagePipeline.shared.cache.removeAll()
+            #if DEBUG
             print("⚠️ Memory warning: Cleared artwork cache")
+            #endif
         }
         #endif
         
@@ -119,9 +121,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
             usedFallback = true
+            #if DEBUG
             print("🔄 ArtworkLoader[\(size)]: Using fallback - track:\(ratingKey ?? "nil") → album:\(fallbackRatingKey ?? "nil") path:\(fallbackPath ?? "nil")")
+            #endif
         } else {
+            #if DEBUG
             print("❌ ArtworkLoader[\(size)]: No artwork - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
+            #endif
             return nil
         }
         
@@ -136,7 +142,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             let albumCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
             if FileManager.default.fileExists(atPath: albumCachePath) {
                 let url = URL(fileURLWithPath: albumCachePath)
+                #if DEBUG
                 print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
+                #endif
                 return url
             }
 
@@ -145,7 +153,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             let artistCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
             if FileManager.default.fileExists(atPath: artistCachePath) {
                 let url = URL(fileURLWithPath: artistCachePath)
+                #if DEBUG
                 print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
+                #endif
                 return url
             }
         }
@@ -154,9 +164,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
             if usedFallback {
+                #if DEBUG
                 print("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")
+                #endif
             } else {
+                #if DEBUG
                 print("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
+                #endif
             }
         }
         return networkURL
@@ -197,7 +211,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
+                #if DEBUG
                 print("Failed to download artwork for album \(album.title): \(error)")
+                #endif
                 continue
             }
         }
@@ -238,7 +254,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 downloadedCount += 1
             } catch {
+                #if DEBUG
                 print("Failed to download artwork for artist \(artist.name): \(error)")
+                #endif
                 continue
             }
         }

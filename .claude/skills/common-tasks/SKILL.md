@@ -1,6 +1,6 @@
 ---
 name: common-tasks
-description: "Ensemble step-by-step recipes: adding ViewModels, views, CoreData entities, hub support, running sync, working with hubs. Code patterns and examples."
+description: "Load when adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger. Step-by-step recipes with code patterns."
 ---
 
 # Ensemble Common Development Tasks

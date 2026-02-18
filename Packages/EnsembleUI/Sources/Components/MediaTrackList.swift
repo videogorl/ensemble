@@ -313,7 +313,9 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.reloadData()
             // 🐛 TEMP: log geometry after reload to diagnose clipping
             DispatchQueue.main.async {
+                #if DEBUG
                 print("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
+                #endif
             }
         } else if currentTrackChanged {
             // Only update visible cells instead of full reload

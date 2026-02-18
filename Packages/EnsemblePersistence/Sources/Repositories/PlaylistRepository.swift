@@ -215,10 +215,14 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.trackCount = Int32(foundCount)
 
                     try context.save()
+                    #if DEBUG
                     print("✅ Saved \(foundCount) tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) requested)")
+                    #endif
                     continuation.resume()
                 } catch {
+                    #if DEBUG
                     print("❌ Error saving playlist tracks: \(error)")
+                    #endif
                     continuation.resume(throwing: error)
                 }
             }

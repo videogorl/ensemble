@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: "Ensemble coding standards: comment guidelines, naming conventions, development guidelines, memory/performance targets, testing policy"
+description: "Load before writing any Swift code. Contains mandatory rules that override defaults: #if DEBUG required for all print() calls, edge case handling required (active beta), memory targets, MVVM pattern, debug logging conventions."
 ---
 
 # Ensemble Code Style & Development Guidelines
@@ -15,10 +15,21 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 
 ## Change Documentation
 
-- **Update CLAUDE.md:** When making architectural changes, update with new patterns and conventions
-- **Update README.md:** Keep user-facing documentation in sync with implemented features
 - **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
 - **Code comments:** Leave comments in code so future developers (including AI assistants) understand the design
+
+Keep the following documents in sync when making changes:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
 ## Code Style
 
@@ -26,6 +37,27 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 - Use Xcode's MCP server to inform best practices
 - Don't over-comment -- focus on complex logic and architectural decisions
 - Do not use emojis (except in debugging)
+
+## Debug Logging
+
+**All `print()` calls must be wrapped in `#if DEBUG / #endif`** — this keeps debug output out of release/TestFlight builds:
+
+```swift
+#if DEBUG
+print("[MyService] Something happened: \(value)")
+#endif
+```
+
+For consecutive prints, wrap the group under a single `#if DEBUG`:
+
+```swift
+#if DEBUG
+print("[MyService] State: \(state)")
+print("[MyService] Detail: \(detail)")
+#endif
+```
+
+Never add a bare `print()` outside of a `#if DEBUG` block. The entire codebase enforces this — zero unguarded calls.
 
 ## Preserve Existing Functionality
 

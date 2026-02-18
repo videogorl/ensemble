@@ -97,7 +97,9 @@ public actor PlexAPIClient {
             let newId = UUID().uuidString
             // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
             if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
+                #if DEBUG
                 print("⚠️ [PlexAPIClient] Failed to persist client identifier to keychain")
+                #endif
             }
             self.clientIdentifier = newId
         }
@@ -110,12 +112,16 @@ public actor PlexAPIClient {
         // Log connection details for debugging
         let isHTTPS = connection.url.lowercased().hasPrefix("https://")
         let altCount = connection.alternativeURLs.count
+        #if DEBUG
         print("🔌 PlexAPIClient initialized")
         print("   Primary URL: \(connection.url) (HTTPS: \(isHTTPS))")
         print("   Alternative URLs: \(altCount)")
+        #endif
         for (index, altURL) in connection.alternativeURLs.enumerated() {
             let altHTTPS = altURL.lowercased().hasPrefix("https://")
+            #if DEBUG
             print("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
+            #endif
         }
     }
 
@@ -365,7 +371,9 @@ public actor PlexAPIClient {
         
         // Debug: Print raw JSON to see what Plex is returning
         if let jsonString = String(data: data, encoding: .utf8) {
+            #if DEBUG
             print("🔍 Raw JSON response (first 500 chars): \(String(jsonString.prefix(500)))")
+            #endif
         }
         
         let container = try JSONDecoder().decode(
@@ -375,12 +383,18 @@ public actor PlexAPIClient {
         let track = container.mediaContainer.items.first
         
         if let track = track {
+            #if DEBUG
             print("🔍 getTrack - media count: \(track.media?.count ?? 0)")
+            #endif
             if let media = track.media?.first {
+                #if DEBUG
                 print("🔍 getTrack - part count: \(media.part?.count ?? 0)")
+                #endif
                 if let part = media.part?.first {
+                    #if DEBUG
                     print("🔍 getTrack - part key: \(part.key ?? "nil")")
                     print("🔍 getTrack - part file: \(part.file ?? "nil")")
+                    #endif
                 }
             }
         }
@@ -544,19 +558,29 @@ public actor PlexAPIClient {
 
     /// Get playlist tracks
     public func getPlaylistTracks(playlistKey: String) async throws -> [PlexTrack] {
+        #if DEBUG
         print("🎵 PlexAPIClient.getPlaylistTracks() called")
         print("  - Playlist key: \(playlistKey)")
+        #endif
         
+        #if DEBUG
         print("🔄 Fetching playlist items from /playlists/\(playlistKey)/items...")
+        #endif
         let data = try await serverRequest(path: "/playlists/\(playlistKey)/items")
+        #if DEBUG
         print("✅ Got response data (\(data.count) bytes)")
+        #endif
         
+        #if DEBUG
         print("🔄 Decoding playlist tracks...")
+        #endif
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
+        #if DEBUG
         print("✅ Got \(container.mediaContainer.items.count) playlist tracks")
+        #endif
         return container.mediaContainer.items
     }
 
@@ -646,7 +670,9 @@ public actor PlexAPIClient {
         
         // Log raw JSON for debugging
         if let jsonString = String(data: data, encoding: .utf8) {
+            #if DEBUG
             print("🔍 Raw Hubs JSON (Section \(sectionKey)): \(jsonString.prefix(2000))")
+            #endif
         }
         
         let container = try JSONDecoder().decode(
@@ -654,7 +680,9 @@ public actor PlexAPIClient {
             from: data
         )
         let hubs = container.mediaContainer.items
+        #if DEBUG
         print("🏠 Decoded \(hubs.count) hubs from Section \(sectionKey)")
+        #endif
         return hubs
     }
     
@@ -672,7 +700,9 @@ public actor PlexAPIClient {
         
         // Log raw JSON for debugging
         if let jsonString = String(data: data, encoding: .utf8) {
+            #if DEBUG
             print("🔍 Raw Global Hubs JSON: \(jsonString.prefix(2000))")
+            #endif
         }
         
         let container = try JSONDecoder().decode(
@@ -680,7 +710,9 @@ public actor PlexAPIClient {
             from: data
         )
         let hubs = container.mediaContainer.items
+        #if DEBUG
         print("🏠 Decoded \(hubs.count) global hubs")
+        #endif
         return hubs
     }
     
@@ -757,7 +789,9 @@ public actor PlexAPIClient {
         ]
 
         _ = try await serverRequest(path: path, query: query)
+        #if DEBUG
         print("📊 Timeline reported: \(state) at \(time)ms / \(duration)ms for track \(ratingKey)")
+        #endif
     }
 
     /// Scrobble a track (mark as played)
@@ -772,7 +806,9 @@ public actor PlexAPIClient {
         ]
 
         _ = try await serverRequest(path: path, query: query)
+        #if DEBUG
         print("✅ Scrobbled track: \(ratingKey)")
+        #endif
     }
 
     // MARK: - URL Generation
@@ -780,15 +816,21 @@ public actor PlexAPIClient {
     /// Generate streaming URL for a track using its stream key
     public func getStreamURL(trackKey: String?) throws -> URL {
         guard let partKey = trackKey, !partKey.isEmpty else {
+            #if DEBUG
             print("❌ PlexAPIClient: trackKey is nil or empty")
+            #endif
             throw PlexAPIError.invalidURL
         }
 
+        #if DEBUG
         print("🔍 PlexAPIClient: Building stream URL with partKey: \(partKey)")
         print("🔍 PlexAPIClient: Current server URL: \(currentServerURL)")
+        #endif
 
         guard var components = URLComponents(string: currentServerURL) else {
+            #if DEBUG
             print("❌ PlexAPIClient: Failed to create URLComponents from current server URL")
+            #endif
             throw PlexAPIError.invalidURL
         }
         
@@ -799,41 +841,61 @@ public actor PlexAPIClient {
         ]
 
         guard let url = components.url else {
+            #if DEBUG
             print("❌ PlexAPIClient: Failed to construct final URL")
             print("❌ PlexAPIClient: Components - path: \(components.path), host: \(components.host ?? "nil")")
+            #endif
             throw PlexAPIError.invalidURL
         }
 
+        #if DEBUG
         print("✅ PlexAPIClient: Successfully created stream URL: \(url)")
+        #endif
         return url
     }
 
     /// Generate streaming URL for a track
     public func getStreamURL(for track: PlexTrack) throws -> URL {
+        #if DEBUG
         print("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
         print("🔍 Track ratingKey: \(track.ratingKey)")
         print("🔍 Track media count: \(track.media?.count ?? 0)")
+        #endif
 
         if let media = track.media?.first {
+            #if DEBUG
             print("🔍 First media - parts count: \(media.part?.count ?? 0)")
+            #endif
             if let part = media.part?.first {
+                #if DEBUG
                 print("🔍 First part key: \(part.key ?? "nil")")
+                #endif
             } else {
+                #if DEBUG
                 print("❌ No parts in media")
+                #endif
             }
         } else {
+            #if DEBUG
             print("❌ No media array in track")
+            #endif
         }
 
         guard let partKey = track.media?.first?.part?.first?.key else {
+            #if DEBUG
             print("❌ Cannot extract part key from track")
+            #endif
             throw PlexAPIError.invalidURL
         }
 
+        #if DEBUG
         print("🔍 Building URL with partKey: \(partKey)")
         print("🔍 Current server URL: \(currentServerURL)")
+        #endif
         guard var components = URLComponents(string: currentServerURL) else {
+            #if DEBUG
             print("❌ Failed to create URLComponents from current server URL")
+            #endif
             throw PlexAPIError.invalidURL
         }
         
@@ -844,11 +906,15 @@ public actor PlexAPIClient {
         ]
 
         guard let url = components.url else {
+            #if DEBUG
             print("❌ Failed to construct final URL")
+            #endif
             throw PlexAPIError.invalidURL
         }
 
+        #if DEBUG
         print("✅ Successfully created stream URL: \(url)")
+        #endif
         return url
     }
 
@@ -878,7 +944,9 @@ public actor PlexAPIClient {
     ///   - streamId: The audio stream ID (from PlexTrack.media[0].part[0].stream[0].id where streamType == 2)
     ///   - subsample: Number of loudness samples to return (default: 128, Plex supports up to ~200)
     public func getLoudnessTimeline(forStreamId streamId: Int, subsample: Int = 128) async throws -> PlexLoudnessTimeline? {
+        #if DEBUG
         print("🎵 Fetching loudness timeline for stream ID: \(streamId)")
+        #endif
 
         // Correct Plex API endpoint: /library/streams/{stream_id}/levels?subsample={count}
         // This returns loudness level data for waveform visualization
@@ -890,22 +958,30 @@ public actor PlexAPIClient {
 
             // Debug: Print raw response to understand format
             if let responseString = String(data: data, encoding: .utf8) {
+                #if DEBUG
                 print("🔍 Raw loudness response (first 500 chars): \(String(responseString.prefix(500)))")
+                #endif
             }
 
             let timeline = try JSONDecoder().decode(PlexLoudnessTimeline.self, from: data)
 
             if let count = timeline.loudness?.count {
+                #if DEBUG
                 print("✅ Retrieved \(count) loudness samples for stream \(streamId)")
+                #endif
             } else {
+                #if DEBUG
                 print("⚠️ No loudness data available for stream \(streamId)")
+                #endif
             }
 
             return timeline
         } catch {
             // If the endpoint doesn't exist (404), the server hasn't analyzed this track yet
             // This is normal and not an error condition
+            #if DEBUG
             print("ℹ️ Loudness timeline not available for stream \(streamId): \(error.localizedDescription)")
+            #endif
             return nil
         }
     }
@@ -923,59 +999,83 @@ public actor PlexAPIClient {
         limit: Int = 50,
         maxDistance: Double = 0.25
     ) async throws -> [PlexTrack]? {
+        #if DEBUG
         print("\n🎵 PlexAPIClient.getSimilarTracks()")
         print("  - ratingKey: \(ratingKey)")
         print("  - limit: \(limit)")
         print("  - maxDistance: \(maxDistance)")
+        #endif
 
         let path = "/library/metadata/\(ratingKey)/nearest"
         let query = [
             "limit": String(limit),
             "maxDistance": String(maxDistance)
         ]
+        #if DEBUG
         print("  - path: \(path)")
         print("  - query: \(query)")
+        #endif
 
         do {
+            #if DEBUG
             print("🔄 Making serverRequest...")
+            #endif
             let data = try await serverRequest(path: path, query: query)
+            #if DEBUG
             print("✅ Received response data (\(data.count) bytes)")
+            #endif
             
+            #if DEBUG
             print("🔄 Decoding JSON...")
+            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexTrack>.self,
                 from: data
             )
             let tracks = container.mediaContainer.items
+            #if DEBUG
             print("✅ Successfully decoded \(tracks.count) PlexTrack objects")
+            #endif
             
             if tracks.isEmpty {
+                #if DEBUG
                 print("⚠️ WARNING: API returned empty track list (no sonic analysis available)")
+                #endif
             } else {
                 // Log first few results as confirmation
                 for track in tracks.prefix(3) {
+                    #if DEBUG
                     print("  ✅ Recommended: \(track.title) by \(track.grandparentTitle ?? "Unknown")")
+                    #endif
                 }
                 if tracks.count > 3 {
+                    #if DEBUG
                     print("  ... and \(tracks.count - 3) more tracks")
+                    #endif
                 }
             }
             
             return tracks
         } catch {
+            #if DEBUG
             print("❌ Error in getSimilarTracks:")
             print("   Type: \(type(of: error))")
             print("   Message: \(error.localizedDescription)")
+            #endif
             
             if let nsError = error as? NSError {
+                #if DEBUG
                 print("   NSError domain: \(nsError.domain)")
                 print("   Code: \(nsError.code)")
                 print("   UserInfo: \(nsError.userInfo)")
+                #endif
             }
             
             // Check if it's a 404 (no sonic analysis)
             if let urlError = error as? URLError, urlError.code == .fileDoesNotExist {
+                #if DEBUG
                 print("   → This is a 404: No sonic analysis available for this track")
+                #endif
             }
             
             return nil
@@ -986,39 +1086,57 @@ public actor PlexAPIClient {
     /// Returns nil if artist radio not available or Plex Pass not active
     /// - Parameter artistKey: The artist's rating key
     public func getArtistRadioStation(artistKey: String) async throws -> PlexPlaylist? {
+        #if DEBUG
         print("🎵 PlexAPIClient.getArtistRadioStation() called")
         print("  - Artist key: \(artistKey)")
         print("🔄 Fetching artist radio station from Plex...")
+        #endif
 
         let path = "/library/metadata/\(artistKey)"
         let query = ["includeStations": "1"]
+        #if DEBUG
         print("  - Path: \(path)")
         print("  - Query: \(query)")
+        #endif
 
         do {
+            #if DEBUG
             print("🔄 Making serverRequest...")
+            #endif
             let data = try await serverRequest(path: path, query: query)
+            #if DEBUG
             print("✅ Got response data (\(data.count) bytes)")
+            #endif
 
             // The response includes a Stations container within the metadata
             // We need to parse it to extract the playlist
+            #if DEBUG
             print("🔄 Decoding response...")
+            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
+            #if DEBUG
             print("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
+            #endif
 
             // Filter for station-type playlists
             let station = container.mediaContainer.items.first
             if let station = station {
+                #if DEBUG
                 print("✅ Found artist radio station: \(station.title) (key: \(station.ratingKey))")
+                #endif
             } else {
+                #if DEBUG
                 print("ℹ️ No artist radio station found for \(artistKey)")
+                #endif
             }
             return station
         } catch {
+            #if DEBUG
             print("❌ Artist radio not available for \(artistKey): \(error.localizedDescription)")
+            #endif
             return nil
         }
     }
@@ -1027,36 +1145,54 @@ public actor PlexAPIClient {
     /// Returns nil if album radio not available or Plex Pass not active
     /// - Parameter albumKey: The album's rating key
     public func getAlbumRadioStation(albumKey: String) async throws -> PlexPlaylist? {
+        #if DEBUG
         print("🎵 PlexAPIClient.getAlbumRadioStation() called")
         print("  - Album key: \(albumKey)")
         print("🔄 Fetching album radio station from Plex...")
+        #endif
 
         let path = "/library/metadata/\(albumKey)"
         let query = ["includeStations": "1"]
+        #if DEBUG
         print("  - Path: \(path)")
         print("  - Query: \(query)")
+        #endif
 
         do {
+            #if DEBUG
             print("🔄 Making serverRequest...")
+            #endif
             let data = try await serverRequest(path: path, query: query)
+            #if DEBUG
             print("✅ Got response data (\(data.count) bytes)")
+            #endif
 
+            #if DEBUG
             print("🔄 Decoding response...")
+            #endif
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexPlaylist>.self,
                 from: data
             )
+            #if DEBUG
             print("✅ Decoded successfully, got \(container.mediaContainer.items.count) items")
+            #endif
 
             let station = container.mediaContainer.items.first
             if let station = station {
+                #if DEBUG
                 print("✅ Found album radio station: \(station.title) (key: \(station.ratingKey))")
+                #endif
             } else {
+                #if DEBUG
                 print("ℹ️ No album radio station found for \(albumKey)")
+                #endif
             }
             return station
         } catch {
+            #if DEBUG
             print("❌ Album radio not available for \(albumKey): \(error.localizedDescription)")
+            #endif
             return nil
         }
     }
@@ -1065,17 +1201,23 @@ public actor PlexAPIClient {
     
     /// Attempt to find a working connection if current one fails
     private func attemptFailover() async throws {
+        #if DEBUG
         print("🔄 Attempting connection failover...")
+        #endif
         
         // Try to find the fastest working connection among all available URLs
         if let workingURL = await failoverManager.findFastestConnection(
             urls: serverConnection.allURLs,
             token: serverConnection.token
         ) {
+            #if DEBUG
             print("✅ Found working connection: \(workingURL)")
+            #endif
             currentServerURL = workingURL
         } else {
+            #if DEBUG
             print("❌ No working connections found")
+            #endif
             throw PlexAPIError.networkError(
                 NSError(domain: "PlexAPIClient", code: -1, 
                        userInfo: [NSLocalizedDescriptionKey: "All server connections failed"])
@@ -1091,18 +1233,26 @@ public actor PlexAPIClient {
     /// Update the current server URL (e.g., from external health checks)
     /// This allows proactive failover based on network changes
     public func updateCurrentServerURL(_ url: String) {
+        #if DEBUG
         print("🔄 PlexAPIClient: Updating current server URL to: \(url)")
+        #endif
         currentServerURL = url
     }
 
     /// Proactively test and update to the best available connection
     public func refreshConnection() async {
+        #if DEBUG
         print("🔄 PlexAPIClient: Refreshing connection...")
+        #endif
         do {
             try await attemptFailover()
+            #if DEBUG
             print("✅ PlexAPIClient: Connection refreshed, now using: \(currentServerURL)")
+            #endif
         } catch {
+            #if DEBUG
             print("⚠️ PlexAPIClient: Failed to refresh connection: \(error)")
+            #endif
         }
     }
 
@@ -1114,14 +1264,20 @@ public actor PlexAPIClient {
             return try await performServerRequest(url: currentServerURL, path: path, query: query)
         } catch {
             // Log the actual error for debugging
+            #if DEBUG
             print("❌ Request failed: \(error)")
+            #endif
             if let urlError = error as? URLError {
+                #if DEBUG
                 print("   URLError code: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
+                #endif
             }
 
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty {
+                #if DEBUG
                 print("⚠️ Attempting failover to alternative URLs...")
+                #endif
                 try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query)
@@ -1149,7 +1305,9 @@ public actor PlexAPIClient {
         // Log request for debugging (only show host and path, not full URL with token)
         let isHTTPS = url.lowercased().hasPrefix("https://")
         let urlHost = URLComponents(string: url)?.host ?? "unknown"
+        #if DEBUG
         print("📡 Request: \(request.httpMethod ?? "GET") \(urlHost)\(path) (HTTPS: \(isHTTPS))")
+        #endif
 
         let (data, _) = try await performRequest(request)
         return data
@@ -1162,7 +1320,9 @@ public actor PlexAPIClient {
         } catch {
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty {
+                #if DEBUG
                 print("⚠️ PUT request failed with current URL, attempting failover...")
+                #endif
                 try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
@@ -1196,7 +1356,9 @@ public actor PlexAPIClient {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
         } catch {
             if !serverConnection.alternativeURLs.isEmpty {
+                #if DEBUG
                 print("⚠️ POST request failed with current URL, attempting failover...")
+                #endif
                 try await attemptFailover()
                 return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
             }
@@ -1229,7 +1391,9 @@ public actor PlexAPIClient {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
         } catch {
             if !serverConnection.alternativeURLs.isEmpty {
+                #if DEBUG
                 print("⚠️ DELETE request failed with current URL, attempting failover...")
+                #endif
                 try await attemptFailover()
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
             }
@@ -1276,7 +1440,9 @@ public actor PlexAPIClient {
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         // Check if the task is already cancelled before making the request
         if Task.isCancelled {
+            #if DEBUG
             print("⚠️ Task was cancelled before request started!")
+            #endif
             throw CancellationError()
         }
 
