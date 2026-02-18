@@ -128,20 +128,21 @@ public struct TrackSwipeContainer<Content: View>: View {
     private var backgroundActions: some View {
         ZStack {
             HStack(spacing: 0) {
-                ForEach(Array(leadingActions.reversed().enumerated()), id: \.offset) { _, action in
+                ForEach(Array(leadingActions.enumerated()), id: \.offset) { _, action in
                     swipeButton(for: action)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
             HStack(spacing: 0) {
-                ForEach(Array(trailingActions.enumerated()), id: \.offset) { _, action in
+                ForEach(Array(trailingActions.reversed().enumerated()), id: \.offset) { _, action in
                     swipeButton(for: action)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func swipeButton(for action: TrackSwipeAction) -> some View {
