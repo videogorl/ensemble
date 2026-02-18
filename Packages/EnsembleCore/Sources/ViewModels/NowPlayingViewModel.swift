@@ -39,6 +39,17 @@ public struct PlaylistServerOption: Identifiable, Equatable {
     public let name: String
 }
 
+public enum PlaylistActionError: LocalizedError {
+    case operationInProgress
+
+    public var errorDescription: String? {
+        switch self {
+        case .operationInProgress:
+            return "A playlist update is already in progress. Please wait."
+        }
+    }
+}
+
 @MainActor
 public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
@@ -59,6 +70,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
     @Published public private(set) var playlistOperationMessage: String?
+    @Published public private(set) var isPlaylistMutationInProgress = false
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -319,6 +331,9 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func addCurrentTrack(to playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
         guard let currentTrack else {
             throw PlaylistMutationError.emptySelection
         }
@@ -326,6 +341,12 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func addTracks(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
         let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
         await MainActor.run {
             if result.skippedCount > 0 {
@@ -342,6 +363,12 @@ public final class NowPlayingViewModel: ObservableObject {
         tracks: [Track],
         serverSourceKey: String
     ) async throws -> PlaylistMutationResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
         let result = try await syncCoordinator.createPlaylist(
             title: title,
             tracks: tracks,

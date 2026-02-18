@@ -29,7 +29,7 @@ public struct PlaylistPickerSheet: View {
                     } label: {
                         Label("New Playlist", systemImage: "plus.circle")
                     }
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
                 }
 
                 if !serverOptions.isEmpty {
@@ -43,7 +43,7 @@ public struct PlaylistPickerSheet: View {
                             }
                         }
                         .pickerStyle(.menu)
-                        .disabled(isSubmitting)
+                        .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
                     }
                 }
 
@@ -74,7 +74,7 @@ public struct PlaylistPickerSheet: View {
                                 }
                             }
                             .disabled(playlist.isSmart)
-                            .disabled(isSubmitting)
+                            .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
                         }
                     }
                 }
@@ -139,7 +139,7 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func addToPlaylist(_ playlist: Playlist) async {
-        guard !isSubmitting else { return }
+        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
         isSubmitting = true
         defer { isSubmitting = false }
 
