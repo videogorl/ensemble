@@ -95,6 +95,11 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
                 seen.insert(action)
             }
         }
+
+        // Recover from corrupted/empty payloads so swipe gestures always have actions.
+        if leading.allSatisfy({ $0 == nil }) && trailing.allSatisfy({ $0 == nil }) {
+            self = .default
+        }
     }
 
     private static func normalizedSlots(from source: [TrackSwipeAction?]) -> [TrackSwipeAction?] {

@@ -32,4 +32,16 @@ final class TrackSwipeLayoutTests: XCTestCase {
         XCTAssertEqual(layout.leading, [.playNext, .playLast])
         XCTAssertEqual(layout.trailing, [nil, .favoriteToggle])
     }
+
+    func testSanitizeRestoresDefaultsWhenAllSlotsEmpty() {
+        var layout = TrackSwipeLayout(
+            leading: [nil, nil],
+            trailing: [nil, nil]
+        )
+
+        layout.sanitize()
+
+        XCTAssertEqual(layout.leading, [.playNext, .playLast])
+        XCTAssertEqual(layout.trailing, [.favoriteToggle, .addToPlaylist])
+    }
 }
