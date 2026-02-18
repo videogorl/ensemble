@@ -1,6 +1,7 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+import ObjectiveC
 #endif
 
 public extension View {
@@ -41,7 +42,6 @@ public extension View {
         } else {
             self.background(
                 LegacyScrollBottomInsetApplier(bottomInset: height)
-                    .frame(width: 0, height: 0)
             )
         }
         #else
@@ -87,10 +87,22 @@ private struct LegacyScrollBottomInsetApplier: UIViewRepresentable {
     }
 
     final class Coordinator {
+        private final class ScrollInsetState: NSObject {
+            var baseContentInset: UIEdgeInsets
+            var baseIndicatorInset: UIEdgeInsets
+            var requestedBottomInsets: [UUID: CGFloat] = [:]
+
+            init(baseContentInset: UIEdgeInsets, baseIndicatorInset: UIEdgeInsets) {
+                self.baseContentInset = baseContentInset
+                self.baseIndicatorInset = baseIndicatorInset
+            }
+        }
+
+        private static var insetStateKey: UInt8 = 0
+
+        private let token = UUID()
         var bottomInset: CGFloat
         weak var scrollView: UIScrollView?
-        private var baseContentInset: UIEdgeInsets?
-        private var baseIndicatorInset: UIEdgeInsets?
 
         init(bottomInset: CGFloat) {
             self.bottomInset = bottomInset
@@ -102,8 +114,6 @@ private struct LegacyScrollBottomInsetApplier: UIViewRepresentable {
             if scrollView !== foundScrollView {
                 restore()
                 scrollView = foundScrollView
-                baseContentInset = foundScrollView.contentInset
-                baseIndicatorInset = foundScrollView.verticalScrollIndicatorInsets
             }
 
             apply()
@@ -112,16 +122,19 @@ private struct LegacyScrollBottomInsetApplier: UIViewRepresentable {
         private func apply() {
             guard let scrollView else { return }
 
-            let baselineContentInset = baseContentInset ?? scrollView.contentInset
+            let state = insetState(for: scrollView)
+            state.requestedBottomInsets[token] = bottomInset
+
+            let requestedBottomInset = state.requestedBottomInsets.values.max() ?? 0
+
             var contentInset = scrollView.contentInset
-            contentInset.bottom = max(baselineContentInset.bottom, bottomInset)
+            contentInset.bottom = max(state.baseContentInset.bottom, requestedBottomInset)
             if scrollView.contentInset != contentInset {
                 scrollView.contentInset = contentInset
             }
 
-            let baselineIndicatorInset = baseIndicatorInset ?? scrollView.verticalScrollIndicatorInsets
             var indicatorInset = scrollView.verticalScrollIndicatorInsets
-            indicatorInset.bottom = max(baselineIndicatorInset.bottom, bottomInset)
+            indicatorInset.bottom = max(state.baseIndicatorInset.bottom, requestedBottomInset)
             if scrollView.verticalScrollIndicatorInsets != indicatorInset {
                 scrollView.verticalScrollIndicatorInsets = indicatorInset
             }
@@ -129,15 +142,38 @@ private struct LegacyScrollBottomInsetApplier: UIViewRepresentable {
 
         func restore() {
             guard let scrollView else { return }
-            if let baseContentInset {
-                scrollView.contentInset = baseContentInset
+
+            guard let state = objc_getAssociatedObject(
+                scrollView,
+                &Self.insetStateKey
+            ) as? ScrollInsetState else {
+                self.scrollView = nil
+                return
             }
-            if let baseIndicatorInset {
-                scrollView.verticalScrollIndicatorInsets = baseIndicatorInset
+
+            state.requestedBottomInsets.removeValue(forKey: token)
+
+            if state.requestedBottomInsets.isEmpty {
+                scrollView.contentInset = state.baseContentInset
+                scrollView.verticalScrollIndicatorInsets = state.baseIndicatorInset
+                objc_setAssociatedObject(
+                    scrollView,
+                    &Self.insetStateKey,
+                    nil,
+                    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                )
+            } else {
+                let requestedBottomInset = state.requestedBottomInsets.values.max() ?? 0
+                var contentInset = scrollView.contentInset
+                contentInset.bottom = max(state.baseContentInset.bottom, requestedBottomInset)
+                scrollView.contentInset = contentInset
+
+                var indicatorInset = scrollView.verticalScrollIndicatorInsets
+                indicatorInset.bottom = max(state.baseIndicatorInset.bottom, requestedBottomInset)
+                scrollView.verticalScrollIndicatorInsets = indicatorInset
             }
+
             self.scrollView = nil
-            self.baseContentInset = nil
-            self.baseIndicatorInset = nil
         }
 
         private func findScrollView(from view: UIView) -> UIScrollView? {
@@ -150,22 +186,68 @@ private struct LegacyScrollBottomInsetApplier: UIViewRepresentable {
                 current = node.superview
             }
 
-            // Fallback for wrappers where the representable is outside the actual scroll view.
-            let searchRoot = view.window ?? view.superview
-            guard let searchRoot else { return nil }
-            return firstScrollView(in: searchRoot)
-        }
+            // Fallback: choose the scroll view that best overlaps this view in window space.
+            guard let window = view.window else { return nil }
+            let scrollViews = allScrollViews(in: window)
+            guard !scrollViews.isEmpty else { return nil }
 
-        private func firstScrollView(in root: UIView) -> UIScrollView? {
-            if let scrollView = root as? UIScrollView {
-                return scrollView
-            }
-            for child in root.subviews {
-                if let found = firstScrollView(in: child) {
-                    return found
+            let targetFrame = view.convert(view.bounds, to: window)
+            if !targetFrame.isEmpty {
+                let best = scrollViews.max { lhs, rhs in
+                    let lhsArea = intersectionArea(
+                        lhs.convert(lhs.bounds, to: window),
+                        targetFrame
+                    )
+                    let rhsArea = intersectionArea(
+                        rhs.convert(rhs.bounds, to: window),
+                        targetFrame
+                    )
+                    return lhsArea < rhsArea
+                }
+                if let best, intersectionArea(best.convert(best.bounds, to: window), targetFrame) > 0 {
+                    return best
                 }
             }
-            return nil
+
+            return scrollViews.first
+        }
+
+        private func allScrollViews(in root: UIView) -> [UIScrollView] {
+            var results: [UIScrollView] = []
+            if let scrollView = root as? UIScrollView {
+                results.append(scrollView)
+            }
+            for child in root.subviews {
+                results.append(contentsOf: allScrollViews(in: child))
+            }
+            return results
+        }
+
+        private func intersectionArea(_ a: CGRect, _ b: CGRect) -> CGFloat {
+            let intersection = a.intersection(b)
+            guard !intersection.isNull, !intersection.isEmpty else { return 0 }
+            return intersection.width * intersection.height
+        }
+
+        private func insetState(for scrollView: UIScrollView) -> ScrollInsetState {
+            if let existing = objc_getAssociatedObject(
+                scrollView,
+                &Self.insetStateKey
+            ) as? ScrollInsetState {
+                return existing
+            }
+
+            let created = ScrollInsetState(
+                baseContentInset: scrollView.contentInset,
+                baseIndicatorInset: scrollView.verticalScrollIndicatorInsets
+            )
+            objc_setAssociatedObject(
+                scrollView,
+                &Self.insetStateKey,
+                created,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+            return created
         }
     }
 }
