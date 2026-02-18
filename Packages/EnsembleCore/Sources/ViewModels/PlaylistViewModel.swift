@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 public final class PlaylistViewModel: ObservableObject {
+    private static let optimisticCreatePrefix = "creating:"
+
     @Published public private(set) var playlists: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
@@ -17,6 +19,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var optimisticCreatingPlaylists: [Playlist] = []
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
@@ -57,17 +60,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func loadPlaylists() async {
-        isLoading = true
-        error = nil
-
-        do {
-            let cached = try await playlistRepository.fetchPlaylists()
-            playlists = cached.map { Playlist(from: $0) }
-        } catch {
-            self.error = error.localizedDescription
-        }
-
-        isLoading = false
+        await reloadPlaylists(showLoading: true)
     }
 
     /// Sync playlists from server, then reload from cache
@@ -99,6 +92,50 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Reload from updated cache
         await loadPlaylists()
+    }
+
+    public func deletePlaylist(_ playlist: Playlist) async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            error = "Playlist name cannot be empty."
+            return false
+        }
+
+        addOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
+
+        do {
+            _ = try await syncCoordinator.createPlaylist(
+                title: trimmed,
+                tracks: [],
+                serverSourceKey: serverSourceKey
+            )
+            Task { [weak self] in
+                await self?.awaitCreatedPlaylistMaterialization(
+                    title: trimmed,
+                    serverSourceKey: serverSourceKey
+                )
+            }
+            return true
+        } catch {
+            removeOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
+            await reloadPlaylists(showLoading: false)
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func isPlaylistPendingCreation(_ playlist: Playlist) -> Bool {
+        Self.isOptimisticCreatingPlaylistID(playlist.id)
     }
     
     public var sortedPlaylists: [Playlist] {
@@ -139,6 +176,86 @@ public final class PlaylistViewModel: ObservableObject {
         }
         
         return filtered
+    }
+
+    private func reloadPlaylists(showLoading: Bool) async {
+        if showLoading {
+            isLoading = true
+        }
+        error = nil
+
+        do {
+            let cached = try await playlistRepository.fetchPlaylists()
+            let serverPlaylists = cached.map { Playlist(from: $0) }
+            optimisticCreatingPlaylists.removeAll { optimistic in
+                serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
+            }
+            playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        if showLoading {
+            isLoading = false
+        }
+    }
+
+    private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {
+        for _ in 0..<20 {
+            await reloadPlaylists(showLoading: false)
+            let hasPending = optimisticCreatingPlaylists.contains(where: {
+                normalizedTitle($0.title) == normalizedTitle(title) &&
+                $0.sourceCompositeKey == serverSourceKey
+            })
+            if !hasPending {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+    }
+
+    private func addOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
+        let placeholder = Playlist(
+            id: "\(Self.optimisticCreatePrefix)\(UUID().uuidString)",
+            key: "/playlists/pending",
+            title: title,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            dateAdded: Date(),
+            dateModified: Date(),
+            sourceCompositeKey: serverSourceKey
+        )
+        optimisticCreatingPlaylists.removeAll(where: { matchesPlaylistIdentity($0, placeholder) })
+        optimisticCreatingPlaylists.append(placeholder)
+        playlists = mergeWithOptimisticCreatingPlaylists(playlists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) })
+    }
+
+    private func removeOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
+        optimisticCreatingPlaylists.removeAll {
+            normalizedTitle($0.title) == normalizedTitle(title) &&
+            $0.sourceCompositeKey == serverSourceKey
+        }
+    }
+
+    private func mergeWithOptimisticCreatingPlaylists(_ serverPlaylists: [Playlist]) -> [Playlist] {
+        let unresolvedOptimistic = optimisticCreatingPlaylists.filter { optimistic in
+            !serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
+        }
+        return serverPlaylists + unresolvedOptimistic
+    }
+
+    private static func isOptimisticCreatingPlaylistID(_ id: String) -> Bool {
+        id.hasPrefix(optimisticCreatePrefix)
+    }
+
+    private func matchesPlaylistIdentity(_ lhs: Playlist, _ rhs: Playlist) -> Bool {
+        normalizedTitle(lhs.title) == normalizedTitle(rhs.title) &&
+        lhs.sourceCompositeKey == rhs.sourceCompositeKey
+    }
+
+    private func normalizedTitle(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -255,6 +372,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             await loadTracks()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    public func deletePlaylist() async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
         }
     }
 

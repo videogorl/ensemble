@@ -43,9 +43,15 @@ public struct ToastBannerView: View {
 
     public var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: toast.iconSystemName)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(iconColor)
+            if toast.showsActivityIndicator {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(iconColor)
+            } else {
+                Image(systemName: toast.iconSystemName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(iconColor)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(toast.title)
@@ -68,6 +74,7 @@ public struct ToastBannerView: View {
                     toastCenter.triggerAction(for: toast.id)
                 }
                 .font(.caption.weight(.semibold))
+                .foregroundColor(accentColor)
             }
         }
         .padding(.horizontal, 14)
@@ -93,28 +100,14 @@ public struct ToastBannerView: View {
     }
 
     private var iconColor: Color {
-        switch toast.style {
-        case .success:
-            return .green
-        case .info:
-            return .blue
-        case .warning:
-            return .orange
-        case .error:
-            return .red
-        }
+        accentColor
     }
 
     private var borderColor: Color {
-        switch toast.style {
-        case .success:
-            return .green.opacity(0.35)
-        case .info:
-            return .blue.opacity(0.35)
-        case .warning:
-            return .orange.opacity(0.35)
-        case .error:
-            return .red.opacity(0.4)
-        }
+        accentColor.opacity(0.4)
+    }
+
+    private var accentColor: Color {
+        Color.accentColor
     }
 }

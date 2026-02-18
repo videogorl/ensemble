@@ -594,13 +594,14 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
-        let uri = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
-        let query: [String: String] = [
+        var query: [String: String] = [
             "type": "audio",
             "title": title,
-            "smart": "0",
-            "uri": uri
+            "smart": "0"
         ]
+        if !trackRatingKeys.isEmpty {
+            query["uri"] = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
+        }
 
         _ = try await serverRequestPOST(path: "/playlists", query: query)
     }
@@ -624,6 +625,11 @@ public actor PlexAPIClient {
             path: "/playlists/\(playlistId)/items",
             query: ["uri": uri]
         )
+    }
+
+    /// Delete a playlist.
+    public func deletePlaylist(playlistId: String) async throws {
+        _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)")
     }
 
     /// Remove a specific playlist item from a playlist
@@ -1397,6 +1403,18 @@ public actor PlexAPIClient {
     }
 
     private func performServerRequestDELETE(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+        let request = try makeServerRequest(url: url, method: "DELETE", path: path, query: query)
+        let (data, _) = try await performRequest(request)
+        return data
+    }
+
+    /// Build a server request with Plex auth headers and tokenized query.
+    internal func makeServerRequest(
+        url: String,
+        method: String,
+        path: String,
+        query: [String: String] = [:]
+    ) throws -> URLRequest {
         var components = URLComponents(string: url)!
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -1408,12 +1426,10 @@ public actor PlexAPIClient {
         }
 
         var request = URLRequest(url: requestURL)
-        request.httpMethod = "DELETE"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
-
-        let (data, _) = try await performRequest(request)
-        return data
+        return request
     }
 
     /// Build Plex metadata URI format used for playlist mutations.

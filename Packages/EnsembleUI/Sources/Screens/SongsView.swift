@@ -9,10 +9,17 @@ import AppKit
 #endif
 
 public struct SongsView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -200,6 +207,9 @@ public struct SongsView: View {
                     .ignoresSafeArea(.container, edges: .top)
                 }
             }
+            .sheet(item: $playlistPickerPayload) { payload in
+                PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+            }
         }
     }
     
@@ -222,6 +232,9 @@ public struct SongsView: View {
                         isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                        recentPlaylistTitle: recentPlaylistTitle(for: track),
                         onTap: {
                             if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
                                 nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
@@ -253,11 +266,53 @@ public struct SongsView: View {
             },
             onPlayLast: { track in
                 nowPlayingVM.playLast(track)
-            }
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
         ) { track, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.vertical)
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 
     private func sectionHeader(_ letter: String) -> some View {

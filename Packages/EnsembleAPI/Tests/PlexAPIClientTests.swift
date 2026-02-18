@@ -2,6 +2,22 @@ import XCTest
 @testable import EnsembleAPI
 
 final class PlexAPIClientTests: XCTestCase {
+    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
+        private var storage: [String: String] = [:]
+
+        func save(_ value: String, forKey key: String) throws {
+            storage[key] = value
+        }
+
+        func get(_ key: String) throws -> String? {
+            storage[key]
+        }
+
+        func delete(_ key: String) throws {
+            storage.removeValue(forKey: key)
+        }
+    }
+
     func testPlexModelsDecoding() throws {
         // Test PlexTrack decoding
         let trackJSON = """
@@ -44,5 +60,34 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(device.name, "My Plex Server")
         XCTAssertTrue(device.isServer)
         XCTAssertNotNil(device.bestConnection)
+    }
+
+    func testDeletePlaylistBuildsDeleteRequest() async throws {
+        let keychain = TestKeychain()
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: keychain
+        )
+
+        let request = try await client.makeServerRequest(
+            url: "https://example.com",
+            method: "DELETE",
+            path: "/playlists/abc123"
+        )
+
+        XCTAssertEqual(request.httpMethod, "DELETE")
+        XCTAssertEqual(request.url?.path, "/playlists/abc123")
+        XCTAssertEqual(
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "X-Plex-Token" })?
+                .value,
+            "token123"
+        )
     }
 }

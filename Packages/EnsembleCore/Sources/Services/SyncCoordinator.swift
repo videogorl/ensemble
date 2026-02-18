@@ -23,7 +23,7 @@ public struct PlaylistMutationResult: Sendable {
     }
 }
 
-public enum PlaylistMutationError: LocalizedError {
+public enum PlaylistMutationError: LocalizedError, Equatable {
     case invalidSource
     case playlistNotFound
     case smartPlaylistReadOnly
@@ -74,6 +74,8 @@ public final class SyncCoordinator: ObservableObject {
     private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
     private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
+    internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
+    internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
 
     public init(
         accountManager: AccountManager,
@@ -520,7 +522,7 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
-        guard !filteredTrackIds.isEmpty else {
+        guard tracks.isEmpty || !filteredTrackIds.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
 
@@ -528,13 +530,76 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        try await apiClient.createPlaylist(
-            title: trimmed,
-            trackRatingKeys: filteredTrackIds,
-            serverIdentifier: server.serverId
-        )
+        do {
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: filteredTrackIds,
+                serverIdentifier: server.serverId
+            )
+        } catch let error as PlexAPIError {
+            guard tracks.isEmpty,
+                  case .httpError(statusCode: 400) = error,
+                  let seedTrackID = await seedTrackIDForServer(
+                    serverSourceKey: serverSourceKey,
+                    parsedServer: server,
+                    apiClient: apiClient
+                  ) else {
+                throw error
+            }
 
-        if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
+            #if DEBUG
+            print("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
+            #endif
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: [seedTrackID],
+                serverIdentifier: server.serverId
+            )
+
+            if let createdPlaylist = try? await apiClient.getPlaylists()
+                .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                try? await apiClient.clearPlaylistItems(playlistId: createdPlaylist.ratingKey)
+            }
+        }
+
+        if let createdRemotePlaylist = try? await apiClient.getPlaylists()
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            let isEmptyCreate = tracks.isEmpty
+            _ = try? await playlistRepository.upsertPlaylist(
+                ratingKey: createdRemotePlaylist.ratingKey,
+                key: createdRemotePlaylist.key,
+                title: createdRemotePlaylist.title,
+                summary: createdRemotePlaylist.summary,
+                compositePath: createdRemotePlaylist.composite,
+                isSmart: createdRemotePlaylist.smart ?? false,
+                duration: isEmptyCreate ? 0 : createdRemotePlaylist.duration,
+                trackCount: isEmptyCreate ? 0 : createdRemotePlaylist.leafCount,
+                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: serverSourceKey
+            )
+            if isEmptyCreate {
+                try? await playlistRepository.setPlaylistTracks([], forPlaylist: createdRemotePlaylist.ratingKey, sourceCompositeKey: serverSourceKey)
+            }
+
+            persistLastPlaylistTarget(
+                from: Playlist(
+                    id: createdRemotePlaylist.ratingKey,
+                    key: createdRemotePlaylist.key,
+                    title: createdRemotePlaylist.title,
+                    summary: createdRemotePlaylist.summary,
+                    isSmart: createdRemotePlaylist.smart ?? false,
+                    trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
+                    duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
+                    compositePath: createdRemotePlaylist.composite,
+                    dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    sourceCompositeKey: serverSourceKey
+                )
+            )
+        } else if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
             .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             persistLastPlaylistTarget(from: createdPlaylist)
         }
@@ -599,6 +664,32 @@ public final class SyncCoordinator: ObservableObject {
 
         try await apiClient.renamePlaylist(playlistId: playlist.id, newTitle: trimmed)
         await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+    }
+
+    /// Delete a playlist and refresh server playlists.
+    public func deletePlaylist(_ playlist: Playlist) async throws {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        if let playlistDeleteHandlerForTesting {
+            try await playlistDeleteHandlerForTesting(apiClient, playlist.id)
+        } else {
+            try await apiClient.deletePlaylist(playlistId: playlist.id)
+        }
+
+        clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
+
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+        } else {
+            await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
     }
 
     /// Replace playlist contents in the provided order and refresh local cache.
@@ -1108,6 +1199,38 @@ public final class SyncCoordinator: ObservableObject {
         return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
     }
 
+    private func seedTrackIDForServer(
+        serverSourceKey: String,
+        parsedServer: ParsedServerSource,
+        apiClient: PlexAPIClient
+    ) async -> String? {
+        // Fast path: try local cache first.
+        if let allTracks = try? await libraryRepository.fetchTracks(),
+           let cachedTrackID = allTracks.first(where: { track in
+            guard let trackSourceCompositeKey = track.sourceCompositeKey,
+                  let trackServerSourceKey = self.serverSourceKey(from: trackSourceCompositeKey) else {
+                return false
+            }
+            return trackServerSourceKey == serverSourceKey
+           })?.ratingKey {
+            return cachedTrackID
+        }
+
+        // Fallback: query Plex for a lightweight inventory and use any one track ID.
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == parsedServer.accountId }),
+              let server = account.servers.first(where: { $0.id == parsedServer.serverId }) else {
+            return nil
+        }
+
+        for library in server.libraries where library.isEnabled {
+            if let seedFromInventory = try? await apiClient.getTrackInventory(sectionKey: library.key).first?.ratingKey {
+                return seedFromInventory
+            }
+        }
+
+        return nil
+    }
+
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
     private func refreshServerPlaylists(serverSourceKey: String) async {
         guard let parsed = parseServerSourceKey(serverSourceKey) else { return }
@@ -1144,6 +1267,25 @@ public final class SyncCoordinator: ObservableObject {
         lastPlaylistTarget = target
     }
 
+    private func clearLastPlaylistTargetIfNeeded(deletedPlaylist: Playlist) {
+        guard let deletedSourceKey = deletedPlaylist.sourceCompositeKey else { return }
+
+        lastPlaylistTargetsByServer = lastPlaylistTargetsByServer.filter { sourceKey, target in
+            !(sourceKey == deletedSourceKey && target.id == deletedPlaylist.id)
+        }
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.id == deletedPlaylist.id,
+           lastPlaylistTarget.sourceCompositeKey == deletedSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
     public func lastPlaylistTarget(forServerSourceKey serverSourceKey: String?) -> LastPlaylistTarget? {
         guard let serverSourceKey else { return lastPlaylistTarget }
         if let target = lastPlaylistTargetsByServer[serverSourceKey] {
@@ -1153,6 +1295,29 @@ public final class SyncCoordinator: ObservableObject {
             return lastPlaylistTarget
         }
         return nil
+    }
+
+    internal func setLastPlaylistTargetForTesting(_ target: LastPlaylistTarget?, serverSourceKey: String?) {
+        if let serverSourceKey {
+            if let target {
+                lastPlaylistTargetsByServer[serverSourceKey] = target
+            } else {
+                lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+            }
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
+
+        lastPlaylistTarget = target
+        let defaults = UserDefaults.standard
+        if let target {
+            defaults.set(target.id, forKey: Self.lastPlaylistIdKey)
+            defaults.set(target.title, forKey: Self.lastPlaylistTitleKey)
+            defaults.set(target.sourceCompositeKey, forKey: Self.lastPlaylistSourceKey)
+        } else {
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
     }
 
     private static func saveLastPlaylistTarget(_ target: LastPlaylistTarget) {
