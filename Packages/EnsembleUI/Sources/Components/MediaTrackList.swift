@@ -221,6 +221,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
     let onToggleFavorite: ((Track) -> Void)?
+    let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     
@@ -237,6 +238,7 @@ public struct MediaTrackList: UIViewRepresentable {
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
         onToggleFavorite: ((Track) -> Void)? = nil,
+        isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -251,6 +253,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
         self.onToggleFavorite = onToggleFavorite
+        self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onTrackTap = onTrackTap
@@ -308,6 +311,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
         context.coordinator.onToggleFavorite = onToggleFavorite
+        context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -353,6 +357,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
             onToggleFavorite: onToggleFavorite,
+            isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             artworkLoader: dependencies.artworkLoader
@@ -383,6 +388,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
         var onToggleFavorite: ((Track) -> Void)?
+        var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
@@ -399,6 +405,7 @@ public struct MediaTrackList: UIViewRepresentable {
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
             onToggleFavorite: ((Track) -> Void)?,
+            isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             artworkLoader: ArtworkLoaderProtocol
@@ -414,6 +421,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
             self.onToggleFavorite = onToggleFavorite
+            self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
@@ -524,7 +532,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 }
 
                 if let onToggleFavorite = self?.onToggleFavorite {
-                    let isFavorited = track.rating >= 8
+                    let isFavorited = self?.isTrackFavorited?(track) ?? (track.rating >= 8)
                     actions.append(UIAction(
                         title: isFavorited ? "Unfavorite" : "Favorite",
                         image: UIImage(systemName: isFavorited ? "heart.slash" : "heart")
@@ -601,7 +609,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTitle(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                return track.rating >= 8 ? "Unfavorite" : "Favorite"
+                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                return isFavorited ? "Unfavorite" : "Favorite"
             default:
                 return action.title
             }
@@ -610,7 +619,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeIcon(for action: TrackSwipeAction, track: Track) -> String {
             switch action {
             case .favoriteToggle:
-                return track.rating >= 8 ? "heart.slash.fill" : "heart.fill"
+                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                return isFavorited ? "heart.slash.fill" : "heart.fill"
             default:
                 return action.systemImage
             }
@@ -619,7 +629,8 @@ public struct MediaTrackList: UIViewRepresentable {
         private func swipeTint(for action: TrackSwipeAction, track: Track) -> Color {
             switch action {
             case .favoriteToggle:
-                return track.rating >= 8 ? .gray : .pink
+                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                return isFavorited ? .gray : .pink
             default:
                 return action.tint
             }

@@ -5,12 +5,12 @@ import SwiftUI
 /// UIKit-backed tables use native `UISwipeActionsConfiguration` separately.
 public struct TrackSwipeContainer<Content: View>: View {
     let track: Track
-    let nowPlayingVM: NowPlayingViewModel
     let onPlayNext: (() -> Void)?
     let onPlayLast: (() -> Void)?
     let onAddToPlaylist: (() -> Void)?
     let content: Content
 
+    @ObservedObject private var nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     @State private var offset: CGFloat = 0
@@ -28,7 +28,7 @@ public struct TrackSwipeContainer<Content: View>: View {
         @ViewBuilder content: () -> Content
     ) {
         self.track = track
-        self.nowPlayingVM = nowPlayingVM
+        _nowPlayingVM = ObservedObject(wrappedValue: nowPlayingVM)
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -40,12 +40,15 @@ public struct TrackSwipeContainer<Content: View>: View {
         ZStack {
             backgroundActions
             content
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .offset(x: offset)
                 .contentShape(Rectangle())
                 .background(Color(.systemBackground))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .clipped()
-        .highPriorityGesture(dragGesture)
+        .gesture(dragGesture, including: .all)
         .simultaneousGesture(
             TapGesture().onEnded {
                 if offset != 0 {
@@ -88,7 +91,7 @@ public struct TrackSwipeContainer<Content: View>: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 10)
+        DragGesture(minimumDistance: 6)
             .onChanged { value in
                 let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
                 guard isHorizontal else { return }

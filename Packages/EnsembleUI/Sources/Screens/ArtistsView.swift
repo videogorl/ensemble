@@ -574,6 +574,7 @@ public struct ArtistDetailView: View {
                                     await nowPlayingVM.toggleTrackFavorite(track)
                                 }
                             },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
                             recentPlaylistTitle: recentPlaylistTitle(for: track)
                         ) {
                             nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)

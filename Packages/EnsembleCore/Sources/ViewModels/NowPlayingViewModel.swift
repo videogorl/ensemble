@@ -76,6 +76,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var showHistory: Bool = false
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
+    @Published private var optimisticTrackRatings: [String: Int] = [:]
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -630,7 +631,7 @@ public final class NowPlayingViewModel: ObservableObject {
     // MARK: - Rating Management
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        track.rating >= 8
+        trackDisplayRating(for: track) >= 8
     }
 
     public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
@@ -654,6 +655,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         do {
             // Optimistically update local state so UI reflects the change immediately.
+            optimisticTrackRatings[track.id] = optimisticRating
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
 
@@ -669,6 +671,7 @@ public final class NowPlayingViewModel: ObservableObject {
             }
         } catch {
             // Roll back optimistic state if server mutation fails.
+            optimisticTrackRatings[track.id] = previousRating
             try? await storeTrackRating(trackId: track.id, rating: previousRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
 
@@ -782,6 +785,10 @@ public final class NowPlayingViewModel: ObservableObject {
         guard currentTrack?.id == track.id else { return }
         currentTrack = track
         currentRating = TrackRating.from(rating: track.rating)
+    }
+
+    private func trackDisplayRating(for track: Track) -> Int {
+        optimisticTrackRatings[track.id] ?? track.rating
     }
 
     // MARK: - Helpers

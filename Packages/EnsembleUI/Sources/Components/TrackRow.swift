@@ -13,6 +13,7 @@ public struct TrackRow: View {
     let onAddToPlaylist: (() -> Void)?
     let onAddToRecentPlaylist: (() -> Void)?
     let onToggleFavorite: (() -> Void)?
+    let isFavorited: Bool?
     let recentPlaylistTitle: String?
 
     public init(
@@ -26,6 +27,7 @@ public struct TrackRow: View {
         onAddToPlaylist: (() -> Void)? = nil,
         onAddToRecentPlaylist: (() -> Void)? = nil,
         onToggleFavorite: (() -> Void)? = nil,
+        isFavorited: Bool? = nil,
         recentPlaylistTitle: String? = nil,
         onTap: @escaping () -> Void
     ) {
@@ -39,6 +41,7 @@ public struct TrackRow: View {
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
         self.onToggleFavorite = onToggleFavorite
+        self.isFavorited = isFavorited
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onTap = onTap
     }
@@ -90,6 +93,7 @@ public struct TrackRow: View {
                     .foregroundColor(.secondary)
                     .monospacedDigit()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -118,7 +122,7 @@ public struct TrackRow: View {
             }
             if let onToggleFavorite = onToggleFavorite {
                 Button(action: onToggleFavorite) {
-                    if track.rating >= 8 {
+                    if effectiveIsFavorited {
                         Label("Unfavorite", systemImage: "heart.slash")
                     } else {
                         Label("Favorite", systemImage: "heart")
@@ -126,6 +130,10 @@ public struct TrackRow: View {
                 }
             }
         }
+    }
+
+    private var effectiveIsFavorited: Bool {
+        isFavorited ?? (track.rating >= 8)
     }
 
     @ViewBuilder
@@ -207,6 +215,7 @@ public struct TrackListView: View {
                     onAddToPlaylist: onAddToPlaylist != nil ? { onAddToPlaylist?(track) } : nil,
                     onAddToRecentPlaylist: onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true) ? { onAddToRecentPlaylist?(track) } : nil,
                     onToggleFavorite: onToggleFavorite != nil ? { onToggleFavorite?(track) } : nil,
+                    isFavorited: nowPlayingVM?.isTrackFavorited(track),
                     recentPlaylistTitle: recentPlaylistTitle
                 ) {
                     onTrackTap(track, index)

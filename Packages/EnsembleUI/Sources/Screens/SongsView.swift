@@ -246,6 +246,7 @@ public struct SongsView: View {
                                     await nowPlayingVM.toggleTrackFavorite(track)
                                 }
                             },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
                             recentPlaylistTitle: recentPlaylistTitle(for: track),
                             onTap: {
                                 if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {

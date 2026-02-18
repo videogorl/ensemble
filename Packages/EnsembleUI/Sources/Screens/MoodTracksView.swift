@@ -106,6 +106,7 @@ public struct MoodTracksView: View {
                                                     await nowPlayingVM.toggleTrackFavorite(track)
                                                 }
                                             },
+                                            isFavorited: nowPlayingVM.isTrackFavorited(track),
                                             recentPlaylistTitle: recentPlaylistTitle(for: track),
                                             onTap: {
                                                 if !nowPlayingVM.isAutoplayEnabled {

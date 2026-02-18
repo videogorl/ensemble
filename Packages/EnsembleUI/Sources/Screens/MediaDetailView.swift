@@ -555,6 +555,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
             canAddToRecentPlaylist: { track in
                 guard let lastPlaylistQuickTarget else { return false }
                 return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
@@ -589,6 +592,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             await nowPlayingVM.toggleTrackFavorite(track)
                         }
                     },
+                    isFavorited: nowPlayingVM.isTrackFavorited(track),
                     recentPlaylistTitle: {
                         guard let lastPlaylistQuickTarget,
                               nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
