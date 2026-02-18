@@ -1,0 +1,4 @@
+module EnsemblePersistence {
+header "EnsemblePersistence-Swift.h"
+export *
+}
