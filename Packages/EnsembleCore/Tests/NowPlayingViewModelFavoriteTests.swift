@@ -1,0 +1,241 @@
+import Combine
+import XCTest
+@testable import EnsembleCore
+import EnsemblePersistence
+import EnsembleAPI
+
+@MainActor
+final class NowPlayingViewModelFavoriteTests: XCTestCase {
+    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
+        private var storage: [String: String] = [:]
+
+        func save(_ value: String, forKey key: String) throws {
+            storage[key] = value
+        }
+
+        func get(_ key: String) throws -> String? {
+            storage[key]
+        }
+
+        func delete(_ key: String) throws {
+            storage.removeValue(forKey: key)
+        }
+    }
+
+    private final class MockPlaybackService: PlaybackServiceProtocol {
+        private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
+        private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
+        private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
+        private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
+        private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
+        private let repeatModeSubject = CurrentValueSubject<RepeatMode, Never>(.off)
+        private let waveformSubject = CurrentValueSubject<[Double], Never>([])
+        private let autoplayEnabledSubject = CurrentValueSubject<Bool, Never>(false)
+        private let autoplayTracksSubject = CurrentValueSubject<[Track], Never>([])
+        private let autoplayActiveSubject = CurrentValueSubject<Bool, Never>(false)
+        private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
+        private let recommendationsSubject = CurrentValueSubject<Bool, Never>(false)
+        private let historySubject = CurrentValueSubject<[QueueItem], Never>([])
+
+        var currentTrack: Track? { currentTrackSubject.value }
+        var playbackState: PlaybackState { playbackStateSubject.value }
+        var currentTime: TimeInterval { currentTimeSubject.value }
+        var duration: TimeInterval { currentTrack?.duration ?? 0 }
+        var queue: [QueueItem] { queueSubject.value }
+        var currentQueueIndex: Int { queueIndexSubject.value }
+        var isShuffleEnabled: Bool { shuffleSubject.value }
+        var repeatMode: RepeatMode { repeatModeSubject.value }
+        var waveformHeights: [Double] { waveformSubject.value }
+        var isAutoplayEnabled: Bool { autoplayEnabledSubject.value }
+        var autoplayTracks: [Track] { autoplayTracksSubject.value }
+        var isAutoplayActive: Bool { autoplayActiveSubject.value }
+        var radioMode: RadioMode { radioModeSubject.value }
+        var recommendationsExhausted: Bool { recommendationsSubject.value }
+        var queueSections: QueueSections { .empty }
+        var playbackHistory: [QueueItem] { historySubject.value }
+
+        var currentTrackPublisher: AnyPublisher<Track?, Never> { currentTrackSubject.eraseToAnyPublisher() }
+        var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { playbackStateSubject.eraseToAnyPublisher() }
+        var currentTimePublisher: AnyPublisher<TimeInterval, Never> { currentTimeSubject.eraseToAnyPublisher() }
+        var currentTimeValue: TimeInterval { currentTimeSubject.value }
+        var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
+        var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }
+        var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }
+        var repeatModePublisher: AnyPublisher<RepeatMode, Never> { repeatModeSubject.eraseToAnyPublisher() }
+        var waveformPublisher: AnyPublisher<[Double], Never> { waveformSubject.eraseToAnyPublisher() }
+        var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { autoplayEnabledSubject.eraseToAnyPublisher() }
+        var autoplayTracksPublisher: AnyPublisher<[Track], Never> { autoplayTracksSubject.eraseToAnyPublisher() }
+        var autoplayActivePublisher: AnyPublisher<Bool, Never> { autoplayActiveSubject.eraseToAnyPublisher() }
+        var radioModePublisher: AnyPublisher<RadioMode, Never> { radioModeSubject.eraseToAnyPublisher() }
+        var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { recommendationsSubject.eraseToAnyPublisher() }
+        var historyPublisher: AnyPublisher<[QueueItem], Never> { historySubject.eraseToAnyPublisher() }
+
+        func play(track: Track) async {}
+        func play(tracks: [Track], startingAt index: Int) async {}
+        func shufflePlay(tracks: [Track]) async {}
+        func playQueueIndex(_ index: Int) async {}
+        func pause() {}
+        func resume() {}
+        func stop() {}
+        func retryCurrentTrack() async {}
+        func next() {}
+        func previous() {}
+        func seek(to time: TimeInterval) {}
+        func addToQueue(_ track: Track) {}
+        func addToQueue(_ tracks: [Track]) {}
+        func playNext(_ track: Track) {}
+        func playLast(_ track: Track) {}
+        func playLast(_ tracks: [Track]) {}
+        func removeFromQueue(at index: Int) {}
+        func clearQueue() {}
+        func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int) {}
+        func moveQueueItem(from sourceIndex: Int, to destinationIndex: Int) {}
+        func toggleShuffle() {}
+        func cycleRepeatMode() {}
+        func toggleAutoplay() {}
+        func refreshAutoplayQueue() async {}
+        func enableRadio(tracks: [Track]) async {}
+        func playArtistRadio(for artist: Artist) async {}
+        func playAlbumRadio(for album: Album) async {}
+        func isTrackAutoGenerated(trackId: String) -> Bool { false }
+        func playFromHistory(at historyIndex: Int) async {}
+    }
+
+    private enum MockError: Error {
+        case unimplemented
+    }
+
+    private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
+        func refreshContext() async {}
+        func fetchArtists() async throws -> [CDArtist] { [] }
+        func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
+        func upsertArtist(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?, sourceCompositeKey: String?) async throws -> CDArtist { throw MockError.unimplemented }
+        func fetchAlbums() async throws -> [CDAlbum] { [] }
+        func fetchAlbum(ratingKey: String) async throws -> CDAlbum? { nil }
+        func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
+        func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
+        func fetchTracks() async throws -> [CDTrack] { [] }
+        func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
+        func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
+        func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
+        func fetchTrack(ratingKey: String) async throws -> CDTrack? { nil }
+        func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, rating: Int?, playCount: Int?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
+        func fetchGenres() async throws -> [CDGenre] { [] }
+        func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre { throw MockError.unimplemented }
+        func searchTracks(query: String) async throws -> [CDTrack] { [] }
+        func searchArtists(query: String) async throws -> [CDArtist] { [] }
+        func searchAlbums(query: String) async throws -> [CDAlbum] { [] }
+        func fetchMusicSources() async throws -> [CDMusicSource] { [] }
+        func upsertMusicSource(compositeKey: String, type: String, accountId: String, serverId: String, libraryId: String, displayName: String?, accountName: String?) async throws -> CDMusicSource { throw MockError.unimplemented }
+        func updateMusicSourceSyncTimestamp(compositeKey: String) async throws {}
+        func deleteAllData(forSourceCompositeKey: String) async throws {}
+        func deleteAllLibraryData() async throws {}
+        func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
+        func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
+        func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
+        func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
+    }
+
+    private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
+        func fetchPlaylists() async throws -> [CDPlaylist] { [] }
+        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
+        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
+        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
+        func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
+        func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
+        func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
+        func deletePlaylist(ratingKey: String) async throws {}
+        func removeDuplicatePlaylists() async throws {}
+        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
+    }
+
+    private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
+        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
+        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
+        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
+        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
+        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
+        func clearArtworkCache() async throws {}
+        func getArtworkCacheSize() async throws -> Int64 { 0 }
+    }
+
+    private func makeViewModel() -> NowPlayingViewModel {
+        let libraryRepository = MockLibraryRepository()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        let syncCoordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            artworkDownloadManager: MockArtworkDownloadManager(),
+            networkMonitor: NetworkMonitor(),
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+        )
+
+        return NowPlayingViewModel(
+            playbackService: MockPlaybackService(),
+            syncCoordinator: syncCoordinator,
+            libraryRepository: libraryRepository,
+            navigationCoordinator: NavigationCoordinator(),
+            toastCenter: ToastCenter()
+        )
+    }
+
+    func testSetTrackFavoriteUsesLovedRating() async {
+        let viewModel = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
+        var recordedRating: Int?
+        var storedRating: Int?
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, rating in
+            recordedRating = rating
+        }
+        viewModel.trackRatingStoreHandlerForTesting = { _, rating in
+            storedRating = rating
+        }
+
+        await viewModel.setTrackFavorite(true, for: track)
+
+        XCTAssertEqual(recordedRating, 10)
+        XCTAssertEqual(storedRating, 10)
+    }
+
+    func testSetTrackFavoriteUsesNilRatingWhenUnfavoriting() async {
+        let viewModel = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", rating: 10)
+        var recordedRating: Int?
+        var storedRating: Int?
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, rating in
+            recordedRating = rating
+        }
+        viewModel.trackRatingStoreHandlerForTesting = { _, rating in
+            storedRating = rating
+        }
+
+        await viewModel.setTrackFavorite(false, for: track)
+
+        XCTAssertNil(recordedRating)
+        XCTAssertEqual(storedRating, 0)
+    }
+
+    func testSetTrackFavoriteStopsWhenMutationFails() async {
+        let viewModel = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
+        var didAttemptStore = false
+
+        struct TestError: Error {}
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, _ in
+            throw TestError()
+        }
+        viewModel.trackRatingStoreHandlerForTesting = { _, _ in
+            didAttemptStore = true
+        }
+
+        await viewModel.setTrackFavorite(true, for: track)
+
+        XCTAssertFalse(didAttemptStore)
+    }
+}

@@ -86,6 +86,8 @@ public final class NowPlayingViewModel: ObservableObject {
     
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
+    internal var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
+    internal var trackRatingStoreHandlerForTesting: ((String, Int) async throws -> Void)?
 
     public init(
         playbackService: PlaybackServiceProtocol,
@@ -625,6 +627,47 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Rating Management
+
+    public func isTrackFavorited(_ track: Track) -> Bool {
+        track.rating >= 8
+    }
+
+    public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
+        let plexRating: Int? = isFavorite ? 10 : nil
+        let storedRating = isFavorite ? 10 : 0
+
+        do {
+            if let trackRatingMutationHandlerForTesting {
+                try await trackRatingMutationHandlerForTesting(track, plexRating)
+            } else {
+                try await syncCoordinator.rateTrack(track: track, rating: plexRating)
+            }
+
+            if let trackRatingStoreHandlerForTesting {
+                try await trackRatingStoreHandlerForTesting(track.id, storedRating)
+            } else {
+                try await updateTrackRatingInDatabase(trackId: track.id, rating: storedRating)
+            }
+
+            if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
+                let refreshedTrack = Track(from: updatedTrack)
+                if currentTrack?.id == track.id {
+                    currentTrack = refreshedTrack
+                    currentRating = TrackRating.from(rating: refreshedTrack.rating)
+                }
+            } else if currentTrack?.id == track.id {
+                currentRating = isFavorite ? .loved : .none
+            }
+        } catch {
+            #if DEBUG
+            print("Failed to set favorite state: \(error)")
+            #endif
+        }
+    }
+
+    public func toggleTrackFavorite(_ track: Track) async {
+        await setTrackFavorite(!isTrackFavorited(track), for: track)
+    }
     
     /// Toggle rating through three states: none → loved → disliked → none
     public func toggleRating() {
