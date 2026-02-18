@@ -174,6 +174,7 @@ public struct PlaylistDetailView: View {
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -283,11 +284,21 @@ public struct PlaylistDetailView: View {
             Button("Delete", role: .destructive) {
                 guard !isDeletingPlaylist else { return }
                 isDeletingPlaylist = true
+                let playlistTitle = viewModel.playlist.title
+                dismiss()
                 Task {
                     let didDelete = await viewModel.deletePlaylist()
                     isDeletingPlaylist = false
-                    if didDelete {
-                        dismiss()
+                    if !didDelete {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .error,
+                                iconSystemName: "xmark.octagon.fill",
+                                title: "Could not delete \(playlistTitle)",
+                                message: viewModel.error ?? "Try again later.",
+                                dedupeKey: "playlist-delete-error-\(viewModel.playlist.id)"
+                            )
+                        )
                     }
                 }
             }
