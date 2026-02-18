@@ -727,6 +727,26 @@ public final class SyncCoordinator: ObservableObject {
             print("⚠️ Server state uncertain, attempting playback anyway")
         }
     }
+
+    /// Proactively refreshes Plex server connections across configured accounts.
+    /// Playback retry paths use this to recover from transient connection failures.
+    public func refreshConnection() async throws {
+        var refreshedAnyConnection = false
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                    continue
+                }
+                await apiClient.refreshConnection()
+                refreshedAnyConnection = true
+            }
+        }
+
+        guard refreshedAnyConnection else {
+            throw PlexAPIError.noServerSelected
+        }
+    }
     
     /// Get the stream URL for a track, routing to the correct provider
     public func getStreamURL(for track: Track) async throws -> URL {
