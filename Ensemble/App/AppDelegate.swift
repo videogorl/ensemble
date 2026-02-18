@@ -73,14 +73,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         
-        // Schedule background refresh only where the handler is registered
-        // (SwiftUI .backgroundTask is iOS 16+ in EnsembleApp).
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            BackgroundSyncScheduler.shared.scheduleAppRefresh()
-        }
-        #endif
-        
         print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }
