@@ -223,19 +223,19 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     func testSetTrackFavoriteStopsWhenMutationFails() async {
         let viewModel = makeViewModel()
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
-        var didAttemptStore = false
+        var storedRatings: [Int] = []
 
         struct TestError: Error {}
 
         viewModel.trackRatingMutationHandlerForTesting = { _, _ in
             throw TestError()
         }
-        viewModel.trackRatingStoreHandlerForTesting = { _, _ in
-            didAttemptStore = true
+        viewModel.trackRatingStoreHandlerForTesting = { _, rating in
+            storedRatings.append(rating)
         }
 
         await viewModel.setTrackFavorite(true, for: track)
 
-        XCTAssertFalse(didAttemptStore)
+        XCTAssertEqual(storedRatings, [10, 0])
     }
 }

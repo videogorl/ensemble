@@ -86,6 +86,7 @@ public final class NowPlayingViewModel: ObservableObject {
     
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
+    private var favoriteUpdatesInFlight = Set<String>()
     internal var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
     internal var trackRatingStoreHandlerForTesting: ((String, Int) async throws -> Void)?
 
@@ -633,32 +634,53 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
+        guard !favoriteUpdatesInFlight.contains(track.id) else { return }
+        favoriteUpdatesInFlight.insert(track.id)
+        defer { favoriteUpdatesInFlight.remove(track.id) }
+
         let plexRating: Int? = isFavorite ? 10 : nil
-        let storedRating = isFavorite ? 10 : 0
+        let optimisticRating = isFavorite ? 10 : 0
+        let previousRating = track.rating
+        let loadingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "heart.fill",
+            title: isFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
+            isPersistent: true,
+            dedupeKey: "favorite-toggle-loading-\(track.id)",
+            showsActivityIndicator: true
+        )
+        toastCenter.show(loadingToast)
+        defer { toastCenter.dismiss(id: loadingToast.id) }
 
         do {
+            // Optimistically update local state so UI reflects the change immediately.
+            try await storeTrackRating(trackId: track.id, rating: optimisticRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
+
             if let trackRatingMutationHandlerForTesting {
                 try await trackRatingMutationHandlerForTesting(track, plexRating)
             } else {
                 try await syncCoordinator.rateTrack(track: track, rating: plexRating)
             }
 
-            if let trackRatingStoreHandlerForTesting {
-                try await trackRatingStoreHandlerForTesting(track.id, storedRating)
-            } else {
-                try await updateTrackRatingInDatabase(trackId: track.id, rating: storedRating)
-            }
-
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                 let refreshedTrack = Track(from: updatedTrack)
-                if currentTrack?.id == track.id {
-                    currentTrack = refreshedTrack
-                    currentRating = TrackRating.from(rating: refreshedTrack.rating)
-                }
-            } else if currentTrack?.id == track.id {
-                currentRating = isFavorite ? .loved : .none
+                updateCurrentTrackIfNeeded(refreshedTrack)
             }
         } catch {
+            // Roll back optimistic state if server mutation fails.
+            try? await storeTrackRating(trackId: track.id, rating: previousRating)
+            applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
+
+            toastCenter.show(
+                ToastPayload(
+                    style: .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Could not update favorite",
+                    message: error.localizedDescription,
+                    dedupeKey: "favorite-toggle-error-\(track.id)"
+                )
+            )
             #if DEBUG
             print("Failed to set favorite state: \(error)")
             #endif
@@ -742,6 +764,26 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    private func storeTrackRating(trackId: String, rating: Int) async throws {
+        if let trackRatingStoreHandlerForTesting {
+            try await trackRatingStoreHandlerForTesting(trackId, rating)
+        } else {
+            try await updateTrackRatingInDatabase(trackId: trackId, rating: rating)
+        }
+    }
+
+    private func applyCurrentTrackRatingIfNeeded(trackId: String, rating: Int) {
+        guard let currentTrack, currentTrack.id == trackId else { return }
+        self.currentTrack = trackWithRating(currentTrack, rating: rating)
+        currentRating = TrackRating.from(rating: rating)
+    }
+
+    private func updateCurrentTrackIfNeeded(_ track: Track) {
+        guard currentTrack?.id == track.id else { return }
+        currentTrack = track
+        currentRating = TrackRating.from(rating: track.rating)
+    }
+
     // MARK: - Helpers
 
     private func formatTime(_ time: TimeInterval) -> String {
@@ -781,6 +823,33 @@ public final class NowPlayingViewModel: ObservableObject {
             rating: track.rating,
             playCount: track.playCount,
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func trackWithRating(_ track: Track, rating: Int) -> Track {
+        Track(
+            id: track.id,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            albumRatingKey: track.albumRatingKey,
+            artistRatingKey: track.artistRatingKey,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration,
+            thumbPath: track.thumbPath,
+            fallbackThumbPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            streamKey: track.streamKey,
+            streamId: track.streamId,
+            localFilePath: track.localFilePath,
+            dateAdded: track.dateAdded,
+            dateModified: track.dateModified,
+            lastPlayed: track.lastPlayed,
+            rating: rating,
+            playCount: track.playCount,
+            sourceCompositeKey: track.sourceCompositeKey
         )
     }
 }
