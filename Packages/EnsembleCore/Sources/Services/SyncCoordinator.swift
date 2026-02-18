@@ -530,11 +530,37 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        try await apiClient.createPlaylist(
-            title: trimmed,
-            trackRatingKeys: filteredTrackIds,
-            serverIdentifier: server.serverId
-        )
+        do {
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: filteredTrackIds,
+                serverIdentifier: server.serverId
+            )
+        } catch let error as PlexAPIError {
+            guard tracks.isEmpty,
+                  case .httpError(statusCode: 400) = error,
+                  let seedTrackID = await seedTrackIDForServer(
+                    serverSourceKey: serverSourceKey,
+                    parsedServer: server,
+                    apiClient: apiClient
+                  ) else {
+                throw error
+            }
+
+            #if DEBUG
+            print("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
+            #endif
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: [seedTrackID],
+                serverIdentifier: server.serverId
+            )
+
+            if let createdPlaylist = try? await apiClient.getPlaylists()
+                .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                try? await apiClient.clearPlaylistItems(playlistId: createdPlaylist.ratingKey)
+            }
+        }
 
         if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
             .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
@@ -1134,6 +1160,38 @@ public final class SyncCoordinator: ObservableObject {
             }
         )
         return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
+    }
+
+    private func seedTrackIDForServer(
+        serverSourceKey: String,
+        parsedServer: ParsedServerSource,
+        apiClient: PlexAPIClient
+    ) async -> String? {
+        // Fast path: try local cache first.
+        if let allTracks = try? await libraryRepository.fetchTracks(),
+           let cachedTrackID = allTracks.first(where: { track in
+            guard let trackSourceCompositeKey = track.sourceCompositeKey,
+                  let trackServerSourceKey = self.serverSourceKey(from: trackSourceCompositeKey) else {
+                return false
+            }
+            return trackServerSourceKey == serverSourceKey
+           })?.ratingKey {
+            return cachedTrackID
+        }
+
+        // Fallback: query Plex for a lightweight inventory and use any one track ID.
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == parsedServer.accountId }),
+              let server = account.servers.first(where: { $0.id == parsedServer.serverId }) else {
+            return nil
+        }
+
+        for library in server.libraries where library.isEnabled {
+            if let seedFromInventory = try? await apiClient.getTrackInventory(sectionKey: library.key).first?.ratingKey {
+                return seedFromInventory
+            }
+        }
+
+        return nil
     }
 
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
