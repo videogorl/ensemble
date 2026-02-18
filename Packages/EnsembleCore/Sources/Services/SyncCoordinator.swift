@@ -23,7 +23,7 @@ public struct PlaylistMutationResult: Sendable {
     }
 }
 
-public enum PlaylistMutationError: LocalizedError {
+public enum PlaylistMutationError: LocalizedError, Equatable {
     case invalidSource
     case playlistNotFound
     case smartPlaylistReadOnly
@@ -74,6 +74,8 @@ public final class SyncCoordinator: ObservableObject {
     private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
     private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
+    internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
+    internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
 
     public init(
         accountManager: AccountManager,
@@ -591,6 +593,32 @@ public final class SyncCoordinator: ObservableObject {
         await refreshServerPlaylists(serverSourceKey: serverSourceKey)
     }
 
+    /// Delete a playlist and refresh server playlists.
+    public func deletePlaylist(_ playlist: Playlist) async throws {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        if let playlistDeleteHandlerForTesting {
+            try await playlistDeleteHandlerForTesting(apiClient, playlist.id)
+        } else {
+            try await apiClient.deletePlaylist(playlistId: playlist.id)
+        }
+
+        clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
+
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+        } else {
+            await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
+    }
+
     /// Replace playlist contents in the provided order and refresh local cache.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
         guard !playlist.isSmart else {
@@ -1070,6 +1098,25 @@ public final class SyncCoordinator: ObservableObject {
         lastPlaylistTarget = target
     }
 
+    private func clearLastPlaylistTargetIfNeeded(deletedPlaylist: Playlist) {
+        guard let deletedSourceKey = deletedPlaylist.sourceCompositeKey else { return }
+
+        lastPlaylistTargetsByServer = lastPlaylistTargetsByServer.filter { sourceKey, target in
+            !(sourceKey == deletedSourceKey && target.id == deletedPlaylist.id)
+        }
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.id == deletedPlaylist.id,
+           lastPlaylistTarget.sourceCompositeKey == deletedSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
     public func lastPlaylistTarget(forServerSourceKey serverSourceKey: String?) -> LastPlaylistTarget? {
         guard let serverSourceKey else { return lastPlaylistTarget }
         if let target = lastPlaylistTargetsByServer[serverSourceKey] {
@@ -1079,6 +1126,29 @@ public final class SyncCoordinator: ObservableObject {
             return lastPlaylistTarget
         }
         return nil
+    }
+
+    internal func setLastPlaylistTargetForTesting(_ target: LastPlaylistTarget?, serverSourceKey: String?) {
+        if let serverSourceKey {
+            if let target {
+                lastPlaylistTargetsByServer[serverSourceKey] = target
+            } else {
+                lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+            }
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
+
+        lastPlaylistTarget = target
+        let defaults = UserDefaults.standard
+        if let target {
+            defaults.set(target.id, forKey: Self.lastPlaylistIdKey)
+            defaults.set(target.title, forKey: Self.lastPlaylistTitleKey)
+            defaults.set(target.sourceCompositeKey, forKey: Self.lastPlaylistSourceKey)
+        } else {
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
     }
 
     private static func saveLastPlaylistTarget(_ target: LastPlaylistTarget) {
