@@ -34,6 +34,8 @@ public struct NowPlayingView: View {
     @State private var playlistPickerTracks: [Track] = []
     @State private var playlistPickerTitle = "Add to Playlist"
     @State private var lastPlaylistQuickTarget: Playlist?
+    @State private var playbackTick: Int = 0
+    private let playbackTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -88,12 +90,18 @@ public struct NowPlayingView: View {
                     title: playlistPickerTitle
                 )
             }
-            .task(id: viewModel.currentTrack?.id) {
-                if let currentTrack = viewModel.currentTrack {
-                    lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
-                } else {
-                    lastPlaylistQuickTarget = nil
-                }
+            .task {
+                await refreshLastPlaylistQuickTarget()
+            }
+            .onChange(of: viewModel.currentTrack?.id) { _ in
+                Task { await refreshLastPlaylistQuickTarget() }
+            }
+            .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
+                Task { await refreshLastPlaylistQuickTarget() }
+            }
+            .onReceive(playbackTimer) { _ in
+                guard viewModel.hasCurrentTrack else { return }
+                playbackTick &+= 1
             }
         }
     }
@@ -488,6 +496,9 @@ public struct NowPlayingView: View {
                     .font(.title3)
                     .foregroundColor(.white.opacity(0.7))
             }
+            .transaction { transaction in
+                transaction.animation = nil
+            }
         }
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
@@ -704,6 +715,15 @@ public struct NowPlayingView: View {
             deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
             dismiss()
         }
+    }
+
+    @MainActor
+    private func refreshLastPlaylistQuickTarget() async {
+        guard let currentTrack = viewModel.currentTrack else {
+            lastPlaylistQuickTarget = nil
+            return
+        }
+        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
     }
     
     // Helper: Start rapid seeking

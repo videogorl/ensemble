@@ -60,7 +60,6 @@ public enum PlaylistActionError: LocalizedError {
 public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var playbackState: PlaybackState = .stopped
-    @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
@@ -110,10 +109,6 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.playbackStatePublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$playbackState)
-
-        playbackService.currentTimePublisher
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$currentTime)
 
         playbackService.queuePublisher
             .receive(on: DispatchQueue.main)
@@ -182,6 +177,10 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Computed Properties
+
+    public var currentTime: TimeInterval {
+        playbackService.currentTimeValue
+    }
 
     public var progress: Double {
         guard duration > 0 else { return 0 }

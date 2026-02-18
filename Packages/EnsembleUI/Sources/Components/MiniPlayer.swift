@@ -12,6 +12,8 @@ public struct MiniPlayer: View {
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
     @State private var currentLoadTrackID: String?
+    @State private var playbackTick: Int = 0
+    private let playbackTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -233,6 +235,10 @@ public struct MiniPlayer: View {
             if let track = viewModel.currentTrack {
                 loadArtworkImage(for: track)
             }
+        }
+        .onReceive(playbackTimer) { _ in
+            guard viewModel.hasCurrentTrack else { return }
+            playbackTick &+= 1
         }
     }
 
