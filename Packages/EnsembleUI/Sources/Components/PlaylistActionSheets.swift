@@ -12,6 +12,7 @@ public struct PlaylistPickerSheet: View {
     @State private var selectedServerSourceKey: String?
     @State private var showCreateSheet = false
     @State private var errorMessage: String?
+    @State private var isSubmitting = false
 
     public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
         self.nowPlayingVM = nowPlayingVM
@@ -28,6 +29,7 @@ public struct PlaylistPickerSheet: View {
                     } label: {
                         Label("New Playlist", systemImage: "plus.circle")
                     }
+                    .disabled(isSubmitting)
                 }
 
                 if !serverOptions.isEmpty {
@@ -41,6 +43,7 @@ public struct PlaylistPickerSheet: View {
                             }
                         }
                         .pickerStyle(.menu)
+                        .disabled(isSubmitting)
                     }
                 }
 
@@ -71,6 +74,7 @@ public struct PlaylistPickerSheet: View {
                                 }
                             }
                             .disabled(playlist.isSmart)
+                            .disabled(isSubmitting)
                         }
                     }
                 }
@@ -105,6 +109,17 @@ public struct PlaylistPickerSheet: View {
                     defaultServerSourceKey: selectedServerSourceKey
                 )
             }
+            .overlay {
+                if isSubmitting {
+                    ZStack {
+                        Color.black.opacity(0.12)
+                            .ignoresSafeArea()
+                        ProgressView("Adding to playlist...")
+                            .padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
         }
     }
 
@@ -124,6 +139,10 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func addToPlaylist(_ playlist: Playlist) async {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
         do {
             _ = try await nowPlayingVM.addTracks(tracks, to: playlist)
             dismiss()

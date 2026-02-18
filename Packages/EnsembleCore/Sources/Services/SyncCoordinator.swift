@@ -515,7 +515,11 @@ public final class SyncCoordinator: ObservableObject {
             trackRatingKeys: filteredTrackIds,
             serverIdentifier: server.serverId
         )
-        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+
+        // Kick off cache refresh asynchronously so UI can return immediately.
+        Task { [weak self] in
+            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
 
         let skippedCount = max(0, tracks.count - filteredTrackIds.count)
         return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
@@ -542,7 +546,11 @@ public final class SyncCoordinator: ObservableObject {
             trackRatingKeys: filteredTrackIds,
             serverIdentifier: server.serverId
         )
-        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+
+        // Keep the mutation path responsive; refresh cache in background.
+        Task { [weak self] in
+            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
 
         let skippedCount = max(0, tracks.count - filteredTrackIds.count)
         return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
