@@ -332,6 +332,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func setupPlayer() {
         player = AVQueuePlayer()
         player?.actionAtItemEnd = .advance
+        // Prioritize quick track switches over waiting for deep buffer fill.
+        // Music tracks are short and users frequently skip, so lower startup latency
+        // produces a more reliable interaction than aggressive anti-stall waiting.
+        player?.automaticallyWaitsToMinimizeStalling = false
         
         currentItemObservation = player?.observe(\.currentItem, options: [.new, .old]) { [weak self] _, change in
             guard let self = self else { return }
@@ -1642,28 +1646,70 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.serverUnavailable
         }
 
-        // Attempt to get stream URL
-        print("   🔄 Getting stream URL...")
+        // Attempt to get stream URL. If it fails due to connectivity issues, refresh
+        // the server connection and retry once before surfacing an error to the UI.
+        let streamURL: URL
         do {
-            let url = try await syncCoordinator.getStreamURL(for: track)
-            print("   ✅ Got stream URL: \(url)")
-            let asset = AVURLAsset(url: url)
-            return AVPlayerItem(asset: asset)
+            print("   🔄 Getting stream URL...")
+            streamURL = try await syncCoordinator.getStreamURL(for: track)
         } catch {
-            print("   ❌ Failed to get stream URL: \(error)")
-            // Convert errors to PlaybackError
-            if let plexError = error as? PlexAPIError {
-                switch plexError {
-                case .noServerSelected:
-                    throw PlaybackError.serverUnavailable
-                case .networkError:
-                    throw PlaybackError.networkError(error)
-                default:
-                    throw PlaybackError.unknown(error)
+            print("   ⚠️ Failed to get stream URL on first attempt: \(error)")
+
+            if shouldRetryStreamURLRequest(after: error) {
+                print("   🔄 Refreshing server connection and retrying stream URL...")
+                do {
+                    try await syncCoordinator.refreshConnection()
+                    streamURL = try await syncCoordinator.getStreamURL(for: track)
+                } catch {
+                    print("   ❌ Stream URL retry failed: \(error)")
+                    throw mapToPlaybackError(error)
                 }
+            } else {
+                print("   ❌ Non-retryable stream URL error: \(error)")
+                throw mapToPlaybackError(error)
             }
-            throw PlaybackError.unknown(error)
         }
+
+        print("   ✅ Got stream URL: \(streamURL)")
+        let asset = AVURLAsset(url: streamURL)
+        let item = AVPlayerItem(asset: asset)
+        // Keep a modest forward buffer for smoother playback without adding large delay.
+        item.preferredForwardBufferDuration = 5
+        return item
+    }
+
+    private func shouldRetryStreamURLRequest(after error: Error) -> Bool {
+        if let plexError = error as? PlexAPIError {
+            switch plexError {
+            case .networkError, .noServerSelected:
+                return true
+            default:
+                return false
+            }
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain
+    }
+
+    private func mapToPlaybackError(_ error: Error) -> PlaybackError {
+        if let plexError = error as? PlexAPIError {
+            switch plexError {
+            case .noServerSelected:
+                return .serverUnavailable
+            case .networkError:
+                return .networkError(error)
+            default:
+                return .unknown(error)
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return .networkError(error)
+        }
+
+        return .unknown(error)
     }
     
     private func prefetchNextItem() async {
