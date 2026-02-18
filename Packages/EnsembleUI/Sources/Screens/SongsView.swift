@@ -224,6 +224,48 @@ public struct SongsView: View {
     
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
         Section(header: sectionHeader(section.letter)) {
+            #if os(iOS)
+            let trackCount = section.tracks.count
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+            MediaTrackList(
+                tracks: section.tracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                onPlayNext: { track in
+                    nowPlayingVM.playNext(track)
+                },
+                onPlayLast: { track in
+                    nowPlayingVM.playLast(track)
+                },
+                onAddToPlaylist: { track in
+                    presentPlaylistPicker(with: [track])
+                },
+                onAddToRecentPlaylist: { track in
+                    addToRecentPlaylist(track)
+                },
+                onToggleFavorite: { track in
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
+                    }
+                },
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
+                canAddToRecentPlaylist: { track in
+                    recentPlaylistTitle(for: track) != nil
+                },
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, _ in
+                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                }
+            }
+            .frame(height: height)
+            .padding(.horizontal)
+            #else
             VStack(spacing: 0) {
                 ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
                     TrackSwipeContainer(
@@ -265,12 +307,54 @@ public struct SongsView: View {
                     }
                 }
             }
+            #endif
         }
         .id(section.letter)
     }
     
     private var unsortedTrackListContent: some View {
-        TrackListView(
+        #if os(iOS)
+        let trackCount = libraryVM.filteredTracks.count
+        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+        return MediaTrackList(
+            tracks: libraryVM.filteredTracks,
+            showArtwork: true,
+            showTrackNumbers: false,
+            groupByDisc: false,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+        ) { _, index in
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+        }
+        .frame(height: height)
+        .padding(.horizontal)
+        .padding(.vertical)
+        #else
+        return TrackListView(
             tracks: libraryVM.filteredTracks,
             showArtwork: true,
             showTrackNumbers: false,
@@ -301,6 +385,7 @@ public struct SongsView: View {
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.vertical)
+        #endif
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

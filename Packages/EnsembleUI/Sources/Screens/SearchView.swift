@@ -749,6 +749,9 @@ public struct SearchView: View {
             
         case .songs:
             if !viewModel.trackResults.isEmpty {
+                #if os(iOS)
+                iOSSongsResultsSection
+                #else
                 compactSection(
                     title: "Songs",
                     count: viewModel.trackResults.count,
@@ -811,9 +814,65 @@ public struct SearchView: View {
                         }
                     }
                 }
+                #endif
             }
         }
     }
+
+    #if os(iOS)
+    private var iOSSongsResultsSection: some View {
+        let tracks = Array(viewModel.trackResults.prefix(5))
+        let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count * 68)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Songs (\(viewModel.trackResults.count))")
+                    .font(.title3)
+                    .fontWeight(.bold)
+            }
+            .padding(.horizontal)
+
+            MediaTrackList(
+                tracks: tracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                onPlayNext: { track in
+                    nowPlayingVM.playNext(track)
+                },
+                onPlayLast: { track in
+                    nowPlayingVM.playLast(track)
+                },
+                onAddToPlaylist: { track in
+                    presentPlaylistPicker(with: [track])
+                },
+                onAddToRecentPlaylist: { track in
+                    addToRecentPlaylist(track)
+                },
+                onToggleFavorite: { track in
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
+                    }
+                },
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
+                canAddToRecentPlaylist: { track in
+                    recentPlaylistTitle(for: track) != nil
+                },
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, _ in
+                viewModel.commitCurrentSearch()
+                if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
+                    nowPlayingVM.play(tracks: viewModel.trackResults, startingAt: index)
+                }
+            }
+            .frame(height: height)
+            .padding(.horizontal)
+        }
+    }
+    #endif
 
     private func presentPlaylistPicker(with tracks: [Track]) {
         guard !tracks.isEmpty else { return }
