@@ -163,9 +163,6 @@ public struct MainTabView: View {
         .onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
             if isImmersiveMode != isHidden {
                 isImmersiveMode = isHidden
-                #if os(iOS)
-                UITabBar.appearance().isHidden = isHidden
-                #endif
             }
         }
     }
