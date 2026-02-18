@@ -7,6 +7,12 @@ import UIKit
 #endif
 
 public struct NowPlayingView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
     @Environment(\.dismiss) private var dismiss
@@ -31,9 +37,7 @@ public struct NowPlayingView: View {
     @State private var localProgress: Double = 0
     @State private var sliderWidth: CGFloat = 0
     @State private var lastScrubRate: Double = 1.0
-    @State private var showPlaylistPicker = false
-    @State private var playlistPickerTracks: [Track] = []
-    @State private var playlistPickerTitle = "Add to Playlist"
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
 
     public init(viewModel: NowPlayingViewModel) {
@@ -82,11 +86,11 @@ public struct NowPlayingView: View {
                     loadArtworkImage(for: track)
                 }
             }
-            .sheet(isPresented: $showPlaylistPicker) {
+            .sheet(item: $playlistPickerPayload) { payload in
                 PlaylistPickerSheet(
                     nowPlayingVM: viewModel,
-                    tracks: playlistPickerTracks,
-                    title: playlistPickerTitle
+                    tracks: payload.tracks,
+                    title: payload.title
                 )
             }
             .task {
@@ -495,19 +499,14 @@ public struct NowPlayingView: View {
 
                 Button {
                     guard let currentTrack = viewModel.currentTrack else { return }
-                    playlistPickerTracks = [currentTrack]
-                    playlistPickerTitle = "Add to Playlist"
-                    showPlaylistPicker = true
+                    presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
                 } label: {
                     Label("Add to Playlist...", systemImage: "text.badge.plus")
                 }
 
                 Button {
                     let snapshot = viewModel.queueSnapshotForPlaylistSave()
-                    guard !snapshot.isEmpty else { return }
-                    playlistPickerTracks = snapshot
-                    playlistPickerTitle = "Save Current Queue"
-                    showPlaylistPicker = true
+                    presentPlaylistPicker(with: snapshot, title: "Save Current Queue")
                 } label: {
                     Label("Save Current Queue", systemImage: "square.and.arrow.down")
                 }
@@ -631,10 +630,7 @@ public struct NowPlayingView: View {
 
                 Button {
                     let snapshot = viewModel.queueSnapshotForPlaylistSave()
-                    guard !snapshot.isEmpty else { return }
-                    playlistPickerTracks = snapshot
-                    playlistPickerTitle = "Save Current Queue"
-                    showPlaylistPicker = true
+                    presentPlaylistPicker(with: snapshot, title: "Save Current Queue")
                 } label: {
                     Label("Save Current Queue", systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
@@ -744,6 +740,22 @@ public struct NowPlayingView: View {
             return
         }
         lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again in a moment.",
+                    dedupeKey: "playlist-picker-empty-\(title)"
+                )
+            )
+            return
+        }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
     
     // Helper: Start rapid seeking

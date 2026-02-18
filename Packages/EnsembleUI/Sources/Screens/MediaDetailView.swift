@@ -42,6 +42,12 @@ public struct PlaylistDetailMenuActions {
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var viewModel: ViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
 
@@ -57,8 +63,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
-    @State private var showPlaylistPicker = false
-    @State private var playlistPickerTracks: [Track] = []
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
@@ -119,11 +124,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)
         }
-        .sheet(isPresented: $showPlaylistPicker) {
+        .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
-                tracks: playlistPickerTracks,
-                title: "Add Album to Playlist"
+                tracks: payload.tracks,
+                title: payload.title
             )
         }
         .task(id: quickTargetRefreshKey) {
@@ -210,8 +215,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
 
                 Button {
-                    playlistPickerTracks = viewModel.filteredTracks
-                    showPlaylistPicker = true
+                    presentPlaylistPicker(with: viewModel.filteredTracks)
                 } label: {
                     Label("Add to Playlist...", systemImage: "text.badge.plus")
                 }
@@ -236,6 +240,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again after the album finishes loading.",
+                    dedupeKey: "album-playlist-picker-empty"
+                )
+            )
+            return
+        }
+
+        playlistPickerPayload = PlaylistPickerPayload(
+            tracks: tracks,
+            title: "Add Album to Playlist"
+        )
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes
