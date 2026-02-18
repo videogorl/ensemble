@@ -49,15 +49,6 @@ public struct TrackSwipeContainer<Content: View>: View {
         .contentShape(Rectangle())
         .clipped()
         .highPriorityGesture(dragGesture)
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if offset != 0 {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
-                        closeActions()
-                    }
-                }
-            }
-        )
         #else
         content
         #endif
