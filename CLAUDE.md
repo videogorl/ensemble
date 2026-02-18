@@ -98,6 +98,22 @@ Playlist management now supports server-backed mutations with local cache refres
 - `PlaylistViewModel.swift` - Playlist detail rename/edit mutation hooks
 - `PlaylistActionSheets.swift` - Shared add/create playlist UI sheets
 
+### Gesture Actions v1 (Feb 2026)
+Library and search surfaces now support configurable swipe actions for track rows plus long-press menus for album/artist/playlist items:
+
+- **Track swipe actions (iOS/iPadOS):** shared 2 leading + 2 trailing layout with customizable slot assignment
+- **Action catalog:** `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle (Loved on/off)
+- **Full swipe:** executes slot 1 on each edge
+- **Long-press menus:** album/artist/playlist menus on cards/rows; playlist menus respect smart-playlist mutation guards
+- **Settings:** Playback section includes `Track Swipe Actions` customization with reset to defaults
+
+**Key files:**
+- `SettingsManager.swift` - `TrackSwipeAction`/`TrackSwipeLayout` model + persisted/sanitized slot configuration
+- `TrackSwipeContainer.swift` - Shared SwiftUI swipe layer for track rows
+- `MediaTrackList.swift` - UIKit leading/trailing swipe actions aligned to shared layout
+- `TrackSwipeActionsSettingsView.swift` - Slot customization UI in Settings
+- `NowPlayingViewModel.swift` - Per-track favorite mutation methods used by swipe/context actions
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 

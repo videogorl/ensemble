@@ -164,6 +164,7 @@ Sources/
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
+|   +-- TrackSwipeContainer.swift     # iOS/iPadOS swipe gesture container for track row actions
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
@@ -183,6 +184,7 @@ Sources/
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
+|   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
 |   +-- SyncPanelView.swift           # Library sync status & controls
 +-- EnsembleUI.swift                  # Public exports
