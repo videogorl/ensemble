@@ -5,21 +5,28 @@ public struct ToastHostView: View {
     @ObservedObject var toastCenter: ToastCenter
     let horizontalPadding: CGFloat
     let bottomPadding: CGFloat
+    let onToastTap: (() -> Void)?
 
     public init(
         toastCenter: ToastCenter,
         horizontalPadding: CGFloat = 16,
-        bottomPadding: CGFloat = 16
+        bottomPadding: CGFloat = 16,
+        onToastTap: (() -> Void)? = nil
     ) {
         self.toastCenter = toastCenter
         self.horizontalPadding = horizontalPadding
         self.bottomPadding = bottomPadding
+        self.onToastTap = onToastTap
     }
 
     public var body: some View {
         Group {
             if let toast = toastCenter.currentToast {
-                ToastBannerView(toast: toast, toastCenter: toastCenter)
+                ToastBannerView(
+                    toast: toast,
+                    toastCenter: toastCenter,
+                    onToastTap: onToastTap
+                )
                     .padding(.horizontal, horizontalPadding)
                     .padding(.bottom, bottomPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -32,6 +39,7 @@ public struct ToastHostView: View {
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
+    let onToastTap: (() -> Void)?
 
     public var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -74,6 +82,7 @@ public struct ToastBannerView: View {
         .onTapGesture {
             if toast.tapHandler != nil {
                 toastCenter.triggerTap(for: toast.id)
+                onToastTap?()
                 return
             }
             // Allow full-toast dismissal only for non-action toasts.

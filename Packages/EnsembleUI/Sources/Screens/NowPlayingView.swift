@@ -106,7 +106,10 @@ public struct NowPlayingView: View {
             ToastHostView(
                 toastCenter: toastCenter,
                 horizontalPadding: 28,
-                bottomPadding: 110
+                bottomPadding: 110,
+                onToastTap: {
+                    dismiss()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
