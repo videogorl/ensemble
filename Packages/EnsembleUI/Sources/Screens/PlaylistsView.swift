@@ -162,6 +162,7 @@ public struct PlaylistDetailView: View {
     @State private var renameTitle = ""
     @State private var isEditingPlaylist = false
     @State private var editedTracks: [Track] = []
+    @State private var isSavingPlaylistEdits = false
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -190,11 +191,14 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditingPlaylist {
                     Button("Save") {
+                        isSavingPlaylistEdits = true
+                        isEditingPlaylist = false
                         Task {
                             await viewModel.saveEditedTracks(editedTracks)
-                            isEditingPlaylist = false
+                            isSavingPlaylistEdits = false
                         }
                     }
+                    .disabled(isSavingPlaylistEdits)
                 } else {
                     Menu {
                         Button {
@@ -280,7 +284,8 @@ public struct PlaylistDetailView: View {
                 editedTracks.remove(atOffsets: offsets)
             }
         }
-        .navigationTitle("Edit Playlist")
+        .listStyle(.plain)
+        .navigationTitle(playlist.title)
         .environment(\.editMode, .constant(.active))
     }
 }

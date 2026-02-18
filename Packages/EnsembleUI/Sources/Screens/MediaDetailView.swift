@@ -126,14 +126,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
                 tracks: playlistPickerTracks,
-                title: "Add Album to Playlist..."
+                title: "Add Album to Playlist"
             )
         }
         .task(id: nowPlayingVM.lastPlaylistTarget?.id) {
             lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget()
         }
         .alert("Playlist Update", isPresented: Binding(
-            get: { nowPlayingVM.playlistOperationMessage != nil },
+            get: { nowPlayingVM.playlistOperationMessage != nil && !showPlaylistPicker },
             set: { newValue in
                 if !newValue {
                     nowPlayingVM.clearPlaylistOperationMessage()
@@ -179,14 +179,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
             if viewModel is AlbumDetailViewModel {
                 if let lastPlaylistQuickTarget {
-                    Button {
-                        Task {
-                            _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
+                    if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
+                        Button {
+                            Task {
+                                _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
+                            }
+                        } label: {
+                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
                         }
-                    } label: {
-                        Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
                     }
-                    .disabled(viewModel.filteredTracks.isEmpty)
                 }
 
                 Button {

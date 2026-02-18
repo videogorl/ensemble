@@ -247,9 +247,30 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func saveEditedTracks(_ editedTracks: [Track]) async {
+        // Optimistically update local detail state so UI exits edit mode immediately.
+        tracks = editedTracks
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: editedTracks.count,
+            duration: editedTracks.reduce(0) { $0 + $1.duration },
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+
         do {
             try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
-            await loadTracks()
+            Task {
+                // Refresh from cache once post-mutation sync catches up.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await self.loadTracks()
+            }
         } catch {
             self.error = error.localizedDescription
         }

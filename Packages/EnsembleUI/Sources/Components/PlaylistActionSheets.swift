@@ -14,7 +14,7 @@ public struct PlaylistPickerSheet: View {
     @State private var isSubmitting = false
     @State private var searchText = ""
 
-    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist...") {
+    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
         self.nowPlayingVM = nowPlayingVM
         self.tracks = tracks
         self.title = title

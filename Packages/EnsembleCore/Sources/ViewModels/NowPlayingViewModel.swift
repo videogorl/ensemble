@@ -406,6 +406,16 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
+        guard let playlistServerSourceKey = playlist.sourceCompositeKey else { return 0 }
+        return tracks.reduce(0) { count, track in
+            guard let trackServerSourceKey = serverSourceKey(from: track.sourceCompositeKey) else {
+                return count
+            }
+            return count + (trackServerSourceKey == playlistServerSourceKey ? 1 : 0)
+        }
+    }
+
     /// Queue snapshot used by "Save current queue":
     /// history + current + upcoming, excluding autoplay tracks and deduping by track id.
     public func queueSnapshotForPlaylistSave() -> [Track] {
