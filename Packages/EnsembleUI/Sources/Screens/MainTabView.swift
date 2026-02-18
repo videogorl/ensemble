@@ -85,103 +85,106 @@ public struct MainTabView: View {
     }
 
     public var body: some View {
-        let rootView = ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                // Connection status banner at top
-                if !isImmersiveMode {
-                    ConnectionStatusBanner(networkState: networkMonitor.networkState)
-                }
-                
-                // Main content layer (TabView)
-                tabBarVisibility(
-                    TabView(selection: tabBinding) {
-                    // Dynamic Tabs
-                    ForEach(barTabs) { tab in
-                        tabRootView(for: tab)
-                            .tag(tab)
-                            .tabItem {
-                                Label(tab.displayTitle, systemImage: tab.systemImage)
-                            }
-                    }
+        GeometryReader { geometry in
+            // Keep mini-player spacing consistent across devices:
+            // 56pt above tab bar + any bottom safe-area inset (home indicator).
+            let miniPlayerBottomLift = 56 + geometry.safeAreaInsets.bottom
 
-                    // Always show More as the 5th tab
-                    tabRootView(for: .settings, isMoreRoot: true)
-                        .tag(TabItem.settings)
-                        .tabItem {
-                            Label("More", systemImage: "ellipsis")
+            let rootView = ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    // Connection status banner at top
+                    if !isImmersiveMode {
+                        ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                    }
+                    
+                    // Main content layer (TabView)
+                    tabBarVisibility(
+                        TabView(selection: tabBinding) {
+                        // Dynamic Tabs
+                        ForEach(barTabs) { tab in
+                            tabRootView(for: tab)
+                                .tag(tab)
+                                .tabItem {
+                                    Label(tab.displayTitle, systemImage: tab.systemImage)
+                                }
                         }
-                },
-                    isHidden: isImmersiveMode
-                )
-                // Use the new native floating style if available (iOS 18+)
-                .tabViewStyle(sidebarAdaptableIfAvailable())
-                .onAppear {
-                    // Sync visible tabs to NavigationCoordinator for fallback logic
-                    navigationCoordinator.visibleTabs = barTabs
 
-                    if !didSetInitialTab {
-                        navigationCoordinator.selectedTab = barTabs.first ?? .home
-                        didSetInitialTab = true
+                        // Always show More as the 5th tab
+                        tabRootView(for: .settings, isMoreRoot: true)
+                            .tag(TabItem.settings)
+                            .tabItem {
+                                Label("More", systemImage: "ellipsis")
+                            }
+                    },
+                        isHidden: isImmersiveMode
+                    )
+                    // Use the new native floating style if available (iOS 18+)
+                    .tabViewStyle(sidebarAdaptableIfAvailable())
+                    .onAppear {
+                        // Sync visible tabs to NavigationCoordinator for fallback logic
+                        navigationCoordinator.visibleTabs = barTabs
+
+                        if !didSetInitialTab {
+                            navigationCoordinator.selectedTab = barTabs.first ?? .home
+                            didSetInitialTab = true
+                        }
+                    }
+                    .onChange(of: settingsManager.enabledTabs) { _ in
+                        // Keep visibleTabs in sync when user changes tab settings
+                        navigationCoordinator.visibleTabs = barTabs
                     }
                 }
-                .onChange(of: settingsManager.enabledTabs) { _ in
-                    // Keep visibleTabs in sync when user changes tab settings
-                    navigationCoordinator.visibleTabs = barTabs
+
+                // Persistent MiniPlayer (Floating above native TabBar)
+                if !isKeyboardVisible && !isImmersiveMode {
+                    MiniPlayer(viewModel: nowPlayingVM) {
+                        showingNowPlaying = true
+                    }
+                    // Position above native tab bar and keep touch frame aligned to visuals.
+                    .alignmentGuide(.bottom) { dimensions in
+                        dimensions[.bottom] + miniPlayerBottomLift
+                    }
+                    .zIndex(2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+            }
+            .sheet(isPresented: $showingSyncPanel) {
+                SyncPanelView()
+            }
+            .task {
+                await libraryVM.refresh()
+            }
+            .onChange(of: showingNowPlaying) { isShowing in
+                // Handle pending navigation when NowPlaying dismisses
+                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                    // The coordinator already determined the correct tab (current or fallback)
+                    navigationCoordinator.selectedTab = pending.tab
+                    
+                    // Push onto the target tab stack
+                    navigationCoordinator.push(pending.destination, in: pending.tab)
+                    navigationCoordinator.pendingNavigation = nil
                 }
             }
+            
+            let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
 
-            // Persistent MiniPlayer (Floating above native TabBar)
-            if !isKeyboardVisible && !isImmersiveMode {
-                MiniPlayer(viewModel: nowPlayingVM) {
-                    showingNowPlaying = true
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
+                    NowPlayingView(viewModel: nowPlayingVM)
                 }
-                // Position above the native tab bar using layout alignment so the
-                // interactive frame moves with the mini player (no hidden touch blocker).
-                .alignmentGuide(.bottom) { dimensions in
-                    // Keep the mini player fully above the native tab bar hit region.
-                    // 92pt clears the tab bar + home-indicator area on iPhone layouts.
-                    dimensions[.bottom] + 92
+            } else {
+                chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
+                    NowPlayingView(viewModel: nowPlayingVM)
                 }
-                .zIndex(2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-
-        }
-        .sheet(isPresented: $showingSyncPanel) {
-            SyncPanelView()
-        }
-        .task {
-            await libraryVM.refresh()
-        }
-        .onChange(of: showingNowPlaying) { isShowing in
-            // Handle pending navigation when NowPlaying dismisses
-            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                // The coordinator already determined the correct tab (current or fallback)
-                navigationCoordinator.selectedTab = pending.tab
-                
-                // Push onto the target tab stack
-                navigationCoordinator.push(pending.destination, in: pending.tab)
-                navigationCoordinator.pendingNavigation = nil
-            }
-        }
-        
-        let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
-
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
+            #else
             chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
                 NowPlayingView(viewModel: nowPlayingVM)
             }
-        } else {
-            chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
-                NowPlayingView(viewModel: nowPlayingVM)
-            }
+            #endif
         }
-        #else
-        chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
-        }
-        #endif
     }
 
     @ViewBuilder
