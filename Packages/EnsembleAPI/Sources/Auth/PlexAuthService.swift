@@ -44,6 +44,8 @@ public actor PlexAuthService {
     private let deviceName: String
 
     private static let plexTVBaseURL = "https://plex.tv"
+    // Hardcoded link URL — safe to force-unwrap as a named constant (literal cannot fail)
+    private static let plexLinkURL = URL(string: "https://plex.tv/link")!
 
     public init(
         keychain: KeychainServiceProtocol = KeychainService.shared,
@@ -81,7 +83,10 @@ public actor PlexAuthService {
 
     /// Start the PIN-based OAuth flow
     public func requestPIN() async throws -> PlexAuthState {
-        var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/pins")!)
+        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/pins") else {
+            throw PlexAuthError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("true", forHTTPHeaderField: "strong")
         addPlexHeaders(to: &request)
@@ -95,9 +100,8 @@ public actor PlexAuthService {
             }
 
             let pin = try JSONDecoder().decode(PlexPIN.self, from: data)
-            let linkURL = URL(string: "https://plex.tv/link")!
 
-            return PlexAuthState(pin: pin, linkURL: linkURL)
+            return PlexAuthState(pin: pin, linkURL: Self.plexLinkURL)
         } catch let error as PlexAuthError {
             throw error
         } catch {
@@ -107,7 +111,10 @@ public actor PlexAuthService {
 
     /// Poll for PIN authorization status
     public func checkPIN(_ pin: PlexPIN) async throws -> String? {
-        var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/pins/\(pin.id)")!)
+        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/pins/\(pin.id)") else {
+            throw PlexAuthError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         addPlexHeaders(to: &request)
 

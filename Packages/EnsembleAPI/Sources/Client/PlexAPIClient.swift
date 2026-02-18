@@ -138,7 +138,10 @@ public actor PlexAPIClient {
 
     /// Get user's servers/resources
     public func getResources(token: String) async throws -> [PlexDevice] {
-        var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/resources?includeHttps=1&includeRelay=1")!)
+        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/resources?includeHttps=1&includeRelay=1") else {
+            throw PlexAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         addPlexHeaders(to: &request, token: token)
 
@@ -149,7 +152,10 @@ public actor PlexAPIClient {
 
     /// Get user info
     public func getUserInfo(token: String) async throws -> PlexUser {
-        var request = URLRequest(url: URL(string: "\(Self.plexTVBaseURL)/api/v2/user")!)
+        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/user") else {
+            throw PlexAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         addPlexHeaders(to: &request, token: token)
 
