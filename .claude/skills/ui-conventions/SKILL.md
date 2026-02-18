@@ -68,6 +68,25 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 
+### Button Labels
+
+- **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:
+
+```swift
+Button("Add to Playlist…") { showingPlaylistSheet = true }
+Button("Rename…") { showingRenameSheet = true }
+Button("Create Playlist…") { showingCreateSheet = true }
+```
+
+- Buttons that perform an immediate action (play, delete, save) do **not** get an ellipsis:
+
+```swift
+Button("Play") { play() }
+Button("Remove", role: .destructive) { remove() }
+```
+
+Use the actual ellipsis character `…` (U+2026), not three dots `...`.
+
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
