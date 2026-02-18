@@ -95,6 +95,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     public var body: some View {
         contentWithOptionalFilter
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if shouldShowStandaloneFilterButton {
                     Button {
@@ -113,6 +114,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if shouldShowStandaloneFilterButton {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+
+                            if viewModel.filterOptions.hasActiveFilters {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
             // Pin/Unpin menu button
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {

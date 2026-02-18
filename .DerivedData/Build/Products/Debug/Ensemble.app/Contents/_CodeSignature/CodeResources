@@ -6,15 +6,15 @@
 	<dict>
 		<key>Resources/AppIcon.icns</key>
 		<data>
-		bZBYUWty6F65bVDxf5YubedRTz8=
+		/hl28V4nOZ8NEaKMl6tDqPAOE8E=
 		</data>
 		<key>Resources/Assets.car</key>
 		<data>
-		JwOA8R4QDjo2vxFi9hyE99UB2YE=
+		o6ZjU6zg6V5JqIFe4TPFh6TOJBc=
 		</data>
 		<key>Resources/CLAUDE.md</key>
 		<data>
-		0iJkj4LvOEkEpgrh0Q33X6R8ibg=
+		ALn+AtA7f15TiRLq/7OFab0NaAc=
 		</data>
 		<key>Resources/EnsemblePersistence_EnsemblePersistence.bundle/Contents/Info.plist</key>
 		<data>
@@ -43,7 +43,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			n363Z1nziPAZpqdquxSlmL4cVKA=
+			Z1JVTF4ITrcQ18ultc+rSDBwz0k=
 			</data>
 			<key>requirement</key>
 			<string>identifier "Ensemble.debug" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: felicity@nysics.com (LW3R55N9E8)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
@@ -61,21 +61,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			sPz5sWinfXPWm9Ry4DLJzHhOndKzKVQ0J2okCdtxbr4=
+			XuzXjEvWyQQ+MubwfWKH6BYsw3WwS3PAVHkptLj5q4s=
 			</data>
 		</dict>
 		<key>Resources/Assets.car</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			PBY+mUXcyPbFVznQLsAzO683nz12kuTdzMP26fVoLVI=
+			xnRmrUT3SfttAXmR/PSNK/g916LZDvHfjYxyHpSuCow=
 			</data>
 		</dict>
 		<key>Resources/CLAUDE.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			7xPZNY7ZMu+KY2Pb9IPT2EU0ZC8dQiepetAzmPVbsl0=
+			Lev8hAVLVLt/KI6KUBgLkwZr2TVIG9EC8mjrmIOK6ew=
 			</data>
 		</dict>
 		<key>Resources/EnsemblePersistence_EnsemblePersistence.bundle/Contents/Info.plist</key>

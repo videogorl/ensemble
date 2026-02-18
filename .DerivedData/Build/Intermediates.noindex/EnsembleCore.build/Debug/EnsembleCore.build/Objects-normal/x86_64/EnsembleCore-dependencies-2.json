@@ -324,6 +324,13 @@
     "moduleName" : "AudioToolbox"
   },
   {
+    "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/BackgroundTasks.framework\/Modules\/module.modulemap",
+    "clangModulePath" : "\/Users\/felicity\/.codex\/worktrees\/a635\/ensemble\/.DerivedData\/ModuleCache.noindex\/BackgroundTasks-631RU3PWE5TMVDVZP2BPD68VE.pcm",
+    "isBridgingHeaderDependency" : false,
+    "isFramework" : false,
+    "moduleName" : "BackgroundTasks"
+  },
+  {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CFNetwork.framework\/Modules\/module.modulemap",
     "clangModulePath" : "\/Users\/felicity\/.codex\/worktrees\/a635\/ensemble\/.DerivedData\/ModuleCache.noindex\/CFNetwork-80AXUR95LN2U5NQURM1SNTAL1.pcm",
     "isBridgingHeaderDependency" : false,

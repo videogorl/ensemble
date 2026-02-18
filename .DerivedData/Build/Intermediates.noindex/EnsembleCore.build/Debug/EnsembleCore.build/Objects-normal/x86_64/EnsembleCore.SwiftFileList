@@ -9,6 +9,7 @@
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/PlexAccountConfig.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/AccountManager.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift
+/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/BackgroundSyncScheduler.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/CacheManager.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/HubOrderManager.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/HubRepository.swift
@@ -24,6 +25,7 @@
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ServerHealthChecker.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SettingsManager.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift
+/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ToastCenter.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AddPlexAccountViewModel.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AlbumDetailViewModel.swift
 /Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/ArtistDetailViewModel.swift

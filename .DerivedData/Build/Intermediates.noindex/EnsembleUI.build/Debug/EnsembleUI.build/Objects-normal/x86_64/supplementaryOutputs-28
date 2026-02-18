@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Screens/MoodTracksView.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoodTracksView.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoodTracksView.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoodTracksView.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoodTracksView.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoodTracksView.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Screens/MoreView.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoreView.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoreView.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoreView.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoreView.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/MoreView.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Screens/NowPlayingView.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/NowPlayingView.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/NowPlayingView.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/NowPlayingView.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/NowPlayingView.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug/EnsembleUI.build/Objects-normal/x86_64/NowPlayingView.swiftdeps"
+  }
+}
