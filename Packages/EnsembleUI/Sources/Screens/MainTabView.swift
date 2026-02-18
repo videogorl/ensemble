@@ -157,24 +157,21 @@ public struct MainTabView: View {
                 navigationCoordinator.pendingNavigation = nil
             }
         }
-        .onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-            if isImmersiveMode != isHidden {
-                isImmersiveMode = isHidden
-            }
-        }
+        
+        let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
 
         #if os(iOS)
         if #available(iOS 16.0, *) {
-            rootView.sheet(isPresented: $showingNowPlaying) {
+            chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
                 NowPlayingView(viewModel: nowPlayingVM)
             }
         } else {
-            rootView.fullScreenCover(isPresented: $showingNowPlaying) {
+            chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
                 NowPlayingView(viewModel: nowPlayingVM)
             }
         }
         #else
-        rootView.sheet(isPresented: $showingNowPlaying) {
+        chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
         }
         #endif
@@ -190,6 +187,32 @@ public struct MainTabView: View {
         }
         #else
         content
+        #endif
+    }
+
+    @ViewBuilder
+    private func applyChromeVisibilityObservation<Content: View>(to content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+                // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
+                guard !showingNowPlaying else { return }
+
+                if isImmersiveMode != isHidden {
+                    isImmersiveMode = isHidden
+                }
+            }
+        } else {
+            // iOS 15 fallback: skip preference observation to avoid recursive
+            // HostPreferences updates that can crash during modal presentation.
+            content
+        }
+        #else
+        content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+            if isImmersiveMode != isHidden {
+                isImmersiveMode = isHidden
+            }
+        }
         #endif
     }
     
