@@ -1,6 +1,12 @@
 import EnsembleCore
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 public struct MoodTracksView: View {
     let mood: Mood
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
@@ -8,6 +14,14 @@ public struct MoodTracksView: View {
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true
     @State private var error: String?
+    
+    private var screenBackgroundColor: Color {
+        #if os(macOS)
+        return Color(nsColor: .windowBackgroundColor)
+        #else
+        return Color(UIColor.systemBackground)
+        #endif
+    }
 
     public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
         self.mood = mood
@@ -35,7 +49,7 @@ public struct MoodTracksView: View {
                     .buttonStyle(.bordered)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground))
+                .background(screenBackgroundColor)
             } else if moodTracks.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "music.note")
@@ -48,7 +62,7 @@ public struct MoodTracksView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground))
+                .background(screenBackgroundColor)
             } else {
                 ZStack(alignment: .top) {
                     // Full-bleed background gradient
@@ -95,7 +109,9 @@ public struct MoodTracksView: View {
             Color.clear.frame(height: 140)
         }
         .navigationTitle(mood.title)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task {
             await loadTracks()
         }

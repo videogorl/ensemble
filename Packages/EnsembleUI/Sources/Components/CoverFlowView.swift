@@ -187,7 +187,7 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
                 
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(UIColor.secondarySystemBackground))
+                        .fill(cardBackgroundColor)
                         .shadow(radius: 20)
                     
                     VStack(alignment: .leading) {
@@ -248,6 +248,16 @@ struct CoverFlowView<Item: Identifiable, ItemView: View>: View {
         if index >= 0 && index < items.count {
             selectedItem = items[index]
         }
+    }
+
+    private var cardBackgroundColor: Color {
+        #if canImport(UIKit)
+        return Color(UIColor.secondarySystemBackground)
+        #elseif canImport(AppKit)
+        return Color(nsColor: .windowBackgroundColor)
+        #else
+        return Color(.secondary)
+        #endif
     }
     
     private func handleExternalSelectionChange() {

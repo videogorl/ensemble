@@ -1,0 +1,47 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "keychainaccess",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/kishikawakatsumi/KeychainAccess.git",
+          "name" : "KeychainAccess"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "84e546727d66f1adc5439debad16270d0fdd04e7",
+            "version" : "4.2.2"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "KeychainAccess"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "nuke",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/kean/Nuke.git",
+          "name" : "Nuke"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "0ead44350d2737db384908569c012fe67c421e4d",
+            "version" : "12.8.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "Nuke"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

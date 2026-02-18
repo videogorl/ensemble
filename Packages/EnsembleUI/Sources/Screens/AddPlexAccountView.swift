@@ -66,6 +66,9 @@ public struct AddPlexAccountView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 560, minHeight: 680)
+        #endif
     }
 
     @ViewBuilder

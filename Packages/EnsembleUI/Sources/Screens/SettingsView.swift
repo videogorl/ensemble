@@ -181,6 +181,9 @@ public struct SettingsView: View {
         .navigationTitle("Settings")
         .sheet(isPresented: $showingAddAccount) {
             AddPlexAccountView()
+            #if os(macOS)
+                .frame(minWidth: 560, minHeight: 680)
+            #endif
         }
         .alert("Remove Music Source", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {

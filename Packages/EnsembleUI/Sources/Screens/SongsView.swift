@@ -37,9 +37,7 @@ public struct SongsView: View {
                 } else if libraryVM.tracks.isEmpty {
                     emptyView
                 } else if isLandscape {
-                    albumCoverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
+                    landscapeAlbumCoverFlowView
                 } else {
                     trackListView
                 }
@@ -139,6 +137,16 @@ public struct SongsView: View {
             )
         }
         }
+    }
+
+    private var landscapeAlbumCoverFlowView: some View {
+        #if os(iOS)
+        albumCoverFlowView
+            .navigationBarHidden(true)
+            .statusBar(hidden: true)
+        #else
+        albumCoverFlowView
+        #endif
     }
 
     private var loadingView: some View {

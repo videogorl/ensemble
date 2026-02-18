@@ -21,9 +21,7 @@ public struct PlaylistsView: View {
                 } else if viewModel.playlists.isEmpty {
                     emptyView
                 } else if isLandscape {
-                    coverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
+                    landscapeCoverFlowView
                 } else {
                     playlistListView
                 }
@@ -86,6 +84,16 @@ public struct PlaylistsView: View {
             #endif
             }
         }
+    }
+
+    private var landscapeCoverFlowView: some View {
+        #if os(iOS)
+        coverFlowView
+            .navigationBarHidden(true)
+            .statusBar(hidden: true)
+        #else
+        coverFlowView
+        #endif
     }
 
     private var loadingView: some View {

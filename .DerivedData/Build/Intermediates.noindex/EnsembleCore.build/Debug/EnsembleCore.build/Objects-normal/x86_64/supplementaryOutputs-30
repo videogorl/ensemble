@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/NetworkMonitor.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkMonitor.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkMonitor.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkMonitor.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkMonitor.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkMonitor.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlaybackService.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlaybackService.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlaybackService.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlaybackService.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlaybackService.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlaybackService.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlexMusicSourceSyncProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlexMusicSourceSyncProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlexMusicSourceSyncProvider.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlexMusicSourceSyncProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PlexMusicSourceSyncProvider.swiftdeps"
+  }
+}

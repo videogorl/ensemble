@@ -1,0 +1,30 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/ModelMappers.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ModelMappers.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ModelMappers.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ModelMappers.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ModelMappers.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ModelMappers.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/MusicSource.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/MusicSource.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/MusicSource.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/MusicSource.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/MusicSource.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/MusicSource.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/NetworkModels.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkModels.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkModels.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkModels.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkModels.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/NetworkModels.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/PinnedItem.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PinnedItem.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PinnedItem.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PinnedItem.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PinnedItem.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/PinnedItem.swiftdeps"
+  }
+}

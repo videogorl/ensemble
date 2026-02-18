@@ -80,6 +80,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 baseContent
                     .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
                     .toolbar {
+                        #if os(iOS)
                         ToolbarItem(placement: .navigationBarTrailing) {
                             Button {
                                 showFilterSheet = true
@@ -97,6 +98,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                                 }
                             }
                         }
+                        #else
+                        ToolbarItem(placement: .automatic) {
+                            Button {
+                                showFilterSheet = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    if viewModel.filterOptions.hasActiveFilters {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 2, y: -2)
+                                    }
+                                }
+                            }
+                        }
+                        #endif
                     }
                     .sheet(isPresented: $showFilterSheet) {
                         FilterSheet(
@@ -109,12 +127,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .toolbar {
             // Pin/Unpin menu button
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {
                     pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if let mediaType = mediaType,
+                   let ratingKey = headerData.ratingKey {
+                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                }
+            }
+            #endif
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 140)

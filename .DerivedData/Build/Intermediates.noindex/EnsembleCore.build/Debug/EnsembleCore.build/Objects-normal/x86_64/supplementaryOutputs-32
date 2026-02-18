@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ServerHealthChecker.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ServerHealthChecker.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ServerHealthChecker.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ServerHealthChecker.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ServerHealthChecker.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ServerHealthChecker.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SettingsManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SettingsManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SettingsManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SettingsManager.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SettingsManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SettingsManager.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SyncCoordinator.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SyncCoordinator.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SyncCoordinator.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SyncCoordinator.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/SyncCoordinator.swiftdeps"
+  }
+}
