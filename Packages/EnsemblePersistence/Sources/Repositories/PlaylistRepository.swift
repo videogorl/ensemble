@@ -87,6 +87,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
                 } else {
                     request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                    // Prefer the freshest copy if multiple servers share a rating key.
+                    request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
                 }
                 request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {

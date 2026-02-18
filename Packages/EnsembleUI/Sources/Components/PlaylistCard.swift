@@ -51,14 +51,18 @@ public struct PlaylistRow: View {
 
     public var body: some View {
         if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+            NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                 playlistRowContent
             }
             .buttonStyle(.plain)
         } else {
             // iOS 15 fallback
             NavigationLink {
-                PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
+                PlaylistDetailLoader(
+                    playlistId: playlist.id,
+                    playlistSourceKey: playlist.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
             } label: {
                 playlistRowContent
             }

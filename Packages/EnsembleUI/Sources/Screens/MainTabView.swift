@@ -287,8 +287,8 @@ public struct MainTabView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -515,7 +515,7 @@ public struct SidebarView: View {
                     case .artist:
                         ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
                     case .playlist:
-                        PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+                        PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
                     }
                 }
             case .none:
@@ -535,8 +535,8 @@ public struct SidebarView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
