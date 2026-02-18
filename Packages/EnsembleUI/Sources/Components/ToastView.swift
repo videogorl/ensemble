@@ -36,6 +36,50 @@ public struct ToastHostView: View {
     }
 }
 
+/// Shared toast overlay modifier for top-level containers.
+/// This keeps toast placement and layering consistent across app surfaces.
+public struct AppToastOverlayModifier: ViewModifier {
+    let toastCenter: ToastCenter
+    let isVisible: Bool
+    let horizontalPadding: CGFloat
+    let bottomPadding: CGFloat
+    let onToastTap: (() -> Void)?
+
+    public func body(content: Content) -> some View {
+        content.overlay(alignment: .bottom) {
+            if isVisible {
+                ToastHostView(
+                    toastCenter: toastCenter,
+                    horizontalPadding: horizontalPadding,
+                    bottomPadding: bottomPadding,
+                    onToastTap: onToastTap
+                )
+                .zIndex(1000)
+            }
+        }
+    }
+}
+
+public extension View {
+    func appToastOverlay(
+        toastCenter: ToastCenter,
+        isVisible: Bool = true,
+        horizontalPadding: CGFloat = 16,
+        bottomPadding: CGFloat = 16,
+        onToastTap: (() -> Void)? = nil
+    ) -> some View {
+        modifier(
+            AppToastOverlayModifier(
+                toastCenter: toastCenter,
+                isVisible: isVisible,
+                horizontalPadding: horizontalPadding,
+                bottomPadding: bottomPadding,
+                onToastTap: onToastTap
+            )
+        )
+    }
+}
+
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter

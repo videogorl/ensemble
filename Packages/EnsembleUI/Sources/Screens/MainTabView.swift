@@ -140,14 +140,13 @@ public struct MainTabView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if !isImmersiveMode {
-                ToastHostView(
-                    toastCenter: toastCenter,
-                    horizontalPadding: 16,
-                    bottomPadding: nowPlayingVM.currentTrack != nil && !isKeyboardVisible ? 140 : 78
-                )
-            }
         }
+        .appToastOverlay(
+            toastCenter: toastCenter,
+            isVisible: !isImmersiveMode,
+            horizontalPadding: 16,
+            bottomPadding: nowPlayingVM.currentTrack != nil && !isKeyboardVisible ? 140 : 78
+        )
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
         }
@@ -436,13 +435,12 @@ public struct SidebarView: View {
             }
             .zIndex(2)
 
-            ToastHostView(
-                toastCenter: toastCenter,
-                horizontalPadding: 16,
-                bottomPadding: 84
-            )
-            .zIndex(3)
         }
+        .appToastOverlay(
+            toastCenter: toastCenter,
+            horizontalPadding: 16,
+            bottomPadding: 84
+        )
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
         }

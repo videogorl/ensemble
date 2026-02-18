@@ -108,16 +108,15 @@ public struct NowPlayingView: View {
                 Task { await refreshLastPlaylistQuickTarget() }
             }
 
-            ToastHostView(
-                toastCenter: toastCenter,
-                horizontalPadding: 28,
-                bottomPadding: 110,
-                onToastTap: {
-                    dismiss()
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .appToastOverlay(
+            toastCenter: toastCenter,
+            horizontalPadding: 16,
+            bottomPadding: 110,
+            onToastTap: {
+                dismiss()
+            }
+        )
     }
 
     // Fixed background gradient
