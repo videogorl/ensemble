@@ -153,9 +153,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             #endif
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,

@@ -522,9 +522,7 @@ public struct SidebarView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 64)
-        }
+        .miniPlayerBottomSpacing(64)
     }
     
     @ViewBuilder

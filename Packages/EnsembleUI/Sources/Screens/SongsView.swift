@@ -191,9 +191,7 @@ public struct SongsView: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if libraryVM.trackSortOption == .title && !libraryVM.filteredTracks.isEmpty {
                     ScrollIndex(

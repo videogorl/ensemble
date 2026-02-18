@@ -159,9 +159,7 @@ public struct ArtistsView: View {
                         .padding(.vertical)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
@@ -270,9 +268,7 @@ public struct ArtistDetailView: View {
             }
             #endif
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
