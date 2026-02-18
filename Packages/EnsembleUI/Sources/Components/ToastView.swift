@@ -43,9 +43,15 @@ public struct ToastBannerView: View {
 
     public var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: toast.iconSystemName)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(iconColor)
+            if toast.showsActivityIndicator {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(iconColor)
+            } else {
+                Image(systemName: toast.iconSystemName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(iconColor)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(toast.title)

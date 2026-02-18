@@ -29,6 +29,7 @@ public struct ToastPayload: Identifiable {
     public let duration: TimeInterval
     public let isPersistent: Bool
     public let dedupeKey: String?
+    public let showsActivityIndicator: Bool
 
     public init(
         id: UUID = UUID(),
@@ -40,7 +41,8 @@ public struct ToastPayload: Identifiable {
         tapHandler: (() -> Void)? = nil,
         duration: TimeInterval = 2.6,
         isPersistent: Bool = false,
-        dedupeKey: String? = nil
+        dedupeKey: String? = nil,
+        showsActivityIndicator: Bool = false
     ) {
         self.id = id
         self.style = style
@@ -52,6 +54,7 @@ public struct ToastPayload: Identifiable {
         self.duration = duration
         self.isPersistent = isPersistent
         self.dedupeKey = dedupeKey
+        self.showsActivityIndicator = showsActivityIndicator
     }
 }
 

@@ -1,10 +1,17 @@
 import EnsembleCore
 import SwiftUI
 
+private extension Notification.Name {
+    static let playlistDeletionStarted = Notification.Name("playlistDeletionStarted")
+    static let playlistDeletionSucceeded = Notification.Name("playlistDeletionSucceeded")
+    static let playlistDeletionFailed = Notification.Name("playlistDeletionFailed")
+}
+
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
+    @State private var pendingDeletionPlaylistIDs: Set<String> = []
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -16,9 +23,9 @@ public struct PlaylistsView: View {
             let isLandscape = geometry.size.width > geometry.size.height
             
             Group {
-                if viewModel.isLoading && viewModel.playlists.isEmpty {
+                if viewModel.isLoading && effectivePlaylists.isEmpty {
                     loadingView
-                } else if viewModel.playlists.isEmpty {
+                } else if effectivePlaylists.isEmpty {
                     emptyView
                 } else if isLandscape {
                     landscapeCoverFlowView
@@ -35,13 +42,28 @@ public struct PlaylistsView: View {
             .task {
                 await viewModel.loadPlaylists()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
+                pendingDeletionPlaylistIDs.insert(playlistID)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
+                pendingDeletionPlaylistIDs.remove(playlistID)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionSucceeded)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
+                Task {
+                    await viewModel.loadPlaylists()
+                    pendingDeletionPlaylistIDs.remove(playlistID)
+                }
+            }
             .refreshable {
                 await viewModel.refreshFromServer()
             }
             .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.playlists.isEmpty && !isLandscape {
+                if !effectivePlaylists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -62,7 +84,7 @@ public struct PlaylistsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !viewModel.playlists.isEmpty && !isLandscape {
+                if !effectivePlaylists.isEmpty && !isLandscape {
                     Menu {
                         ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                             Button {
@@ -123,7 +145,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(viewModel.filteredPlaylists) { playlist in
+            ForEach(displayedFilteredPlaylists) { playlist in
                 PlaylistRow(playlist: playlist, nowPlayingVM: nowPlayingVM)
             }
         }
@@ -135,7 +157,7 @@ public struct PlaylistsView: View {
     
     private var coverFlowView: some View {
         CoverFlowView(
-            items: viewModel.filteredPlaylists,
+            items: displayedFilteredPlaylists,
             itemView: { playlist in
                 CoverFlowItemView(playlist: playlist)
             },
@@ -157,6 +179,14 @@ public struct PlaylistsView: View {
         )
         .background(Color.black)
     }
+
+    private var effectivePlaylists: [Playlist] {
+        viewModel.playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+    }
+
+    private var displayedFilteredPlaylists: [Playlist] {
+        viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+    }
 }
 
 // MARK: - Playlist Detail View
@@ -173,6 +203,7 @@ public struct PlaylistDetailView: View {
     @State private var editedTracks: [Track] = []
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
+    @State private var deletingToastID: UUID?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
@@ -285,27 +316,57 @@ public struct PlaylistDetailView: View {
                 guard !isDeletingPlaylist else { return }
                 isDeletingPlaylist = true
                 let playlistTitle = viewModel.playlist.title
+                let playlistID = viewModel.playlist.id
+                let deletingToast = ToastPayload(
+                    style: .info,
+                    iconSystemName: "trash",
+                    title: "Deleting \(playlistTitle)...",
+                    isPersistent: true,
+                    dedupeKey: "playlist-delete-pending-\(playlistID)",
+                    showsActivityIndicator: true
+                )
+                deletingToastID = deletingToast.id
+                deps.toastCenter.show(deletingToast)
+                NotificationCenter.default.post(
+                    name: .playlistDeletionStarted,
+                    object: nil,
+                    userInfo: ["playlistID": playlistID]
+                )
                 dismiss()
                 Task {
                     let didDelete = await viewModel.deletePlaylist()
                     isDeletingPlaylist = false
+                    if let deletingToastID {
+                        deps.toastCenter.dismiss(id: deletingToastID)
+                    }
+                    deletingToastID = nil
                     if didDelete {
+                        NotificationCenter.default.post(
+                            name: .playlistDeletionSucceeded,
+                            object: nil,
+                            userInfo: ["playlistID": playlistID]
+                        )
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .success,
                                 iconSystemName: "trash.fill",
                                 title: "Deleted \(playlistTitle)",
-                                dedupeKey: "playlist-delete-success-\(viewModel.playlist.id)"
+                                dedupeKey: "playlist-delete-success-\(playlistID)"
                             )
                         )
                     } else {
+                        NotificationCenter.default.post(
+                            name: .playlistDeletionFailed,
+                            object: nil,
+                            userInfo: ["playlistID": playlistID]
+                        )
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .error,
                                 iconSystemName: "xmark.octagon.fill",
                                 title: "Could not delete \(playlistTitle)",
                                 message: viewModel.error ?? "Try again later.",
-                                dedupeKey: "playlist-delete-error-\(viewModel.playlist.id)"
+                                dedupeKey: "playlist-delete-error-\(playlistID)"
                             )
                         )
                     }
