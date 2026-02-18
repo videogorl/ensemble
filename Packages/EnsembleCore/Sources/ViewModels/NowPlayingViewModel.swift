@@ -39,6 +39,12 @@ public struct PlaylistServerOption: Identifiable, Equatable {
     public let name: String
 }
 
+public struct LastPlaylistTarget: Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let sourceCompositeKey: String?
+}
+
 public enum PlaylistActionError: LocalizedError {
     case operationInProgress
 
@@ -71,6 +77,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var showHistory: Bool = false
     @Published public private(set) var playlistOperationMessage: String?
     @Published public private(set) var isPlaylistMutationInProgress = false
+    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -91,6 +98,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
+        self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
 
@@ -150,6 +158,10 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.recommendationsExhaustedPublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$recommendationsExhausted)
+
+        syncCoordinator.$lastPlaylistTarget
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastPlaylistTarget)
 
         // Update duration when track changes
         $currentTrack
@@ -382,6 +394,16 @@ public final class NowPlayingViewModel: ObservableObject {
             }
         }
         return result
+    }
+
+    public func resolveLastPlaylistTarget() async -> Playlist? {
+        guard let lastPlaylistTarget else { return nil }
+        do {
+            let playlists = try await loadPlaylists(forServerSourceKey: lastPlaylistTarget.sourceCompositeKey)
+            return playlists.first { $0.id == lastPlaylistTarget.id }
+        } catch {
+            return nil
+        }
     }
 
     /// Queue snapshot used by "Save current queue":

@@ -10,11 +10,11 @@ public struct PlaylistPickerSheet: View {
     @State private var playlists: [Playlist] = []
     @State private var isLoading = true
     @State private var selectedServerSourceKey: String?
-    @State private var showCreateSheet = false
     @State private var errorMessage: String?
     @State private var isSubmitting = false
+    @State private var searchText = ""
 
-    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
+    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist...") {
         self.nowPlayingVM = nowPlayingVM
         self.tracks = tracks
         self.title = title
@@ -23,16 +23,7 @@ public struct PlaylistPickerSheet: View {
     public var body: some View {
         NavigationView {
             List {
-                Section {
-                    Button {
-                        showCreateSheet = true
-                    } label: {
-                        Label("New Playlist", systemImage: "plus.circle")
-                    }
-                    .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
-                }
-
-                if !serverOptions.isEmpty {
+                if shouldShowServerPicker {
                     Section("Server") {
                         Picker("Server", selection: Binding(
                             get: { selectedServerSourceKey ?? "" },
@@ -50,35 +41,44 @@ public struct PlaylistPickerSheet: View {
                 Section("Playlists") {
                     if isLoading {
                         ProgressView("Loading playlists...")
-                    } else if playlists.isEmpty {
+                    } else if filteredPlaylists.isEmpty {
                         Text("No playlists found for this server.")
                             .foregroundColor(.secondary)
                     } else {
-                        ForEach(playlists) { playlist in
+                        ForEach(filteredPlaylists) { playlist in
                             Button {
                                 Task { await addToPlaylist(playlist) }
                             } label: {
-                                HStack {
+                                HStack(spacing: 12) {
+                                    ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(playlist.title)
                                         Text("\(playlist.trackCount) songs")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
+
                                     Spacer()
-                                    if playlist.isSmart {
-                                        Text("Smart")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
                                 }
                             }
-                            .disabled(playlist.isSmart)
                             .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress)
                         }
                     }
                 }
+
+                if shouldShowCreateAction {
+                    Section {
+                        Button {
+                            Task { await createPlaylist(named: newPlaylistName) }
+                        } label: {
+                            Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
+                        }
+                        .disabled(isSubmitting || nowPlayingVM.isPlaylistMutationInProgress || selectedServerSourceKey == nil)
+                    }
+                }
             }
+            .searchable(text: $searchText, prompt: "Find or create playlist")
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -96,25 +96,19 @@ public struct PlaylistPickerSheet: View {
             .task {
                 if selectedServerSourceKey == nil {
                     selectedServerSourceKey = nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
+                        ?? serverOptions.first?.id
                 }
                 await loadPlaylists()
             }
             .onChange(of: selectedServerSourceKey) { _ in
                 Task { await loadPlaylists() }
             }
-            .sheet(isPresented: $showCreateSheet) {
-                NewPlaylistSheet(
-                    nowPlayingVM: nowPlayingVM,
-                    tracks: tracks,
-                    defaultServerSourceKey: selectedServerSourceKey
-                )
-            }
             .overlay {
                 if isSubmitting {
                     ZStack {
                         Color.black.opacity(0.12)
                             .ignoresSafeArea()
-                        ProgressView("Adding to playlist...")
+                        ProgressView("Updating playlist...")
                             .padding(12)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                     }
@@ -127,12 +121,40 @@ public struct PlaylistPickerSheet: View {
         nowPlayingVM.playlistServerOptions()
     }
 
+    private var shouldShowServerPicker: Bool {
+        serverOptions.count > 1
+    }
+
+    private var filteredPlaylists: [Playlist] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return playlists }
+        let lower = trimmed.lowercased()
+        return playlists.filter { $0.title.lowercased().contains(lower) }
+    }
+
+    private var newPlaylistName: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasExactNameMatch: Bool {
+        let name = newPlaylistName.lowercased()
+        guard !name.isEmpty else { return false }
+        return playlists.contains { $0.title.lowercased() == name }
+    }
+
+    private var shouldShowCreateAction: Bool {
+        !newPlaylistName.isEmpty && !hasExactNameMatch
+    }
+
     private func loadPlaylists() async {
         isLoading = true
         defer { isLoading = false }
         do {
             playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: selectedServerSourceKey)
-                .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+                .filter { !$0.isSmart }
+                .sorted { lhs, rhs in
+                    (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
+                }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -150,82 +172,16 @@ public struct PlaylistPickerSheet: View {
             errorMessage = error.localizedDescription
         }
     }
-}
 
-public struct NewPlaylistSheet: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let tracks: [Track]
-    let defaultServerSourceKey: String?
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var selectedServerSourceKey: String?
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-
-    public init(
-        nowPlayingVM: NowPlayingViewModel,
-        tracks: [Track],
-        defaultServerSourceKey: String?
-    ) {
-        self.nowPlayingVM = nowPlayingVM
-        self.tracks = tracks
-        self.defaultServerSourceKey = defaultServerSourceKey
-    }
-
-    public var body: some View {
-        NavigationView {
-            Form {
-                Section("Name") {
-                    TextField("Playlist name", text: $title)
-                }
-                Section("Server") {
-                    Picker("Server", selection: Binding(
-                        get: { selectedServerSourceKey ?? "" },
-                        set: { selectedServerSourceKey = $0.isEmpty ? nil : $0 }
-                    )) {
-                        ForEach(nowPlayingVM.playlistServerOptions()) { option in
-                            Text(option.name).tag(option.id)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("New Playlist")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task { await createPlaylist() }
-                    }
-                    .disabled(isSaving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedServerSourceKey == nil)
-                }
-            }
-            .alert("Playlist Error", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { _ in errorMessage = nil }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .task {
-                if selectedServerSourceKey == nil {
-                    selectedServerSourceKey = defaultServerSourceKey ?? nowPlayingVM.defaultPlaylistServerSourceKey(for: tracks)
-                }
-            }
-        }
-    }
-
-    private func createPlaylist() async {
+    private func createPlaylist(named name: String) async {
         guard let selectedServerSourceKey else { return }
-        isSaving = true
-        defer { isSaving = false }
+        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
 
         do {
             _ = try await nowPlayingVM.createPlaylist(
-                title: title,
+                title: name,
                 tracks: tracks,
                 serverSourceKey: selectedServerSourceKey
             )

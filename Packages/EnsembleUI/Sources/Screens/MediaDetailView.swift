@@ -51,6 +51,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showFilterSheet = false
     @State private var showPlaylistPicker = false
     @State private var playlistPickerTracks: [Track] = []
+    @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
@@ -125,8 +126,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
                 tracks: playlistPickerTracks,
-                title: "Add Album to Playlist"
+                title: "Add Album to Playlist..."
             )
+        }
+        .task(id: nowPlayingVM.lastPlaylistTarget?.id) {
+            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget()
         }
         .alert("Playlist Update", isPresented: Binding(
             get: { nowPlayingVM.playlistOperationMessage != nil },
@@ -174,6 +178,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             if viewModel is AlbumDetailViewModel {
+                if let lastPlaylistQuickTarget {
+                    Button {
+                        Task {
+                            _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
+                        }
+                    } label: {
+                        Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                    }
+                    .disabled(viewModel.filteredTracks.isEmpty)
+                }
+
                 Button {
                     playlistPickerTracks = viewModel.filteredTracks
                     showPlaylistPicker = true

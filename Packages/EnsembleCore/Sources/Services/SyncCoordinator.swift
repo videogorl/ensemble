@@ -52,6 +52,7 @@ public final class SyncCoordinator: ObservableObject {
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
+    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
 
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
@@ -68,6 +69,9 @@ public final class SyncCoordinator: ObservableObject {
     private var incrementalSyncTimer: Timer?
     private var lastIncrementalSyncTime: Date?
     private let incrementalSyncInterval: TimeInterval = 60 * 60  // 1 hour
+    private static let lastPlaylistIdKey = "NowPlaying.LastPlaylist.ID"
+    private static let lastPlaylistTitleKey = "NowPlaying.LastPlaylist.Title"
+    private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
 
     public init(
         accountManager: AccountManager,
@@ -83,6 +87,7 @@ public final class SyncCoordinator: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
+        self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
         // Observe network state changes
         setupNetworkMonitoring()
@@ -516,6 +521,11 @@ public final class SyncCoordinator: ObservableObject {
             serverIdentifier: server.serverId
         )
 
+        if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            persistLastPlaylistTarget(from: createdPlaylist)
+        }
+
         // Kick off cache refresh asynchronously so UI can return immediately.
         Task { [weak self] in
             await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
@@ -552,6 +562,7 @@ public final class SyncCoordinator: ObservableObject {
             await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
         }
 
+        persistLastPlaylistTarget(from: playlist)
         let skippedCount = max(0, tracks.count - filteredTrackIds.count)
         return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
     }
@@ -972,6 +983,38 @@ public final class SyncCoordinator: ObservableObject {
             }
             return
         }
+    }
+
+    private func persistLastPlaylistTarget(from playlist: Playlist) {
+        let target = LastPlaylistTarget(
+            id: playlist.id,
+            title: playlist.title,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        Self.saveLastPlaylistTarget(target)
+        lastPlaylistTarget = target
+    }
+
+    private static func saveLastPlaylistTarget(_ target: LastPlaylistTarget) {
+        let defaults = UserDefaults.standard
+        defaults.set(target.id, forKey: lastPlaylistIdKey)
+        defaults.set(target.title, forKey: lastPlaylistTitleKey)
+        defaults.set(target.sourceCompositeKey, forKey: lastPlaylistSourceKey)
+    }
+
+    private static func loadLastPlaylistTarget() -> LastPlaylistTarget? {
+        let defaults = UserDefaults.standard
+        guard
+            let id = defaults.string(forKey: lastPlaylistIdKey),
+            let title = defaults.string(forKey: lastPlaylistTitleKey)
+        else {
+            return nil
+        }
+        return LastPlaylistTarget(
+            id: id,
+            title: title,
+            sourceCompositeKey: defaults.string(forKey: lastPlaylistSourceKey)
+        )
     }
     
     // MARK: - Network Monitoring

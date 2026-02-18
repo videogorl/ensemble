@@ -160,7 +160,8 @@ public struct PlaylistDetailView: View {
     private let playlist: Playlist
     @State private var showRenamePrompt = false
     @State private var renameTitle = ""
-    @State private var showEditSheet = false
+    @State private var isEditingPlaylist = false
+    @State private var editedTracks: [Track] = []
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -169,35 +170,59 @@ public struct PlaylistDetailView: View {
     }
 
     public var body: some View {
-        MediaDetailView(
-            viewModel: viewModel,
-            nowPlayingVM: nowPlayingVM,
-            headerData: headerData,
-            navigationTitle: playlist.title,
-            showArtwork: true,
-            showTrackNumbers: false,
-            groupByDisc: false,
-            mediaType: .playlist
-        )
+        Group {
+            if isEditingPlaylist {
+                inlinePlaylistEditor
+            } else {
+                MediaDetailView(
+                    viewModel: viewModel,
+                    nowPlayingVM: nowPlayingVM,
+                    headerData: headerData,
+                    navigationTitle: playlist.title,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false,
+                    mediaType: .playlist
+                )
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        renameTitle = viewModel.playlist.title
-                        showRenamePrompt = true
-                    } label: {
-                        Label("Rename", systemImage: "pencil")
+                if isEditingPlaylist {
+                    Button("Save") {
+                        Task {
+                            await viewModel.saveEditedTracks(editedTracks)
+                            isEditingPlaylist = false
+                        }
                     }
-                    .disabled(viewModel.playlist.isSmart)
+                } else {
+                    Menu {
+                        Button {
+                            renameTitle = viewModel.playlist.title
+                            showRenamePrompt = true
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        .disabled(viewModel.playlist.isSmart)
 
-                    Button {
-                        showEditSheet = true
+                        Button {
+                            editedTracks = viewModel.tracks
+                            isEditingPlaylist = true
+                        } label: {
+                            Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                        }
+                        .disabled(viewModel.playlist.isSmart || viewModel.tracks.isEmpty)
                     } label: {
-                        Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                        Image(systemName: "ellipsis")
                     }
-                    .disabled(viewModel.playlist.isSmart || viewModel.filteredTracks.isEmpty)
-                } label: {
-                    Image(systemName: "ellipsis")
+                }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if isEditingPlaylist {
+                    Button("Cancel") {
+                        isEditingPlaylist = false
+                        editedTracks = []
+                    }
                 }
             }
         }
@@ -211,16 +236,6 @@ public struct PlaylistDetailView: View {
             }
         } message: {
             Text("Choose a new playlist name.")
-        }
-        .sheet(isPresented: $showEditSheet) {
-            PlaylistEditSheet(
-                tracks: viewModel.filteredTracks,
-                onSave: { updatedTracks in
-                    Task {
-                        await viewModel.saveEditedTracks(updatedTracks)
-                    }
-                }
-            )
         }
     }
     
@@ -244,22 +259,12 @@ public struct PlaylistDetailView: View {
             ratingKey: playlist.id
         )
     }
-}
 
-private struct PlaylistEditSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var tracks: [Track]
-    let onSave: ([Track]) -> Void
-
-    init(tracks: [Track], onSave: @escaping ([Track]) -> Void) {
-        _tracks = State(initialValue: tracks)
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        NavigationView {
-            List {
-                ForEach(tracks, id: \.id) { track in
+    private var inlinePlaylistEditor: some View {
+        List {
+            ForEach(editedTracks, id: \.id) { track in
+                HStack(spacing: 12) {
+                    ArtworkView(track: track, size: .tiny, cornerRadius: 4)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title)
                         Text(track.artistName ?? "")
@@ -267,28 +272,15 @@ private struct PlaylistEditSheet: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                .onMove { source, destination in
-                    tracks.move(fromOffsets: source, toOffset: destination)
-                }
-                .onDelete { offsets in
-                    tracks.remove(atOffsets: offsets)
-                }
             }
-            .navigationTitle("Edit Playlist")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(tracks)
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    EditButton()
-                }
+            .onMove { source, destination in
+                editedTracks.move(fromOffsets: source, toOffset: destination)
+            }
+            .onDelete { offsets in
+                editedTracks.remove(atOffsets: offsets)
             }
         }
+        .navigationTitle("Edit Playlist")
+        .environment(\.editMode, .constant(.active))
     }
 }

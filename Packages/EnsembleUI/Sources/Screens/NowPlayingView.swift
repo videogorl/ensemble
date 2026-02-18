@@ -32,7 +32,8 @@ public struct NowPlayingView: View {
     @State private var lastScrubRate: Double = 1.0
     @State private var showPlaylistPicker = false
     @State private var playlistPickerTracks: [Track] = []
-    @State private var playlistPickerTitle = "Add to Playlist"
+    @State private var playlistPickerTitle = "Add to Playlist..."
+    @State private var lastPlaylistQuickTarget: Playlist?
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel
@@ -86,6 +87,9 @@ public struct NowPlayingView: View {
                     tracks: playlistPickerTracks,
                     title: playlistPickerTitle
                 )
+            }
+            .task(id: viewModel.lastPlaylistTarget?.id) {
+                lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget()
             }
             .alert("Playlist Update", isPresented: Binding(
                 get: { viewModel.playlistOperationMessage != nil },
@@ -458,13 +462,24 @@ public struct NowPlayingView: View {
 
             // More actions
             Menu {
+                if let lastPlaylistQuickTarget {
+                    Button {
+                        guard let currentTrack = viewModel.currentTrack else { return }
+                        Task {
+                            _ = try? await viewModel.addTracks([currentTrack], to: lastPlaylistQuickTarget)
+                        }
+                    } label: {
+                        Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
                 Button {
                     guard let currentTrack = viewModel.currentTrack else { return }
                     playlistPickerTracks = [currentTrack]
-                    playlistPickerTitle = "Add to Playlist"
+                    playlistPickerTitle = "Add to Playlist..."
                     showPlaylistPicker = true
                 } label: {
-                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                    Label("Add to Playlist...", systemImage: "text.badge.plus")
                 }
 
                 Button {
