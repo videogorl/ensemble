@@ -28,9 +28,25 @@ public extension View {
     /// Uses a clear safe-area inset so content can scroll above the mini player.
     @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self.safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: height)
+            }
+        } else {
+            // iOS 15: avoid safeAreaInset host-preference recursion.
+            // Overlay preserves visuals without participating in safe-area preference propagation.
+            self.overlay(alignment: .bottom) {
+                Color.clear
+                    .frame(height: height)
+                    .allowsHitTesting(false)
+            }
+        }
+        #else
         self.safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: height)
         }
+        #endif
     }
 
     /// Apply a wiggle animation to the view, useful for edit modes

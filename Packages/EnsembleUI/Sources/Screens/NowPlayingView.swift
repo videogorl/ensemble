@@ -268,16 +268,31 @@ public struct NowPlayingView: View {
                 ZStack(alignment: .leading) {
                     // Waveform background
                     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        WaveformView(
+                        let waveform = WaveformView(
                             progress: isDraggingSlider ? localProgress : viewModel.progress,
                             color: .white,
                             heights: viewModel.waveformHeights
                         )
                         .frame(width: geometry.size.width)
-                        .id(track.id) // Force view reset when track changes
-                        .transition(.opacity)
-                        .animation(.easeInOut, value: track.id)
                         .opacity(0.8)
+
+                        #if os(iOS)
+                        if #available(iOS 16.0, *) {
+                            waveform
+                                .id(track.id) // Force view reset when track changes
+                                .transition(.opacity)
+                                .animation(.easeInOut, value: track.id)
+                        } else {
+                            // iOS 15: avoid additional identity churn in TimelineView
+                            // to prevent SwiftUI IDViewList assertion recursion.
+                            waveform
+                        }
+                        #else
+                        waveform
+                            .id(track.id) // Force view reset when track changes
+                            .transition(.opacity)
+                            .animation(.easeInOut, value: track.id)
+                        #endif
                     }
                     
                     // Invisible interaction layer
