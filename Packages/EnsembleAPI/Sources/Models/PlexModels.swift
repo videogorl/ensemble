@@ -234,6 +234,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
 public struct PlexTrack: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
+    public let playlistItemID: String?
     public let parentRatingKey: String?  // Album
     public let grandparentRatingKey: String?  // Artist
     public let title: String
@@ -258,6 +259,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case key
+        case playlistItemID
         case parentRatingKey
         case grandparentRatingKey
         case title

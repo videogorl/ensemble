@@ -3,7 +3,9 @@ import Foundation
 
 public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists() async throws -> [CDPlaylist]
+    func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist]
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
+    func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
     func upsertPlaylist(
         ratingKey: String,
@@ -33,10 +35,17 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     }
 
     public func fetchPlaylists() async throws -> [CDPlaylist] {
+        try await fetchPlaylists(sourceCompositeKey: nil)
+    }
+
+    public func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] {
         try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
+                if let sourceCompositeKey {
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                }
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
                 do {
                     let playlists = try context.fetch(request)
@@ -66,11 +75,19 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     }
 
     public func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? {
+        try await fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: nil)
+    }
+
+    public func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
         try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                if let sourceCompositeKey {
+                    request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
+                } else {
+                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                }
                 request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {
                     let playlist = try context.fetch(request).first

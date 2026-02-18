@@ -179,7 +179,8 @@ public final class DependencyContainer: @unchecked Sendable {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 

@@ -550,6 +550,70 @@ public actor PlexAPIClient {
         print("✅ Got \(container.mediaContainer.items.count) playlist tracks")
         return container.mediaContainer.items
     }
+
+    /// Create a new audio playlist
+    /// - Parameters:
+    ///   - title: Playlist title
+    ///   - trackRatingKeys: Rating keys to include
+    ///   - serverIdentifier: Target Plex server identifier
+    public func createPlaylist(title: String, trackRatingKeys: [String], serverIdentifier: String) async throws {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PlexAPIError.invalidURL
+        }
+
+        let uri = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
+        let query: [String: String] = [
+            "type": "audio",
+            "title": title,
+            "smart": "0",
+            "uri": uri
+        ]
+
+        _ = try await serverRequestPOST(path: "/playlists", query: query)
+    }
+
+    /// Rename an existing playlist
+    public func renamePlaylist(playlistId: String, newTitle: String) async throws {
+        guard !newTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PlexAPIError.invalidURL
+        }
+
+        _ = try await serverRequestPUT(
+            path: "/playlists/\(playlistId)",
+            query: ["title": newTitle]
+        )
+    }
+
+    /// Add tracks to an existing playlist
+    public func addItemsToPlaylist(playlistId: String, trackRatingKeys: [String], serverIdentifier: String) async throws {
+        let uri = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
+        _ = try await serverRequestPUT(
+            path: "/playlists/\(playlistId)/items",
+            query: ["uri": uri]
+        )
+    }
+
+    /// Remove a specific playlist item from a playlist
+    public func removePlaylistItem(playlistId: String, playlistItemId: String) async throws {
+        _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)/items/\(playlistItemId)")
+    }
+
+    /// Clear all items from a playlist
+    public func clearPlaylistItems(playlistId: String) async throws {
+        _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)/items")
+    }
+
+    /// Move a playlist item relative to another item
+    public func movePlaylistItem(playlistId: String, playlistItemId: String, afterItemId: String?) async throws {
+        var query: [String: String] = [:]
+        if let afterItemId {
+            query["after"] = afterItemId
+        }
+        _ = try await serverRequestPUT(
+            path: "/playlists/\(playlistId)/items/\(playlistItemId)/move",
+            query: query
+        )
+    }
     
     // MARK: - Hubs (Home Screen Content)
     
@@ -1111,6 +1175,78 @@ public actor PlexAPIClient {
 
         let (data, _) = try await performRequest(request)
         return data
+    }
+
+    private func serverRequestPOST(path: String, query: [String: String] = [:]) async throws -> Data {
+        do {
+            return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
+        } catch {
+            if !serverConnection.alternativeURLs.isEmpty {
+                print("⚠️ POST request failed with current URL, attempting failover...")
+                try await attemptFailover()
+                return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
+            }
+            throw error
+        }
+    }
+
+    private func performServerRequestPOST(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+        var components = URLComponents(string: url)!
+        components.path = path
+        var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
+        components.queryItems = queryItems
+
+        guard let requestURL = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+
+        let (data, _) = try await performRequest(request)
+        return data
+    }
+
+    private func serverRequestDELETE(path: String, query: [String: String] = [:]) async throws -> Data {
+        do {
+            return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
+        } catch {
+            if !serverConnection.alternativeURLs.isEmpty {
+                print("⚠️ DELETE request failed with current URL, attempting failover...")
+                try await attemptFailover()
+                return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
+            }
+            throw error
+        }
+    }
+
+    private func performServerRequestDELETE(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
+        var components = URLComponents(string: url)!
+        components.path = path
+        var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
+        components.queryItems = queryItems
+
+        guard let requestURL = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+
+        let (data, _) = try await performRequest(request)
+        return data
+    }
+
+    /// Build Plex metadata URI format used for playlist mutations.
+    private func buildMetadataURI(serverIdentifier: String, ratingKeys: [String]) -> String {
+        let keys = ratingKeys.joined(separator: ",")
+        return "server://\(serverIdentifier)/com.plexapp.plugins.library/library/metadata/\(keys)"
     }
 
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {

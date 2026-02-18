@@ -148,16 +148,19 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
+        self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
         
         // Save filter options when they change
@@ -176,38 +179,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         do {
-            var allTracks: [Track] = []
-            var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
-            
-            // Fetch all playlists from the repository
-            let allPlaylists = try await playlistRepository.fetchPlaylists()
-            
-            // Find all playlists with the same title as our current playlist (across all libraries)
-            let matchingPlaylists = allPlaylists.filter { $0.title == playlist.title }
-            
-            // Load tracks from each matching playlist
-            for playlist in matchingPlaylists {
-                do {
-                    let cachedPlaylist = try await playlistRepository.fetchPlaylist(ratingKey: playlist.ratingKey)
-                    if let cachedPlaylist = cachedPlaylist {
-                        let cachedTracks = cachedPlaylist.tracksArray
-                        for cdTrack in cachedTracks {
-                            let track = Track(from: cdTrack)
-                            
-                            // Dedup by ratingKey - keep first occurrence
-                            if trackMap[track.id] == nil {
-                                trackMap[track.id] = track
-                                allTracks.append(track)
-                            }
-                        }
-                    }
-                } catch {
-                    // Continue to next playlist if this one fails
-                    continue
-                }
+            if let cachedPlaylist = try await playlistRepository.fetchPlaylist(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            ) {
+                // Refresh playlist metadata from cache so title/count stays current after edits.
+                playlist = Playlist(from: cachedPlaylist)
+                tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+            } else {
+                tracks = []
             }
-            
-            tracks = allTracks
         } catch {
             self.error = error.localizedDescription
         }
@@ -254,5 +235,23 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
         
         return filtered
+    }
+
+    public func renamePlaylist(to newTitle: String) async {
+        do {
+            try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
+            await loadTracks()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    public func saveEditedTracks(_ editedTracks: [Track]) async {
+        do {
+            try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            await loadTracks()
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
