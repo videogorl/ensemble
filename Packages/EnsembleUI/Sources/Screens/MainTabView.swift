@@ -132,7 +132,7 @@ public struct MainTabView: View {
             }
 
             // Persistent MiniPlayer (Floating above native TabBar)
-            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible && !isImmersiveMode {
+            if !isKeyboardVisible && !isImmersiveMode {
                 MiniPlayer(viewModel: nowPlayingVM) {
                     showingNowPlaying = true
                 }
