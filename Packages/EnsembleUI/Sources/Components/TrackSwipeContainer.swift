@@ -132,15 +132,16 @@ public struct TrackSwipeContainer<Content: View>: View {
                     swipeButton(for: action)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
             HStack(spacing: 0) {
                 ForEach(Array(trailingActions.enumerated()), id: \.offset) { _, action in
                     swipeButton(for: action)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func swipeButton(for action: TrackSwipeAction) -> some View {
@@ -160,8 +161,9 @@ public struct TrackSwipeContainer<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundColor(.white)
         }
-        .frame(width: actionWidth)
+        .frame(width: actionWidth, maxHeight: .infinity)
         .background(actionTint(for: action))
+        .contentShape(Rectangle())
     }
 
     private func snapToNearestEdge() {
