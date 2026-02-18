@@ -172,6 +172,9 @@ public struct MiniPlayer: View {
                 .padding(.vertical, 12)
             }
         }
+        // Keep mini-player layout tightly bound to rendered content height.
+        // This avoids oversized touch regions when artwork background is active.
+        .fixedSize(horizontal: false, vertical: true)
         .clipped()
         .background(
             ZStack {
@@ -190,6 +193,8 @@ public struct MiniPlayer: View {
                     )
                     .animation(.easeInOut(duration: 0.8), value: artworkImage)
                     .clipped()
+                    // Background blur is visual-only and should never own touch events.
+                    .allowsHitTesting(false)
                 }
                 
                 RoundedRectangle(cornerRadius: 20)
