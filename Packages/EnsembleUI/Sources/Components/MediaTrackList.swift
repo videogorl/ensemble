@@ -610,6 +610,8 @@ public struct MediaTrackList: UIViewRepresentable {
                 onAddToPlaylist?(track)
                 showSwipeConfirmation(for: action, track: track)
             case .favoriteToggle:
+                let isFavorited = isTrackFavorited?(track) ?? (track.rating >= 8)
+                showFavoriteLoadingToast(for: track, willFavorite: !isFavorited)
                 onToggleFavorite?(track)
             }
         }
@@ -646,6 +648,21 @@ public struct MediaTrackList: UIViewRepresentable {
                 return
             }
 
+            Task { @MainActor in
+                toastCenter.show(toast)
+            }
+        }
+
+        private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
+            let toast = ToastPayload(
+                style: .info,
+                iconSystemName: willFavorite ? "heart.fill" : "heart.slash.fill",
+                title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
+                message: track.title,
+                duration: 1.0,
+                dedupeKey: "favorite-toggle-loading-\(track.id)",
+                showsActivityIndicator: true
+            )
             Task { @MainActor in
                 toastCenter.show(toast)
             }

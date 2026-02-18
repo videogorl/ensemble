@@ -669,6 +669,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 let refreshedTrack = Track(from: updatedTrack)
                 updateCurrentTrackIfNeeded(refreshedTrack)
             }
+
+            toastCenter.show(
+                ToastPayload(
+                    style: .success,
+                    iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
+                    title: isFavorite ? "Added to Favorites" : "Removed from Favorites",
+                    message: track.title,
+                    dedupeKey: "favorite-toggle-success-\(track.id)-\(isFavorite ? 1 : 0)"
+                )
+            )
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatings[track.id] = previousRating

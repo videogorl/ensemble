@@ -240,6 +240,8 @@ public struct TrackSwipeContainer<Content: View>: View {
             onAddToPlaylist?()
             showSwipeConfirmation(for: action, track: track)
         case .favoriteToggle:
+            let willFavorite = !nowPlayingVM.isTrackFavorited(track)
+            showFavoriteLoadingToast(for: track, willFavorite: willFavorite)
             Task {
                 await nowPlayingVM.toggleTrackFavorite(track)
             }
@@ -281,6 +283,20 @@ public struct TrackSwipeContainer<Content: View>: View {
         case .favoriteToggle:
             break
         }
+    }
+
+    private func showFavoriteLoadingToast(for track: Track, willFavorite: Bool) {
+        toastCenter.show(
+            ToastPayload(
+                style: .info,
+                iconSystemName: willFavorite ? "heart.fill" : "heart.slash.fill",
+                title: willFavorite ? "Adding to Favorites..." : "Removing from Favorites...",
+                message: track.title,
+                duration: 1.0,
+                dedupeKey: "favorite-toggle-loading-\(track.id)",
+                showsActivityIndicator: true
+            )
+        )
     }
     #endif
 }
