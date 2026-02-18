@@ -177,7 +177,7 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.currentRating = .none
                     return
                 }
-                self.currentRating = TrackRating.from(rating: track.rating)
+                self.currentRating = TrackRating.from(rating: self.trackDisplayRating(for: track))
             }
             .store(in: &cancellables)
     }
@@ -641,7 +641,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         let plexRating: Int? = isFavorite ? 10 : nil
         let optimisticRating = isFavorite ? 10 : 0
-        let previousRating = track.rating
+        let previousRating = trackDisplayRating(for: track)
         let loadingToast = ToastPayload(
             style: .info,
             iconSystemName: "heart.fill",
@@ -667,7 +667,10 @@ public final class NowPlayingViewModel: ObservableObject {
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                 let refreshedTrack = Track(from: updatedTrack)
+                optimisticTrackRatings[track.id] = refreshedTrack.rating
                 updateCurrentTrackIfNeeded(refreshedTrack)
+            } else {
+                optimisticTrackRatings[track.id] = optimisticRating
             }
 
             toastCenter.show(
@@ -719,30 +722,45 @@ public final class NowPlayingViewModel: ObservableObject {
                 newRating = .none
             }
             
+            let previousRating = trackDisplayRating(for: track)
+            let nextPlexRating = newRating.plexRating
+            let nextDisplayRating = nextPlexRating ?? 0
+
             // Mark that we're updating to prevent overwriting
             await MainActor.run {
                 self.isUpdatingRating = true
                 self.currentRating = newRating
+                self.optimisticTrackRatings[track.id] = nextDisplayRating
             }
             
             // Send to server
             do {
-                try await syncCoordinator.rateTrack(
-                    track: track,
-                    rating: newRating.plexRating
-                )
-                
-                // Update in CoreData
-                try await updateTrackRatingInDatabase(trackId: track.id, rating: newRating.plexRating ?? 0)
+                // Apply optimistic local update for immediate consistency with swipe-driven state.
+                try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
+                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+
+                if let trackRatingMutationHandlerForTesting {
+                    try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
+                } else {
+                    try await syncCoordinator.rateTrack(
+                        track: track,
+                        rating: nextPlexRating
+                    )
+                }
                 
                 // Refresh the track to get updated data
                 if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                     let refreshedTrack = Track(from: updatedTrack)
                     await MainActor.run {
+                        self.optimisticTrackRatings[track.id] = refreshedTrack.rating
                         // Update currentTrack if it's still the same track
                         if self.currentTrack?.id == track.id {
                             self.currentTrack = refreshedTrack
                         }
+                    }
+                } else {
+                    await MainActor.run {
+                        self.optimisticTrackRatings[track.id] = nextDisplayRating
                     }
                 }
                 
@@ -756,9 +774,12 @@ public final class NowPlayingViewModel: ObservableObject {
                 #endif
                 // Revert on error
                 await MainActor.run {
+                    self.optimisticTrackRatings[track.id] = previousRating
                     self.isUpdatingRating = false
-                    self.currentRating = TrackRating.from(rating: track.rating)
+                    self.currentRating = TrackRating.from(rating: previousRating)
                 }
+                try? await storeTrackRating(trackId: track.id, rating: previousRating)
+                applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: previousRating)
             }
         }
     }

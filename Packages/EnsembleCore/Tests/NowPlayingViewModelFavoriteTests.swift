@@ -71,6 +71,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { recommendationsSubject.eraseToAnyPublisher() }
         var historyPublisher: AnyPublisher<[QueueItem], Never> { historySubject.eraseToAnyPublisher() }
 
+        func setCurrentTrack(_ track: Track?) {
+            currentTrackSubject.send(track)
+        }
+
         func play(track: Track) async {}
         func play(tracks: [Track], startingAt index: Int) async {}
         func shufflePlay(tracks: [Track]) async {}
@@ -160,10 +164,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private func makeViewModel() -> NowPlayingViewModel {
+    private func makeViewModel() -> (viewModel: NowPlayingViewModel, playbackService: MockPlaybackService) {
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
         let accountManager = AccountManager(keychain: TestKeychain())
+        let playbackService = MockPlaybackService()
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: libraryRepository,
@@ -173,17 +178,17 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
         )
 
-        return NowPlayingViewModel(
-            playbackService: MockPlaybackService(),
+        return (NowPlayingViewModel(
+            playbackService: playbackService,
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
             navigationCoordinator: NavigationCoordinator(),
             toastCenter: ToastCenter()
-        )
+        ), playbackService)
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {
-        let viewModel = makeViewModel()
+        let viewModel = makeViewModel().viewModel
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
         var recordedRating: Int?
         var storedRating: Int?
@@ -202,7 +207,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     }
 
     func testSetTrackFavoriteUsesNilRatingWhenUnfavoriting() async {
-        let viewModel = makeViewModel()
+        let viewModel = makeViewModel().viewModel
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", rating: 10)
         var recordedRating: Int?
         var storedRating: Int?
@@ -221,7 +226,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     }
 
     func testSetTrackFavoriteStopsWhenMutationFails() async {
-        let viewModel = makeViewModel()
+        let viewModel = makeViewModel().viewModel
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
         var storedRatings: [Int] = []
 
@@ -237,5 +242,22 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         await viewModel.setTrackFavorite(true, for: track)
 
         XCTAssertEqual(storedRatings, [10, 0])
+    }
+
+    func testToggleRatingUpdatesFavoriteStateForCurrentTrack() async {
+        let (viewModel, playback) = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", rating: 10)
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, _ in }
+        viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
+
+        playback.setCurrentTrack(track)
+        await Task.yield()
+        viewModel.currentRating = .loved
+
+        viewModel.toggleRating()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertFalse(viewModel.isTrackFavorited(track))
     }
 }
