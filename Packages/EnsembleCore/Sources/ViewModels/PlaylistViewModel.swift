@@ -252,6 +252,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
+    public func deletePlaylist() async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     public func applyEditedTracksLocally(_ editedTracks: [Track]) {
         shouldSkipNextLoadAfterLocalEdit = true
         tracks = editedTracks

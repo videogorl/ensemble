@@ -35,8 +35,10 @@ public struct MediaHeaderData {
 public struct PlaylistDetailMenuActions {
     let canRename: Bool
     let canEdit: Bool
+    let canDelete: Bool
     let onRename: () -> Void
     let onEdit: () -> Void
+    let onDelete: () -> Void
 }
 
 // MARK: - Media Detail View
@@ -266,6 +268,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Edit Playlist", systemImage: "slider.horizontal.3")
                 }
                 .disabled(!playlistMenuActions.canEdit)
+
+                Button(role: .destructive) {
+                    playlistMenuActions.onDelete()
+                } label: {
+                    Label("Delete Playlist", systemImage: "trash")
+                }
+                .disabled(!playlistMenuActions.canDelete)
             }
         } label: {
             Image(systemName: "ellipsis.circle")

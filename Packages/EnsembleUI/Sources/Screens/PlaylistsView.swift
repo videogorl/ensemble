@@ -167,10 +167,13 @@ public struct PlaylistDetailView: View {
     
     private let playlist: Playlist
     @State private var showRenamePrompt = false
+    @State private var showDeleteConfirmation = false
     @State private var renameTitle = ""
     @State private var isEditingPlaylist = false
     @State private var editedTracks: [Track] = []
     @State private var isSavingPlaylistEdits = false
+    @State private var isDeletingPlaylist = false
+    @Environment(\.dismiss) private var dismiss
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel) {
         self.playlist = playlist
@@ -195,6 +198,7 @@ public struct PlaylistDetailView: View {
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
+                        canDelete: !viewModel.playlist.isSmart,
                         onRename: {
                             renameTitle = viewModel.playlist.title
                             showRenamePrompt = true
@@ -202,6 +206,9 @@ public struct PlaylistDetailView: View {
                         onEdit: {
                             editedTracks = viewModel.tracks
                             isEditingPlaylist = true
+                        },
+                        onDelete: {
+                            showDeleteConfirmation = true
                         }
                     )
                 )
@@ -270,6 +277,22 @@ public struct PlaylistDetailView: View {
             }
         } message: {
             Text("Choose a new playlist name.")
+        }
+        .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                guard !isDeletingPlaylist else { return }
+                isDeletingPlaylist = true
+                Task {
+                    let didDelete = await viewModel.deletePlaylist()
+                    isDeletingPlaylist = false
+                    if didDelete {
+                        dismiss()
+                    }
+                }
+            }
+        } message: {
+            Text("This will permanently delete \"\(viewModel.playlist.title)\" from Plex.")
         }
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)
