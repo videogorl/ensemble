@@ -57,8 +57,8 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 - Unit tests for business logic (services, repositories)
 - Integration tests for sync flows
 - Not required for simple ViewModels or UI-only code
-- Not accounting for edge cases during early development (pre-beta)
-- App is not released to the public and isn't in beta -- no need for edge case handling in CoreData model
+- App is in active beta testing — account for edge cases in CoreData model
+- Validate inputs before saving to CoreData; handle nil/missing fields defensively
 
 ## MVVM Pattern
 

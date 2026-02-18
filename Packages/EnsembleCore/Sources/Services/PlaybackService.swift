@@ -1984,7 +1984,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.networkStateObservation = self.networkMonitor.$isConnected
                 .dropFirst() // Ignore initial value
                 .sink { [weak self] isConnected in
-                Task { @MainActor [weak self] in
+                // No [weak self] here — the outer sink closure already captures self weakly
+                Task { @MainActor in
                     guard let self = self else { return }
 
                     if isConnected {
@@ -2197,7 +2198,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        print("🔄 Failed to decode queue data in any format")
+        print("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
     }
 
     /// Restore queue from QueueItem array without starting playback

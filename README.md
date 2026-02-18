@@ -158,7 +158,7 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble test
 - Use clear, descriptive names
 - Comment logical sections (not every line)
 - Favor simplicity over premature optimization
-- This is a pre-beta app — edge cases are not a priority yet
+- App is in active beta testing — handle edge cases defensively, especially in CoreData model
 
 ### Adding New Features
 See `CLAUDE.md` for detailed development guidelines, including:
@@ -203,7 +203,6 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Fix watchOS authentication
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
-- Prepare for beta testing
 
 ## Roadmap
 
@@ -244,7 +243,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data with intelligent fallback
 - [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
 - [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
-- [ ] **Background Sync** — Use iOS background refresh to keep library updated
+- [x] **Background Sync** — iOS BGAppRefreshTask refreshes hubs every ~15 minutes (system-controlled)
 - [ ] Queue reordering and persistence
 - [ ] Waveform seeking (jump to specific parts of track)
 

@@ -43,17 +43,22 @@ public final class HomeViewModel: ObservableObject {
         
         // Load cached hubs immediately for offline-first experience
         Task { @MainActor in
-            if let cached = try? await hubRepository.fetchHubs(), !cached.isEmpty {
-                // Apply saved custom order to cached hubs
-                updateCurrentSource()
-                if let sourceKey = currentSourceKey {
-                    let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
-                    let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
-                    self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
-                    print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
-                } else {
-                    self.hubs = cached
+            do {
+                let cached = try await hubRepository.fetchHubs()
+                if !cached.isEmpty {
+                    // Apply saved custom order to cached hubs
+                    updateCurrentSource()
+                    if let sourceKey = currentSourceKey {
+                        let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
+                        let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                        self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
+                        print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
+                    } else {
+                        self.hubs = cached
+                    }
                 }
+            } catch {
+                print("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
             }
         }
         
@@ -549,7 +554,8 @@ public final class HomeViewModel: ObservableObject {
         
         print("⏰ Starting periodic hub refresh (every 10 minutes)")
         hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // No [weak self] here — the outer Timer closure already captures self weakly
+            Task { @MainActor in
                 guard let self = self else { return }
                 
                 // Don't refresh if offline

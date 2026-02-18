@@ -89,6 +89,7 @@ Sources/
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
+|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
@@ -103,6 +104,12 @@ Sources/
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
+|   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
+|   +-- MoodRepository.swift           # Mood data persistence (CDMood)
+|   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
+|   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
+|   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
+|   +-- RadioProvider.swift            # Protocol for radio/station providers
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
 |   +-- AlbumDetailViewModel.swift
@@ -112,6 +119,7 @@ Sources/
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
 |   +-- NowPlayingViewModel.swift
+|   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
 |   +-- SyncPanelViewModel.swift
@@ -149,9 +157,12 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
+|   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
+|   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
@@ -165,6 +176,7 @@ Sources/
 |   +-- HomeView.swift                # Hub-based home screen (Recently Added, etc.)
 |   +-- MainTabView.swift             # iPhone tab bar
 |   +-- MediaDetailView.swift         # Artist/Album/Playlist detail (adaptive, protocol-based)
+|   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
 |   +-- PlaylistsView.swift           # Playlist grid

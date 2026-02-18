@@ -15,6 +15,9 @@ public struct SettingsView: View {
 
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
+    // Hardcoded support URL — safe to force-unwrap as a named constant (literal cannot fail)
+    private static let supportURL = URL(string: "https://github.com/")!
+
     public init() {}
 
     public var body: some View {
@@ -160,7 +163,7 @@ public struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Link(destination: URL(string: "https://github.com")!) {
+                Link(destination: Self.supportURL) {
                     HStack {
                         Image(systemName: "questionmark.circle")
                             .frame(width: 44)

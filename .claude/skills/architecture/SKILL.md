@@ -71,6 +71,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `SettingsManager` (@MainActor) -- Manages accent colors and customizable tab configuration
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
+- `MoodRepository` -- Mood data persistence (CDMood)
+- `ToastCenter` (@MainActor) -- App-wide toast notification coordination
+- `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -80,6 +84,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
 - `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` -- Network state management models
+- `PinnedItem` -- User-pinned content (albums, artists, playlists) with sort order
+- `Mood` -- Plex mood/vibe category (title and ratingKey)
+
+**Key ViewModels:**
+- `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
 
 ### EnsembleUI (Presentation Layer)
 - **Location:** `Packages/EnsembleUI/`
@@ -240,6 +249,43 @@ Dynamic home screen powered by Plex's hub system:
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
   - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)
+
+## Subsystem: Playlist Mutations
+
+Server-backed playlist mutations with automatic local cache refresh:
+
+- `SyncCoordinator` orchestrates all mutations: `createPlaylist()`, `addTracksToPlaylist()`, `removeTrackFromPlaylist()`, `movePlaylistItem()`, `renamePlaylist()`
+- Smart playlists are read-only; all mutations throw `PlaylistMutationError.smartPlaylistReadOnly`
+- All successful mutations trigger server refresh + CoreData update for the affected source
+- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
+
+## Subsystem: Pinned Content
+
+User-pinnable items (albums, artists, playlists) persisted across sessions:
+
+- `PinnedItem` domain model records item type, ratingKey, sourceIdentifier, and sort order
+- `PinnedViewModel` fetches `CDPinnedItem` records from CoreData and resolves them into full domain objects
+- Persisted in CoreData via `CDPinnedItem` entity
+
+## Subsystem: Mood-Based Browsing
+
+Plex mood/vibe categories for discovery:
+
+- `Mood` domain model -- title and ratingKey from Plex API
+- `MoodRepository` -- CoreData persistence via `CDMood` entity
+- `MoodTracksView` (`EnsembleUI`) -- displays tracks for a selected mood
+
+## Subsystem: Incremental Sync
+
+Two sync modes to balance freshness and speed:
+
+- **Full sync:** `SyncCoordinator.syncAll()` -- fetches entire library from Plex
+- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items
+- **Startup:** full sync if last sync >24h ago; incremental if >1h; skip if <1h
+- **Periodic (foreground):** incremental library sync every 1h, hub refresh every 10min
+- **Background (iOS):** `BackgroundSyncScheduler` registers `BGAppRefreshTask`; system triggers hub refresh approximately every 15min
+- **Pull-to-refresh:** library views call incremental sync; `HomeView` refreshes hubs only
+- **Key filtered fetch methods** in `PlexAPIClient`: `getArtists(sectionKey:addedAfter:)`, `getAlbums(sectionKey:addedAfter:)`, `getTracks(sectionKey:addedAfter:)`
 
 ## Multi-Source Architecture
 

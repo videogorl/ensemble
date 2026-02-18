@@ -142,3 +142,54 @@ var filteredItems: [Item] {
 FilterPersistence.load(key: "myViewFilter")
 FilterPersistence.save(filterOptions, key: "myViewFilter")
 ```
+
+## Working with Playlist Mutations
+
+All playlist mutations go through `SyncCoordinator`, which handles the server call and then refreshes the local CoreData cache automatically.
+
+```swift
+let syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+// Create a new playlist
+try await syncCoordinator.createPlaylist(name: "My Playlist", for: sourceIdentifier)
+
+// Add tracks to an existing playlist
+try await syncCoordinator.addTracksToPlaylist(playlistKey: "12345", trackKeys: ["111", "222"], for: sourceIdentifier)
+
+// Remove a track from a playlist (by its playlistItemID, not ratingKey)
+try await syncCoordinator.removeTrackFromPlaylist(playlistKey: "12345", playlistItemID: "999", for: sourceIdentifier)
+
+// Move a track within a playlist
+try await syncCoordinator.movePlaylistItem(playlistKey: "12345", itemID: "999", afterItemID: "888", for: sourceIdentifier)
+
+// Rename a playlist
+try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Name", for: sourceIdentifier)
+```
+
+**Rules:**
+- Smart playlists are read-only. All mutations on smart playlists throw `PlaylistMutationError.smartPlaylistReadOnly`. Guard for this before showing mutation UI.
+- After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
+- Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
+
+## Triggering Incremental vs Full Sync
+
+```swift
+let syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+// Full sync — fetches the entire library from Plex. Use after initial setup
+// or when data integrity is uncertain. Slow on large libraries.
+await syncCoordinator.syncAll()
+
+// Incremental sync — fetches only items added/updated since the last sync
+// using addedAt>= / updatedAt>= Plex query params. Use for routine updates.
+await syncCoordinator.syncAllIncremental()
+
+// Hub-only refresh — fetches fresh hub data for a single source.
+// Used by HomeView pull-to-refresh and the periodic 10-minute timer.
+try await syncCoordinator.refreshHubs(for: sourceIdentifier)
+```
+
+**When to use each:**
+- `syncAll()` — manual "sync now" triggered by user, post-account-add, or when >24h since last sync
+- `syncAllIncremental()` — pull-to-refresh on library views, startup sync when 1–24h old, periodic 1h timer
+- `refreshHubs(for:)` — HomeView pull-to-refresh, periodic 10-min hub timer, post-mutation refresh
