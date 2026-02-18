@@ -336,6 +336,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 if let newItem = change.newValue as? AVPlayerItem {
                     self.handleItemChange(newItem)
+                } else if (change.oldValue as? AVPlayerItem) != nil {
+                    // AVQueuePlayer naturally sets currentItem=nil when the queue is exhausted.
+                    // Defer one turn so manual queue swaps (remove/insert) don't get treated as end-of-queue.
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        await Task.yield()
+                        guard self.player?.currentItem == nil else { return }
+                        self.handleQueueExhausted()
+                    }
                 }
             }
         }
@@ -394,6 +403,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         }
+    }
+
+    /// Handles natural playback completion when AVQueuePlayer has no current item left.
+    @MainActor
+    private func handleQueueExhausted() {
+        guard !queue.isEmpty else {
+            stop()
+            return
+        }
+
+        // Cancel any pending stall retry. End-of-queue is not a recoverable stall.
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
+
+        if repeatMode == .all {
+            currentQueueIndex = 0
+            Task {
+                await playCurrentQueueItem()
+                savePlaybackState()
+                await checkAndRefreshAutoplayQueue()
+            }
+            return
+        }
+
+        if isAutoplayEnabled {
+            let nextIndex = currentQueueIndex + 1
+            if nextIndex < queue.count {
+                currentQueueIndex = nextIndex
+                Task {
+                    await playCurrentQueueItem()
+                    savePlaybackState()
+                    await checkAndRefreshAutoplayQueue()
+                }
+                return
+            }
+
+            Task { @MainActor in
+                let previousCount = queue.count
+                await refreshAutoplayQueue()
+
+                let refreshedNextIndex = currentQueueIndex + 1
+                if queue.count > previousCount, refreshedNextIndex < queue.count {
+                    currentQueueIndex = refreshedNextIndex
+                    await playCurrentQueueItem()
+                    savePlaybackState()
+                    await checkAndRefreshAutoplayQueue()
+                } else {
+                    print("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                    stop()
+                }
+            }
+            return
+        }
+
+        print("⏹️ Queue ended - stopping playback")
+        stop()
     }
     
     private func generateWaveform(for ratingKey: String) {
@@ -1829,6 +1894,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // If still buffering after 10s, try to recover
             if self.playbackState == .buffering {
+                // End-of-queue often presents as "waiting" with no current item.
+                // Treat this as completion instead of retrying the same track.
+                if self.player?.currentItem == nil {
+                    print("⏹️ Stall recovery detected empty player queue - handling as queue end")
+                    self.handleQueueExhausted()
+                    return
+                }
+
                 print("⚠️ Playback stalled for 10s - attempting recovery")
 
                 // Check if network is available
@@ -2146,4 +2219,3 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
     }
 }
-
