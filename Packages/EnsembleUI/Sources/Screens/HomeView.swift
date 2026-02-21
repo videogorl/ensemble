@@ -36,19 +36,13 @@ public struct HomeView: View {
             HubOrderingSheet(viewModel: viewModel)
         }
         .task {
-            // Load hubs in a detached task to avoid blocking UI
-            Task.detached(priority: .userInitiated) { [viewModel] in
-                await viewModel.loadHubs()
-            }
-            
-            // Start periodic hub refresh
-            await MainActor.run {
-                viewModel.startPeriodicRefresh()
-            }
+            await viewModel.loadHubs()
+        }
+        .onAppear {
+            viewModel.handleViewVisibilityChange(isVisible: true)
         }
         .onDisappear {
-            // Stop periodic refresh when view disappears
-            viewModel.stopPeriodicRefresh()
+            viewModel.handleViewVisibilityChange(isVisible: false)
         }
         .refreshable {
             await viewModel.refresh()
@@ -131,6 +125,15 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { _ in
+                    viewModel.handleScrollInteraction(isInteracting: true)
+                }
+                .onEnded { _ in
+                    viewModel.handleScrollInteraction(isInteracting: false)
+                }
+        )
         .miniPlayerBottomSpacing(140)
     }
 }

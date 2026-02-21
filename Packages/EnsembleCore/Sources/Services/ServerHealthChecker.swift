@@ -5,56 +5,128 @@ import Foundation
 /// Coordinates health checks across all configured servers
 @MainActor
 public final class ServerHealthChecker: ObservableObject {
+    struct CheckSummary: Equatable {
+        let checkedCount: Int
+        let skippedCount: Int
+    }
+
+    private struct CachedCheckEntry {
+        let state: ServerConnectionState
+        let checkedAt: Date
+    }
+
+    private struct ServerCheckResult {
+        let state: ServerConnectionState
+        let usedCachedResult: Bool
+    }
+
     @Published public private(set) var serverStates: [String: ServerConnectionState] = [:]
 
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
-    private var checkTasks: [String: Task<Void, Never>] = [:]
-    private var ongoingServerChecks: [String: Task<ServerConnectionState, Never>] = [:]
+    private let cacheTTL: TimeInterval
+    private let nowProvider: () -> Date
+
+    private var recentChecks: [String: CachedCheckEntry] = [:]
+    private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
 
     public init(accountManager: AccountManager) {
         self.accountManager = accountManager
-        // Use 3 second timeout for faster checks
         self.failoverManager = ConnectionFailoverManager(timeout: 3.0)
+        self.cacheTTL = 120
+        self.nowProvider = { Date() }
+    }
+
+    internal init(
+        accountManager: AccountManager,
+        failoverManager: ConnectionFailoverManager,
+        cacheTTL: TimeInterval = 120,
+        nowProvider: @escaping () -> Date = { Date() }
+    ) {
+        self.accountManager = accountManager
+        self.failoverManager = failoverManager
+        self.cacheTTL = cacheTTL
+        self.nowProvider = nowProvider
     }
 
     // MARK: - Public Methods
 
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
+        _ = await checkAllServers(forceRefresh: false, eligibleServerKeys: nil)
+    }
+
+    func checkAllServers(
+        forceRefresh: Bool,
+        eligibleServerKeys: Set<String>?
+    ) async -> CheckSummary {
         #if DEBUG
-        EnsembleLogger.debug("🏥 ServerHealthChecker: Checking all servers...")
+        EnsembleLogger.debug(
+            "🏥 ServerHealthChecker: Checking servers force=\(forceRefresh), filtered=\(eligibleServerKeys != nil)"
+        )
         #endif
 
-        // Check each server concurrently using the checkServer method
-        // This ensures we reuse any ongoing checks
-        await withTaskGroup(of: Void.self) { group in
+        var skippedCount = 0
+        var checkedCount = 0
+
+        await withTaskGroup(of: (checked: Int, skipped: Int).self) { group in
             for account in accountManager.plexAccounts {
-                #if DEBUG
-                EnsembleLogger.debug("🏥   Account: \(account.username) (ID: \(account.id))")
-                #endif
                 for server in account.servers {
-                    #if DEBUG
-                    EnsembleLogger.debug("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
-                    #endif
+                    let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
+
+                    if let eligibleServerKeys, !eligibleServerKeys.contains(serverKey) {
+                        skippedCount += 1
+                        #if DEBUG
+                        EnsembleLogger.debug("🏥 ServerHealthChecker: Skipping \(serverKey) (no enabled libraries)")
+                        #endif
+                        continue
+                    }
 
                     group.addTask {
-                        _ = await self.checkServer(accountId: account.id, serverId: server.id)
+                        let result = await self.checkServerResult(
+                            accountId: account.id,
+                            serverId: server.id,
+                            forceRefresh: forceRefresh
+                        )
+                        return result.usedCachedResult ? (0, 1) : (1, 0)
                     }
                 }
             }
-            
-            await group.waitForAll()
+
+            for await result in group {
+                checkedCount += result.checked
+                skippedCount += result.skipped
+            }
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🏥 ServerHealthChecker: Completed checking \(serverStates.count) servers")
+        EnsembleLogger.debug(
+            "🏥 ServerHealthChecker: Completed run checked=\(checkedCount), skipped=\(skippedCount)"
+        )
         #endif
+
+        return CheckSummary(checkedCount: checkedCount, skippedCount: skippedCount)
     }
 
     /// Check a specific server and return its connection state
     /// If a check is already in progress for this server, wait for it to complete
     public func checkServer(accountId: String, serverId: String) async -> ServerConnectionState {
+        await checkServer(accountId: accountId, serverId: serverId, forceRefresh: false)
+    }
+
+    func checkServer(
+        accountId: String,
+        serverId: String,
+        forceRefresh: Bool
+    ) async -> ServerConnectionState {
+        await checkServerResult(accountId: accountId, serverId: serverId, forceRefresh: forceRefresh).state
+    }
+
+    private func checkServerResult(
+        accountId: String,
+        serverId: String,
+        forceRefresh: Bool
+    ) async -> ServerCheckResult {
         let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
         
         // If there's an ongoing check for this server, wait for it
@@ -64,32 +136,43 @@ public final class ServerHealthChecker: ObservableObject {
             #endif
             return await ongoingTask.value
         }
-        
+
         guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
-            return .offline
+            return ServerCheckResult(state: .offline, usedCachedResult: false)
+        }
+
+        if !forceRefresh,
+           let cached = recentChecks[serverKey],
+           nowProvider().timeIntervalSince(cached.checkedAt) < cacheTTL {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🏥 ServerHealthChecker: Using cached state for \(serverKey) (\(String(format: "%.1f", nowProvider().timeIntervalSince(cached.checkedAt)))s old)"
+            )
+            #endif
+            serverStates[serverKey] = cached.state
+            return ServerCheckResult(state: cached.state, usedCachedResult: true)
         }
 
         // Create a task for this check
-        let checkTask = Task<ServerConnectionState, Never> {
+        let checkTask = Task<ServerCheckResult, Never> { @MainActor in
             let state = await performServerCheck(accountId: accountId, serverId: serverId, server: server)
-            await MainActor.run {
-                serverStates[serverKey] = state
-                ongoingServerChecks.removeValue(forKey: serverKey)
-            }
-            return state
+            serverStates[serverKey] = state
+            recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+            ongoingServerChecks.removeValue(forKey: serverKey)
+            return ServerCheckResult(state: state, usedCachedResult: false)
         }
-        
+
         ongoingServerChecks[serverKey] = checkTask
         return await checkTask.value
     }
 
     /// Cancel all ongoing health checks
     public func cancelAllChecks() {
-        for (_, task) in checkTasks {
+        for (_, task) in ongoingServerChecks {
             task.cancel()
         }
-        checkTasks.removeAll()
+        ongoingServerChecks.removeAll()
     }
 
     /// Get the current state for a server

@@ -2,8 +2,11 @@ import Foundation
 
 /// Manages connection testing and automatic failover between multiple server connections
 public actor ConnectionFailoverManager {
-    private let session: URLSession
+    typealias DataRequestPerformer = (URLRequest) async throws -> (Data, URLResponse)
+
+    private let requestPerformer: DataRequestPerformer
     private let timeout: TimeInterval
+    private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     
     public init(timeout: TimeInterval = 5.0) {
@@ -12,7 +15,18 @@ public actor ConnectionFailoverManager {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout
-        self.session = URLSession(configuration: config)
+        let session = URLSession(configuration: config)
+        self.requestPerformer = { request in
+            try await session.data(for: request)
+        }
+    }
+
+    internal init(
+        timeout: TimeInterval,
+        requestPerformer: @escaping DataRequestPerformer
+    ) {
+        self.timeout = timeout
+        self.requestPerformer = requestPerformer
     }
     
     /// Test a connection and return whether it's reachable
@@ -55,7 +69,7 @@ public actor ConnectionFailoverManager {
 
         do {
             let startTime = Date()
-            let (_, response) = try await session.data(for: request)
+            let (_, response) = try await requestPerformer(request)
             let duration = Date().timeIntervalSince(startTime)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -108,8 +122,32 @@ public actor ConnectionFailoverManager {
         urls: [String],
         token: String
     ) async -> String? {
-        await withTaskGroup(of: (String, Bool, TimeInterval).self) { group in
-            for url in urls {
+        guard !urls.isEmpty else { return nil }
+
+        var candidateURLs = urls
+
+        if let preferredURL = preferredRecentHealthyURL(from: urls) {
+            #if DEBUG
+            EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent URL first: \(preferredURL)")
+            #endif
+
+            if await testConnection(url: preferredURL, token: token) {
+                #if DEBUG
+                EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred connection \(preferredURL)")
+                #endif
+                return preferredURL
+            }
+
+            candidateURLs.removeAll { $0 == preferredURL }
+            #if DEBUG
+            EnsembleLogger.debug("⚡️ ConnectionFailover: Preferred URL failed, falling back to parallel probe")
+            #endif
+        }
+
+        guard !candidateURLs.isEmpty else { return nil }
+
+        return await withTaskGroup(of: (String, Bool, TimeInterval).self) { group in
+            for url in candidateURLs {
                 group.addTask {
                     let startTime = Date()
                     let success = await self.testConnection(url: url, token: token)
@@ -117,13 +155,12 @@ public actor ConnectionFailoverManager {
                     return (url, success, duration)
                 }
             }
-            
-            // Collect results and find best connection
+
             var results: [(String, Bool, TimeInterval)] = []
             for await result in group {
                 results.append(result)
             }
-            
+
             // Filter to successful connections only
             let successful = results.filter { $0.1 }
             guard !successful.isEmpty else { return nil }
@@ -172,6 +209,26 @@ public actor ConnectionFailoverManager {
             health.recordAttempt(success: success)
             connectionHealth[url] = health
         }
+    }
+
+    private func preferredRecentHealthyURL(from urls: [String]) -> String? {
+        let now = Date()
+        let candidates = urls.compactMap { url -> (url: String, health: ConnectionHealth)? in
+            guard let health = connectionHealth[url],
+                  let lastSuccess = health.lastSuccess,
+                  health.isHealthy,
+                  now.timeIntervalSince(lastSuccess) <= preferredConnectionReuseWindow else {
+                return nil
+            }
+            return (url, health)
+        }
+
+        return candidates.sorted { lhs, rhs in
+            if lhs.health.successRate == rhs.health.successRate {
+                return (lhs.health.lastSuccess ?? .distantPast) > (rhs.health.lastSuccess ?? .distantPast)
+            }
+            return lhs.health.successRate > rhs.health.successRate
+        }.first?.url
     }
 }
 

@@ -114,6 +114,24 @@ Library and search surfaces now support configurable swipe actions for track row
 - `TrackSwipeActionsSettingsView.swift` - Slot customization UI in Settings
 - `NowPlayingViewModel.swift` - Per-track favorite mutation methods used by swipe/context actions
 
+### Network Health + Hub Refresh Hardening (Feb 2026)
+Network transition handling now coalesces health checks, repairs stale endpoint usage after interface handoff, and avoids Home feed jumps while users scroll:
+
+- **Network monitor lifecycle safety:** `NetworkMonitor` recreates `NWPathMonitor` instances on restart so background/foreground cycles continue publishing connectivity changes.
+- **Transition-aware health orchestration:** `SyncCoordinator` classifies reconnect/interface-switch transitions, applies 30s cooldown + 60s foreground staleness guards, and coalesces concurrent refreshes into a single run.
+- **Scoped health checks:** only servers with enabled libraries are checked during sync health refresh runs.
+- **Probe fan-out reduction:** `ConnectionFailoverManager` tries a recent healthy URL first, then falls back to parallel probing if needed.
+- **Home scrolling stability:** `HomeViewModel` defers auto-refresh and hub snapshot application while users are interacting, then applies once idle.
+- **Lifecycle routing:** foreground health refresh now flows through `SyncCoordinator.handleAppWillEnterForeground()` so app lifecycle and monitor transitions share one policy path.
+
+**Key files:**
+- `NetworkMonitor.swift` - restart-safe monitor lifecycle and debounce testing seams
+- `SyncCoordinator.swift` - transition classification, cooldown/staleness policy, coalesced refresh path
+- `ServerHealthChecker.swift` - per-server TTL cache, forced refresh support, cancellation fixes
+- `ConnectionFailoverManager.swift` - preferred recent connection fast-path
+- `HomeViewModel.swift` - deferred auto-refresh + idle apply policy
+- `HomeView.swift` - visibility and scroll interaction callbacks
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 

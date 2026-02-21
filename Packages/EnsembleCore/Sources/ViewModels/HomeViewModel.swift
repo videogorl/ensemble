@@ -5,6 +5,12 @@ import Foundation
 /// ViewModel for the Home screen that displays dynamic content hubs from Plex servers
 @MainActor
 public final class HomeViewModel: ObservableObject {
+    enum AutoRefreshReason: String, Hashable {
+        case accountChange
+        case syncCompleted
+        case periodicTimer
+    }
+
     @Published public private(set) var hubs: [Hub] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
@@ -22,6 +28,12 @@ public final class HomeViewModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
     private var currentSourceKey: String?
+    private var isViewVisible = false
+    private var isUserInteracting = false
+    private var pendingAutoRefreshReasons = Set<AutoRefreshReason>()
+    private var deferredAutoRefreshTask: Task<Void, Never>?
+    private var pendingHubSnapshot: [Hub]?
+    private var pendingHubApplyTask: Task<Void, Never>?
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -29,6 +41,11 @@ public final class HomeViewModel: ObservableObject {
     
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
+    private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
+    internal private(set) var deferredAutoRefreshCount = 0
+    internal private(set) var coalescedAutoRefreshCount = 0
+    internal var autoRefreshRunnerForTesting: ((AutoRefreshReason) async -> Void)?
+    internal var loadHubsRunnerForTesting: ((Bool, Bool) async -> Void)?
     
     public init(
         accountManager: AccountManager,
@@ -70,9 +87,7 @@ public final class HomeViewModel: ObservableObject {
         accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { @MainActor in
-                    await self?.loadHubs()
-                }
+                self?.requestAutoRefresh(reason: .accountChange)
             }
             .store(in: &cancellables)
         
@@ -83,9 +98,7 @@ public final class HomeViewModel: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] syncing in
                 if !syncing {
-                    Task { @MainActor in
-                        await self?.loadHubs()
-                    }
+                    self?.requestAutoRefresh(reason: .syncCompleted)
                 }
             }
             .store(in: &cancellables)
@@ -94,10 +107,15 @@ public final class HomeViewModel: ObservableObject {
     deinit {
         // Invalidate timer directly without calling @MainActor method from nonisolated deinit
         hubRefreshTimer?.invalidate()
+        deferredAutoRefreshTask?.cancel()
+        pendingHubApplyTask?.cancel()
     }
     
     /// Load hubs from all configured accounts with debouncing and offline-first caching
-    public func loadHubs(applySavedOrder: Bool = true) async {
+    public func loadHubs(
+        applySavedOrder: Bool = true,
+        deferUIUpdatesWhileInteracting: Bool = true
+    ) async {
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -109,11 +127,18 @@ public final class HomeViewModel: ObservableObject {
         
         // Record load time for debouncing
         lastLoadTime = Date()
+
+        if let loadHubsRunnerForTesting {
+            await loadHubsRunnerForTesting(applySavedOrder, deferUIUpdatesWhileInteracting)
+            return
+        }
         
         // Identify the primary source key and name for ordering
         updateCurrentSource()
         #if DEBUG
-        EnsembleLogger.debug("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
+        EnsembleLogger.debug(
+            "[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil") deferUI=\(deferUIUpdatesWhileInteracting)"
+        )
         #endif
         
         // Create a new load task
@@ -140,9 +165,10 @@ public final class HomeViewModel: ObservableObject {
                 }
             }
             
-            // Perform loading with parallel fetching and progressive UI updates
-            // Use TaskGroup for parallel fetching of hubs
+            // Perform loading with parallel fetching and optional progressive UI updates.
+            // Progressive updates are only used for empty-state loads to avoid in-scroll churn.
             var collectedHubs: [Hub] = []
+            let shouldApplyProgressiveUpdates = self.hubs.isEmpty
 
             await withTaskGroup(of: [Hub].self) { group in
                 // Fetch section-specific hubs in parallel
@@ -200,29 +226,27 @@ public final class HomeViewModel: ObservableObject {
                     }
                 }
 
-                // Collect hubs progressively and update UI
-                for await hubs in group {
-                    collectedHubs.append(contentsOf: hubs)
+                // Collect hubs progressively and update UI only for first-time loads.
+                for await fetchedBatch in group {
+                    collectedHubs.append(contentsOf: fetchedBatch)
 
-                    // Progressive UI update: merge and display hubs as they arrive
-                    await MainActor.run {
-                        if !hubs.isEmpty {
-                            // Merge collected hubs so far
-                            let progressiveResult = self.mergeAndGroupHubs(collectedHubs)
+                    guard shouldApplyProgressiveUpdates, !fetchedBatch.isEmpty else { continue }
 
-                            // Apply ordering if needed
-                            let displayHubs: [Hub]
-                            if let sourceKey = currentSourceKey {
-                                let serverHubs = hubsForServer(sourceKey: sourceKey, in: progressiveResult)
-                                let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
-                                displayHubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: progressiveResult)
-                            } else {
-                                displayHubs = progressiveResult
-                            }
-
-                            self.hubs = displayHubs
-                        }
+                    let progressiveResult = self.mergeAndGroupHubs(collectedHubs)
+                    let displayHubs: [Hub]
+                    if let sourceKey = currentSourceKey {
+                        let serverHubs = hubsForServer(sourceKey: sourceKey, in: progressiveResult)
+                        let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
+                        displayHubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: progressiveResult)
+                    } else {
+                        displayHubs = progressiveResult
                     }
+
+                    applyHubSnapshot(
+                        displayHubs,
+                        deferIfInteracting: deferUIUpdatesWhileInteracting,
+                        source: "progressive"
+                    )
                 }
             }
 
@@ -338,9 +362,13 @@ public final class HomeViewModel: ObservableObject {
                 orderedHubs = fetchedHubsResult
             }
             
-            // Update UI all at once to avoid flickering
+            // Update UI all at once; defer while interacting to prevent scroll jumps.
             if !orderedHubs.isEmpty {
-                self.hubs = orderedHubs
+                applyHubSnapshot(
+                    orderedHubs,
+                    deferIfInteracting: deferUIUpdatesWhileInteracting,
+                    source: "final"
+                )
             }
             
             isLoading = false
@@ -358,7 +386,145 @@ public final class HomeViewModel: ObservableObject {
     /// Refresh hubs (clears debounce to force immediate reload)
     public func refresh() async {
         lastLoadTime = nil
-        await loadHubs()
+        await loadHubs(deferUIUpdatesWhileInteracting: false)
+    }
+
+    public func handleViewVisibilityChange(isVisible: Bool) {
+        guard isViewVisible != isVisible else { return }
+        isViewVisible = isVisible
+
+        if isVisible {
+            startPeriodicRefresh()
+            flushDeferredUpdatesIfIdle()
+        } else {
+            stopPeriodicRefresh()
+            isUserInteracting = false
+        }
+    }
+
+    public func handleScrollInteraction(isInteracting: Bool) {
+        guard isUserInteracting != isInteracting else { return }
+        isUserInteracting = isInteracting
+
+        if !isInteracting {
+            flushDeferredUpdatesIfIdle()
+        } else {
+            pendingHubApplyTask?.cancel()
+        }
+    }
+
+    private func requestAutoRefresh(reason: AutoRefreshReason) {
+        guard !syncCoordinator.isOffline else {
+            #if DEBUG
+            EnsembleLogger.debug("📴 Home auto-refresh skipped (offline) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+
+        if !isViewVisible || isUserInteracting {
+            if !pendingAutoRefreshReasons.insert(reason).inserted {
+                coalescedAutoRefreshCount += 1
+            }
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🏠 Home auto-refresh deferred reason=\(reason.rawValue), visible=\(isViewVisible), interacting=\(isUserInteracting), pending=\(pendingAutoRefreshReasons.count)"
+            )
+            #endif
+            scheduleDeferredAutoRefresh()
+            return
+        }
+
+        deferredAutoRefreshTask?.cancel()
+        deferredAutoRefreshTask = nil
+
+        Task { @MainActor [weak self] in
+            await self?.performAutoRefresh(triggeringReason: reason)
+        }
+    }
+
+    private func scheduleDeferredAutoRefresh() {
+        deferredAutoRefreshTask?.cancel()
+        deferredAutoRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: idleApplyDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            self.flushDeferredUpdatesIfIdle()
+        }
+    }
+
+    private func performAutoRefresh(triggeringReason reason: AutoRefreshReason) async {
+        pendingAutoRefreshReasons.removeAll()
+        lastLoadTime = nil
+
+        if let autoRefreshRunnerForTesting {
+            await autoRefreshRunnerForTesting(reason)
+            return
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🏠 Home auto-refresh executing reason=\(reason.rawValue)")
+        #endif
+        await loadHubs(deferUIUpdatesWhileInteracting: true)
+    }
+
+    private func flushDeferredUpdatesIfIdle() {
+        guard isViewVisible, !isUserInteracting else { return }
+
+        if !pendingAutoRefreshReasons.isEmpty {
+            deferredAutoRefreshCount += 1
+            let reason = pendingAutoRefreshReasons.first ?? .periodicTimer
+            pendingAutoRefreshReasons.removeAll()
+            deferredAutoRefreshTask?.cancel()
+            deferredAutoRefreshTask = nil
+            Task { @MainActor [weak self] in
+                await self?.performAutoRefresh(triggeringReason: reason)
+            }
+        }
+
+        if let pendingHubSnapshot {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Applying deferred hub snapshot with \(pendingHubSnapshot.count) hubs")
+            #endif
+            self.pendingHubSnapshot = nil
+            self.hubs = pendingHubSnapshot
+        }
+    }
+
+    private func applyHubSnapshot(_ snapshot: [Hub], deferIfInteracting: Bool, source: String) {
+        guard !snapshot.isEmpty else { return }
+
+        if deferIfInteracting && isViewVisible && isUserInteracting && !hubs.isEmpty {
+            pendingHubSnapshot = snapshot
+            pendingHubApplyTask?.cancel()
+            pendingHubApplyTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: idleApplyDebounceNanoseconds)
+                guard !Task.isCancelled else { return }
+                self.flushDeferredUpdatesIfIdle()
+            }
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Deferred hub snapshot update source=\(source) count=\(snapshot.count)")
+            #endif
+            return
+        }
+
+        pendingHubSnapshot = nil
+        pendingHubApplyTask?.cancel()
+        hubs = snapshot
+    }
+
+    internal var hasPendingAutoRefreshForTesting: Bool {
+        !pendingAutoRefreshReasons.isEmpty
+    }
+
+    internal func requestAutoRefreshForTesting(reason: AutoRefreshReason) {
+        requestAutoRefresh(reason: reason)
+    }
+
+    internal func clearPendingAutoRefreshForTesting() {
+        pendingAutoRefreshReasons.removeAll()
+        deferredAutoRefreshTask?.cancel()
+        deferredAutoRefreshTask = nil
     }
     
     /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
@@ -555,7 +721,7 @@ public final class HomeViewModel: ObservableObject {
         EnsembleLogger.debug("[HubOrder] Triggering background refresh from server")
         #endif
         Task {
-            await loadHubs(applySavedOrder: false)
+            await loadHubs(applySavedOrder: false, deferUIUpdatesWhileInteracting: false)
             if isEditingOrder {
                 editableHubs = hubs
             }
@@ -566,6 +732,7 @@ public final class HomeViewModel: ObservableObject {
     
     /// Start periodic hub refresh (every 10 minutes while app is active)
     public func startPeriodicRefresh() {
+        guard isViewVisible else { return }
         stopPeriodicRefresh()  // Stop any existing timer
         
         #if DEBUG
@@ -583,11 +750,13 @@ public final class HomeViewModel: ObservableObject {
                     #endif
                     return
                 }
+
+                guard self.isViewVisible else { return }
                 
                 #if DEBUG
                 EnsembleLogger.debug("⏰ Periodic hub refresh triggered")
                 #endif
-                await self.refresh()
+                self.requestAutoRefresh(reason: .periodicTimer)
             }
         }
     }
@@ -601,4 +770,3 @@ public final class HomeViewModel: ObservableObject {
         #endif
     }
 }
-

@@ -1,6 +1,29 @@
+import Combine
 import Foundation
 import Network
-import Combine
+
+protocol NetworkPathMonitoring: AnyObject {
+    var pathUpdateHandler: ((NWPath) -> Void)? { get set }
+    func start(queue: DispatchQueue)
+    func cancel()
+}
+
+final class SystemNetworkPathMonitor: NetworkPathMonitoring {
+    private let monitor = NWPathMonitor()
+
+    var pathUpdateHandler: ((NWPath) -> Void)? {
+        get { monitor.pathUpdateHandler }
+        set { monitor.pathUpdateHandler = newValue }
+    }
+
+    func start(queue: DispatchQueue) {
+        monitor.start(queue: queue)
+    }
+
+    func cancel() {
+        monitor.cancel()
+    }
+}
 
 /// Monitors network connectivity state using NWPathMonitor
 @MainActor
@@ -8,12 +31,34 @@ public final class NetworkMonitor: ObservableObject {
     @Published public private(set) var networkState: NetworkState = .unknown
     @Published public private(set) var isConnected: Bool = false
 
-    private let monitor = NWPathMonitor()
-    private let monitorQueue = DispatchQueue(label: "com.ensemble.networkmonitor")
+    private let monitorFactory: () -> any NetworkPathMonitoring
+    private let monitorQueue: DispatchQueue
+    private let debounceNanoseconds: UInt64
+
+    private var monitor: (any NetworkPathMonitoring)?
     private var isMonitoring = false
     private var debounceTask: Task<Void, Never>?
 
-    public init() {}
+    internal private(set) var monitorGeneration = 0
+    internal var isMonitoringForTesting: Bool { isMonitoring }
+
+    public convenience init() {
+        self.init(
+            debounceNanoseconds: 1_000_000_000,
+            monitorQueue: DispatchQueue(label: "com.ensemble.networkmonitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+    }
+
+    internal init(
+        debounceNanoseconds: UInt64,
+        monitorQueue: DispatchQueue,
+        monitorFactory: @escaping () -> any NetworkPathMonitoring
+    ) {
+        self.debounceNanoseconds = debounceNanoseconds
+        self.monitorQueue = monitorQueue
+        self.monitorFactory = monitorFactory
+    }
 
     // MARK: - Public Methods
 
@@ -21,18 +66,19 @@ public final class NetworkMonitor: ObservableObject {
     public func startMonitoring() {
         guard !isMonitoring else { return }
 
-        isMonitoring = true
-
-        monitor.pathUpdateHandler = { [weak self] path in
-            // Debounce rapid network changes to avoid excessive health checks
+        let newMonitor = monitorFactory()
+        newMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in
                 self?.debounceStateUpdate(path: path)
             }
         }
+        newMonitor.start(queue: monitorQueue)
+        monitor = newMonitor
+        isMonitoring = true
+        monitorGeneration += 1
 
-        monitor.start(queue: monitorQueue)
         #if DEBUG
-        EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring")
+        EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring (generation \(monitorGeneration))")
         #endif
     }
 
@@ -40,8 +86,11 @@ public final class NetworkMonitor: ObservableObject {
     public func stopMonitoring() {
         guard isMonitoring else { return }
 
-        monitor.cancel()
+        monitor?.pathUpdateHandler = nil
+        monitor?.cancel()
+        monitor = nil
         isMonitoring = false
+
         debounceTask?.cancel()
         debounceTask = nil
 
@@ -50,42 +99,54 @@ public final class NetworkMonitor: ObservableObject {
         #endif
     }
 
-    // MARK: - Private Methods
+    // MARK: - Testing Helpers
 
-    /// Debounce network state updates to avoid rapid changes
-    private func debounceStateUpdate(path: NWPath) {
-        // Cancel any pending update
-        debounceTask?.cancel()
-
-        // Schedule new update after 1 second to avoid rapid changes during startup
-        debounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-
-            guard !Task.isCancelled else { return }
-            self?.updateState(from: path)
+    internal func injectNetworkStateForTesting(_ state: NetworkState, debounced: Bool = true) {
+        if debounced {
+            debounceStateUpdate(state: state)
+        } else {
+            updateState(to: state)
         }
     }
 
-    /// Update the published state based on NWPath
-    private func updateState(from path: NWPath) {
-        let newState = networkState(from: path)
-        let newIsConnected = newState.isConnected
+    // MARK: - Private Methods
 
-        // Only publish if state actually changed
-        if newState != networkState || newIsConnected != isConnected {
-            #if DEBUG
-            EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
-            #endif
-            networkState = newState
-            isConnected = newIsConnected
+    /// Debounce network state updates to avoid rapid changes.
+    private func debounceStateUpdate(path: NWPath) {
+        debounceStateUpdate(state: networkState(from: path))
+    }
+
+    /// Debounce known state updates for testing and lifecycle-safe handling.
+    private func debounceStateUpdate(state: NetworkState) {
+        debounceTask?.cancel()
+
+        debounceTask = Task { @MainActor [weak self] in
+            if let self, self.debounceNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: self.debounceNanoseconds)
+            }
+
+            guard !Task.isCancelled else { return }
+            self?.updateState(to: state)
         }
+    }
+
+    /// Update the published state.
+    private func updateState(to newState: NetworkState) {
+        let newIsConnected = newState.isConnected
+        guard newState != networkState || newIsConnected != isConnected else { return }
+
+        #if DEBUG
+        EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
+        #endif
+
+        networkState = newState
+        isConnected = newIsConnected
     }
 
     /// Convert NWPath to NetworkState
     private func networkState(from path: NWPath) -> NetworkState {
         switch path.status {
         case .satisfied:
-            // Check if it's a captive portal (limited connectivity)
             if path.isConstrained {
                 return .limited
             }
@@ -116,7 +177,7 @@ public final class NetworkMonitor: ObservableObject {
     }
 
     deinit {
-        monitor.cancel()
+        monitor?.cancel()
         debounceTask?.cancel()
     }
 }

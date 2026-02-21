@@ -181,9 +181,10 @@ Dynamic home screen powered by Plex's hub system:
 
 - `Hub` domain model -- Sections like Recently Added, Recently Played
 - `HubItem` -- Items within a hub (tracks, albums, artists, playlists)
-- `HomeViewModel` -- Loads hub data with 2s debouncing
+- `HomeViewModel` -- Loads hub data with 2s debouncing and defers auto-refresh/snapshot application while users are actively scrolling
 - `HomeView` -- Horizontally-scrolling sections with navigation
   - `HubSection` / `HubItemCard` inline structs
+  - Reports view visibility + scroll interaction to `HomeViewModel` so deferred refreshes are applied when idle
   - Artwork: 140x140pt, circular for artists (radius 70), rounded for albums (radius 8)
 
 **Hub Persistence:**
@@ -222,13 +223,19 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Network Resilience
 
 - **NetworkMonitor** -- `NWPathMonitor` with 1s debouncing, states: `.online`/`.offline`/`.limited`/`.unknown`
-- **ServerHealthChecker** -- Concurrent health checks, tests Local -> Direct -> Relay
-- **ConnectionFailoverManager** -- Automatic failover between server URLs
+  - Lifecycle-safe restart behavior: `stopMonitoring()` cancels/releases the current monitor and `startMonitoring()` creates a new monitor instance.
+- **SyncCoordinator** -- Transition-aware health orchestration for reconnects and interface switches
+  - Coalesces concurrent health refresh requests.
+  - Applies 30s cooldown and 60s app-foreground staleness threshold.
+  - Limits checks to servers with at least one enabled library.
+- **ServerHealthChecker** -- Concurrent health checks with per-server TTL caching (120s) and forced-refresh support for reconnect/interface-switch events
+- **ConnectionFailoverManager** -- Automatic failover with preferred recent healthy URL fast-path before parallel probing
 
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
+- Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
-- Proactive server health checks on foreground transition
+- macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
 
 ## Subsystem: Customizable UI Settings
 
