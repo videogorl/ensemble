@@ -11,6 +11,7 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Location:** `EnsembleWatch/Views/WatchRootView.swift:5`
 - **Issue:** References `DependencyContainer.shared.makeAuthViewModel()` which does not exist
 - **Impact:** watchOS app won't compile
+- **Status (February 21, 2026):** Deferred by scope decision; not being fixed in current remediation pass
 - **Root Cause:** iOS uses `AddPlexAccountViewModel`, watchOS was designed with different auth flow
 - **Fix Options:**
   1. Create `AuthViewModel` in EnsembleCore and add factory method to DependencyContainer
@@ -36,6 +37,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ### Documentation
 - **Documentation Fully Updated** -- CLAUDE.md and README.md reflect all implemented features
+
+### Persistence SwiftPM Test Crash
+- **Resolved (February 21, 2026)**
+- `CoreDataStack` now loads bundled models with resilient `.momd`/`.mom` fallback candidates.
+- `CoreDataStack.inMemory()` now uses a true in-memory store (`/dev/null`).
+- Persistence tests use in-memory stack instead of `.shared`.
+- SwiftPM model compilation workflow is documented and scripted (`scripts/compile_coredata_model.sh`).
 
 ## Future Enhancements (Waveform System)
 

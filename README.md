@@ -8,7 +8,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Core Functionality:**
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
-- **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS, simplified controls on watchOS
+- **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
 - **Full Playback Controls** — Queue management, shuffle, repeat, background audio, remote controls (lock screen)
 
@@ -178,8 +178,8 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS:** Authentication needs refactoring — references missing `AuthViewModel` (see `CLAUDE.md` for details)
-  - This is intentional - iOS implementation needs to be completed first
+- **watchOS (deferred as of February 21, 2026):** Authentication path references missing `AuthViewModel`, so the watch target does not currently compile/run.
+  - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
 - **Offline Playback:** Infrastructure complete but audio file downloads not wired to playback
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 
@@ -226,7 +226,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Search functionality
 - [x] iPad sidebar navigation
 - [x] Settings & manual sync
-- [x] watchOS basic playback
+- [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **3D CoverFlow Carousel** — Immersive album browsing with perspective transforms and tap-to-zoom/flip

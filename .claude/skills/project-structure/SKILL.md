@@ -13,6 +13,8 @@ ensemble/
 +-- Ensemble.xcodeproj             # Xcode project file
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
++-- scripts/
+|   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -50,6 +52,7 @@ Sources/
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
++-- EnsembleLogger.swift               # Package logger categories
 +-- EnsembleAPI.swift                   # Public exports
 
 Tests/
@@ -62,6 +65,7 @@ Tests/
 Sources/
 +-- CoreData/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
@@ -70,6 +74,7 @@ Sources/
 +-- Repositories/
 |   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
 |   +-- PlaylistRepository.swift       # CRUD for playlists
++-- EnsembleLogger.swift               # Package logger categories
 +-- EnsemblePersistence.swift          # Public exports
 
 Tests/
@@ -110,6 +115,7 @@ Sources/
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
++-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
 |   +-- AlbumDetailViewModel.swift
@@ -127,6 +133,7 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -187,6 +194,7 @@ Sources/
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
 |   +-- SyncPanelView.swift           # Library sync status & controls
++-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports
 
 Tests/

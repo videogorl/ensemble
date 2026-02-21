@@ -57,6 +57,24 @@ struct MyNewView: View {
 4. Add mapper in `ModelMappers.swift`
 5. Update relevant repository
 
+## CoreData Model Compilation for SwiftPM Tests
+
+When `Ensemble.xcdatamodeld` changes, refresh the precompiled model used by SwiftPM tests:
+
+```bash
+scripts/compile_coredata_model.sh
+```
+
+What this does:
+1. Compiles `Packages/EnsemblePersistence/Sources/CoreData/Ensemble.xcdatamodeld`
+2. Outputs `Packages/EnsemblePersistence/Sources/CoreData/Compiled/SwiftPMEnsemble.momd`
+3. Keeps package tests stable across environments where model bundle resolution differs
+
+Validation workflow after model changes:
+1. Run `swift test --package-path Packages/EnsemblePersistence`
+2. Run dependent package tests (`EnsembleCore`, `EnsembleUI`) to ensure no resource regressions
+3. Run app build (`xcodebuild ... -scheme Ensemble ... build`) to verify no duplicate-model outputs
+
 ## Running a Full Sync
 
 ```swift

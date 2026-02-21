@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: "Load before writing any Swift code. Contains mandatory rules that override defaults: #if DEBUG required for all print() calls, edge case handling required (active beta), memory targets, MVVM pattern, debug logging conventions."
+description: "Load before writing any Swift code. Contains mandatory rules that override defaults: structured Logger usage (no print), edge case handling required (active beta), memory targets, MVVM pattern, and debug logging conventions."
 ---
 
 # Ensemble Code Style & Development Guidelines
@@ -41,24 +41,14 @@ Keep the following documents in sync when making changes:
 
 ## Debug Logging
 
-**All `print()` calls must be wrapped in `#if DEBUG / #endif`** — this keeps debug output out of release/TestFlight builds:
+Use structured `os.Logger` logging, not `print()`.
 
-```swift
-#if DEBUG
-print("[MyService] Something happened: \(value)")
-#endif
-```
-
-For consecutive prints, wrap the group under a single `#if DEBUG`:
-
-```swift
-#if DEBUG
-print("[MyService] State: \(state)")
-print("[MyService] Detail: \(detail)")
-#endif
-```
-
-Never add a bare `print()` outside of a `#if DEBUG` block. The entire codebase enforces this — zero unguarded calls.
+Rules:
+- Use package/app logger helpers (`AppLogger` / `EnsembleLogger`) with category-specific logger instances.
+- Use log levels intentionally: `.debug` for verbose traces, `.info` for key state transitions, `.error` for recoverable failures, `.fault` for critical failures.
+- Keep verbose diagnostic logging debug-only when it could be noisy.
+- Treat logs as production data: use privacy-safe interpolation and avoid leaking secrets/tokens.
+- `print(` is disallowed in production codepaths. Keep repository-wide `print(` count at zero for Swift sources.
 
 ## Preserve Existing Functionality
 
