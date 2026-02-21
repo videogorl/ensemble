@@ -87,13 +87,12 @@ public final class PlexRadioProvider: RadioProviderProtocol {
             print("   Type: \(type(of: error))")
             print("   localizedDescription: \(error.localizedDescription)")
             #endif
-            if let nsError = error as? NSError {
-                #if DEBUG
-                print("   NSError domain: \(nsError.domain)")
-                print("   Code: \(nsError.code)")
-                print("   UserInfo: \(nsError.userInfo)")
-                #endif
-            }
+            let nsError = error as NSError
+            #if DEBUG
+            print("   NSError domain: \(nsError.domain)")
+            print("   Code: \(nsError.code)")
+            print("   UserInfo: \(nsError.userInfo)")
+            #endif
             return nil
         }
     }

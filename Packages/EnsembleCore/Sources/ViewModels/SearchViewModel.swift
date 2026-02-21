@@ -18,6 +18,16 @@ public enum SearchSection: String, CaseIterable {
         case .songs: return "Songs"
         }
     }
+
+    /// Stable tie-break order for sections with equal match counts.
+    public var sortPriority: Int {
+        switch self {
+        case .artists: return 0
+        case .albums: return 1
+        case .playlists: return 2
+        case .songs: return 3
+        }
+    }
 }
 
 @MainActor
@@ -248,7 +258,7 @@ public final class SearchViewModel: ObservableObject {
 
             if lhs.count == rhs.count {
                 // Default order for non-artist sections: Albums, Playlists, Songs
-                return SearchSection.allCases.firstIndex(of: lhs.section)! < SearchSection.allCases.firstIndex(of: rhs.section)!
+                return lhs.section.sortPriority < rhs.section.sortPriority
             }
             return lhs.count > rhs.count
         }
@@ -531,14 +541,15 @@ public final class SearchViewModel: ObservableObject {
                 
                 // Save fresh moods to cache
                 if !nonEmptyMoods.isEmpty {
+                    let moodsToPublish = nonEmptyMoods
                     do {
-                        try await self.moodRepository.saveMoods(nonEmptyMoods)
+                        try await self.moodRepository.saveMoods(moodsToPublish)
                     } catch {
                         // Ignore cache save errors
                     }
                     
                     await MainActor.run { [weak self] in
-                        self?.allMoods = nonEmptyMoods
+                        self?.allMoods = moodsToPublish
                     }
                 }
             }

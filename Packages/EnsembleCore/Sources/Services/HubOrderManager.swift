@@ -2,7 +2,7 @@ import Foundation
 
 /// Manages hub section ordering per music source (account/server/library)
 /// Persists custom order to UserDefaults and applies it to fetched hubs
-public final class HubOrderManager: Sendable {
+public final class HubOrderManager {
     private let userDefaults: UserDefaults
     
     public init(userDefaults: UserDefaults = .standard) {

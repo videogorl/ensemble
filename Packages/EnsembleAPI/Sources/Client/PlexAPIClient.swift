@@ -1064,13 +1064,12 @@ public actor PlexAPIClient {
             print("   Message: \(error.localizedDescription)")
             #endif
             
-            if let nsError = error as? NSError {
-                #if DEBUG
-                print("   NSError domain: \(nsError.domain)")
-                print("   Code: \(nsError.code)")
-                print("   UserInfo: \(nsError.userInfo)")
-                #endif
-            }
+            let nsError = error as NSError
+            #if DEBUG
+            print("   NSError domain: \(nsError.domain)")
+            print("   Code: \(nsError.code)")
+            print("   UserInfo: \(nsError.userInfo)")
+            #endif
             
             // Check if it's a 404 (no sonic analysis)
             if let urlError = error as? URLError, urlError.code == .fileDoesNotExist {
@@ -1288,7 +1287,7 @@ public actor PlexAPIClient {
     }
     
     private func performServerRequest(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        var components = URLComponents(string: url)!
+        var components = try makeURLComponents(for: url)
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
@@ -1333,7 +1332,7 @@ public actor PlexAPIClient {
     }
     
     private func performServerRequestPUT(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        var components = URLComponents(string: url)!
+        var components = try makeURLComponents(for: url)
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
@@ -1368,7 +1367,7 @@ public actor PlexAPIClient {
     }
 
     private func performServerRequestPOST(url: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        var components = URLComponents(string: url)!
+        var components = try makeURLComponents(for: url)
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
@@ -1415,7 +1414,7 @@ public actor PlexAPIClient {
         path: String,
         query: [String: String] = [:]
     ) throws -> URLRequest {
-        var components = URLComponents(string: url)!
+        var components = try makeURLComponents(for: url)
         components.path = path
         var queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         queryItems.append(URLQueryItem(name: "X-Plex-Token", value: serverConnection.token))
@@ -1430,6 +1429,14 @@ public actor PlexAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
         return request
+    }
+
+    /// Build URL components safely from a server URL string.
+    private func makeURLComponents(for url: String) throws -> URLComponents {
+        guard let components = URLComponents(string: url) else {
+            throw PlexAPIError.invalidURL
+        }
+        return components
     }
 
     /// Build Plex metadata URI format used for playlist mutations.

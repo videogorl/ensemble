@@ -209,7 +209,7 @@ public struct SettingsView: View {
                     // Clean up CoreData for this source
                     Task {
                         await syncCoordinator.cleanupRemovedSource(source.id)
-                        await syncCoordinator.refreshProviders()
+                        syncCoordinator.refreshProviders()
                     }
                     
                     sourceToDelete = nil

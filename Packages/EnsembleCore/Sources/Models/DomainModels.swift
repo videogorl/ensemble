@@ -448,7 +448,9 @@ public extension String {
         
         // Find the first character that isn't in the ignored set
         var cleanedKey = key
-        while let firstChar = cleanedKey.first, ignoredCharacters.contains(firstChar.unicodeScalars.first!) {
+        while let firstChar = cleanedKey.first {
+            guard let firstScalar = firstChar.unicodeScalars.first else { break }
+            guard ignoredCharacters.contains(firstScalar) else { break }
             cleanedKey = String(cleanedKey.dropFirst())
         }
         
