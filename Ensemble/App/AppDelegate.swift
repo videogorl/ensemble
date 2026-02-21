@@ -73,13 +73,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         
-        // Schedule background refresh (iOS only)
-        #if os(iOS)
-        if #available(iOS 13.0, *) {
-            BackgroundSyncScheduler.shared.scheduleAppRefresh()
-        }
-        #endif
-        
         print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }

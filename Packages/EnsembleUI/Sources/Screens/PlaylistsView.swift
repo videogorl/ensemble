@@ -276,9 +276,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
     }
     
     private var coverFlowView: some View {
@@ -802,8 +800,6 @@ public struct PlaylistDetailView: View {
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 110)
-        }
+        .miniPlayerBottomSpacing(110)
     }
 }

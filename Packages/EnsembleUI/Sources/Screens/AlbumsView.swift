@@ -200,9 +200,7 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(

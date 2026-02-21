@@ -51,9 +51,7 @@ public struct SearchView: View {
             await viewModel.loadExploreContentIfNeeded()
             await pinnedVM.loadPinnedItems()
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }

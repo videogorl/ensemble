@@ -7,6 +7,8 @@ struct AlbumDetailLoader: View {
     @State private var album: Album?
     @State private var isLoading = true
     @State private var error: Error?
+    @State private var hasStartedLoading = false
+    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
     
@@ -38,12 +40,23 @@ struct AlbumDetailLoader: View {
                     .foregroundColor(.secondary)
             }
         }
-        .task {
-            await loadAlbum()
+        .onAppear {
+            guard !hasStartedLoading else { return }
+            hasStartedLoading = true
+            loadTask = Task {
+                await loadAlbum()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
+    @MainActor
     private func loadAlbum() async {
+        #if DEBUG
+        print("💿 AlbumDetailLoader: loading album \(albumId)")
+        #endif
         do {
             if let cdAlbum = try await deps.libraryRepository.fetchAlbum(ratingKey: albumId) {
                 self.album = Album(from: cdAlbum)
@@ -53,5 +66,8 @@ struct AlbumDetailLoader: View {
             self.error = error
             self.isLoading = false
         }
+        #if DEBUG
+        print("💿 AlbumDetailLoader: finished loading album \(albumId)")
+        #endif
     }
 }

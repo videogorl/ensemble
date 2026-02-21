@@ -8,6 +8,8 @@ struct PlaylistDetailLoader: View {
     @State private var playlist: Playlist?
     @State private var isLoading = true
     @State private var error: Error?
+    @State private var hasStartedLoading = false
+    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
 
@@ -45,11 +47,19 @@ struct PlaylistDetailLoader: View {
                     .foregroundColor(.secondary)
             }
         }
-        .task {
-            await loadPlaylist()
+        .onAppear {
+            guard !hasStartedLoading else { return }
+            hasStartedLoading = true
+            loadTask = Task {
+                await loadPlaylist()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
+    @MainActor
     private func loadPlaylist() async {
         do {
             if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(

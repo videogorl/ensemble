@@ -129,9 +129,7 @@ public struct MoodTracksView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
         .navigationTitle(mood.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

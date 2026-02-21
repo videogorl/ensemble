@@ -26,6 +26,7 @@ These are core design decisions that must be maintained throughout the app.
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
+- **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift

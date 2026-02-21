@@ -131,9 +131,7 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
     }
 }
 

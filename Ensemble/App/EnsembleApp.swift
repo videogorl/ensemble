@@ -13,6 +13,9 @@ struct EnsembleApp: App {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasPerformedStartupSync = false
+    #if os(iOS)
+    @State private var hasScheduledBackgroundRefresh = false
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -30,6 +33,16 @@ struct EnsembleApp: App {
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            if phase == .active && !hasScheduledBackgroundRefresh {
+                // Schedule only after SwiftUI has registered the backgroundTask handler.
+                BackgroundSyncScheduler.shared.scheduleAppRefresh()
+                hasScheduledBackgroundRefresh = true
+            }
+        }
+        #endif
+
         #if os(macOS)
         Task { @MainActor in
             switch phase {
