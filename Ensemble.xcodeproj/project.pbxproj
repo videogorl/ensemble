@@ -8,8 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9926CB072F43A106004A19A3 /* AppIcon.icon */; };
-		992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC62F32A1FC00491C42 /* CLAUDE.md */; };
-		992E2BC92F32A1FC00491C42 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 992E2BC72F32A1FC00491C42 /* README.md */; };
 		E0001001 /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001000 /* EnsembleApp.swift */; };
 		E0001003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001002 /* AppDelegate.swift */; };
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
@@ -242,13 +240,11 @@
 /* Begin PBXResourcesBuildPhase section */
 		E0220001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				992E2BC82F32A1FC00491C42 /* CLAUDE.md in Resources */,
-				992E2BC92F32A1FC00491C42 /* README.md in Resources */,
-				E0001005 /* Assets.xcassets in Resources */,
-				9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */,
-			);
+				buildActionMask = 2147483647;
+				files = (
+					E0001005 /* Assets.xcassets in Resources */,
+					9926CB082F43A106004A19A3 /* AppIcon.icon in Resources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E0220002 /* Resources */ = {

@@ -23,7 +23,7 @@ let package = Package(
             path: "Sources",
             resources: [
                 .process("CoreData/Ensemble.xcdatamodeld"),
-                .copy("CoreData/Compiled/Ensemble.momd")
+                .copy("CoreData/Compiled/SwiftPMEnsemble.momd")
             ]
         ),
         .testTarget(

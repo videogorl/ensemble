@@ -90,4 +90,31 @@ final class PlexAPIClientTests: XCTestCase {
             "token123"
         )
     }
+
+    func testMakeServerRequestRejectsInvalidBaseURL() async {
+        let keychain = TestKeychain()
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: keychain
+        )
+
+        do {
+            _ = try await client.makeServerRequest(
+                url: "http://%",
+                method: "GET",
+                path: "/library/sections"
+            )
+            XCTFail("Expected invalidURL error")
+        } catch {
+            guard case PlexAPIError.invalidURL = error else {
+                XCTFail("Expected invalidURL, got \(error)")
+                return
+            }
+        }
+    }
 }

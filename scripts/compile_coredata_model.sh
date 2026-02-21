@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODEL_SOURCE="$REPO_ROOT/Packages/EnsemblePersistence/Sources/CoreData/Ensemble.xcdatamodeld"
 OUTPUT_DIR="$REPO_ROOT/Packages/EnsemblePersistence/Sources/CoreData/Compiled"
-OUTPUT_MODEL="$OUTPUT_DIR/Ensemble.momd"
+OUTPUT_MODEL="$OUTPUT_DIR/SwiftPMEnsemble.momd"
 
 if [[ ! -d "$MODEL_SOURCE" ]]; then
   echo "CoreData model source not found: $MODEL_SOURCE" >&2

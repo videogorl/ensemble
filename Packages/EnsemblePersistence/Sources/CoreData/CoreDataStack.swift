@@ -82,15 +82,23 @@ public final class CoreDataStack: @unchecked Sendable {
         let directCandidates: [URL?] = [
             bundle.url(forResource: "Ensemble", withExtension: "momd"),
             bundle.url(forResource: "Ensemble", withExtension: "mom"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "momd"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "mom"),
             bundle.url(forResource: "Ensemble", withExtension: "momd", subdirectory: "Compiled"),
             bundle.url(forResource: "Ensemble", withExtension: "mom", subdirectory: "Compiled"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "momd", subdirectory: "Compiled"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "mom", subdirectory: "Compiled"),
         ]
 
         let resourceRootCandidates: [URL?] = [
             bundle.resourceURL?.appendingPathComponent("Ensemble.momd"),
             bundle.resourceURL?.appendingPathComponent("Ensemble.mom"),
+            bundle.resourceURL?.appendingPathComponent("SwiftPMEnsemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("SwiftPMEnsemble.mom"),
             bundle.resourceURL?.appendingPathComponent("Compiled/Ensemble.momd"),
             bundle.resourceURL?.appendingPathComponent("Compiled/Ensemble.mom"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/SwiftPMEnsemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/SwiftPMEnsemble.mom"),
         ]
 
         for candidate in (directCandidates + resourceRootCandidates).compactMap({ $0 }) {
