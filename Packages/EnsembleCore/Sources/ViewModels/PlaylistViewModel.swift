@@ -68,7 +68,7 @@ public final class PlaylistViewModel: ObservableObject {
         // Check if offline
         if syncCoordinator.isOffline {
             #if DEBUG
-            print("📴 Offline - loading playlists from cache only")
+            EnsembleLogger.debug("📴 Offline - loading playlists from cache only")
             #endif
             await loadPlaylists()
             return
@@ -78,7 +78,7 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
         #if DEBUG
-        print("🔄 Starting playlist sync (detached)...")
+        EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
         #endif
         await withCheckedContinuation { continuation in
             Task.detached { [syncCoordinator] in
@@ -87,7 +87,7 @@ public final class PlaylistViewModel: ObservableObject {
             }
         }
         #if DEBUG
-        print("✅ Playlist sync complete")
+        EnsembleLogger.debug("✅ Playlist sync complete")
         #endif
 
         // Reload from updated cache

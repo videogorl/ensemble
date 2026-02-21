@@ -32,7 +32,7 @@ public final class NetworkMonitor: ObservableObject {
 
         monitor.start(queue: monitorQueue)
         #if DEBUG
-        print("📡 NetworkMonitor: Started monitoring")
+        EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring")
         #endif
     }
 
@@ -46,7 +46,7 @@ public final class NetworkMonitor: ObservableObject {
         debounceTask = nil
 
         #if DEBUG
-        print("📡 NetworkMonitor: Stopped monitoring")
+        EnsembleLogger.debug("📡 NetworkMonitor: Stopped monitoring")
         #endif
     }
 
@@ -74,7 +74,7 @@ public final class NetworkMonitor: ObservableObject {
         // Only publish if state actually changed
         if newState != networkState || newIsConnected != isConnected {
             #if DEBUG
-            print("📡 NetworkMonitor: State changed to \(newState.description)")
+            EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
             #endif
             networkState = newState
             isConnected = newIsConnected

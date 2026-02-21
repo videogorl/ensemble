@@ -19,7 +19,7 @@ public actor ConnectionFailoverManager {
     public func testConnection(url: String, token: String) async -> Bool {
         guard URL(string: url) != nil else {
             #if DEBUG
-            print("❌ ConnectionTest[\(url)]: Invalid URL")
+            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid URL")
             #endif
             return false
         }
@@ -31,7 +31,7 @@ public actor ConnectionFailoverManager {
 
         guard let requestURL = testURL?.url else {
             #if DEBUG
-            print("❌ ConnectionTest[\(url)]: Failed to build test URL")
+            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed to build test URL")
             #endif
             return false
         }
@@ -42,13 +42,13 @@ public actor ConnectionFailoverManager {
         request.timeoutInterval = timeout
 
         #if DEBUG
-        print("🔄 ConnectionTest[\(url)]: Testing...")
+        EnsembleLogger.debug("🔄 ConnectionTest[\(url)]: Testing...")
         #endif
 
         // Check if task is already cancelled
         if Task.isCancelled {
             #if DEBUG
-            print("⚠️ ConnectionTest[\(url)]: Task cancelled before test!")
+            EnsembleLogger.debug("⚠️ ConnectionTest[\(url)]: Task cancelled before test!")
             #endif
             return false
         }
@@ -60,7 +60,7 @@ public actor ConnectionFailoverManager {
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 #if DEBUG
-                print("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
                 #endif
                 updateConnectionHealth(url: url, success: false)
                 return false
@@ -69,11 +69,11 @@ public actor ConnectionFailoverManager {
             let isSuccessful = (200...299).contains(httpResponse.statusCode)
             if isSuccessful {
                 #if DEBUG
-                print("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s (HTTP \(httpResponse.statusCode))")
+                EnsembleLogger.debug("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s (HTTP \(httpResponse.statusCode))")
                 #endif
             } else {
                 #if DEBUG
-                print("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
                 #endif
             }
             updateConnectionHealth(url: url, success: isSuccessful)
@@ -81,7 +81,7 @@ public actor ConnectionFailoverManager {
 
         } catch {
             #if DEBUG
-            print("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
             #endif
             updateConnectionHealth(url: url, success: false)
             return false
@@ -143,7 +143,7 @@ public actor ConnectionFailoverManager {
             if let bestURL = best?.0, let bestScore = best?.1 {
                 let isHTTPS = bestURL.lowercased().hasPrefix("https://")
                 #if DEBUG
-                print("🏆 Best connection: \(bestURL) (score: \(String(format: "%.2f", bestScore))s, HTTPS: \(isHTTPS))")
+                EnsembleLogger.debug("🏆 Best connection: \(bestURL) (score: \(String(format: "%.2f", bestScore))s, HTTPS: \(isHTTPS))")
                 #endif
             }
             

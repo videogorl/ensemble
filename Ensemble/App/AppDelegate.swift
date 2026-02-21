@@ -8,7 +8,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        print("📱 AppDelegate: didFinishLaunching at \(Date())")
+        AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
         
         // Configure audio session for background playback
         configureAudioSession()
@@ -17,16 +17,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Network monitor will publish initial state asynchronously
         Task.detached(priority: .utility) {
             await MainActor.run {
-                print("📱 AppDelegate: Starting network monitor at \(Date())")
+                AppLogger.debug("📱 AppDelegate: Starting network monitor at \(Date())")
                 DependencyContainer.shared.networkMonitor.startMonitoring()
-                print("📱 AppDelegate: Network monitor started at \(Date())")
+                AppLogger.debug("📱 AppDelegate: Network monitor started at \(Date())")
             }
         }
         
         // Restore playback state after network monitor has had time to detect connectivity
         // This prevents false "offline" errors during startup
         Task.detached(priority: .utility) {
-            print("📱 AppDelegate: Waiting for network monitor to initialize...")
+            AppLogger.debug("📱 AppDelegate: Waiting for network monitor to initialize...")
             
             // Wait for network monitor to report a non-Unknown state
             let networkMonitor = await MainActor.run { DependencyContainer.shared.networkMonitor }
@@ -36,7 +36,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             while attempts < maxAttempts {
                 let state = await MainActor.run { networkMonitor.networkState }
                 if state != .unknown {
-                    print("📱 AppDelegate: Network state detected: \(state)")
+                    AppLogger.debug("📱 AppDelegate: Network state detected: \(state)")
                     break
                 }
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
@@ -46,13 +46,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Small additional delay to ensure connections are stable
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             
-            print("📱 AppDelegate: Getting playbackService...")
+            AppLogger.debug("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
                 DependencyContainer.shared.playbackService
             }
-            print("📱 AppDelegate: Calling restorePlaybackState()...")
+            AppLogger.debug("📱 AppDelegate: Calling restorePlaybackState()...")
             await playbackService.restorePlaybackState()
-            print("📱 AppDelegate: Playback state restoration complete")
+            AppLogger.debug("📱 AppDelegate: Playback state restoration complete")
         }
         
         // Perform startup sync (non-blocking, runs in background)
@@ -60,12 +60,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Wait a bit longer to ensure the app is fully initialized
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
             
-            print("📱 AppDelegate: Starting startup sync...")
+            AppLogger.debug("📱 AppDelegate: Starting startup sync...")
             let syncCoordinator = await MainActor.run {
                 DependencyContainer.shared.syncCoordinator
             }
             await syncCoordinator.performStartupSync()
-            print("📱 AppDelegate: Startup sync complete")
+            AppLogger.debug("📱 AppDelegate: Startup sync complete")
             
             // Start periodic sync timer after startup sync completes
             await MainActor.run {
@@ -73,7 +73,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         
-        print("📱 AppDelegate: didFinishLaunching returning at \(Date())")
+        AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         return true
     }
 
@@ -86,7 +86,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 options: [.allowAirPlay, .allowBluetooth, .allowBluetoothA2DP]
             )
         } catch {
-            print("Failed to configure audio session: \(error)")
+            AppLogger.debug("Failed to configure audio session: \(error)")
         }
     }
 

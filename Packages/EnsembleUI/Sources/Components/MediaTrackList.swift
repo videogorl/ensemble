@@ -323,7 +323,7 @@ public struct MediaTrackList: UIViewRepresentable {
             // 🐛 TEMP: log geometry after reload to diagnose clipping
             DispatchQueue.main.async {
                 #if DEBUG
-                print("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
+                EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
         } else if currentTrackChanged {

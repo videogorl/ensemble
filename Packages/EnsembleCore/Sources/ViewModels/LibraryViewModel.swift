@@ -227,13 +227,13 @@ public final class LibraryViewModel: ObservableObject {
     /// Refresh from server (incremental sync) if online, otherwise load from cache
     public func refreshFromServer() async {
         #if DEBUG
-        print("🔄 LibraryViewModel.refreshFromServer() called")
+        EnsembleLogger.debug("🔄 LibraryViewModel.refreshFromServer() called")
         #endif
 
         // Check if offline
         if syncCoordinator.isOffline {
             #if DEBUG
-            print("📴 Offline - loading from cache only")
+            EnsembleLogger.debug("📴 Offline - loading from cache only")
             #endif
             await loadLibrary()
             return
@@ -242,7 +242,7 @@ public final class LibraryViewModel: ObservableObject {
         // Check if sync is already in progress
         if syncCoordinator.isSyncing {
             #if DEBUG
-            print("⏳ Sync already in progress - waiting for it to complete")
+            EnsembleLogger.debug("⏳ Sync already in progress - waiting for it to complete")
             #endif
             await loadLibrary()
             return
@@ -254,7 +254,7 @@ public final class LibraryViewModel: ObservableObject {
         // SwiftUI can cancel the refreshable task when the view updates, but we want
         // the sync to complete regardless
         #if DEBUG
-        print("🔄 Starting incremental sync (detached)...")
+        EnsembleLogger.debug("🔄 Starting incremental sync (detached)...")
         #endif
         await withCheckedContinuation { continuation in
             Task.detached { [syncCoordinator] in
@@ -263,7 +263,7 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
         #if DEBUG
-        print("✅ Incremental sync complete")
+        EnsembleLogger.debug("✅ Incremental sync complete")
         #endif
 
         // Reload from updated cache

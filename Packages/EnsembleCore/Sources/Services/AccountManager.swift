@@ -155,9 +155,9 @@ public final class AccountManager: ObservableObject {
     /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
         #if DEBUG
-        print("🔄 AccountManager.makeAPIClient() called")
-        print("  - Account ID: \(accountId)")
-        print("  - Server ID: \(serverId)")
+        EnsembleLogger.debug("🔄 AccountManager.makeAPIClient() called")
+        EnsembleLogger.debug("  - Account ID: \(accountId)")
+        EnsembleLogger.debug("  - Server ID: \(serverId)")
         #endif
         
         let cacheKey = "\(accountId):\(serverId)"
@@ -165,33 +165,33 @@ public final class AccountManager: ObservableObject {
         // Return cached client if available
         if let cachedClient = apiClientCache[cacheKey] {
             #if DEBUG
-            print("✅ Returning cached API client")
+            EnsembleLogger.debug("✅ Returning cached API client")
             #endif
             return cachedClient
         }
         
         #if DEBUG
-        print("🔄 Creating new API client...")
-        print("  - Looking for account with ID: \(accountId)")
+        EnsembleLogger.debug("🔄 Creating new API client...")
+        EnsembleLogger.debug("  - Looking for account with ID: \(accountId)")
         #endif
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
             #if DEBUG
-            print("❌ Could not find account or server")
-            print("  - Accounts available: \(plexAccounts.count)")
+            EnsembleLogger.debug("❌ Could not find account or server")
+            EnsembleLogger.debug("  - Accounts available: \(plexAccounts.count)")
             #endif
             if let account = plexAccounts.first(where: { $0.id == accountId }) {
                 #if DEBUG
-                print("  - Account found, but server not found. Servers available: \(account.servers.count)")
+                EnsembleLogger.debug("  - Account found, but server not found. Servers available: \(account.servers.count)")
                 #endif
             }
             return nil
         }
 
         #if DEBUG
-        print("✅ Found account and server")
-        print("  - Server name: \(server.name)")
-        print("  - Server URL: \(server.url)")
+        EnsembleLogger.debug("✅ Found account and server")
+        EnsembleLogger.debug("  - Server name: \(server.name)")
+        EnsembleLogger.debug("  - Server URL: \(server.url)")
         #endif
 
         // Get all connection URLs from server config, excluding the primary URL
@@ -199,7 +199,7 @@ public final class AccountManager: ObservableObject {
             .map { $0.uri }
             .filter { $0 != server.url }
         #if DEBUG
-        print("  - Alternative URLs available: \(alternativeURLs.count)")
+        EnsembleLogger.debug("  - Alternative URLs available: \(alternativeURLs.count)")
         #endif
 
         let connection = PlexServerConnection(
@@ -213,7 +213,7 @@ public final class AccountManager: ObservableObject {
         let client = PlexAPIClient(connection: connection, keychain: keychain)
         apiClientCache[cacheKey] = client
         #if DEBUG
-        print("✅ API client created and cached")
+        EnsembleLogger.debug("✅ API client created and cached")
         #endif
         return client
     }

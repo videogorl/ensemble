@@ -64,14 +64,14 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             } else if let sourceKey = album.sourceCompositeKey {
                 // If not found and we have a source key, try to fetch from API
                 #if DEBUG
-                print("💿 AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                EnsembleLogger.debug("💿 AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 #endif
                 let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
                 tracks = apiTracks
             }
         } catch {
             #if DEBUG
-            print("❌ AlbumDetailViewModel error: \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ AlbumDetailViewModel error: \(error.localizedDescription)")
             #endif
             self.error = error.localizedDescription
         }

@@ -60,7 +60,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         ) { _ in
             ImagePipeline.shared.cache.removeAll()
             #if DEBUG
-            print("⚠️ Memory warning: Cleared artwork cache")
+            EnsembleLogger.debug("⚠️ Memory warning: Cleared artwork cache")
             #endif
         }
         #endif
@@ -122,11 +122,11 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             actualRatingKey = fallbackRatingKey
             usedFallback = true
             #if DEBUG
-            print("🔄 ArtworkLoader[\(size)]: Using fallback - track:\(ratingKey ?? "nil") → album:\(fallbackRatingKey ?? "nil") path:\(fallbackPath ?? "nil")")
+            EnsembleLogger.debug("🔄 ArtworkLoader[\(size)]: Using fallback - track:\(ratingKey ?? "nil") → album:\(fallbackRatingKey ?? "nil") path:\(fallbackPath ?? "nil")")
             #endif
         } else {
             #if DEBUG
-            print("❌ ArtworkLoader[\(size)]: No artwork - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
+            EnsembleLogger.debug("❌ ArtworkLoader[\(size)]: No artwork - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
             return nil
         }
@@ -143,7 +143,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             if FileManager.default.fileExists(atPath: albumCachePath) {
                 let url = URL(fileURLWithPath: albumCachePath)
                 #if DEBUG
-                print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
+                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
                 #endif
                 return url
             }
@@ -154,7 +154,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             if FileManager.default.fileExists(atPath: artistCachePath) {
                 let url = URL(fileURLWithPath: artistCachePath)
                 #if DEBUG
-                print("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
+                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
                 #endif
                 return url
             }
@@ -165,11 +165,11 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         if let url = networkURL {
             if usedFallback {
                 #if DEBUG
-                print("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")
+                EnsembleLogger.debug("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")
                 #endif
             } else {
                 #if DEBUG
-                print("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
+                EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
                 #endif
             }
         }
@@ -212,7 +212,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 downloadedCount += 1
             } catch {
                 #if DEBUG
-                print("Failed to download artwork for album \(album.title): \(error)")
+                EnsembleLogger.debug("Failed to download artwork for album \(album.title): \(error)")
                 #endif
                 continue
             }
@@ -255,7 +255,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 downloadedCount += 1
             } catch {
                 #if DEBUG
-                print("Failed to download artwork for artist \(artist.name): \(error)")
+                EnsembleLogger.debug("Failed to download artwork for artist \(artist.name): \(error)")
                 #endif
                 continue
             }

@@ -29,16 +29,16 @@ public final class PlexRadioProvider: RadioProviderProtocol {
         limit: Int
     ) async -> [Track]? {
         #if DEBUG
-        print("\n🎙️ PlexRadioProvider.getRecommendedTracks()")
-        print("  - track.id (ratingKey): \(track.id)")
-        print("  - track.title: \(track.title)")
-        print("  - sourceKey: \(sourceKey)")
-        print("  - limit: \(limit)")
+        EnsembleLogger.debug("\n🎙️ PlexRadioProvider.getRecommendedTracks()")
+        EnsembleLogger.debug("  - track.id (ratingKey): \(track.id)")
+        EnsembleLogger.debug("  - track.title: \(track.title)")
+        EnsembleLogger.debug("  - sourceKey: \(sourceKey)")
+        EnsembleLogger.debug("  - limit: \(limit)")
         #endif
         
         do {
             #if DEBUG
-            print("🔄 Calling apiClient.getSimilarTracks()...")
+            EnsembleLogger.debug("🔄 Calling apiClient.getSimilarTracks()...")
             #endif
             // Use Plex's /nearest endpoint for sonic recommendations
             guard let plexTracks = try await apiClient.getSimilarTracks(
@@ -47,35 +47,35 @@ public final class PlexRadioProvider: RadioProviderProtocol {
                 maxDistance: 0.25  // Lower = more similar (0.0-1.0)
             ) else {
                 #if DEBUG
-                print("⚠️ getSimilarTracks returned nil (no sonic analysis available)")
+                EnsembleLogger.debug("⚠️ getSimilarTracks returned nil (no sonic analysis available)")
                 #endif
                 return nil
             }
 
             #if DEBUG
-            print("✅ getSimilarTracks returned \(plexTracks.count) plex tracks")
+            EnsembleLogger.debug("✅ getSimilarTracks returned \(plexTracks.count) plex tracks")
             #endif
             
             // Convert PlexTrack to Track domain models
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
             #if DEBUG
-            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks")
+            EnsembleLogger.debug("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks")
             #endif
             
             if tracks.isEmpty {
                 #if DEBUG
-                print("⚠️ WARNING: Conversion resulted in empty array")
+                EnsembleLogger.debug("⚠️ WARNING: Conversion resulted in empty array")
                 #endif
             } else {
                 // Log first few recommendations as confirmation
                 for track in tracks.prefix(5) {
                     #if DEBUG
-                    print("  ✅ Radio: \(track.title) by \(track.artistName ?? "Unknown")")
+                    EnsembleLogger.debug("  ✅ Radio: \(track.title) by \(track.artistName ?? "Unknown")")
                     #endif
                 }
                 if tracks.count > 5 {
                     #if DEBUG
-                    print("  ... and \(tracks.count - 5) more tracks")
+                    EnsembleLogger.debug("  ... and \(tracks.count - 5) more tracks")
                     #endif
                 }
             }
@@ -83,15 +83,15 @@ public final class PlexRadioProvider: RadioProviderProtocol {
             return tracks
         } catch {
             #if DEBUG
-            print("❌ PlexRadioProvider.getRecommendedTracks() ERROR:")
-            print("   Type: \(type(of: error))")
-            print("   localizedDescription: \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ PlexRadioProvider.getRecommendedTracks() ERROR:")
+            EnsembleLogger.debug("   Type: \(type(of: error))")
+            EnsembleLogger.debug("   localizedDescription: \(error.localizedDescription)")
             #endif
             let nsError = error as NSError
             #if DEBUG
-            print("   NSError domain: \(nsError.domain)")
-            print("   Code: \(nsError.code)")
-            print("   UserInfo: \(nsError.userInfo)")
+            EnsembleLogger.debug("   NSError domain: \(nsError.domain)")
+            EnsembleLogger.debug("   Code: \(nsError.code)")
+            EnsembleLogger.debug("   UserInfo: \(nsError.userInfo)")
             #endif
             return nil
         }
@@ -99,44 +99,44 @@ public final class PlexRadioProvider: RadioProviderProtocol {
 
     public func getArtistRadio(for artist: Artist) async -> [Track]? {
         #if DEBUG
-        print("🎙️ PlexRadioProvider.getArtistRadio() called")
-        print("  - Artist: \(artist.name)")
-        print("  - Artist ID: \(artist.id)")
+        EnsembleLogger.debug("🎙️ PlexRadioProvider.getArtistRadio() called")
+        EnsembleLogger.debug("  - Artist: \(artist.name)")
+        EnsembleLogger.debug("  - Artist ID: \(artist.id)")
         #endif
         
         do {
             // Get artist radio station playlist from Plex
             #if DEBUG
-            print("🔄 Calling apiClient.getArtistRadioStation...")
+            EnsembleLogger.debug("🔄 Calling apiClient.getArtistRadioStation...")
             #endif
             guard let station = try await apiClient.getArtistRadioStation(artistKey: artist.id) else {
                 #if DEBUG
-                print("ℹ️ PlexRadioProvider: No artist radio available for \(artist.name)")
+                EnsembleLogger.debug("ℹ️ PlexRadioProvider: No artist radio available for \(artist.name)")
                 #endif
                 return nil
             }
             #if DEBUG
-            print("✅ Got artist radio station: \(station.title)")
-            print("  - Station playlist key: \(station.ratingKey)")
+            EnsembleLogger.debug("✅ Got artist radio station: \(station.title)")
+            EnsembleLogger.debug("  - Station playlist key: \(station.ratingKey)")
             #endif
 
             // Fetch tracks from the playlist
             #if DEBUG
-            print("🔄 Fetching tracks from playlist...")
+            EnsembleLogger.debug("🔄 Fetching tracks from playlist...")
             #endif
             let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
             #if DEBUG
-            print("✅ Fetched \(plexTracks.count) plex tracks")
+            EnsembleLogger.debug("✅ Fetched \(plexTracks.count) plex tracks")
             #endif
             
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
             #if DEBUG
-            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for artist radio")
+            EnsembleLogger.debug("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for artist radio")
             #endif
             return tracks
         } catch {
             #if DEBUG
-            print("❌ PlexRadioProvider.getArtistRadio error: \(error)")
+            EnsembleLogger.debug("❌ PlexRadioProvider.getArtistRadio error: \(error)")
             #endif
             return nil
         }
@@ -144,44 +144,44 @@ public final class PlexRadioProvider: RadioProviderProtocol {
 
     public func getAlbumRadio(for album: Album) async -> [Track]? {
         #if DEBUG
-        print("🎙️ PlexRadioProvider.getAlbumRadio() called")
-        print("  - Album: \(album.title)")
-        print("  - Album ID: \(album.id)")
+        EnsembleLogger.debug("🎙️ PlexRadioProvider.getAlbumRadio() called")
+        EnsembleLogger.debug("  - Album: \(album.title)")
+        EnsembleLogger.debug("  - Album ID: \(album.id)")
         #endif
         
         do {
             // Get album radio station playlist from Plex
             #if DEBUG
-            print("🔄 Calling apiClient.getAlbumRadioStation...")
+            EnsembleLogger.debug("🔄 Calling apiClient.getAlbumRadioStation...")
             #endif
             guard let station = try await apiClient.getAlbumRadioStation(albumKey: album.id) else {
                 #if DEBUG
-                print("ℹ️ PlexRadioProvider: No album radio available for \(album.title)")
+                EnsembleLogger.debug("ℹ️ PlexRadioProvider: No album radio available for \(album.title)")
                 #endif
                 return nil
             }
             #if DEBUG
-            print("✅ Got album radio station: \(station.title)")
-            print("  - Station playlist key: \(station.ratingKey)")
+            EnsembleLogger.debug("✅ Got album radio station: \(station.title)")
+            EnsembleLogger.debug("  - Station playlist key: \(station.ratingKey)")
             #endif
 
             // Fetch tracks from the playlist
             #if DEBUG
-            print("🔄 Fetching tracks from playlist...")
+            EnsembleLogger.debug("🔄 Fetching tracks from playlist...")
             #endif
             let plexTracks = try await apiClient.getPlaylistTracks(playlistKey: station.ratingKey)
             #if DEBUG
-            print("✅ Fetched \(plexTracks.count) plex tracks")
+            EnsembleLogger.debug("✅ Fetched \(plexTracks.count) plex tracks")
             #endif
             
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
             #if DEBUG
-            print("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for album radio")
+            EnsembleLogger.debug("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks for album radio")
             #endif
             return tracks
         } catch {
             #if DEBUG
-            print("❌ PlexRadioProvider.getAlbumRadio error: \(error)")
+            EnsembleLogger.debug("❌ PlexRadioProvider.getAlbumRadio error: \(error)")
             #endif
             return nil
         }
@@ -204,12 +204,12 @@ public final class PlexRadioProvider: RadioProviderProtocol {
             let tracks = shuffled.map { Track(from: $0, sourceKey: sourceKey) }
 
             #if DEBUG
-            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for library radio")
+            EnsembleLogger.debug("✅ PlexRadioProvider: Got \(tracks.count) tracks for library radio")
             #endif
             return Array(tracks)
         } catch {
             #if DEBUG
-            print("❌ PlexRadioProvider.getLibraryRadio error: \(error)")
+            EnsembleLogger.debug("❌ PlexRadioProvider.getLibraryRadio error: \(error)")
             #endif
             return nil
         }
@@ -232,12 +232,12 @@ public final class PlexRadioProvider: RadioProviderProtocol {
             let tracks = timeTravelTracks.map { Track(from: $0, sourceKey: sourceKey) }
 
             #if DEBUG
-            print("✅ PlexRadioProvider: Got \(tracks.count) tracks for time travel radio")
+            EnsembleLogger.debug("✅ PlexRadioProvider: Got \(tracks.count) tracks for time travel radio")
             #endif
             return Array(tracks)
         } catch {
             #if DEBUG
-            print("❌ PlexRadioProvider.getTimeTravelRadio error: \(error)")
+            EnsembleLogger.debug("❌ PlexRadioProvider.getTimeTravelRadio error: \(error)")
             #endif
             return nil
         }

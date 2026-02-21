@@ -132,7 +132,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
             
             // Proactively test connections to avoid waiting for timeout
             #if DEBUG
-            print("📚 Testing server connections before loading libraries...")
+            EnsembleLogger.debug("📚 Testing server connections before loading libraries...")
             #endif
             await client.refreshConnection()
             

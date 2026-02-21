@@ -23,7 +23,7 @@ public final class ServerHealthChecker: ObservableObject {
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
         #if DEBUG
-        print("🏥 ServerHealthChecker: Checking all servers...")
+        EnsembleLogger.debug("🏥 ServerHealthChecker: Checking all servers...")
         #endif
 
         // Check each server concurrently using the checkServer method
@@ -31,11 +31,11 @@ public final class ServerHealthChecker: ObservableObject {
         await withTaskGroup(of: Void.self) { group in
             for account in accountManager.plexAccounts {
                 #if DEBUG
-                print("🏥   Account: \(account.username) (ID: \(account.id))")
+                EnsembleLogger.debug("🏥   Account: \(account.username) (ID: \(account.id))")
                 #endif
                 for server in account.servers {
                     #if DEBUG
-                    print("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
+                    EnsembleLogger.debug("🏥     Server: \(server.name) (ID: \(server.id), Connections: \(server.connections.count))")
                     #endif
 
                     group.addTask {
@@ -48,7 +48,7 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         #if DEBUG
-        print("🏥 ServerHealthChecker: Completed checking \(serverStates.count) servers")
+        EnsembleLogger.debug("🏥 ServerHealthChecker: Completed checking \(serverStates.count) servers")
         #endif
     }
 
@@ -60,7 +60,7 @@ public final class ServerHealthChecker: ObservableObject {
         // If there's an ongoing check for this server, wait for it
         if let ongoingTask = ongoingServerChecks[serverKey] {
             #if DEBUG
-            print("⏳ ServerHealthChecker: Waiting for ongoing check of server \(serverKey)")
+            EnsembleLogger.debug("⏳ ServerHealthChecker: Waiting for ongoing check of server \(serverKey)")
             #endif
             return await ongoingTask.value
         }
@@ -118,17 +118,17 @@ public final class ServerHealthChecker: ObservableObject {
 
         guard !connectionURLs.isEmpty else {
             #if DEBUG
-            print("⚠️ ServerHealthChecker: No connection URLs for server \(server.name)")
+            EnsembleLogger.debug("⚠️ ServerHealthChecker: No connection URLs for server \(server.name)")
             #endif
             return .offline
         }
 
         #if DEBUG
-        print("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
+        EnsembleLogger.debug("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
         #endif
         for (index, url) in connectionURLs.enumerated() {
             #if DEBUG
-            print("  [\(index + 1)] \(url)")
+            EnsembleLogger.debug("  [\(index + 1)] \(url)")
             #endif
         }
 
@@ -138,12 +138,12 @@ public final class ServerHealthChecker: ObservableObject {
             token: server.token
         ) {
             #if DEBUG
-            print("✅ ServerHealthChecker: Server \(server.name) is online at \(workingURL)")
+            EnsembleLogger.debug("✅ ServerHealthChecker: Server \(server.name) is online at \(workingURL)")
             #endif
             return .connected(url: workingURL)
         } else {
             #if DEBUG
-            print("❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed")
+            EnsembleLogger.debug("❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed")
             #endif
             return .offline
         }

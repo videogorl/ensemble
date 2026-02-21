@@ -331,7 +331,7 @@ public final class SearchViewModel: ObservableObject {
                 }
             } catch {
                 #if DEBUG
-                print("ℹ️ No cached explore content available")
+                EnsembleLogger.debug("ℹ️ No cached explore content available")
                 #endif
             }
         }
@@ -427,7 +427,7 @@ public final class SearchViewModel: ObservableObject {
                 } catch {
                     // Silently continue on error - will use cached data
                     #if DEBUG
-                    print("⚠️ Failed to fetch hubs: \(error)")
+                    EnsembleLogger.debug("⚠️ Failed to fetch hubs: \(error)")
                     #endif
                 }
             }
@@ -437,11 +437,11 @@ public final class SearchViewModel: ObservableObject {
                 do {
                     try await self.hubRepository.saveHubs(freshHubs)
                     #if DEBUG
-                    print("✅ Cached \(freshHubs.count) hubs for offline use")
+                    EnsembleLogger.debug("✅ Cached \(freshHubs.count) hubs for offline use")
                     #endif
                 } catch {
                     #if DEBUG
-                    print("⚠️ Failed to cache hubs: \(error)")
+                    EnsembleLogger.debug("⚠️ Failed to cache hubs: \(error)")
                     #endif
                 }
             }

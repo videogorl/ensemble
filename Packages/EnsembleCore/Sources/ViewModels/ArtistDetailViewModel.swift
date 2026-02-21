@@ -46,14 +46,14 @@ public final class ArtistDetailViewModel: ObservableObject {
                 albums = cachedAlbums.map { Album(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
                 #if DEBUG
-                print("👨‍🎤 ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
+                EnsembleLogger.debug("👨‍🎤 ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
                 #endif
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
                 albums = apiAlbums
             }
         } catch {
             #if DEBUG
-            print("❌ ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
             #endif
             self.error = error.localizedDescription
         }
@@ -68,14 +68,14 @@ public final class ArtistDetailViewModel: ObservableObject {
                 tracks = cachedTracks.map { Track(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
                 #if DEBUG
-                print("👨‍🎤 ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                EnsembleLogger.debug("👨‍🎤 ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 #endif
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
                 tracks = apiTracks
             }
         } catch {
             #if DEBUG
-            print("❌ ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
             #endif
             self.error = error.localizedDescription
         }

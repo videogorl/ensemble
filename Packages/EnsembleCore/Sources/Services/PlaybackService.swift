@@ -457,7 +457,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Handle repeat.one where the track ID and index are the same, 
                     // but it's a new AVPlayerItem (new playback)
                     #if DEBUG
-                    print("↻ Repeating track due to repeat.one mode")
+                    EnsembleLogger.debug("↻ Repeating track due to repeat.one mode")
                     #endif
                     
                     Task { @MainActor in
@@ -519,7 +519,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await checkAndRefreshAutoplayQueue()
                 } else {
                     #if DEBUG
-                    print("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                    EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
                     #endif
                     stop()
                 }
@@ -528,14 +528,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if DEBUG
-        print("⏹️ Queue ended - stopping playback")
+        EnsembleLogger.debug("⏹️ Queue ended - stopping playback")
         #endif
         stop()
     }
     
     private func generateWaveform(for ratingKey: String) {
         #if DEBUG
-        print("🎵 Generating waveform for track: \(ratingKey)")
+        EnsembleLogger.debug("🎵 Generating waveform for track: \(ratingKey)")
         #endif
 
         // Generate fallback waveform immediately for instant feedback
@@ -543,7 +543,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { @MainActor in
             self.waveformHeights = fallbackWaveform
             #if DEBUG
-            print("🎵 Using fallback waveform (\(fallbackWaveform.count) samples)")
+            EnsembleLogger.debug("🎵 Using fallback waveform (\(fallbackWaveform.count) samples)")
             #endif
         }
 
@@ -554,7 +554,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Check if we have a stream ID
             guard let streamId = track.streamId else {
                 #if DEBUG
-                print("ℹ️ No stream ID available for track \(ratingKey), cannot fetch waveform")
+                EnsembleLogger.debug("ℹ️ No stream ID available for track \(ratingKey), cannot fetch waveform")
                 #endif
                 return
             }
@@ -580,13 +580,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                                 let normalizedHeights = self.normalizeLoudnessData(loudness)
                                 self.waveformHeights = normalizedHeights
                                 #if DEBUG
-                                print("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
+                                EnsembleLogger.debug("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
                                 #endif
                                 return
                             }
                         } catch {
                             #if DEBUG
-                            print("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
+                            EnsembleLogger.debug("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
                             #endif
                         }
                     }
@@ -670,7 +670,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try session.setCategory(.playback, mode: .default)
         } catch {
             #if DEBUG
-            print("Failed to setup audio session: \(error)")
+            EnsembleLogger.debug("Failed to setup audio session: \(error)")
             #endif
         }
         #endif
@@ -765,7 +765,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.updateNowPlayingInfo()
                 try? await self.storeTrackRating(trackId: track.id, rating: previousRating)
                 #if DEBUG
-                print("Failed to update rating from system UI: \(error)")
+                EnsembleLogger.debug("Failed to update rating from system UI: \(error)")
                 #endif
             }
         }
@@ -928,14 +928,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let trackId = historyItem.track.id
 
         #if DEBUG
-        print("🔙 Playing from history: \(historyItem.track.title)")
+        EnsembleLogger.debug("🔙 Playing from history: \(historyItem.track.title)")
         #endif
 
         // Check if this track already exists in the queue
         if let existingIndex = queue.firstIndex(where: { $0.track.id == trackId }) {
             // Track exists in queue - just navigate to it
             #if DEBUG
-            print("   Found in queue at index \(existingIndex)")
+            EnsembleLogger.debug("   Found in queue at index \(existingIndex)")
             #endif
 
             // Remove tapped item and everything after from history
@@ -950,7 +950,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             // Track not in queue - insert it at current position
             #if DEBUG
-            print("   Not in queue, inserting at current position")
+            EnsembleLogger.debug("   Not in queue, inserting at current position")
             #endif
 
             // Remove from history
@@ -1054,7 +1054,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } else if isAutoplayEnabled {
                 // Autoplay enabled: refresh to get more recommendations
                 #if DEBUG
-                print("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
+                EnsembleLogger.debug("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
                 #endif
                 Task {
                     await refreshAutoplayQueue()
@@ -1272,7 +1272,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         flattenAutoplayItemsBeforeIndex(adjustedDest)
         
         #if DEBUG
-        print("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
+        EnsembleLogger.debug("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
         #endif
         
         // Force @Published update by reassigning the queue array
@@ -1416,7 +1416,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let remainingTracksInQueue = queue.count - currentQueueIndex - 1
         if remainingTracksInQueue < 5 {
             #if DEBUG
-            print("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
+            EnsembleLogger.debug("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
             #endif
             await refreshAutoplayQueue()
         }
@@ -1433,8 +1433,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let removeStartIndex = queue.count - tracksToRemove
             
             #if DEBUG
-            print("🔪 Trimming \(tracksToRemove) excess auto-generated tracks from queue")
-            print("   Future tracks: \(futureTracksCount) → \(maxQueueLookahead)")
+            EnsembleLogger.debug("🔪 Trimming \(tracksToRemove) excess auto-generated tracks from queue")
+            EnsembleLogger.debug("   Future tracks: \(futureTracksCount) → \(maxQueueLookahead)")
             #endif
             
             // Remove excess tracks from end of queue and update tracking
@@ -1442,7 +1442,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 let removedTrack = queue[i].track
                 if autoGeneratedTrackIds.contains(removedTrack.id) {
                     #if DEBUG
-                    print("   Removing: \(removedTrack.title)")
+                    EnsembleLogger.debug("   Removing: \(removedTrack.title)")
                     #endif
                     autoGeneratedTrackIds.remove(removedTrack.id)
                 }
@@ -1450,26 +1450,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             
             #if DEBUG
-            print("✅ Queue trimmed to \(queue.count) total tracks")
+            EnsembleLogger.debug("✅ Queue trimmed to \(queue.count) total tracks")
             #endif
         }
     }
 
     public func refreshAutoplayQueue() async {
         #if DEBUG
-        print("\n🔄 ═══════════════════════════════════════════════════════════")
-        print("🔄 PlaybackService.refreshAutoplayQueue() called")
-        print("📊 State:")
-        print("  - isAutoplayEnabled: \(isAutoplayEnabled)")
-        print("  - Queue size: \(queue.count)")
-        print("  - Current index: \(currentQueueIndex)")
-        print("  - Current autoplayTracks: \(autoplayTracks.count)")
+        EnsembleLogger.debug("\n🔄 ═══════════════════════════════════════════════════════════")
+        EnsembleLogger.debug("🔄 PlaybackService.refreshAutoplayQueue() called")
+        EnsembleLogger.debug("📊 State:")
+        EnsembleLogger.debug("  - isAutoplayEnabled: \(isAutoplayEnabled)")
+        EnsembleLogger.debug("  - Queue size: \(queue.count)")
+        EnsembleLogger.debug("  - Current index: \(currentQueueIndex)")
+        EnsembleLogger.debug("  - Current autoplayTracks: \(autoplayTracks.count)")
         #endif
         
         guard isAutoplayEnabled else {
             #if DEBUG
-            print("❌ Early return: autoplay not enabled")
-            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            EnsembleLogger.debug("❌ Early return: autoplay not enabled")
+            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             #endif
             return
         }
@@ -1481,14 +1481,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
         if futureTracksCount >= maxQueueLookahead {
             #if DEBUG
-            print("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
-            print("   Skipping refresh to maintain queue limit")
-            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            EnsembleLogger.debug("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
+            EnsembleLogger.debug("   Skipping refresh to maintain queue limit")
+            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             #endif
             return
         }
         #if DEBUG
-        print("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
+        EnsembleLogger.debug("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
         #endif
 
         // Determine the seed track: use last non-autoplay track in queue
@@ -1497,31 +1497,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let lastRealIdx = lastRealTrackIndex {
             seedTrack = queue[lastRealIdx].track
             #if DEBUG
-            print("\n🎵 Seed track selection:")
-            print("  - Method: Last non-autoplay track in queue")
-            print("  - Title: \(seedTrack?.title ?? "nil")")
-            print("  - ID: \(seedTrack?.id ?? "nil")")
-            print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            EnsembleLogger.debug("\n🎵 Seed track selection:")
+            EnsembleLogger.debug("  - Method: Last non-autoplay track in queue")
+            EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
+            EnsembleLogger.debug("  - ID: \(seedTrack?.id ?? "nil")")
+            EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
             #endif
         } else if let currentTrack = currentTrack {
             seedTrack = currentTrack
             #if DEBUG
-            print("\n🎵 Seed track selection:")
-            print("  - Method: Current track (no non-autoplay tracks in queue)")
-            print("  - Title: \(seedTrack?.title ?? "nil")")
-            print("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            EnsembleLogger.debug("\n🎵 Seed track selection:")
+            EnsembleLogger.debug("  - Method: Current track (no non-autoplay tracks in queue)")
+            EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
+            EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
             #endif
         } else {
             seedTrack = nil
             #if DEBUG
-            print("\n🎵 Seed track selection: FAILED - no queue or current track")
+            EnsembleLogger.debug("\n🎵 Seed track selection: FAILED - no queue or current track")
             #endif
         }
         
         guard let seedTrack = seedTrack else {
             #if DEBUG
-            print("\n❌ Early return: no seed track available")
-            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            EnsembleLogger.debug("\n❌ Early return: no seed track available")
+            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             #endif
             return
         }
@@ -1529,44 +1529,44 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Get radio provider for seed track's source
         guard let sourceKey = seedTrack.sourceCompositeKey else {
             #if DEBUG
-            print("\n❌ Early return: Seed track has NO sourceCompositeKey")
-            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            EnsembleLogger.debug("\n❌ Early return: Seed track has NO sourceCompositeKey")
+            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             #endif
             return
         }
         #if DEBUG
-        print("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
+        EnsembleLogger.debug("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
         #endif
 
         #if DEBUG
-        print("\n🔄 Creating radio provider...")
+        EnsembleLogger.debug("\n🔄 Creating radio provider...")
         #endif
         // sourceCompositeKey is already in format: sourceType:accountId:serverId:libraryId
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
             #if DEBUG
-            print("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
-            print("🔄 ═══════════════════════════════════════════════════════════\n")
+            EnsembleLogger.debug("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
+            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             #endif
             return
         }
         #if DEBUG
-        print("✅ Radio provider created successfully")
+        EnsembleLogger.debug("✅ Radio provider created successfully")
         #endif
 
         // Always use sonically similar for continuous radio (like Plexamp)
         #if DEBUG
-        print("\n🔄 Calling provider.getRecommendedTracks()...")
-        print("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
-        print("  - Limit: 10 (fetching extra to filter duplicates)")
+        EnsembleLogger.debug("\n🔄 Calling provider.getRecommendedTracks()...")
+        EnsembleLogger.debug("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
+        EnsembleLogger.debug("  - Limit: 10 (fetching extra to filter duplicates)")
         #endif
         // Ask for more than we need since we'll filter out any already in queue
         let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
         
         if let tracks = recommendations {
             #if DEBUG
-            print("\n✅ Got recommendations: \(tracks.count) tracks")
+            EnsembleLogger.debug("\n✅ Got recommendations: \(tracks.count) tracks")
             #endif
             
             // Filter out tracks already in queue
@@ -1577,24 +1577,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             if uniqueNewTracks.isEmpty {
                 #if DEBUG
-                print("⚠️ All recommended tracks already in queue")
+                EnsembleLogger.debug("⚠️ All recommended tracks already in queue")
                 #endif
                 recommendationsExhausted = true
             } else {
                 for track in uniqueNewTracks.prefix(3) {
                     #if DEBUG
-                    print("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
+                    EnsembleLogger.debug("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
                     #endif
                 }
                 if uniqueNewTracks.count > 3 {
                     #if DEBUG
-                    print("  ... and \(uniqueNewTracks.count - 3) more tracks")
+                    EnsembleLogger.debug("  ... and \(uniqueNewTracks.count - 3) more tracks")
                     #endif
                 }
 
                 // Add as autoplay items (appended to end of queue)
                 #if DEBUG
-                print("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
+                EnsembleLogger.debug("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
                 #endif
                 for track in uniqueNewTracks {
                     let item = QueueItem(track: track, source: .autoplay)
@@ -1602,7 +1602,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     autoGeneratedTrackIds.insert(track.id)
                 }
                 #if DEBUG
-                print("✅ Queue now has \(queue.count) total tracks")
+                EnsembleLogger.debug("✅ Queue now has \(queue.count) total tracks")
                 #endif
 
                 // Trim if we exceeded the limit
@@ -1613,46 +1613,46 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Also keep autoplayTracks as a buffer for continuous playback
             autoplayTracks = tracks
             #if DEBUG
-            print("\n✅ SUCCESS - \(uniqueNewTracks.count) new auto-generated tracks added to queue")
+            EnsembleLogger.debug("\n✅ SUCCESS - \(uniqueNewTracks.count) new auto-generated tracks added to queue")
             #endif
         } else {
             #if DEBUG
-            print("\n❌ provider.getRecommendedTracks() returned nil")
-            print("   This could mean:")
-            print("   1. getSimilarTracks API call failed")
-            print("   2. The server has no sonic analysis for this track")
-            print("   3. Network error or permission issue")
+            EnsembleLogger.debug("\n❌ provider.getRecommendedTracks() returned nil")
+            EnsembleLogger.debug("   This could mean:")
+            EnsembleLogger.debug("   1. getSimilarTracks API call failed")
+            EnsembleLogger.debug("   2. The server has no sonic analysis for this track")
+            EnsembleLogger.debug("   3. Network error or permission issue")
             #endif
             autoplayTracks = []
             // Mark recommendations as exhausted if API returns nothing
             recommendationsExhausted = true
         }
         #if DEBUG
-        print("🔄 ═══════════════════════════════════════════════════════════\n")
+        EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
         #endif
     }
 
     public func enableRadio(tracks: [Track]) async {
         #if DEBUG
-        print("🎙️ PlaybackService.enableRadio() called")
-        print("  - Input tracks: \(tracks.count)")
+        EnsembleLogger.debug("🎙️ PlaybackService.enableRadio() called")
+        EnsembleLogger.debug("  - Input tracks: \(tracks.count)")
         #endif
         
         guard !tracks.isEmpty else {
             #if DEBUG
-            print("❌ No tracks to queue for radio")
+            EnsembleLogger.debug("❌ No tracks to queue for radio")
             #endif
             return
         }
 
         // Create queue items as continuePlaying and shuffle
         #if DEBUG
-        print("🔄 Creating and shuffling queue...")
+        EnsembleLogger.debug("🔄 Creating and shuffling queue...")
         #endif
         var items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
         items.shuffle()
         #if DEBUG
-        print("✅ Queue shuffled")
+        EnsembleLogger.debug("✅ Queue shuffled")
         #endif
 
         // Set queue and start from beginning
@@ -1667,7 +1667,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Enable radio mode for continuous playback
         #if DEBUG
-        print("🔄 Enabling radio mode (autoplay with sonically similar)")
+        EnsembleLogger.debug("🔄 Enabling radio mode (autoplay with sonically similar)")
         #endif
         isAutoplayEnabled = true
         radioMode = .trackRadio  // Will use sonically similar tracks
@@ -1675,31 +1675,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Start playing first track
         #if DEBUG
-        print("🔄 Starting playback...")
+        EnsembleLogger.debug("🔄 Starting playback...")
         #endif
         await playCurrentQueueItem()
         savePlaybackState()
         
         // Populate autoplay queue with sonically similar tracks
         #if DEBUG
-        print("🔄 Refreshing autoplay queue for continuous playback...")
+        EnsembleLogger.debug("🔄 Refreshing autoplay queue for continuous playback...")
         #endif
         await refreshAutoplayQueue()
         
         #if DEBUG
-        print("✅ Radio enabled: \(tracks.count) tracks shuffled, autoplay starting")
+        EnsembleLogger.debug("✅ Radio enabled: \(tracks.count) tracks shuffled, autoplay starting")
         #endif
     }
 
     public func playArtistRadio(for artist: Artist) async {
         #if DEBUG
-        print("⚠️ playArtistRadio() deprecated - use enableRadio(tracks:) instead")
+        EnsembleLogger.debug("⚠️ playArtistRadio() deprecated - use enableRadio(tracks:) instead")
         #endif
     }
 
     public func playAlbumRadio(for album: Album) async {
         #if DEBUG
-        print("⚠️ playAlbumRadio() deprecated - use enableRadio(tracks:) instead")
+        EnsembleLogger.debug("⚠️ playAlbumRadio() deprecated - use enableRadio(tracks:) instead")
         #endif
     }
 
@@ -1725,7 +1725,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if let oldestId = playerItemsLRU.popLast() {
                 playerItems.removeValue(forKey: oldestId)
                 #if DEBUG
-                print("🗑️ Evicted cached player item: \(oldestId)")
+                EnsembleLogger.debug("🗑️ Evicted cached player item: \(oldestId)")
                 #endif
             }
         }
@@ -1747,7 +1747,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playerItems.removeAll()
         playerItemsLRU.removeAll()
         #if DEBUG
-        print("🗑️ Cleared player item cache")
+        EnsembleLogger.debug("🗑️ Cleared player item cache")
         #endif
     }
 
@@ -1762,13 +1762,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let track = queue[currentQueueIndex].track
 
         #if DEBUG
-        print("🎵 ═══════════════════════════════════════════════════════")
-        print("🎵 playCurrentQueueItem() called")
-        print("   Track: \(track.title)")
-        print("   Artist: \(track.artistName ?? "Unknown")")
-        print("   Queue index: \(currentQueueIndex)/\(queue.count)")
-        print("   Has local file: \(track.localFilePath != nil)")
-        print("   Cached: \(playerItems[track.id] != nil)")
+        EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
+        EnsembleLogger.debug("🎵 playCurrentQueueItem() called")
+        EnsembleLogger.debug("   Track: \(track.title)")
+        EnsembleLogger.debug("   Artist: \(track.artistName ?? "Unknown")")
+        EnsembleLogger.debug("   Queue index: \(currentQueueIndex)/\(queue.count)")
+        EnsembleLogger.debug("   Has local file: \(track.localFilePath != nil)")
+        EnsembleLogger.debug("   Cached: \(playerItems[track.id] != nil)")
         #endif
 
         // Cancel any pending loading state transition
@@ -1779,7 +1779,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let cachedItem = getCachedPlayerItem(for: track.id),
            cachedItem.status == .readyToPlay {
             #if DEBUG
-            print("   ✅ Using cached player item (ready)")
+            EnsembleLogger.debug("   ✅ Using cached player item (ready)")
             #endif
 
             // Seek to beginning since cached items retain their position
@@ -1797,7 +1797,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await loadAndPlay(item: cachedItem, track: track)
             Task { await prefetchNextItem() }
             #if DEBUG
-            print("🎵 ═══════════════════════════════════════════════════════")
+            EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
             #endif
             return
         }
@@ -1829,7 +1829,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             Task { await prefetchNextItem() }
         } catch {
             #if DEBUG
-            print("❌ Failed to prepare track: \(error)")
+            EnsembleLogger.debug("❌ Failed to prepare track: \(error)")
             #endif
             loadingStateTask?.cancel()
             await MainActor.run {
@@ -1837,19 +1837,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
         #if DEBUG
-        print("🎵 ═══════════════════════════════════════════════════════")
+        EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
         #endif
     }
     
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
         #if DEBUG
-        print("📦 Creating player item for: \(track.title)")
+        EnsembleLogger.debug("📦 Creating player item for: \(track.title)")
         #endif
 
         // If we have a local file, use it regardless of network state
         if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
             #if DEBUG
-            print("   ✅ Using local file: \(localPath)")
+            EnsembleLogger.debug("   ✅ Using local file: \(localPath)")
             #endif
             let url = URL(fileURLWithPath: localPath)
             return AVPlayerItem(url: url)
@@ -1858,28 +1858,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Check network connectivity before attempting to stream
         let isConnected = await MainActor.run(body: { networkMonitor.isConnected })
         #if DEBUG
-        print("   Network connected: \(isConnected)")
+        EnsembleLogger.debug("   Network connected: \(isConnected)")
         #endif
 
         guard isConnected else {
             #if DEBUG
-            print("   ❌ No network connection - cannot stream")
+            EnsembleLogger.debug("   ❌ No network connection - cannot stream")
             #endif
             throw PlaybackError.offline
         }
 
         // Ensure the server connection is ready before attempting to get stream URL
         #if DEBUG
-        print("   🔄 Ensuring server connection...")
+        EnsembleLogger.debug("   🔄 Ensuring server connection...")
         #endif
         do {
             try await syncCoordinator.ensureServerConnection(for: track)
             #if DEBUG
-            print("   ✅ Server connection ready")
+            EnsembleLogger.debug("   ✅ Server connection ready")
             #endif
         } catch {
             #if DEBUG
-            print("   ❌ Failed to ensure server connection: \(error)")
+            EnsembleLogger.debug("   ❌ Failed to ensure server connection: \(error)")
             #endif
             throw PlaybackError.serverUnavailable
         }
@@ -1889,37 +1889,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let streamURL: URL
         do {
             #if DEBUG
-            print("   🔄 Getting stream URL...")
+            EnsembleLogger.debug("   🔄 Getting stream URL...")
             #endif
             streamURL = try await syncCoordinator.getStreamURL(for: track)
         } catch {
             #if DEBUG
-            print("   ⚠️ Failed to get stream URL on first attempt: \(error)")
+            EnsembleLogger.debug("   ⚠️ Failed to get stream URL on first attempt: \(error)")
             #endif
 
             if shouldRetryStreamURLRequest(after: error) {
                 #if DEBUG
-                print("   🔄 Refreshing server connection and retrying stream URL...")
+                EnsembleLogger.debug("   🔄 Refreshing server connection and retrying stream URL...")
                 #endif
                 do {
                     try await syncCoordinator.refreshConnection()
                     streamURL = try await syncCoordinator.getStreamURL(for: track)
                 } catch {
                     #if DEBUG
-                    print("   ❌ Stream URL retry failed: \(error)")
+                    EnsembleLogger.debug("   ❌ Stream URL retry failed: \(error)")
                     #endif
                     throw mapToPlaybackError(error)
                 }
             } else {
                 #if DEBUG
-                print("   ❌ Non-retryable stream URL error: \(error)")
+                EnsembleLogger.debug("   ❌ Non-retryable stream URL error: \(error)")
                 #endif
                 throw mapToPlaybackError(error)
             }
         }
 
         #if DEBUG
-        print("   ✅ Got stream URL host: \(streamURL.host ?? "unknown")")
+        EnsembleLogger.debug("   ✅ Got stream URL host: \(streamURL.host ?? "unknown")")
         #endif
         let asset = AVURLAsset(url: streamURL)
         let item = AVPlayerItem(asset: asset)
@@ -1984,18 +1984,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         player.insert(item, after: player.currentItem)
                         if repeatMode == .one {
                             #if DEBUG
-                            print("✅ Queued same track for repeat.one: \(nextTrack.title)")
+                            EnsembleLogger.debug("✅ Queued same track for repeat.one: \(nextTrack.title)")
                             #endif
                         } else {
                             #if DEBUG
-                            print("✅ Queued next track for gapless: \(nextTrack.title)")
+                            EnsembleLogger.debug("✅ Queued next track for gapless: \(nextTrack.title)")
                             #endif
                         }
                     }
                 }
             } catch {
                 #if DEBUG
-                print("⚠️ Failed to prefetch next track: \(error)")
+                EnsembleLogger.debug("⚠️ Failed to prefetch next track: \(error)")
                 #endif
             }
         } else if repeatMode == .all && !queue.isEmpty {
@@ -2008,13 +2008,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if let player = self.player, !player.items().contains(item) {
                         player.insert(item, after: player.currentItem)
                         #if DEBUG
-                        print("✅ Queued first track for repeat all: \(nextTrack.title)")
+                        EnsembleLogger.debug("✅ Queued first track for repeat all: \(nextTrack.title)")
                         #endif
                     }
                 }
             } catch {
                 #if DEBUG
-                print("⚠️ Failed to prefetch first track for repeat all: \(error)")
+                EnsembleLogger.debug("⚠️ Failed to prefetch first track for repeat all: \(error)")
                 #endif
             }
         }
@@ -2028,7 +2028,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Allow keeping the current item (index 0), remove the rest
             if items.count > 1 {
                 #if DEBUG
-                print("🔄 Re-syncing player queue. Removing \(items.count - 1) upcoming items.")
+                EnsembleLogger.debug("🔄 Re-syncing player queue. Removing \(items.count - 1) upcoming items.")
                 #endif
                 // Drop first and remove the actual items provided by the API
                 for item in items.dropFirst() {
@@ -2077,7 +2077,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         setupObservers(for: item)
         #if DEBUG
-        print("🎵 Starting playback")
+        EnsembleLogger.debug("🎵 Starting playback")
         #endif
         player?.play()
 
@@ -2085,7 +2085,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // This fixes race conditions where the button shows wrong state
         playbackState = .playing
         #if DEBUG
-        print("🎵 Set playbackState = .playing")
+        EnsembleLogger.debug("🎵 Set playbackState = .playing")
         #endif
     }
 
@@ -2096,14 +2096,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 switch item.status {
                 case .readyToPlay:
                     #if DEBUG
-                    print("✅ Player ready to play")
+                    EnsembleLogger.debug("✅ Player ready to play")
                     #endif
                     // Don't automatically set state to .playing - let timeControlStatus handle this
                     // Just update the now playing info
                     self?.updateNowPlayingInfo()
                 case .failed:
                     #if DEBUG
-                    print("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
+                    EnsembleLogger.debug("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
                     #endif
                     self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
                 default:
@@ -2118,7 +2118,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self = self else { return }
                 if item.isPlaybackBufferEmpty && self.playbackState == .playing {
                     #if DEBUG
-                    print("⚠️ Playback buffer empty - switching to buffering state")
+                    EnsembleLogger.debug("⚠️ Playback buffer empty - switching to buffering state")
                     #endif
                     self.playbackState = .buffering
                 }
@@ -2131,7 +2131,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self = self else { return }
                 if item.isPlaybackLikelyToKeepUp && self.playbackState == .buffering {
                     #if DEBUG
-                    print("✅ Buffer ready - resuming playback")
+                    EnsembleLogger.debug("✅ Buffer ready - resuming playback")
                     #endif
                     self.player?.play()
                     self.playbackState = .playing
@@ -2150,7 +2150,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Only update to playing if we're not intentionally paused
                         if self.playbackState != .paused && self.playbackState != .stopped {
                             #if DEBUG
-                            print("✅ AVPlayer actually playing audio")
+                            EnsembleLogger.debug("✅ AVPlayer actually playing audio")
                             #endif
                             self.playbackState = .playing
                         }
@@ -2159,7 +2159,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Player is paused (but not stopped)
                         if self.playbackState == .playing || self.playbackState == .buffering {
                             #if DEBUG
-                            print("⚠️ AVPlayer paused unexpectedly")
+                            EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly")
                             #endif
                             // Don't override user-initiated pause
                         }
@@ -2168,7 +2168,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Player is waiting to play (buffering, seeking, or loading)
                         if self.playbackState == .playing {
                             #if DEBUG
-                            print("⏳ AVPlayer waiting to play (buffering)")
+                            EnsembleLogger.debug("⏳ AVPlayer waiting to play (buffering)")
                             #endif
                             self.playbackState = .buffering
 
@@ -2236,20 +2236,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Treat this as completion instead of retrying the same track.
                 if self.player?.currentItem == nil {
                     #if DEBUG
-                    print("⏹️ Stall recovery detected empty player queue - handling as queue end")
+                    EnsembleLogger.debug("⏹️ Stall recovery detected empty player queue - handling as queue end")
                     #endif
                     self.handleQueueExhausted()
                     return
                 }
 
                 #if DEBUG
-                print("⚠️ Playback stalled for 10s - attempting recovery")
+                EnsembleLogger.debug("⚠️ Playback stalled for 10s - attempting recovery")
                 #endif
 
                 // Check if network is available
                 if !self.networkMonitor.isConnected {
                     #if DEBUG
-                    print("❌ No network connection - waiting for network")
+                    EnsembleLogger.debug("❌ No network connection - waiting for network")
                     #endif
                     self.playbackState = .failed("No internet connection")
                     return
@@ -2257,7 +2257,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 // Try to reload the current track
                 #if DEBUG
-                print("🔄 Attempting to reload current track...")
+                EnsembleLogger.debug("🔄 Attempting to reload current track...")
                 #endif
                 await self.retryCurrentTrack()
             }
@@ -2290,21 +2290,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let decision = Self.evaluateNetworkTransition(from: previous, to: current)
 
         #if DEBUG
-        print("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
+        EnsembleLogger.debug("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
         if decision.isInterfaceSwitch {
-            print("🌐 Detected interface switch while online")
+            EnsembleLogger.debug("🌐 Detected interface switch while online")
         }
         #endif
 
         if decision.shouldRefreshConnection {
             do {
                 #if DEBUG
-                print("🔄 Refreshing server connection for network transition")
+                EnsembleLogger.debug("🔄 Refreshing server connection for network transition")
                 #endif
                 try await syncCoordinator.refreshConnection()
             } catch {
                 #if DEBUG
-                print("⚠️ Failed to refresh server connection during transition: \(error.localizedDescription)")
+                EnsembleLogger.debug("⚠️ Failed to refresh server connection during transition: \(error.localizedDescription)")
                 #endif
             }
         }
@@ -2315,24 +2315,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         if decision.shouldHandleReconnect {
             #if DEBUG
-            print("✅ Network reconnected")
+            EnsembleLogger.debug("✅ Network reconnected")
             #endif
 
             // If playback failed due to network, try to recover.
             if case .failed = playbackState {
                 #if DEBUG
-                print("🔄 Network back - attempting to resume playback")
+                EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
                 #endif
                 await retryCurrentTrack()
             } else if playbackState == .buffering {
                 #if DEBUG
-                print("🔄 Network back - attempting to resume buffering")
+                EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
                 #endif
                 player?.play()
             }
         } else if decision.shouldHandleDisconnect {
             #if DEBUG
-            print("⚠️ Network disconnected during playback")
+            EnsembleLogger.debug("⚠️ Network disconnected during playback")
             #endif
 
             // If we're streaming (not playing from local file), move to failed state.
@@ -2340,7 +2340,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                track.localFilePath == nil,
                playbackState == .playing || playbackState == .buffering {
                 #if DEBUG
-                print("⚠️ No network and streaming - switching to failed state")
+                EnsembleLogger.debug("⚠️ No network and streaming - switching to failed state")
                 #endif
                 playbackState = .failed("Lost network connection")
             }
@@ -2372,9 +2372,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playerItemsLRU.removeAll { upcomingTrackIDs.contains($0) }
 
         #if DEBUG
-        print("🔄 Auto-healed upcoming queue after network transition")
-        print("   Removed queued player items: \(removedPlayerItems)")
-        print("   Evicted cached upcoming items: \(evictedCount)")
+        EnsembleLogger.debug("🔄 Auto-healed upcoming queue after network transition")
+        EnsembleLogger.debug("   Removed queued player items: \(removedPlayerItems)")
+        EnsembleLogger.debug("   Evicted cached upcoming items: \(evictedCount)")
         #endif
 
         await prefetchNextItem()
@@ -2565,7 +2565,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Restore playback state from UserDefaults
     public func restorePlaybackState() async {
         #if DEBUG
-        print("🔄 restorePlaybackState() called")
+        EnsembleLogger.debug("🔄 restorePlaybackState() called")
         #endif
 
         // Load History
@@ -2573,19 +2573,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
            let historyItems = try? JSONDecoder().decode([QueueItem].self, from: historyData) {
             playbackHistory = historyItems
             #if DEBUG
-            print("🔄 Restored \(playbackHistory.count) history items")
+            EnsembleLogger.debug("🔄 Restored \(playbackHistory.count) history items")
             #endif
         }
 
         guard let data = UserDefaults.standard.data(forKey: queueKey) else {
             #if DEBUG
-            print("🔄 No queue data found in UserDefaults")
+            EnsembleLogger.debug("🔄 No queue data found in UserDefaults")
             #endif
             return
         }
 
         #if DEBUG
-        print("🔄 Found queue data, size: \(data.count) bytes")
+        EnsembleLogger.debug("🔄 Found queue data, size: \(data.count) bytes")
         #endif
 
         let index = UserDefaults.standard.integer(forKey: currentIndexKey)
@@ -2594,12 +2594,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Try new format first (QueueItem array with source tags)
         if let items = try? JSONDecoder().decode([QueueItem].self, from: data), !items.isEmpty {
             #if DEBUG
-            print("🔄 Decoded \(items.count) queue items (new format)")
-            print("🔄 Restoring: index \(index), time \(time)s")
+            EnsembleLogger.debug("🔄 Decoded \(items.count) queue items (new format)")
+            EnsembleLogger.debug("🔄 Restoring: index \(index), time \(time)s")
             #endif
             await restoreQueueFromItems(items, index: index, time: time)
             #if DEBUG
-            print("🔄 Restoration complete - paused at \(time)s")
+            EnsembleLogger.debug("🔄 Restoration complete - paused at \(time)s")
             #endif
             return
         }
@@ -2607,18 +2607,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Fallback: old format (Track array) for migration
         if let tracks = try? JSONDecoder().decode([Track].self, from: data), !tracks.isEmpty {
             #if DEBUG
-            print("🔄 Decoded \(tracks.count) tracks (legacy format, migrating)")
+            EnsembleLogger.debug("🔄 Decoded \(tracks.count) tracks (legacy format, migrating)")
             #endif
             let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
             await restoreQueueFromItems(items, index: index, time: time)
             #if DEBUG
-            print("🔄 Restoration complete (migrated) - paused at \(time)s")
+            EnsembleLogger.debug("🔄 Restoration complete (migrated) - paused at \(time)s")
             #endif
             return
         }
 
         #if DEBUG
-        print("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
+        EnsembleLogger.debug("⚠️ [PlaybackService] Queue data unreadable in both formats; starting fresh")
         #endif
     }
 
@@ -2649,7 +2649,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await loadAndPrepare(item: item, track: track, seekTo: time)
         } catch {
             #if DEBUG
-            print("❌ Failed to prepare track during restore: \(error)")
+            EnsembleLogger.debug("❌ Failed to prepare track during restore: \(error)")
             #endif
             playbackState = .failed(error.localizedDescription)
         }
@@ -2698,7 +2698,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Set state to paused (not playing)
         playbackState = .paused
         #if DEBUG
-        print("🎵 Track prepared and paused at \(time)s")
+        EnsembleLogger.debug("🎵 Track prepared and paused at \(time)s")
         #endif
         updateNowPlayingInfo()
     }

@@ -53,7 +53,7 @@ public final class HomeViewModel: ObservableObject {
                         let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
                         self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
                         #if DEBUG
-                        print("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
+                        EnsembleLogger.debug("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
                         #endif
                     } else {
                         self.hubs = cached
@@ -61,7 +61,7 @@ public final class HomeViewModel: ObservableObject {
                 }
             } catch {
                 #if DEBUG
-                print("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
+                EnsembleLogger.debug("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
                 #endif
             }
         }
@@ -113,7 +113,7 @@ public final class HomeViewModel: ObservableObject {
         // Identify the primary source key and name for ordering
         updateCurrentSource()
         #if DEBUG
-        print("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
+        EnsembleLogger.debug("[HubOrder] loadHubs applySavedOrder=\(applySavedOrder) sourceKey=\(currentSourceKey ?? "nil")")
         #endif
         
         // Create a new load task
@@ -304,7 +304,7 @@ public final class HomeViewModel: ObservableObject {
             let fetchedHubsResult = mergeAndGroupHubs(finalHubs)
 
             #if DEBUG
-            print("[HubOrder] Fetched hubs count=\(fetchedHubsResult.count)")
+            EnsembleLogger.debug("[HubOrder] Fetched hubs count=\(fetchedHubsResult.count)")
             #endif
 
             // CRITICAL: Save default order IMMEDIATELY after fetch, before any other operations
@@ -312,7 +312,7 @@ public final class HomeViewModel: ObservableObject {
             if let sourceKey = currentSourceKey {
                 let defaultHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
                 #if DEBUG
-                print("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
+                EnsembleLogger.debug("[HubOrder] Saving default order for sourceKey=\(sourceKey) count=\(defaultHubs.count)")
                 #endif
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
@@ -532,14 +532,14 @@ public final class HomeViewModel: ObservableObject {
         guard let sourceKey = currentSourceKey else { return }
         
         #if DEBUG
-        print("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
+        EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
         #endif
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Apply cached default order immediately
         let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
         #if DEBUG
-        print("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
+        EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
         #endif
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
         hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
@@ -552,7 +552,7 @@ public final class HomeViewModel: ObservableObject {
         
         // Reload hubs to get fresh data from server
         #if DEBUG
-        print("[HubOrder] Triggering background refresh from server")
+        EnsembleLogger.debug("[HubOrder] Triggering background refresh from server")
         #endif
         Task {
             await loadHubs(applySavedOrder: false)
@@ -569,7 +569,7 @@ public final class HomeViewModel: ObservableObject {
         stopPeriodicRefresh()  // Stop any existing timer
         
         #if DEBUG
-        print("⏰ Starting periodic hub refresh (every 10 minutes)")
+        EnsembleLogger.debug("⏰ Starting periodic hub refresh (every 10 minutes)")
         #endif
         hubRefreshTimer = Timer.scheduledTimer(withTimeInterval: hubRefreshInterval, repeats: true) { [weak self] _ in
             // No [weak self] here — the outer Timer closure already captures self weakly
@@ -579,13 +579,13 @@ public final class HomeViewModel: ObservableObject {
                 // Don't refresh if offline
                 guard !self.syncCoordinator.isOffline else {
                     #if DEBUG
-                    print("📴 Offline - skipping periodic hub refresh")
+                    EnsembleLogger.debug("📴 Offline - skipping periodic hub refresh")
                     #endif
                     return
                 }
                 
                 #if DEBUG
-                print("⏰ Periodic hub refresh triggered")
+                EnsembleLogger.debug("⏰ Periodic hub refresh triggered")
                 #endif
                 await self.refresh()
             }
@@ -597,7 +597,7 @@ public final class HomeViewModel: ObservableObject {
         hubRefreshTimer?.invalidate()
         hubRefreshTimer = nil
         #if DEBUG
-        print("🛑 Stopped periodic hub refresh")
+        EnsembleLogger.debug("🛑 Stopped periodic hub refresh")
         #endif
     }
 }

@@ -25,7 +25,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     ) async throws {
         let sourceKey = sourceIdentifier.compositeKey
         #if DEBUG
-        print("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
+        EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
         #endif
 
         // Ensure CDMusicSource exists
@@ -47,7 +47,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
 
         #if DEBUG
-        print("🔄 Incremental sync: \(artistsToSync.count) artists changed")
+        EnsembleLogger.debug("🔄 Incremental sync: \(artistsToSync.count) artists changed")
         #endif
         for artist in artistsToSync {
             _ = try await repository.upsertArtist(
@@ -71,7 +71,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
 
         #if DEBUG
-        print("🔄 Incremental sync: \(albumsToSync.count) albums changed")
+        EnsembleLogger.debug("🔄 Incremental sync: \(albumsToSync.count) albums changed")
         #endif
         for album in albumsToSync {
             _ = try await repository.upsertAlbum(
@@ -101,7 +101,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
 
         #if DEBUG
-        print("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
+        EnsembleLogger.debug("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
         #endif
         for track in tracksToSync {
             _ = try await repository.upsertTrack(
@@ -128,7 +128,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
         #if DEBUG
-        print("🧹 Checking for orphaned items (lightweight inventory)...")
+        EnsembleLogger.debug("🧹 Checking for orphaned items (lightweight inventory)...")
         #endif
 
         // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
@@ -151,11 +151,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         if removedArtists + removedAlbums + removedTracks > 0 {
             #if DEBUG
-            print("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
+            EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
             #endif
         } else {
             #if DEBUG
-            print("✅ No orphaned items found")
+            EnsembleLogger.debug("✅ No orphaned items found")
             #endif
         }
 
@@ -164,7 +164,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         progressHandler(1.0)
         #if DEBUG
-        print("✅ Incremental sync complete for \(sourceKey)")
+        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey)")
         #endif
     }
     
@@ -232,7 +232,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         #if DEBUG
-        print("📀 Syncing \(tracks.count) tracks")
+        EnsembleLogger.debug("📀 Syncing \(tracks.count) tracks")
         #endif
         for track in tracks {
             _ = try await repository.upsertTrack(
@@ -272,7 +272,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Remove orphaned items (deleted/merged on server but still in local DB)
         progressHandler(0.85)
         #if DEBUG
-        print("🧹 Checking for orphaned items...")
+        EnsembleLogger.debug("🧹 Checking for orphaned items...")
         #endif
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
@@ -281,11 +281,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
             #if DEBUG
-            print("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks, \(removedGenres) genres")
+            EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks, \(removedGenres) genres")
             #endif
         } else {
             #if DEBUG
-            print("✅ No orphaned items found")
+            EnsembleLogger.debug("✅ No orphaned items found")
             #endif
         }
 
@@ -327,11 +327,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             #if DEBUG
-            print("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
+            EnsembleLogger.debug("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
             #endif
             if trackKeys.count > 0 {
                 #if DEBUG
-                print("📋 First track key: \(trackKeys[0])")
+                EnsembleLogger.debug("📋 First track key: \(trackKeys[0])")
                 #endif
             }
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
@@ -358,7 +358,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // If never synced, fall back to full sync
         guard lastSyncTimestamp > 0 else {
             #if DEBUG
-            print("⚠️ No previous playlist sync found, performing full sync")
+            EnsembleLogger.debug("⚠️ No previous playlist sync found, performing full sync")
             #endif
             try await syncPlaylists(to: repository, progressHandler: progressHandler)
             return
@@ -377,7 +377,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let changedPlaylists = Array(playlistMap.values)
 
         #if DEBUG
-        print("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
+        EnsembleLogger.debug("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
         #endif
 
         // Sync only changed playlists (only fetch tracks for changed ones)
@@ -403,7 +403,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             #if DEBUG
-            print("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
+            EnsembleLogger.debug("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
             #endif
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
@@ -411,7 +411,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Orphan removal: Fetch playlist inventory and remove deleted playlists
         progressHandler(0.7)
         #if DEBUG
-        print("🧹 Checking for orphaned playlists...")
+        EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
         #endif
         let playlistInventory = try await apiClient.getPlaylistInventory()
         let validPlaylistKeys = Set(playlistInventory.map { $0.ratingKey })
@@ -420,11 +420,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
         if removedPlaylists > 0 {
             #if DEBUG
-            print("🧹 Removed \(removedPlaylists) orphaned playlists")
+            EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
             #endif
         } else {
             #if DEBUG
-            print("✅ No orphaned playlists found")
+            EnsembleLogger.debug("✅ No orphaned playlists found")
             #endif
         }
 
@@ -438,25 +438,25 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // If we have a direct stream key (the media part path), use it
         if let streamKey = trackStreamKey, !streamKey.isEmpty {
             #if DEBUG
-            print("🔍 PlexProvider: Using cached stream key: \(streamKey)")
+            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
             #endif
             return try await apiClient.getStreamURL(trackKey: streamKey)
         }
         
         // Fallback: Fetch the full track metadata which should include Media array
         #if DEBUG
-        print("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
+        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
         #endif
         if let track = try await apiClient.getTrack(trackKey: trackRatingKey),
            let streamKey = track.streamURL {
             #if DEBUG
-            print("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
+            EnsembleLogger.debug("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
             #endif
             return try await apiClient.getStreamURL(trackKey: streamKey)
         }
         
         #if DEBUG
-        print("❌ PlexProvider: Could not get stream URL for track")
+        EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL for track")
         #endif
         throw PlexAPIError.invalidURL
     }

@@ -19,14 +19,14 @@ public final class BackgroundSyncScheduler {
     public func scheduleAppRefresh() {
         #if targetEnvironment(simulator)
         #if DEBUG
-        print("ℹ️ Background refresh scheduling skipped on simulator")
+        EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on simulator")
         #endif
         return
         #endif
 
         guard #available(iOS 16.0, *) else {
             #if DEBUG
-            print("ℹ️ Background refresh scheduling skipped on iOS 15")
+            EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on iOS 15")
             #endif
             return
         }
@@ -34,7 +34,7 @@ public final class BackgroundSyncScheduler {
         #if canImport(UIKit)
         guard UIApplication.shared.backgroundRefreshStatus == .available else {
             #if DEBUG
-            print("ℹ️ Background refresh unavailable; skipping schedule")
+            EnsembleLogger.debug("ℹ️ Background refresh unavailable; skipping schedule")
             #endif
             return
         }
@@ -48,11 +48,11 @@ public final class BackgroundSyncScheduler {
         do {
             try BGTaskScheduler.shared.submit(request)
             #if DEBUG
-            print("📅 Background refresh scheduled (earliest: \(request.earliestBeginDate?.description ?? "now"))")
+            EnsembleLogger.debug("📅 Background refresh scheduled (earliest: \(request.earliestBeginDate?.description ?? "now"))")
             #endif
         } catch {
             #if DEBUG
-            print("❌ Failed to schedule background refresh: \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ Failed to schedule background refresh: \(error.localizedDescription)")
             #endif
         }
     }
@@ -61,7 +61,7 @@ public final class BackgroundSyncScheduler {
     public func cancelAppRefresh() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
         #if DEBUG
-        print("🚫 Background refresh cancelled")
+        EnsembleLogger.debug("🚫 Background refresh cancelled")
         #endif
     }
 }

@@ -51,13 +51,13 @@ public struct ArtworkView: View {
                         .aspectRatio(contentMode: .fill)
                 } else if let error = state.error {
                     // Show placeholder on error
-                    let _ = print("🎨 ArtworkView[\(size.rawValue)]: Load error - \(error.localizedDescription) for URL: \(artworkURL?.absoluteString ?? "nil")")
+                    let _ = EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Load error - \(error.localizedDescription) for URL: \(artworkURL?.absoluteString ?? "nil")")
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
                 } else {
                     // Loading or no URL yet
-                    let _ = print("🎨 ArtworkView[\(size.rawValue)]: Loading state - URL: \(artworkURL?.absoluteString ?? "nil")")
+                    let _ = EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Loading state - URL: \(artworkURL?.absoluteString ?? "nil")")
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
@@ -81,13 +81,13 @@ public struct ArtworkView: View {
         
         guard let finalPath = actualPath else {
             #if DEBUG
-            print("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
+            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
             return
         }
         
         #if DEBUG
-        print("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(finalPath) ratingKey:\(actualRatingKey ?? "nil")")
+        EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(finalPath) ratingKey:\(actualRatingKey ?? "nil")")
         #endif
         
         let url = await dependencies.artworkLoader.artworkURLAsync(
@@ -102,12 +102,12 @@ public struct ArtworkView: View {
         // Only update if URL actually changed
         if url != artworkURL {
             #if DEBUG
-            print("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
+            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
             #endif
             artworkURL = url
         } else {
             #if DEBUG
-            print("🎨 ArtworkView[\(size.rawValue)]: URL unchanged")
+            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: URL unchanged")
             #endif
         }
     }

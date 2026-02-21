@@ -1,9 +1,20 @@
 import EnsembleCore
 import EnsembleUI
+import OSLog
 import SwiftUI
 #if os(iOS)
 import BackgroundTasks
 #endif
+
+enum AppLogger {
+    private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
+
+    static func debug(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        let message = items.map { String(describing: $0) }.joined(separator: separator)
+        let suffix = terminator == "\n" ? "" : terminator
+        logger.debug("\(message + suffix, privacy: .public)")
+    }
+}
 
 @main
 struct EnsembleApp: App {
@@ -60,12 +71,12 @@ struct EnsembleApp: App {
                         // Wait for network monitor to stabilize
                         try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
 
-                        print("💻 macOS: Starting startup sync...")
+                        AppLogger.debug("💻 macOS: Starting startup sync...")
                         let syncCoordinator = await MainActor.run {
                             DependencyContainer.shared.syncCoordinator
                         }
                         await syncCoordinator.performStartupSync()
-                        print("💻 macOS: Startup sync complete")
+                        AppLogger.debug("💻 macOS: Startup sync complete")
                     }
                 }
             case .background:
@@ -107,7 +118,7 @@ extension Scene {
 /// Perform background refresh - lightweight hub sync
 @available(iOS 13.0, *)
 private func performBackgroundRefresh() async {
-    print("🔄 Background refresh triggered")
+    AppLogger.debug("🔄 Background refresh triggered")
 
     // Reschedule next refresh immediately for continuity
     BackgroundSyncScheduler.shared.scheduleAppRefresh()
@@ -119,6 +130,6 @@ private func performBackgroundRefresh() async {
 
     await homeVM.refresh()
 
-    print("✅ Background refresh complete")
+    AppLogger.debug("✅ Background refresh complete")
 }
 #endif

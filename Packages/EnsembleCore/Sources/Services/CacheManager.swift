@@ -69,7 +69,7 @@ public final class CacheManager: ObservableObject {
             )
         } catch {
             #if DEBUG
-            print("Failed to get library metadata size: \(error)")
+            EnsembleLogger.debug("Failed to get library metadata size: \(error)")
             #endif
         }
         
@@ -82,7 +82,7 @@ public final class CacheManager: ObservableObject {
             )
         } catch {
             #if DEBUG
-            print("Failed to get artwork cache size: \(error)")
+            EnsembleLogger.debug("Failed to get artwork cache size: \(error)")
             #endif
         }
         
@@ -97,7 +97,7 @@ public final class CacheManager: ObservableObject {
             )
         } catch {
             #if DEBUG
-            print("Failed to get download size: \(error)")
+            EnsembleLogger.debug("Failed to get download size: \(error)")
             #endif
         }
         
@@ -110,7 +110,7 @@ public final class CacheManager: ObservableObject {
             )
         } catch {
             #if DEBUG
-            print("Failed to get Nuke cache size: \(error)")
+            EnsembleLogger.debug("Failed to get Nuke cache size: \(error)")
             #endif
         }
         
