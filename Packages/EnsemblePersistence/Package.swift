@@ -22,7 +22,8 @@ let package = Package(
             dependencies: [],
             path: "Sources",
             resources: [
-                .process("CoreData/Ensemble.xcdatamodeld")
+                .process("CoreData/Ensemble.xcdatamodeld"),
+                .copy("CoreData/Compiled/Ensemble.momd")
             ]
         ),
         .testTarget(
