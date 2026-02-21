@@ -164,6 +164,14 @@ public protocol PlaybackServiceProtocol: AnyObject {
 // MARK: - Playback Service Implementation
 
 public final class PlaybackService: NSObject, PlaybackServiceProtocol {
+    struct NetworkTransitionDecision: Equatable {
+        let shouldRefreshConnection: Bool
+        let shouldAutoHealQueue: Bool
+        let shouldHandleReconnect: Bool
+        let shouldHandleDisconnect: Bool
+        let isInterfaceSwitch: Bool
+    }
+
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
             // Toggle between loved (10) and none (0).
@@ -175,6 +183,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func feedbackFlags(for rating: Int) -> (isLiked: Bool, isDisliked: Bool) {
         (rating >= 8, rating > 0 && rating <= 4)
+    }
+
+    static func evaluateNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransitionDecision {
+        let previousIsConnected = previous?.isConnected ?? false
+        let currentIsConnected = current.isConnected
+        let didReconnect = !previousIsConnected && currentIsConnected
+        let didDisconnect = previousIsConnected && !currentIsConnected
+
+        let previousNetworkType: NetworkType?
+        if case .online(let type) = previous {
+            previousNetworkType = type
+        } else {
+            previousNetworkType = nil
+        }
+
+        let currentNetworkType: NetworkType?
+        if case .online(let type) = current {
+            currentNetworkType = type
+        } else {
+            currentNetworkType = nil
+        }
+
+        let isInterfaceSwitch = previousNetworkType != nil
+            && currentNetworkType != nil
+            && previousNetworkType != currentNetworkType
+        let shouldRefreshConnection = didReconnect || isInterfaceSwitch
+
+        return NetworkTransitionDecision(
+            shouldRefreshConnection: shouldRefreshConnection,
+            shouldAutoHealQueue: shouldRefreshConnection,
+            shouldHandleReconnect: didReconnect,
+            shouldHandleDisconnect: didDisconnect,
+            isInterfaceSwitch: isInterfaceSwitch
+        )
     }
 
     // MARK: - Publishers
@@ -247,6 +289,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var bufferLikelyToKeepUpObservation: NSKeyValueObservation?
     private var timeControlStatusObservation: NSKeyValueObservation?
     private var networkStateObservation: AnyCancellable?
+    private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
 
     private let syncCoordinator: SyncCoordinator
@@ -1876,7 +1919,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if DEBUG
-        print("   ✅ Got stream URL: \(streamURL)")
+        print("   ✅ Got stream URL host: \(streamURL.host ?? "unknown")")
         #endif
         let asset = AVURLAsset(url: streamURL)
         let item = AVPlayerItem(asset: asset)
@@ -2226,50 +2269,115 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Access the publisher on MainActor since NetworkMonitor is @MainActor isolated
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            self.networkStateObservation = self.networkMonitor.$isConnected
+            self.lastObservedNetworkState = self.networkMonitor.networkState
+            self.networkStateObservation = self.networkMonitor.$networkState
                 .dropFirst() // Ignore initial value
-                .sink { [weak self] isConnected in
+                .sink { [weak self] newState in
                 // No [weak self] here — the outer sink closure already captures self weakly
                 Task { @MainActor in
                     guard let self = self else { return }
-
-                    if isConnected {
-                        #if DEBUG
-                        print("✅ Network reconnected")
-                        #endif
-
-                        // If playback failed due to network, try to recover
-                        if case .failed = self.playbackState {
-                            #if DEBUG
-                            print("🔄 Network back - attempting to resume playback")
-                            #endif
-                            await self.retryCurrentTrack()
-                        }
-                        // If buffering when network comes back, try to resume
-                        else if self.playbackState == .buffering {
-                            #if DEBUG
-                            print("🔄 Network back - attempting to resume buffering")
-                            #endif
-                            self.player?.play()
-                        }
-                    } else {
-                        #if DEBUG
-                        print("⚠️ Network disconnected during playback")
-                        #endif
-
-                        // If we're streaming (not playing from local file), pause
-                        if let track = self.currentTrack,
-                           track.localFilePath == nil,
-                           self.playbackState == .playing || self.playbackState == .buffering {
-                            #if DEBUG
-                            print("⚠️ No network and streaming - switching to failed state")
-                            #endif
-                            self.playbackState = .failed("Lost network connection")
-                        }
-                    }
+                    let previousState = self.lastObservedNetworkState
+                    self.lastObservedNetworkState = newState
+                    await self.handleNetworkStateTransition(from: previousState, to: newState)
                 }
             }
         }
+    }
+
+    /// Handles network transitions so queued stream endpoints are refreshed after handoffs.
+    @MainActor
+    private func handleNetworkStateTransition(from previous: NetworkState?, to current: NetworkState) async {
+        let decision = Self.evaluateNetworkTransition(from: previous, to: current)
+
+        #if DEBUG
+        print("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
+        if decision.isInterfaceSwitch {
+            print("🌐 Detected interface switch while online")
+        }
+        #endif
+
+        if decision.shouldRefreshConnection {
+            do {
+                #if DEBUG
+                print("🔄 Refreshing server connection for network transition")
+                #endif
+                try await syncCoordinator.refreshConnection()
+            } catch {
+                #if DEBUG
+                print("⚠️ Failed to refresh server connection during transition: \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        if decision.shouldAutoHealQueue {
+            await rebuildUpcomingQueueForNetworkTransition()
+        }
+
+        if decision.shouldHandleReconnect {
+            #if DEBUG
+            print("✅ Network reconnected")
+            #endif
+
+            // If playback failed due to network, try to recover.
+            if case .failed = playbackState {
+                #if DEBUG
+                print("🔄 Network back - attempting to resume playback")
+                #endif
+                await retryCurrentTrack()
+            } else if playbackState == .buffering {
+                #if DEBUG
+                print("🔄 Network back - attempting to resume buffering")
+                #endif
+                player?.play()
+            }
+        } else if decision.shouldHandleDisconnect {
+            #if DEBUG
+            print("⚠️ Network disconnected during playback")
+            #endif
+
+            // If we're streaming (not playing from local file), move to failed state.
+            if let track = currentTrack,
+               track.localFilePath == nil,
+               playbackState == .playing || playbackState == .buffering {
+                #if DEBUG
+                print("⚠️ No network and streaming - switching to failed state")
+                #endif
+                playbackState = .failed("Lost network connection")
+            }
+        }
+    }
+
+    /// Rebuilds only upcoming queue items so prefetched entries don't keep stale endpoint URLs.
+    @MainActor
+    private func rebuildUpcomingQueueForNetworkTransition() async {
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
+        guard let player = player else { return }
+
+        let upcomingQueueItems = queue.dropFirst(currentQueueIndex + 1)
+        guard !upcomingQueueItems.isEmpty else { return }
+
+        let upcomingTrackIDs = Set(upcomingQueueItems.map(\.track.id))
+        let removedPlayerItems = max(0, player.items().count - 1)
+
+        if removedPlayerItems > 0 {
+            for item in player.items().dropFirst() {
+                player.remove(item)
+            }
+        }
+
+        let evictedCount = playerItems.keys.filter { upcomingTrackIDs.contains($0) }.count
+        for trackID in upcomingTrackIDs {
+            playerItems.removeValue(forKey: trackID)
+        }
+        playerItemsLRU.removeAll { upcomingTrackIDs.contains($0) }
+
+        #if DEBUG
+        print("🔄 Auto-healed upcoming queue after network transition")
+        print("   Removed queued player items: \(removedPlayerItems)")
+        print("   Evicted cached upcoming items: \(evictedCount)")
+        #endif
+
+        await prefetchNextItem()
     }
 
     private func cleanup() {

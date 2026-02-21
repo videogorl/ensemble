@@ -51,4 +51,56 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(disliked.isLiked)
         XCTAssertTrue(disliked.isDisliked)
     }
+
+    func testNetworkTransitionOnlineWifiToOnlineCellularTriggersAutoHeal() {
+        let decision = PlaybackService.evaluateNetworkTransition(
+            from: .online(.wifi),
+            to: .online(.cellular)
+        )
+
+        XCTAssertTrue(decision.isInterfaceSwitch)
+        XCTAssertTrue(decision.shouldRefreshConnection)
+        XCTAssertTrue(decision.shouldAutoHealQueue)
+        XCTAssertFalse(decision.shouldHandleReconnect)
+        XCTAssertFalse(decision.shouldHandleDisconnect)
+    }
+
+    func testNetworkTransitionOnlineWifiToOnlineWifiDoesNotAutoHeal() {
+        let decision = PlaybackService.evaluateNetworkTransition(
+            from: .online(.wifi),
+            to: .online(.wifi)
+        )
+
+        XCTAssertFalse(decision.isInterfaceSwitch)
+        XCTAssertFalse(decision.shouldRefreshConnection)
+        XCTAssertFalse(decision.shouldAutoHealQueue)
+        XCTAssertFalse(decision.shouldHandleReconnect)
+        XCTAssertFalse(decision.shouldHandleDisconnect)
+    }
+
+    func testNetworkTransitionOfflineToOnlineCellularTriggersReconnectAndAutoHeal() {
+        let decision = PlaybackService.evaluateNetworkTransition(
+            from: .offline,
+            to: .online(.cellular)
+        )
+
+        XCTAssertFalse(decision.isInterfaceSwitch)
+        XCTAssertTrue(decision.shouldRefreshConnection)
+        XCTAssertTrue(decision.shouldAutoHealQueue)
+        XCTAssertTrue(decision.shouldHandleReconnect)
+        XCTAssertFalse(decision.shouldHandleDisconnect)
+    }
+
+    func testNetworkTransitionOnlineToOfflineTriggersDisconnectHandling() {
+        let decision = PlaybackService.evaluateNetworkTransition(
+            from: .online(.wifi),
+            to: .offline
+        )
+
+        XCTAssertFalse(decision.isInterfaceSwitch)
+        XCTAssertFalse(decision.shouldRefreshConnection)
+        XCTAssertFalse(decision.shouldAutoHealQueue)
+        XCTAssertFalse(decision.shouldHandleReconnect)
+        XCTAssertTrue(decision.shouldHandleDisconnect)
+    }
 }
