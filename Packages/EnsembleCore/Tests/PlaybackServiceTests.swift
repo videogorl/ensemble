@@ -174,6 +174,7 @@ final class PlaybackServiceTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(profile, .conservative)
+        XCTAssertEqual(profile.prefetchDepth, 0)
     }
 
     func testResolvedBufferingProfileFallsBackToBaseProfileAfterEscalationExpires() {
@@ -234,6 +235,17 @@ final class PlaybackServiceTests: XCTestCase {
             pendingSeekTargetTime: 120.0,
             elapsedSinceSeek: 2.0,
             playbackState: .playing
+        )
+
+        XCTAssertFalse(shouldGate)
+    }
+
+    func testPendingSeekGateReleasesWhenBufferingButObservedTimeIsAhead() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 126.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .buffering
         )
 
         XCTAssertFalse(shouldGate)

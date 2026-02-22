@@ -199,7 +199,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let conservative = PlaybackBufferingProfile(
             waitsToMinimizeStalling: true,
             preferredForwardBufferDuration: 20,
-            prefetchDepth: 1,
+            prefetchDepth: 0,
             stallRecoveryTimeout: 15,
             label: "conservative"
         )
@@ -216,7 +216,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let stallEscalationWindow: TimeInterval = 30
     static let conservativeModeDuration: TimeInterval = 120
     static let recoveryCooldown: TimeInterval = 6
-    static let bufferedSeekGateDuration: TimeInterval = 8
+    static let bufferedSeekGateDuration: TimeInterval = 3
 
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
@@ -274,6 +274,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         abs(observedTime - pendingSeekTargetTime) <= tolerance
     }
 
+    static func isObservedTimeBehindPendingSeekTarget(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        tolerance: TimeInterval = 1.25
+    ) -> Bool {
+        observedTime + tolerance < pendingSeekTargetTime
+    }
+
     static func shouldIgnoreObservedTimeDuringPendingSeek(
         observedTime: TimeInterval,
         pendingSeekTargetTime: TimeInterval,
@@ -303,12 +311,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return true
         }
 
-        let isUnsynchronized = !isObservedTimeSynchronizedWithPendingSeek(
+        let isBehindSeekTarget = isObservedTimeBehindPendingSeekTarget(
             observedTime: observedTime,
             pendingSeekTargetTime: pendingSeekTargetTime
         )
         if playbackState == .buffering,
-           isUnsynchronized,
+           isBehindSeekTarget,
            elapsedSinceSeek < bufferedSeekGateDuration {
             return true
         }
@@ -2068,9 +2076,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await loadAndPlay(item: item, track: track)
             if let recoverySeekTime, recoverySeekTime > 0 {
                 await MainActor.run {
-                    let cmTime = CMTime(seconds: recoverySeekTime, preferredTimescale: 1000)
-                    self.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                    self.currentTime = recoverySeekTime
+                    self.seekCurrentItemForRecovery(to: recoverySeekTime)
                 }
                 #if DEBUG
                 EnsembleLogger.debug("   ↩️ Recovered playback position at \(recoverySeekTime)s")
@@ -2101,6 +2107,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Keep recovery seeks slightly away from track end to avoid instant completion.
         let upperBound = max(1, track.duration - 2)
         return min(requestedTime, upperBound)
+    }
+
+    @MainActor
+    private func seekCurrentItemForRecovery(to recoverySeekTime: TimeInterval) {
+        guard let player else { return }
+
+        seekRequestCounter &+= 1
+        pendingSeekRequestID = seekRequestCounter
+        pendingSeekTargetTime = recoverySeekTime
+        pendingSeekTrackID = currentTrack?.id
+        pendingSeekStartedAt = Date()
+        pendingSeekShouldResume = false
+        currentTime = recoverySeekTime
+
+        let targetTime = CMTime(seconds: recoverySeekTime, preferredTimescale: 1000)
+        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     private func retryCurrentTrack(forceConnectionRefresh: Bool, reason: String) async {
@@ -2259,8 +2281,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func shouldForceTransportRecovery(for error: NSError) -> Bool {
         guard error.domain == NSURLErrorDomain else { return false }
         switch error.code {
-        case NSURLErrorNetworkConnectionLost,
-            NSURLErrorNotConnectedToInternet,
+        case NSURLErrorNotConnectedToInternet,
             NSURLErrorCannotConnectToHost,
             NSURLErrorCannotFindHost,
             NSURLErrorTimedOut:
@@ -2614,6 +2635,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         elapsedSinceSeek: elapsedSinceSeek,
                         playbackState: self.playbackState
                     ) {
+                        self.currentTime = pendingSeekTargetTime
+                        self.updateBufferedProgress()
+                        self.updateNowPlayingProgress()
                         return
                     }
 
