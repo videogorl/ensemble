@@ -26,10 +26,12 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Types:**
 - `PlexAuthService` (actor) -- PIN-based OAuth authentication
+- `PlexAuthTokenMetadata` -- Parsed auth token metadata (`iat`/`exp`) used for lifecycle enforcement
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
+- `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
 - `KeychainService` -- Token persistence using KeychainAccess library
 - `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
 
@@ -228,8 +230,13 @@ Dynamic home screen powered by Plex's hub system:
   - Coalesces concurrent health refresh requests.
   - Applies 30s cooldown and 60s app-foreground staleness threshold.
   - Limits checks to servers with at least one enabled library.
-- **ServerHealthChecker** -- Concurrent health checks with per-server TTL caching (120s) and forced-refresh support for reconnect/interface-switch events
-- **ConnectionFailoverManager** -- Automatic failover with preferred recent healthy URL fast-path before parallel probing
+- **Plex endpoint policy layer** -- `PlexEndpointDescriptor` + `ConnectionSelectionPolicy` classify endpoints by locality/protocol/relay and order local-first with relay-last fallback.
+- **Settings-driven insecure policy** -- `AllowInsecureConnectionsPolicy` is persisted in `SettingsManager` and applied when filtering endpoint candidates.
+- **ConnectionFailoverManager** -- Policy-aware failover with preferred recent healthy endpoint fast-path and probe failure classification.
+- **PlexAPIClient failover policy** -- Alternate endpoint probing is transport-only (no failover for HTTP semantic failures) and `refreshConnection()` returns a structured `ConnectionRefreshResult`.
+- **ServerHealthChecker** -- Concurrent checks with per-server TTL caching (120s), forced refresh support, and failure taxonomy (`localOnlyReachable`, `remoteAccessUnavailable`, `relayUnavailable`, `tlsPolicyBlocked`, `offline`).
+- **Resources discovery parity** -- resources requests include HTTPS/relay/IPv6 parameters plus common Plex client headers.
+- **Auth lifecycle enforcement** -- `AccountManager` enforces auth migration cutover and token expiry checks on load/foreground.
 
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)

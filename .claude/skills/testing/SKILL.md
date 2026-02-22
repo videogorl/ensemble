@@ -218,10 +218,16 @@ func testFilterOptionsMatchesByGenre() {
 | File | What it covers |
 |------|---------------|
 | `PlexAPIClientTests.swift` | `PlexTrack`/`PlexDevice` JSON decoding, DELETE request building |
-| `ConnectionFailoverManagerTests.swift` | Preferred-URL fast path, fallback probing, connection health counters |
+| `ConnectionFailoverManagerTests.swift` | Local-first ordering, relay-last fallback, preferred fast path, fallback probing, connection health counters |
+| `PlexResourcesSpecTests.swift` | Resources endpoint query/header contract (`includeHttps`, `includeRelay`, `includeIPv6`, Plex headers) |
+| `PlexAPIClientFailoverPolicyTests.swift` | Failover triggers on transport failures only (not HTTP semantic/decoding failures) |
+| `PlexAuthTokenLifecycleTests.swift` | JWT metadata parsing and expired-token detection |
 | `PlaybackServiceTests.swift` | `Track.formattedDuration`, `RepeatMode` cycling |
 | `NetworkMonitorTests.swift` | monitor restart/idempotency behavior and debounced state publishing |
 | `SyncCoordinatorNetworkHealthTests.swift` | reconnect/interface-switch triggers, cooldown/staleness gating, offline handling |
+| `ServerHealthCheckerClassificationTests.swift` | failure taxonomy classification (`localOnlyReachable`, `tlsPolicyBlocked`, etc.) |
+| `SettingsManagerConnectionPolicyTests.swift` | persisted insecure-policy default + round-trip persistence |
+| `AccountManagerAuthPolicyTests.swift` | auth migration cutover and expired-account pruning |
 | `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
 | `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
 
@@ -238,3 +244,22 @@ These are under-tested and worth expanding as features grow:
 - `FilterOptions` — matching and sorting logic
 - `ModelMappers` — `CD*` ↔ domain model conversions
 - `PlexMusicSourceSyncProvider` — incremental sync since-timestamp logic
+
+---
+
+## Spec-Parity Network Test Pattern
+
+When touching endpoint discovery/routing/auth lifecycle:
+
+1. Add an API-level contract test for request composition (query parameters + required Plex headers).
+2. Add failover-policy tests that separate transport errors from HTTP semantic failures.
+3. Add endpoint-ordering tests that validate local/direct preference and relay-last fallback.
+4. Add Core-level tests for failure classification and user-facing policy state persistence.
+5. Add auth lifecycle tests for migration and token expiry enforcement.
+
+Run both:
+
+```bash
+swift test --package-path Packages/EnsembleAPI
+swift test --package-path Packages/EnsembleCore
+```

@@ -52,6 +52,19 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
 - `HomeViewModel` defers hub refresh/apply while users are scrolling to prevent feed jumps.
 
+### Plex Endpoint Policy + Auth Lifecycle Parity
+- **Resolved (February 22, 2026)**
+- Discovery requests now include IPv6 resource candidates and common Plex headers.
+- Endpoint selection now follows local-first, relay-last policy with settings-driven insecure fallback rules.
+- Failover now triggers only for transport/connectivity failures, avoiding probe storms on HTTP semantic errors.
+- Server health now reports classified failure reasons instead of generic offline.
+- Auth cutover now enforces token metadata lifecycle and forced re-login migration.
+
+### Residual Risk: Forced Re-Login After Auth Migration
+- **Status:** Expected behavior
+- **Impact:** Existing beta users are signed out once when migration version bumps.
+- **Mitigation:** Add release-note callout for one-time sign-in requirement.
+
 ## Future Enhancements (Waveform System)
 
 - Cache waveform data locally to reduce repeated API calls

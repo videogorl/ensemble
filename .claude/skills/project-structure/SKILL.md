@@ -47,7 +47,9 @@ Sources/
 +-- Auth/
 |   +-- KeychainService.swift          # Secure token storage wrapper
 |   +-- PlexAuthService.swift          # PIN-based OAuth flow (actor)
+|   +-- PlexAuthTokenMetadata.swift    # JWT metadata parsing/helpers (iat/exp)
 +-- Client/
+|   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
 +-- Models/
@@ -58,6 +60,9 @@ Sources/
 Tests/
 +-- PlexAPIClientTests.swift
 +-- ConnectionFailoverManagerTests.swift
++-- PlexResourcesSpecTests.swift
++-- PlexAPIClientFailoverPolicyTests.swift
++-- PlexAuthTokenLifecycleTests.swift
 ```
 
 ## EnsemblePersistence (Data Layer)
@@ -93,6 +98,7 @@ Sources/
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
 |   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
@@ -137,6 +143,9 @@ Tests/
 +-- NetworkMonitorTests.swift
 +-- SyncCoordinatorNetworkHealthTests.swift
 +-- HomeViewModelRefreshPolicyTests.swift
++-- ServerHealthCheckerClassificationTests.swift
++-- SettingsManagerConnectionPolicyTests.swift
++-- AccountManagerAuthPolicyTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 ```
 
