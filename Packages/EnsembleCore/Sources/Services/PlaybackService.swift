@@ -228,6 +228,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         abs(observedTime - pendingSeekTargetTime) <= tolerance
     }
 
+    static func shouldIgnoreObservedTimeDuringPendingSeek(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        elapsedSinceSeek: TimeInterval,
+        maxGateDuration: TimeInterval = 1.0
+    ) -> Bool {
+        guard elapsedSinceSeek < maxGateDuration else { return false }
+        return !isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: observedTime,
+            pendingSeekTargetTime: pendingSeekTargetTime
+        )
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
@@ -303,6 +316,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var pendingSeekRequestID: UInt64?
     private var pendingSeekTargetTime: TimeInterval?
     private var pendingSeekTrackID: String?
+    private var pendingSeekStartedAt: Date?
+    private var pendingSeekShouldResume: Bool = false
     private var seekRequestCounter: UInt64 = 0
 
     private let syncCoordinator: SyncCoordinator
@@ -1130,10 +1145,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         savePlaybackState()
 
         guard let player else {
-            pendingSeekRequestID = nil
-            pendingSeekTargetTime = nil
-            pendingSeekTrackID = nil
+            clearPendingSeekState()
             return
+        }
+
+        let shouldResumeAfterSeek = playbackState == .playing || playbackState == .buffering
+        if shouldResumeAfterSeek {
+            player.pause()
+            playbackState = .buffering
         }
 
         seekRequestCounter &+= 1
@@ -1141,15 +1160,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         pendingSeekRequestID = requestID
         pendingSeekTargetTime = clampedTime
         pendingSeekTrackID = currentTrack?.id
+        pendingSeekStartedAt = Date()
+        pendingSeekShouldResume = shouldResumeAfterSeek
 
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 guard self.pendingSeekRequestID == requestID else { return }
-                self.pendingSeekRequestID = nil
-                self.pendingSeekTargetTime = nil
-                self.pendingSeekTrackID = nil
+                let shouldResume = self.pendingSeekShouldResume
+                self.clearPendingSeekState()
+                if shouldResume {
+                    player.play()
+                }
             }
         }
     }
@@ -2239,23 +2262,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if let pendingSeekTargetTime = self.pendingSeekTargetTime {
                 if self.pendingSeekTrackID != nil && self.pendingSeekTrackID != self.currentTrack?.id {
                     // Track switched while seek was in flight; clear stale seek gate.
-                    self.pendingSeekTargetTime = nil
-                    self.pendingSeekRequestID = nil
-                    self.pendingSeekTrackID = nil
+                    self.clearPendingSeekState()
                 } else {
                     let observedTime = time.seconds
-                    if !Self.isObservedTimeSynchronizedWithPendingSeek(
+                    let elapsedSinceSeek = Date().timeIntervalSince(self.pendingSeekStartedAt ?? Date.distantPast)
+                    if Self.shouldIgnoreObservedTimeDuringPendingSeek(
                         observedTime: observedTime,
-                        pendingSeekTargetTime: pendingSeekTargetTime
+                        pendingSeekTargetTime: pendingSeekTargetTime,
+                        elapsedSinceSeek: elapsedSinceSeek
                     ) {
                         return
                     }
 
-                    // Once observer time catches up to the requested seek target,
-                    // clear seek synchronization so regular progress updates resume.
-                    self.pendingSeekTargetTime = nil
-                    self.pendingSeekRequestID = nil
-                    self.pendingSeekTrackID = nil
+                    // Once observer time catches up (or the guard times out),
+                    // clear synchronization and resume normal progress updates.
+                    self.clearPendingSeekState()
                 }
             }
 
@@ -2287,6 +2308,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         }
+    }
+
+    private func clearPendingSeekState() {
+        pendingSeekRequestID = nil
+        pendingSeekTargetTime = nil
+        pendingSeekTrackID = nil
+        pendingSeekStartedAt = nil
+        pendingSeekShouldResume = false
     }
 
     /// Set up automatic recovery from stalled playback (with 10s timeout)

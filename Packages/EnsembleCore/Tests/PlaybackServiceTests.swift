@@ -121,4 +121,24 @@ final class PlaybackServiceTests: XCTestCase {
 
         XCTAssertFalse(isSynchronized)
     }
+
+    func testPendingSeekGateIgnoresUnsyncedSamplesDuringInitialWindow() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 0.3
+        )
+
+        XCTAssertTrue(shouldIgnore)
+    }
+
+    func testPendingSeekGateStopsIgnoringAfterTimeout() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 1.2
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
 }
