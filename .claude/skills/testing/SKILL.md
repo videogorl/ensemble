@@ -132,6 +132,8 @@ The same pattern applies to any protocol in the codebase:
 - `PlaylistRepositoryProtocol` → mock for playlist mutation tests
 - `HubRepositoryProtocol` → mock for HomeViewModel / hub tests
 
+When testing non-protocol concrete services (for example `SyncCoordinator` or `HomeViewModel`), prefer internal test seams (`...ForTesting` closures/helpers) over production-facing API changes.
+
 ---
 
 ## Testing CoreData (In-Memory Store)
@@ -216,7 +218,11 @@ func testFilterOptionsMatchesByGenre() {
 | File | What it covers |
 |------|---------------|
 | `PlexAPIClientTests.swift` | `PlexTrack`/`PlexDevice` JSON decoding, DELETE request building |
+| `ConnectionFailoverManagerTests.swift` | Preferred-URL fast path, fallback probing, connection health counters |
 | `PlaybackServiceTests.swift` | `Track.formattedDuration`, `RepeatMode` cycling |
+| `NetworkMonitorTests.swift` | monitor restart/idempotency behavior and debounced state publishing |
+| `SyncCoordinatorNetworkHealthTests.swift` | reconnect/interface-switch triggers, cooldown/staleness gating, offline handling |
+| `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
 | `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
 
 When adding tests, check this list first to avoid duplicating coverage.

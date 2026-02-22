@@ -45,6 +45,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - Persistence tests use in-memory stack instead of `.shared`.
 - SwiftPM model compilation workflow is documented and scripted (`scripts/compile_coredata_model.sh`).
 
+### Network Handoff Endpoint Staleness + Health Check Overactivity
+- **Resolved (February 21, 2026)**
+- `PlaybackService` now heals upcoming queue items on reconnect/interface-switch transitions.
+- `NetworkMonitor` lifecycle is restart-safe across background/foreground transitions.
+- `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
+- `HomeViewModel` defers hub refresh/apply while users are scrolling to prevent feed jumps.
+
 ## Future Enhancements (Waveform System)
 
 - Cache waveform data locally to reduce repeated API calls

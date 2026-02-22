@@ -57,6 +57,7 @@ Sources/
 
 Tests/
 +-- PlexAPIClientTests.swift
++-- ConnectionFailoverManagerTests.swift
 ```
 
 ## EnsemblePersistence (Data Layer)
@@ -133,6 +134,9 @@ Sources/
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- NetworkMonitorTests.swift
++-- SyncCoordinatorNetworkHealthTests.swift
++-- HomeViewModelRefreshPolicyTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 ```
 
