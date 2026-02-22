@@ -852,6 +852,10 @@ public final class SyncCoordinator: ObservableObject {
         
         // Check if we already have a connected state
         let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
+
+        #if DEBUG
+        EnsembleLogger.debug("🎵 ensureServerConnection: current state for \(accountId):\(serverId) = \(currentState.description)")
+        #endif
         
         // If already connected or degraded, we're good
         if case .connected = currentState {
@@ -863,9 +867,13 @@ public final class SyncCoordinator: ObservableObject {
         
         // Need to check server health
         #if DEBUG
-        EnsembleLogger.debug("🔍 Checking server connection before playback...")
+        EnsembleLogger.debug("🔍 Checking server connection before playback (force refresh)")
         #endif
-        let newState = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+        let newState = await serverHealthChecker.checkServer(
+            accountId: accountId,
+            serverId: serverId,
+            forceRefresh: true
+        )
         
         // Update the API client with the working URL
         switch newState {

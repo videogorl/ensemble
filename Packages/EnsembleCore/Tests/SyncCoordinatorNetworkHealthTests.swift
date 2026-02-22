@@ -239,3 +239,55 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 0)
     }
 }
+
+@MainActor
+final class ServerHealthCheckerCachePolicyTests: XCTestCase {
+    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
+        private var storage: [String: String] = [:]
+
+        func save(_ value: String, forKey key: String) throws {
+            storage[key] = value
+        }
+
+        func get(_ key: String) throws -> String? {
+            storage[key]
+        }
+
+        func delete(_ key: String) throws {
+            storage.removeValue(forKey: key)
+        }
+    }
+    
+    private func makeChecker() -> ServerHealthChecker {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                username: "tester",
+                authToken: "auth",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-1",
+                        name: "Server",
+                        url: "https://example.com",
+                        token: "token",
+                        libraries: [
+                            PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
+                        ]
+                    )
+                ]
+            )
+        )
+
+        return ServerHealthChecker(
+            accountManager: accountManager
+        )
+    }
+
+    func testUnavailableTTLIsShorterThanAvailableTTL() {
+        let checker = makeChecker()
+        let availableTTL = checker.cacheTTL(for: .connected(url: "https://example.com"))
+        let unavailableTTL = checker.cacheTTL(for: .offline)
+        XCTAssertGreaterThan(availableTTL, unavailableTTL)
+    }
+}

@@ -25,6 +25,7 @@ public final class ServerHealthChecker: ObservableObject {
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
     private let cacheTTL: TimeInterval
+    private let unavailableCacheTTL: TimeInterval
     private let nowProvider: () -> Date
 
     private var recentChecks: [String: CachedCheckEntry] = [:]
@@ -34,6 +35,7 @@ public final class ServerHealthChecker: ObservableObject {
         self.accountManager = accountManager
         self.failoverManager = ConnectionFailoverManager(timeout: 3.0)
         self.cacheTTL = 120
+        self.unavailableCacheTTL = 10
         self.nowProvider = { Date() }
     }
 
@@ -41,11 +43,13 @@ public final class ServerHealthChecker: ObservableObject {
         accountManager: AccountManager,
         failoverManager: ConnectionFailoverManager,
         cacheTTL: TimeInterval = 120,
+        unavailableCacheTTL: TimeInterval = 10,
         nowProvider: @escaping () -> Date = { Date() }
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
         self.cacheTTL = cacheTTL
+        self.unavailableCacheTTL = unavailableCacheTTL
         self.nowProvider = nowProvider
     }
 
@@ -143,15 +147,25 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         if !forceRefresh,
-           let cached = recentChecks[serverKey],
-           nowProvider().timeIntervalSince(cached.checkedAt) < cacheTTL {
+           let cached = recentChecks[serverKey] {
+            let age = nowProvider().timeIntervalSince(cached.checkedAt)
+            let ttl = cacheTTL(for: cached.state)
+
+            if age < ttl {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "🏥 ServerHealthChecker: Using cached state for \(serverKey) (\(String(format: "%.1f", age))s old, ttl=\(String(format: "%.1f", ttl))s)"
+                )
+                #endif
+                serverStates[serverKey] = cached.state
+                return ServerCheckResult(state: cached.state, usedCachedResult: true)
+            }
+
             #if DEBUG
             EnsembleLogger.debug(
-                "🏥 ServerHealthChecker: Using cached state for \(serverKey) (\(String(format: "%.1f", nowProvider().timeIntervalSince(cached.checkedAt)))s old)"
+                "🏥 ServerHealthChecker: Cached state expired for \(serverKey) (\(String(format: "%.1f", age))s old, ttl=\(String(format: "%.1f", ttl))s)"
             )
             #endif
-            serverStates[serverKey] = cached.state
-            return ServerCheckResult(state: cached.state, usedCachedResult: true)
         }
 
         // Create a task for this check
@@ -235,5 +249,9 @@ public final class ServerHealthChecker: ObservableObject {
     /// Create a unique key for server identification
     private func makeServerKey(accountId: String, serverId: String) -> String {
         "\(accountId):\(serverId)"
+    }
+
+    func cacheTTL(for state: ServerConnectionState) -> TimeInterval {
+        state.isAvailable ? cacheTTL : unavailableCacheTTL
     }
 }
