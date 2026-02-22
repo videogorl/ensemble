@@ -854,7 +854,7 @@ public final class SyncCoordinator: ObservableObject {
         let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
 
         #if DEBUG
-        EnsembleLogger.debug("🎵 ensureServerConnection: current state for \(accountId):\(serverId) = \(currentState.description)")
+        EnsembleLogger.debug("🎵 ensureServerConnection[v2]: current state for \(accountId):\(serverId) = \(currentState.description)")
         #endif
         
         // If already connected or degraded, we're good
@@ -886,14 +886,29 @@ public final class SyncCoordinator: ObservableObject {
             }
         case .offline:
             #if DEBUG
-            EnsembleLogger.debug("❌ Server is offline, cannot play track")
+            EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
             #endif
-            throw PlexAPIError.noServerSelected
+            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
+                await apiClient.refreshConnection()
+                #if DEBUG
+                let refreshedURL = await apiClient.getCurrentServerURL()
+                EnsembleLogger.debug(
+                    "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
+                )
+                #endif
+            }
+            // Do not fail fast on health-check offline. Stream URL retrieval/playback
+            // performs its own network path and can still succeed on slower paths.
+            return
         case .connecting, .unknown:
             #if DEBUG
             EnsembleLogger.debug("⚠️ Server state uncertain, attempting playback anyway")
             #endif
         }
+    }
+
+    private func hostForDebugURL(_ urlString: String) -> String {
+        URL(string: urlString)?.host ?? "invalid"
     }
 
     /// Proactively refreshes Plex server connections across configured accounts.

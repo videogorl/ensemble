@@ -95,7 +95,16 @@ public actor ConnectionFailoverManager {
 
         } catch {
             #if DEBUG
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
+            if let urlError = error as? URLError {
+                EnsembleLogger.debug(
+                    "❌ ConnectionTest[\(url)]: Failed - \(urlError.localizedDescription) (URLError \(urlError.code.rawValue))"
+                )
+            } else {
+                let nsError = error as NSError
+                EnsembleLogger.debug(
+                    "❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription) (\(nsError.domain) \(nsError.code))"
+                )
+            }
             #endif
             updateConnectionHealth(url: url, success: false)
             return false
@@ -163,7 +172,12 @@ public actor ConnectionFailoverManager {
 
             // Filter to successful connections only
             let successful = results.filter { $0.1 }
-            guard !successful.isEmpty else { return nil }
+            guard !successful.isEmpty else {
+                #if DEBUG
+                EnsembleLogger.debug("❌ ConnectionFailover: No successful URLs from \(candidateURLs.count) probes")
+                #endif
+                return nil
+            }
             
             // Score connections: HTTPS gets bonus, faster is better
             // Score = duration - (2.0 seconds if HTTPS) to prefer HTTPS even if 2s slower

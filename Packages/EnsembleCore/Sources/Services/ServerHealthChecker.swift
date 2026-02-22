@@ -33,7 +33,8 @@ public final class ServerHealthChecker: ObservableObject {
 
     public init(accountManager: AccountManager) {
         self.accountManager = accountManager
-        self.failoverManager = ConnectionFailoverManager(timeout: 3.0)
+        // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
+        self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
         self.cacheTTL = 120
         self.unavailableCacheTTL = 10
         self.nowProvider = { Date() }
