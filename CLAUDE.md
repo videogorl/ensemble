@@ -150,6 +150,19 @@ Plex endpoint discovery/routing/auth now follows a stricter spec-parity path to 
 - `AccountManager.swift` - auth migration cutover and expiry enforcement
 - `ServerHealthChecker.swift` - classified health failure reasons
 
+### Adaptive Playback Stability (Feb 2026)
+Playback buffering now uses an internal adaptive profile tuned by network conditions and recent stall history to reduce skip/seek buffering loops:
+
+- **Adaptive profile defaults:** Wi-Fi/wired uses low-latency buffering with deeper prefetch (`prefetchDepth=2`), while cellular/other uses anti-stall waits with deeper forward buffering (`prefetchDepth=1`).
+- **Stall escalation:** repeated stalls in a short window temporarily switch playback into a conservative recovery profile.
+- **Windowed prefetch:** upcoming queue prefetch is depth-based instead of single-item, and queue rebuild paths refill using the active profile depth.
+- **Seek stability:** pending seek progress gate now stays active longer while buffering to prevent scrubber/audio drift during unbuffered seeks.
+- **Recovery throttling:** stall retries use profile-based timeout and a retry cooldown to avoid rapid reload thrash on weak links.
+
+**Key files:**
+- `PlaybackService.swift` - adaptive buffering profile, stall escalation/cooldown logic, windowed prefetch, seek-progress gating
+- `PlaybackServiceTests.swift` - adaptive profile/escalation and seek-gate helper coverage
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 

@@ -141,4 +141,100 @@ final class PlaybackServiceTests: XCTestCase {
 
         XCTAssertFalse(shouldIgnore)
     }
+
+    func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthTwo() {
+        let profile = PlaybackService.baseBufferingProfile(for: .online(.wifi))
+        XCTAssertFalse(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.preferredForwardBufferDuration, 8)
+        XCTAssertEqual(profile.prefetchDepth, 2)
+        XCTAssertEqual(profile.stallRecoveryTimeout, 8)
+    }
+
+    func testBaseBufferingProfileForCellularUsesConservativeBuffering() {
+        let profile = PlaybackService.baseBufferingProfile(for: .online(.cellular))
+        XCTAssertTrue(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.preferredForwardBufferDuration, 18)
+        XCTAssertEqual(profile.prefetchDepth, 1)
+        XCTAssertEqual(profile.stallRecoveryTimeout, 12)
+    }
+
+    func testBaseBufferingProfileForOfflineUsesSinglePrefetchDepth() {
+        let profile = PlaybackService.baseBufferingProfile(for: .offline)
+        XCTAssertTrue(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.prefetchDepth, 1)
+    }
+
+    func testResolvedBufferingProfileUsesConservativeProfileDuringEscalationWindow() {
+        let now = Date()
+        let conservativeUntil = now.addingTimeInterval(60)
+        let profile = PlaybackService.resolvedBufferingProfile(
+            for: .online(.wifi),
+            conservativeModeUntil: conservativeUntil,
+            now: now
+        )
+        XCTAssertEqual(profile, .conservative)
+    }
+
+    func testResolvedBufferingProfileFallsBackToBaseProfileAfterEscalationExpires() {
+        let now = Date()
+        let conservativeUntil = now.addingTimeInterval(-1)
+        let profile = PlaybackService.resolvedBufferingProfile(
+            for: .online(.wifi),
+            conservativeModeUntil: conservativeUntil,
+            now: now
+        )
+        XCTAssertEqual(profile, .wifiOrWired)
+    }
+
+    func testConservativeEscalationTriggersAfterTwoStallsWithinWindow() {
+        let now = Date()
+        let stalls = [
+            now.addingTimeInterval(-10),
+            now.addingTimeInterval(-5)
+        ]
+
+        XCTAssertTrue(
+            PlaybackService.shouldEnterConservativeMode(
+                stallTimestamps: stalls,
+                now: now
+            )
+        )
+    }
+
+    func testConservativeEscalationDoesNotTriggerWhenStallsAreOutsideWindow() {
+        let now = Date()
+        let stalls = [
+            now.addingTimeInterval(-40),
+            now.addingTimeInterval(-35)
+        ]
+
+        XCTAssertFalse(
+            PlaybackService.shouldEnterConservativeMode(
+                stallTimestamps: stalls,
+                now: now
+            )
+        )
+    }
+
+    func testPendingSeekGateStaysActiveWhileBufferingAndUnsynchronized() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .buffering
+        )
+
+        XCTAssertTrue(shouldGate)
+    }
+
+    func testPendingSeekGateReleasesWhenUnsynchronizedAndNotBuffering() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .playing
+        )
+
+        XCTAssertFalse(shouldGate)
+    }
 }
