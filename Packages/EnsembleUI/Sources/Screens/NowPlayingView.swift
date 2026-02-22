@@ -270,6 +270,7 @@ public struct NowPlayingView: View {
                     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                         let waveform = WaveformView(
                             progress: isDraggingSlider ? localProgress : viewModel.progress,
+                            bufferedProgress: viewModel.bufferedProgress,
                             color: .white,
                             heights: viewModel.waveformHeights
                         )

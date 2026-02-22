@@ -118,6 +118,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var currentTimeValue: TimeInterval { get }
+    var bufferedProgressValue: Double { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
@@ -246,6 +247,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var playbackState: PlaybackState = .stopped
     @Published public private(set) var currentTime: TimeInterval = 0
+    @Published public private(set) var bufferedProgress: Double = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
@@ -261,6 +263,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
     public var currentTimeValue: TimeInterval { currentTime }
+    public var bufferedProgressValue: Double { bufferedProgress }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
@@ -1049,6 +1052,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTrack = nil
         playbackState = .stopped
         currentTime = 0
+        bufferedProgress = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
     }
@@ -2281,6 +2285,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             self.currentTime = time.seconds
+            self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 
             // Report timeline to Plex every 10 seconds when playing
@@ -2517,6 +2522,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.pause()
         player?.removeAllItems()
         clearPlayerItemCache()
+        bufferedProgress = 0
+        clearPendingSeekState()
+    }
+
+    private func updateBufferedProgress() {
+        guard let item = player?.currentItem, duration > 0 else {
+            bufferedProgress = 0
+            return
+        }
+
+        let ranges = item.loadedTimeRanges.map { $0.timeRangeValue }
+
+        guard !ranges.isEmpty else {
+            bufferedProgress = 0
+            return
+        }
+
+        let playbackTime = max(0, currentTime)
+        let playbackCMTime = CMTime(seconds: playbackTime, preferredTimescale: 600)
+        let currentRangeEnd = ranges.first(where: { CMTimeRangeContainsTime($0, time: playbackCMTime) })
+            .map { $0.start.seconds + $0.duration.seconds }
+
+        let furthestRangeEnd = ranges.map { $0.start.seconds + $0.duration.seconds }.max() ?? 0
+        let rangeEnd = currentRangeEnd ?? furthestRangeEnd
+        let progress = max(0, min(1, rangeEnd / duration))
+
+        bufferedProgress = progress
     }
 
     // MARK: - Now Playing Info

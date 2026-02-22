@@ -41,6 +41,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
         var currentTime: TimeInterval { currentTimeSubject.value }
+        var bufferedProgressValue: Double { 0 }
         var duration: TimeInterval { currentTrack?.duration ?? 0 }
         var queue: [QueueItem] { queueSubject.value }
         var currentQueueIndex: Int { queueIndexSubject.value }

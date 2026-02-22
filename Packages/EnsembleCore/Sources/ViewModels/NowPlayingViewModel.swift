@@ -193,6 +193,10 @@ public final class NowPlayingViewModel: ObservableObject {
         return currentTime / duration
     }
 
+    public var bufferedProgress: Double {
+        max(0, min(1, playbackService.bufferedProgressValue))
+    }
+
     public var isPlaying: Bool {
         playbackState == .playing
     }
