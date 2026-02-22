@@ -219,6 +219,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
+    /// During an active seek, reject stale periodic observer samples that still point to the pre-seek playhead.
+    static func isObservedTimeSynchronizedWithPendingSeek(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        tolerance: TimeInterval = 1.25
+    ) -> Bool {
+        abs(observedTime - pendingSeekTargetTime) <= tolerance
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
@@ -291,6 +300,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var networkStateObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
+    private var pendingSeekRequestID: UInt64?
+    private var pendingSeekTargetTime: TimeInterval?
+    private var pendingSeekTrackID: String?
+    private var seekRequestCounter: UInt64 = 0
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -1105,11 +1118,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func seek(to time: TimeInterval) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        currentTime = time
+        let clampedTime: TimeInterval
+        if duration > 0 {
+            clampedTime = max(0, min(time, duration))
+        } else {
+            clampedTime = max(0, time)
+        }
+
+        currentTime = clampedTime
         updateNowPlayingInfo()
         savePlaybackState()
+
+        guard let player else {
+            pendingSeekRequestID = nil
+            pendingSeekTargetTime = nil
+            pendingSeekTrackID = nil
+            return
+        }
+
+        seekRequestCounter &+= 1
+        let requestID = seekRequestCounter
+        pendingSeekRequestID = requestID
+        pendingSeekTargetTime = clampedTime
+        pendingSeekTrackID = currentTrack?.id
+
+        let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard self.pendingSeekRequestID == requestID else { return }
+                self.pendingSeekRequestID = nil
+                self.pendingSeekTargetTime = nil
+                self.pendingSeekTrackID = nil
+            }
+        }
     }
 
     // MARK: - Queue Management
@@ -2193,6 +2235,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queue: .main
         ) { [weak self] time in
             guard let self = self else { return }
+
+            if let pendingSeekTargetTime = self.pendingSeekTargetTime {
+                if self.pendingSeekTrackID != nil && self.pendingSeekTrackID != self.currentTrack?.id {
+                    // Track switched while seek was in flight; clear stale seek gate.
+                    self.pendingSeekTargetTime = nil
+                    self.pendingSeekRequestID = nil
+                    self.pendingSeekTrackID = nil
+                } else {
+                    let observedTime = time.seconds
+                    if !Self.isObservedTimeSynchronizedWithPendingSeek(
+                        observedTime: observedTime,
+                        pendingSeekTargetTime: pendingSeekTargetTime
+                    ) {
+                        return
+                    }
+
+                    // Once observer time catches up to the requested seek target,
+                    // clear seek synchronization so regular progress updates resume.
+                    self.pendingSeekTargetTime = nil
+                    self.pendingSeekRequestID = nil
+                    self.pendingSeekTrackID = nil
+                }
+            }
+
             self.currentTime = time.seconds
             self.updateNowPlayingProgress()
 

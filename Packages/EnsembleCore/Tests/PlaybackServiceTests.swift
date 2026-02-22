@@ -103,4 +103,22 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertTrue(decision.shouldHandleDisconnect)
     }
+
+    func testObservedTimeSyncAcceptsSamplesNearPendingSeekTarget() {
+        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: 120.8,
+            pendingSeekTargetTime: 120.0
+        )
+
+        XCTAssertTrue(isSynchronized)
+    }
+
+    func testObservedTimeSyncRejectsDistantSamplesDuringPendingSeek() {
+        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0
+        )
+
+        XCTAssertFalse(isSynchronized)
+    }
 }
