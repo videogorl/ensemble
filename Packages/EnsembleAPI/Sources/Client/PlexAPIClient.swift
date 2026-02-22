@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 public enum PlexAPIError: Error, LocalizedError {
     case notAuthenticated
@@ -32,6 +35,9 @@ public enum PlexAPIError: Error, LocalizedError {
 public struct PlexServerConnection: Sendable {
     public let url: String
     public let alternativeURLs: [String]  // Additional connection URLs for failover
+    public let endpoints: [PlexEndpointDescriptor]
+    public let selectionPolicy: ConnectionSelectionPolicy
+    public let allowInsecurePolicy: AllowInsecureConnectionsPolicy
     public let token: String
     public let identifier: String
     public let name: String
@@ -39,12 +45,24 @@ public struct PlexServerConnection: Sendable {
     public init(
         url: String,
         alternativeURLs: [String] = [],
+        endpoints: [PlexEndpointDescriptor] = [],
+        selectionPolicy: ConnectionSelectionPolicy = .plexSpecBalanced,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy = .sameNetwork,
         token: String,
         identifier: String,
         name: String
     ) {
         self.url = url
         self.alternativeURLs = alternativeURLs
+        if endpoints.isEmpty {
+            let primary = PlexEndpointDescriptor(url: url, local: false, relay: false)
+            let alternatives = alternativeURLs.map { PlexEndpointDescriptor(url: $0, local: false, relay: false) }
+            self.endpoints = [primary] + alternatives
+        } else {
+            self.endpoints = endpoints
+        }
+        self.selectionPolicy = selectionPolicy
+        self.allowInsecurePolicy = allowInsecurePolicy
         self.token = token
         self.identifier = identifier
         self.name = name
@@ -70,6 +88,10 @@ public actor PlexAPIClient {
     private let session: URLSession
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
+    private let productName: String
+    private let productVersion: String
+    private let platformName: String
+    private let deviceName: String
     private let failoverManager: ConnectionFailoverManager
 
     private let serverConnection: PlexServerConnection
@@ -83,13 +105,30 @@ public actor PlexAPIClient {
         connection: PlexServerConnection,
         librarySelection: PlexLibrarySelection? = nil,
         keychain: KeychainServiceProtocol = KeychainService.shared,
-        failoverManager: ConnectionFailoverManager = ConnectionFailoverManager()
+        failoverManager: ConnectionFailoverManager = ConnectionFailoverManager(),
+        productName: String = "Ensemble",
+        productVersion: String = "1.0"
     ) {
         self.keychain = keychain
         self.serverConnection = connection
         self.selectedLibrary = librarySelection
         self.currentServerURL = connection.url
         self.failoverManager = failoverManager
+        self.productName = productName
+        self.productVersion = productVersion
+        #if os(iOS)
+        self.platformName = "iOS"
+        self.deviceName = UIDevice.current.name
+        #elseif os(macOS)
+        self.platformName = "macOS"
+        self.deviceName = Host.current().localizedName ?? "Mac"
+        #elseif os(watchOS)
+        self.platformName = "watchOS"
+        self.deviceName = "Apple Watch"
+        #else
+        self.platformName = "Unknown"
+        self.deviceName = "Unknown Device"
+        #endif
 
         if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
             self.clientIdentifier = existingId
@@ -147,12 +186,7 @@ public actor PlexAPIClient {
 
     /// Get user's servers/resources
     public func getResources(token: String) async throws -> [PlexDevice] {
-        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/resources?includeHttps=1&includeRelay=1") else {
-            throw PlexAPIError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        addPlexHeaders(to: &request, token: token)
+        let request = try makeResourcesRequest(token: token)
 
         let (data, _) = try await performRequest(request)
         let devices = try JSONDecoder().decode([PlexDevice].self, from: data)
@@ -1199,30 +1233,39 @@ public actor PlexAPIClient {
 
     // MARK: - Connection Management
     
-    /// Attempt to find a working connection if current one fails
-    private func attemptFailover() async throws {
+    /// Attempt to find a policy-compliant working connection if current one fails.
+    private func attemptFailover() async throws -> ConnectionSelectionResult {
         #if DEBUG
         EnsembleLogger.debug("🔄 Attempting connection failover...")
         #endif
-        
-        // Try to find the fastest working connection among all available URLs
-        if let workingURL = await failoverManager.findFastestConnection(
-            urls: serverConnection.allURLs,
-            token: serverConnection.token
-        ) {
+
+        let selection = await failoverManager.findBestConnection(
+            endpoints: serverConnection.endpoints,
+            token: serverConnection.token,
+            selectionPolicy: serverConnection.selectionPolicy,
+            allowInsecure: serverConnection.allowInsecurePolicy
+        )
+
+        guard let endpoint = selection.selected else {
             #if DEBUG
-            EnsembleLogger.debug("✅ Found working connection: \(workingURL)")
-            #endif
-            currentServerURL = workingURL
-        } else {
-            #if DEBUG
-            EnsembleLogger.debug("❌ No working connections found")
+            EnsembleLogger.debug(
+                "❌ No working connections found (probes=\(selection.probes.count), skippedInsecure=\(selection.skippedInsecureCount))"
+            )
             #endif
             throw PlexAPIError.networkError(
-                NSError(domain: "PlexAPIClient", code: -1, 
-                       userInfo: [NSLocalizedDescriptionKey: "All server connections failed"])
+                NSError(
+                    domain: "PlexAPIClient",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "All server connections failed"]
+                )
             )
         }
+
+        currentServerURL = endpoint.url
+        #if DEBUG
+        EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
+        #endif
+        return selection
     }
     
     /// Get the current active server URL
@@ -1239,21 +1282,30 @@ public actor PlexAPIClient {
         currentServerURL = url
     }
 
-    /// Proactively test and update to the best available connection
-    public func refreshConnection() async {
+    /// Proactively test and update to the best available connection.
+    @discardableResult
+    public func refreshConnection() async throws -> ConnectionRefreshResult {
         #if DEBUG
         EnsembleLogger.debug("🔄 PlexAPIClient: Refreshing connection...")
         #endif
-        do {
-            try await attemptFailover()
-            #if DEBUG
-            EnsembleLogger.debug("✅ PlexAPIClient: Connection refreshed, now using: \(currentServerURL)")
-            #endif
-        } catch {
-            #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexAPIClient: Failed to refresh connection: \(error)")
-            #endif
+        let previousURL = currentServerURL
+        let selection = try await attemptFailover()
+        guard let selected = selection.selected else {
+            throw PlexAPIError.noServerSelected
         }
+        let outcome: ConnectionRefreshResult.RefreshOutcome = (selected.url == previousURL) ? .unchanged : .switched
+        #if DEBUG
+        EnsembleLogger.debug(
+            "✅ PlexAPIClient: Connection refreshed host=\(selected.safeHostDescription) outcome=\(outcome.rawValue)"
+        )
+        #endif
+        return ConnectionRefreshResult(
+            outcome: outcome,
+            selectedEndpoint: selected,
+            probeCount: selection.probes.count,
+            skippedInsecureCount: selection.skippedInsecureCount,
+            reusedPreferredPath: selection.reusedPreferredPath
+        )
     }
 
     // MARK: - Private Methods
@@ -1273,12 +1325,12 @@ public actor PlexAPIClient {
                 #endif
             }
 
-            // If request fails and we have alternative URLs, attempt failover
-            if !serverConnection.alternativeURLs.isEmpty {
+            // Fail over only for transport/connectivity failures.
+            if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ Attempting failover to alternative URLs...")
                 #endif
-                try await attemptFailover()
+                _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query)
             }
@@ -1299,8 +1351,7 @@ public actor PlexAPIClient {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        addPlexHeaders(to: &request, token: serverConnection.token)
 
         // Log request for debugging (only show host and path, not full URL with token)
         let isHTTPS = url.lowercased().hasPrefix("https://")
@@ -1319,11 +1370,11 @@ public actor PlexAPIClient {
             return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
         } catch {
             // If request fails and we have alternative URLs, attempt failover
-            if !serverConnection.alternativeURLs.isEmpty {
+            if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ PUT request failed with current URL, attempting failover...")
                 #endif
-                try await attemptFailover()
+                _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
             }
@@ -1344,8 +1395,7 @@ public actor PlexAPIClient {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        addPlexHeaders(to: &request, token: serverConnection.token)
 
         let (data, _) = try await performRequest(request)
         return data
@@ -1355,11 +1405,11 @@ public actor PlexAPIClient {
         do {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
         } catch {
-            if !serverConnection.alternativeURLs.isEmpty {
+            if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ POST request failed with current URL, attempting failover...")
                 #endif
-                try await attemptFailover()
+                _ = try await attemptFailover()
                 return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
             }
             throw error
@@ -1379,8 +1429,7 @@ public actor PlexAPIClient {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        addPlexHeaders(to: &request, token: serverConnection.token)
 
         let (data, _) = try await performRequest(request)
         return data
@@ -1390,11 +1439,11 @@ public actor PlexAPIClient {
         do {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
         } catch {
-            if !serverConnection.alternativeURLs.isEmpty {
+            if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ DELETE request failed with current URL, attempting failover...")
                 #endif
-                try await attemptFailover()
+                _ = try await attemptFailover()
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
             }
             throw error
@@ -1426,8 +1475,17 @@ public actor PlexAPIClient {
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        addPlexHeaders(to: &request, token: serverConnection.token)
+        return request
+    }
+
+    internal func makeResourcesRequest(token: String) throws -> URLRequest {
+        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/resources?includeHttps=1&includeRelay=1&includeIPv6=1") else {
+            throw PlexAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        addPlexHeaders(to: &request, token: token)
         return request
     }
 
@@ -1437,6 +1495,39 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         return components
+    }
+
+    private func shouldAttemptFailover(after error: Error) -> Bool {
+        if error is CancellationError {
+            return false
+        }
+
+        if let plexError = error as? PlexAPIError {
+            switch plexError {
+            case .networkError, .invalidResponse:
+                return true
+            case .httpError, .decodingError, .invalidURL, .notAuthenticated, .noServerSelected:
+                return false
+            }
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost,
+                    .networkConnectionLost, .dnsLookupFailed, .dataNotAllowed:
+                return true
+            case .cancelled:
+                return false
+            default:
+                return false
+            }
+        }
+
+        return false
+    }
+
+    internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {
+        shouldAttemptFailover(after: error)
     }
 
     /// Build Plex metadata URI format used for playlist mutations.
@@ -1477,5 +1568,11 @@ public actor PlexAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        request.setValue(productName, forHTTPHeaderField: "X-Plex-Product")
+        request.setValue(productVersion, forHTTPHeaderField: "X-Plex-Version")
+        request.setValue(platformName, forHTTPHeaderField: "X-Plex-Platform")
+        request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device-Name")
+        request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device")
+        request.setValue("controller", forHTTPHeaderField: "X-Plex-Provides")
     }
 }

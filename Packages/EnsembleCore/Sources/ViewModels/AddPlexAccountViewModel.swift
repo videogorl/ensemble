@@ -117,13 +117,27 @@ public final class AddPlexAccountViewModel: ObservableObject {
 
         do {
             // Include all alternative connection URLs for failover support
-            let alternativeURLs = server.connections
-                .map { $0.uri }
+            let allowInsecurePolicy = AllowInsecureConnectionsPolicy(
+                rawValue: UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy") ?? ""
+            ) ?? .defaultForEnsemble
+            let endpointDescriptors = server.connections.map { connection in
+                PlexEndpointDescriptor(
+                    url: connection.uri,
+                    local: connection.local,
+                    relay: connection.relay,
+                    secure: connection.protocol == "https"
+                )
+            }
+            let alternativeURLs = endpointDescriptors
+                .map(\.url)
                 .filter { $0 != server.url }
             
             let connection = PlexServerConnection(
                 url: server.url,
                 alternativeURLs: alternativeURLs,
+                endpoints: endpointDescriptors,
+                selectionPolicy: .plexSpecBalanced,
+                allowInsecurePolicy: allowInsecurePolicy,
                 token: token,
                 identifier: server.id,
                 name: server.name
@@ -134,7 +148,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("📚 Testing server connections before loading libraries...")
             #endif
-            await client.refreshConnection()
+            _ = try await client.refreshConnection()
             
             let sections = try await client.getMusicLibrarySections()
             libraries = sections.map { Library(from: $0) }
@@ -194,10 +208,12 @@ public final class AddPlexAccountViewModel: ObservableObject {
         )
 
         let accountId = UUID().uuidString
+        let tokenMetadata = PlexAuthService.tokenMetadata(from: authToken)
         let account = PlexAccountConfig(
             id: accountId,
             username: server.name,
             authToken: authToken,
+            authTokenMetadata: tokenMetadata,
             servers: [serverConfig]
         )
 

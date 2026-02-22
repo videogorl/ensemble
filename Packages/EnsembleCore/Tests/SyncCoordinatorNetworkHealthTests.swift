@@ -238,6 +238,28 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertTrue(coordinator.isOffline)
         XCTAssertEqual(healthRefreshCount, 0)
     }
+
+    func testConcurrentTransitionEventsCoalesceToSingleHealthRefreshTask() async {
+        let (coordinator, _) = makeCoordinator()
+        var now = Date(timeIntervalSince1970: 50_000)
+        coordinator.nowProviderForTesting = { now }
+
+        var startedCount = 0
+        coordinator.healthCheckRunnerForTesting = { _, keys in
+            startedCount += 1
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        await coordinator.handleObservedNetworkStateForTesting(.offline)
+        now = now.addingTimeInterval(31)
+        await coordinator.handleObservedNetworkStateForTesting(.online(.wifi))
+        await coordinator.handleObservedNetworkStateForTesting(.online(.cellular))
+        await coordinator.awaitHealthRefreshForTesting()
+
+        XCTAssertEqual(startedCount, 1)
+    }
 }
 
 @MainActor

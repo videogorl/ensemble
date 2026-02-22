@@ -20,7 +20,7 @@ public enum PlaybackState: Equatable, Sendable {
 
 public enum PlaybackError: Error, LocalizedError {
     case offline
-    case serverUnavailable
+    case serverUnavailable(message: String?)
     case networkError(Error)
     case unknown(Error)
     
@@ -28,8 +28,8 @@ public enum PlaybackError: Error, LocalizedError {
         switch self {
         case .offline:
             return "No internet connection"
-        case .serverUnavailable:
-            return "Server is unavailable"
+        case .serverUnavailable(let message):
+            return message ?? "Server is unavailable"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
         case .unknown(let error):
@@ -1878,10 +1878,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("   ✅ Server connection ready")
             #endif
         } catch {
+            let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
             #if DEBUG
             EnsembleLogger.debug("   ❌ Failed to ensure server connection: \(error)")
+            if let failureMessage {
+                EnsembleLogger.debug("   ❌ Server failure reason: \(failureMessage)")
+            }
             #endif
-            throw PlaybackError.serverUnavailable
+            throw PlaybackError.serverUnavailable(message: failureMessage)
         }
 
         // Attempt to get stream URL. If it fails due to connectivity issues, refresh
@@ -1946,7 +1950,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let plexError = error as? PlexAPIError {
             switch plexError {
             case .noServerSelected:
-                return .serverUnavailable
+                return .serverUnavailable(message: nil)
             case .networkError:
                 return .networkError(error)
             default:

@@ -21,6 +21,7 @@ public final class ServerHealthChecker: ObservableObject {
     }
 
     @Published public private(set) var serverStates: [String: ServerConnectionState] = [:]
+    @Published public private(set) var serverFailureReasons: [String: ServerConnectionFailureReason] = [:]
 
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
@@ -176,9 +177,23 @@ public final class ServerHealthChecker: ObservableObject {
 
         // Create a task for this check
         let checkTask = Task<ServerCheckResult, Never> { @MainActor in
-            let state = await performServerCheck(accountId: accountId, serverId: serverId, server: server)
+            var serverForCheck = server
+            if forceRefresh,
+               let refreshedServer = await refreshServerConnectionsFromResources(
+                   accountId: accountId,
+                   serverId: serverId,
+                   serverKey: serverKey,
+                   ignoreCooldown: true
+               ) {
+                serverForCheck = refreshedServer
+            }
+
+            let state = await performServerCheck(accountId: accountId, serverId: serverId, server: serverForCheck)
             serverStates[serverKey] = state
             recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+            if state.isAvailable {
+                serverFailureReasons.removeValue(forKey: serverKey)
+            }
             ongoingServerChecks.removeValue(forKey: serverKey)
             return ServerCheckResult(state: state, usedCachedResult: false)
         }
@@ -201,6 +216,11 @@ public final class ServerHealthChecker: ObservableObject {
         return serverStates[serverKey] ?? .unknown
     }
 
+    public func getServerFailureReason(accountId: String, serverId: String) -> ServerConnectionFailureReason? {
+        let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
+        return serverFailureReasons[serverKey]
+    }
+
     // MARK: - Private Methods
 
     /// Perform health check for a single server
@@ -216,8 +236,16 @@ public final class ServerHealthChecker: ObservableObject {
             serverStates[serverKey] = .connecting
         }
 
-        // Get all connection URLs in priority order
-        let connectionURLs = server.orderedConnections.map { $0.uri }
+        let allowInsecurePolicy = currentAllowInsecureConnectionsPolicy()
+        let endpoints = server.orderedConnections.map { connection in
+            PlexEndpointDescriptor(
+                url: connection.uri,
+                local: connection.local,
+                relay: connection.relay ?? false,
+                secure: connection.protocol == "https"
+            )
+        }
+        let connectionURLs = endpoints.map(\.url)
 
         guard !connectionURLs.isEmpty else {
             #if DEBUG
@@ -235,15 +263,21 @@ public final class ServerHealthChecker: ObservableObject {
             #endif
         }
 
-        // Try to find the fastest working connection (tests in parallel for speed)
-        if let workingURL = await failoverManager.findFastestConnection(
-            urls: connectionURLs,
-            token: server.token
-        ) {
+        // Try to find the best policy-compliant endpoint.
+        let selection = await failoverManager.findBestConnection(
+            endpoints: endpoints,
+            token: server.token,
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: allowInsecurePolicy
+        )
+        if let workingEndpoint = selection.selected {
             #if DEBUG
-            EnsembleLogger.debug("✅ ServerHealthChecker: Server \(server.name) is online at \(workingURL)")
+            EnsembleLogger.debug(
+                "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
+            )
             #endif
-            return .connected(url: workingURL)
+            serverFailureReasons.removeValue(forKey: serverKey)
+            return .connected(url: workingEndpoint.url)
         } else {
             // Connection metadata can become stale (for example after WAN IP changes).
             // Refresh from plex.tv resources and retry once before marking offline.
@@ -252,28 +286,45 @@ public final class ServerHealthChecker: ObservableObject {
                 serverId: serverId,
                 serverKey: serverKey
             ) {
-                let refreshedURLs = refreshedServer.orderedConnections.map(\.uri)
+                let refreshedEndpoints = refreshedServer.orderedConnections.map { connection in
+                    PlexEndpointDescriptor(
+                        url: connection.uri,
+                        local: connection.local,
+                        relay: connection.relay ?? false,
+                        secure: connection.protocol == "https"
+                    )
+                }
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "🔄 ServerHealthChecker: Retrying with refreshed resources (\(refreshedURLs.count) URLs)"
+                    "🔄 ServerHealthChecker: Retrying with refreshed resources (\(refreshedEndpoints.count) URLs)"
                 )
                 #endif
 
-                if let refreshedWorkingURL = await failoverManager.findFastestConnection(
-                    urls: refreshedURLs,
-                    token: refreshedServer.token
-                ) {
+                let refreshedSelection = await failoverManager.findBestConnection(
+                    endpoints: refreshedEndpoints,
+                    token: refreshedServer.token,
+                    selectionPolicy: .plexSpecBalanced,
+                    allowInsecure: allowInsecurePolicy
+                )
+                if let refreshedWorkingEndpoint = refreshedSelection.selected {
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingURL)"
+                        "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
                     #endif
-                    return .connected(url: refreshedWorkingURL)
+                    serverFailureReasons.removeValue(forKey: serverKey)
+                    return .connected(url: refreshedWorkingEndpoint.url)
                 }
             }
 
+            let failureReason = await classifyFailureReason(for: server)
+            await MainActor.run {
+                serverFailureReasons[serverKey] = failureReason
+            }
             #if DEBUG
-            EnsembleLogger.debug("❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed")
+            EnsembleLogger.debug(
+                "❌ ServerHealthChecker: Server \(server.name) is offline - all \(connectionURLs.count) URLs failed (reason=\(failureReason.rawValue))"
+            )
             #endif
             return .offline
         }
@@ -288,12 +339,71 @@ public final class ServerHealthChecker: ObservableObject {
         state.isAvailable ? cacheTTL : unavailableCacheTTL
     }
 
+    private func classifyFailureReason(for server: PlexServerConfig) async -> ServerConnectionFailureReason {
+        let endpoints = server.orderedConnections.map { connection in
+            PlexEndpointDescriptor(
+                url: connection.uri,
+                local: connection.local,
+                relay: connection.relay ?? false,
+                secure: connection.protocol == "https"
+            )
+        }
+        let localEndpoints = endpoints.filter { $0.local && !$0.relay }
+        let remoteEndpoints = endpoints.filter { !$0.local && !$0.relay }
+        let relayEndpoints = endpoints.filter(\.relay)
+
+        var probeResultsByURL: [String: ConnectionProbeResult] = [:]
+        for endpoint in endpoints {
+            if let probe = await failoverManager.getLastProbeResult(url: endpoint.url) {
+                probeResultsByURL[endpoint.url] = probe
+            }
+        }
+        let failures = probeResultsByURL.values.compactMap(\.failureCategory)
+
+        if failures.contains(.tls) {
+            return .tlsPolicyBlocked
+        }
+
+        let relayFailed = !relayEndpoints.isEmpty && relayEndpoints.allSatisfy {
+            guard let probe = probeResultsByURL[$0.url] else { return false }
+            return !probe.success
+        }
+        if relayFailed && remoteEndpoints.isEmpty {
+            return .relayUnavailable
+        }
+
+        let remoteFailed = !remoteEndpoints.isEmpty && remoteEndpoints.allSatisfy {
+            guard let probe = probeResultsByURL[$0.url] else { return false }
+            return !probe.success
+        }
+        if remoteFailed {
+            return .remoteAccessUnavailable
+        }
+
+        if !localEndpoints.isEmpty && remoteEndpoints.isEmpty && relayEndpoints.isEmpty {
+            return .localOnlyReachable
+        }
+
+        if relayFailed {
+            return .relayUnavailable
+        }
+
+        return .offline
+    }
+
+    private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
+        let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
+        return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+    }
+
     private func refreshServerConnectionsFromResources(
         accountId: String,
         serverId: String,
-        serverKey: String
+        serverKey: String,
+        ignoreCooldown: Bool = false
     ) async -> PlexServerConfig? {
-        if let lastRefreshAt = lastResourceRefreshAt[serverKey],
+        if !ignoreCooldown,
+           let lastRefreshAt = lastResourceRefreshAt[serverKey],
            nowProvider().timeIntervalSince(lastRefreshAt) < resourceRefreshCooldown {
             #if DEBUG
             EnsembleLogger.debug(
@@ -352,6 +462,7 @@ public final class ServerHealthChecker: ObservableObject {
                 id: account.id,
                 username: account.username,
                 authToken: account.authToken,
+                authTokenMetadata: account.authTokenMetadata,
                 servers: updatedServers
             )
             accountManager.updatePlexAccount(updatedAccount)

@@ -132,6 +132,24 @@ Network transition handling now coalesces health checks, repairs stale endpoint 
 - `HomeViewModel.swift` - deferred auto-refresh + idle apply policy
 - `HomeView.swift` - visibility and scroll interaction callbacks
 
+### Plex Connectivity Spec Parity Cutover (Feb 2026)
+Plex endpoint discovery/routing/auth now follows a stricter spec-parity path to avoid stale routing and generic "server unavailable" failures:
+
+- **Discovery parity:** resource discovery requests now include IPv6 candidates and shared Plex headers.
+- **Policy-driven endpoint ordering:** connection selection now prefers local/direct endpoints before remote and relay, with secure-first behavior and configurable insecure fallback policy.
+- **Failover discipline:** endpoint failover now triggers on transport/connectivity failures only (not arbitrary HTTP semantic errors).
+- **Structured refresh outcomes:** server connection refresh returns typed outcomes instead of swallowing failures, and call sites now react explicitly.
+- **Failure taxonomy:** server checks classify failures (local-only reachable, remote access unavailable, relay unavailable, TLS policy blocked, offline) for clearer user-facing messages.
+- **Auth lifecycle cutover:** account token metadata stores JWT `iat`/`exp`; a migration version bump forces re-login and expired tokens are rejected on load/foreground.
+
+**Key files:**
+- `PlexAPIClient.swift` - resources request contract, transport-only failover policy, structured refresh
+- `PlexConnectionPolicy.swift` - endpoint descriptors, selection policy, connection refresh result types
+- `ConnectionFailoverManager.swift` - policy-aware probing and probe failure classification
+- `PlexAuthService.swift` + `PlexAuthTokenMetadata.swift` - auth token metadata parsing and lifecycle helpers
+- `AccountManager.swift` - auth migration cutover and expiry enforcement
+- `ServerHealthChecker.swift` - classified health failure reasons
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 

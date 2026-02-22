@@ -867,12 +867,12 @@ public final class SyncCoordinator: ObservableObject {
         
         // Need to check server health
         #if DEBUG
-        EnsembleLogger.debug("🔍 Checking server connection before playback (force refresh)")
+        EnsembleLogger.debug("🔍 Checking server connection before playback")
         #endif
         let newState = await serverHealthChecker.checkServer(
             accountId: accountId,
             serverId: serverId,
-            forceRefresh: true
+            forceRefresh: false
         )
         
         // Update the API client with the working URL
@@ -889,12 +889,17 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
             #endif
             if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
-                await apiClient.refreshConnection()
+                let refreshResult = try? await apiClient.refreshConnection()
                 #if DEBUG
                 let refreshedURL = await apiClient.getCurrentServerURL()
                 EnsembleLogger.debug(
                     "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
                 )
+                if let refreshResult {
+                    EnsembleLogger.debug(
+                        "⚠️ ensureServerConnection[v2]: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
+                    )
+                }
                 #endif
             }
             // Do not fail fast on health-check offline. Stream URL retrieval/playback
@@ -911,23 +916,51 @@ public final class SyncCoordinator: ObservableObject {
         URL(string: urlString)?.host ?? "invalid"
     }
 
+    public func serverFailureMessage(for track: Track) async -> String? {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            return nil
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            return nil
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        return serverHealthChecker.getServerFailureReason(accountId: accountId, serverId: serverId)?.userMessage
+    }
+
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
         var refreshedAnyConnection = false
+        var lastError: Error?
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
                 guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
                     continue
                 }
-                await apiClient.refreshConnection()
-                refreshedAnyConnection = true
+                do {
+                    let result = try await apiClient.refreshConnection()
+                    refreshedAnyConnection = true
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "🔄 SyncCoordinator: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
+                    )
+                    #endif
+                } catch {
+                    lastError = error
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ SyncCoordinator: Failed to refresh \(server.name): \(error.localizedDescription)")
+                    #endif
+                }
             }
         }
 
         guard refreshedAnyConnection else {
-            throw PlexAPIError.noServerSelected
+            throw lastError ?? PlexAPIError.noServerSelected
         }
     }
     
@@ -1429,6 +1462,10 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Foreground hook used by app lifecycle to coalesce network health updates.
     public func handleAppWillEnterForeground() async {
+        if accountManager.enforceAuthTokenPolicy() {
+            refreshProviders()
+        }
+
         let currentState = networkMonitor.networkState
 
         #if DEBUG
