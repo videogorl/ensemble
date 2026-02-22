@@ -84,4 +84,13 @@ final class NetworkMonitorTests: XCTestCase {
         XCTAssertEqual(sut.networkState, .offline)
         XCTAssertFalse(sut.isConnected)
     }
+
+    func testConstrainedSatisfiedPathIsStillOnline() {
+        let state = NetworkMonitor.stateForSatisfiedPath(
+            networkType: .cellular,
+            isConstrained: true
+        )
+
+        XCTAssertEqual(state, .online(.cellular))
+    }
 }

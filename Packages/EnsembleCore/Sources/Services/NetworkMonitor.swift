@@ -147,10 +147,10 @@ public final class NetworkMonitor: ObservableObject {
     private func networkState(from path: NWPath) -> NetworkState {
         switch path.status {
         case .satisfied:
-            if path.isConstrained {
-                return .limited
-            }
-            return .online(networkType(from: path))
+            return Self.stateForSatisfiedPath(
+                networkType: networkType(from: path),
+                isConstrained: path.isConstrained
+            )
 
         case .unsatisfied:
             return .offline
@@ -161,6 +161,21 @@ public final class NetworkMonitor: ObservableObject {
         @unknown default:
             return .unknown
         }
+    }
+
+    /// Normalizes satisfied paths into connectivity state.
+    ///
+    /// `NWPath.isConstrained` indicates Low Data Mode and should not be treated as offline.
+    internal static func stateForSatisfiedPath(networkType: NetworkType, isConstrained: Bool) -> NetworkState {
+        #if DEBUG
+        if isConstrained {
+            EnsembleLogger.debug(
+                "📡 NetworkMonitor: Path is constrained (Low Data Mode) - treating as online \(networkType.description)"
+            )
+        }
+        #endif
+
+        return .online(networkType)
     }
 
     /// Determine the network type from NWPath
