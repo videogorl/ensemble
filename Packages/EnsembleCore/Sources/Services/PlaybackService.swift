@@ -312,6 +312,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var currentItemObservation: NSKeyValueObservation?
     private var bufferEmptyObservation: NSKeyValueObservation?
     private var bufferLikelyToKeepUpObservation: NSKeyValueObservation?
+    private var loadedTimeRangesObservation: NSKeyValueObservation?
     private var timeControlStatusObservation: NSKeyValueObservation?
     private var networkStateObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
@@ -1860,6 +1861,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await MainActor.run {
                 self.currentTrack = track
                 self.currentTime = 0
+                self.bufferedProgress = 0
             }
 
             generateWaveform(for: track.id)
@@ -1875,6 +1877,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run {
             self.currentTrack = track
             self.currentTime = 0
+            self.bufferedProgress = 0
         }
 
         // Start delayed loading state (150ms) to prevent flash on quick loads
@@ -2126,6 +2129,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
 
@@ -2149,6 +2155,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask = nil
 
         setupObservers(for: item)
+        updateBufferedProgress()
         #if DEBUG
         EnsembleLogger.debug("🎵 Starting playback")
         #endif
@@ -2209,6 +2216,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.player?.play()
                     self.playbackState = .playing
                 }
+            }
+        }
+
+        loadedTimeRangesObservation = item.observe(\.loadedTimeRanges, options: [.new, .initial]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.updateBufferedProgress()
             }
         }
 
@@ -2507,6 +2520,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
 
@@ -2799,6 +2815,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
 
@@ -2818,6 +2837,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.insert(item, after: nil)
 
         setupObservers(for: item)
+        updateBufferedProgress()
 
         // Seek to the saved position
         if time > 0 {
