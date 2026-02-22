@@ -209,6 +209,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var stallTimestamps: [Date] = []
         var conservativeModeUntil: Date?
         var lastRecoveryAttemptAt: Date?
+        var conservativeWaitCycles: Int = 0
     }
 
     static let stallEscalationThreshold = 2
@@ -350,6 +351,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return .conservative
         }
         return baseBufferingProfile(for: networkState)
+    }
+
+    static func contiguousBufferedRangeEnd(
+        ranges: [CMTimeRange],
+        playbackTime: TimeInterval
+    ) -> TimeInterval? {
+        let playbackCMTime = CMTime(seconds: max(0, playbackTime), preferredTimescale: 600)
+        guard let currentRange = ranges.first(where: { CMTimeRangeContainsTime($0, time: playbackCMTime) }) else {
+            return nil
+        }
+        return currentRange.start.seconds + currentRange.duration.seconds
     }
 
     // MARK: - Publishers
@@ -1286,16 +1298,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 guard self.pendingSeekRequestID == requestID else { return }
+                let seekTargetTime = self.pendingSeekTargetTime
                 let shouldResume = self.pendingSeekShouldResume
-                self.clearPendingSeekState()
                 if shouldResume {
-                    if self.player?.currentItem?.isPlaybackLikelyToKeepUp == true {
-                        player.play()
+                    let item = self.player?.currentItem
+                    let targetIsBuffered: Bool
+                    if let item, let seekTargetTime {
+                        targetIsBuffered = Self.contiguousBufferedRangeEnd(
+                            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+                            playbackTime: seekTargetTime
+                        ) != nil
+                    } else {
+                        targetIsBuffered = false
+                    }
+
+                    let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
+                    let playbackBufferFull = item?.isPlaybackBufferFull == true
+                    let shouldForceImmediateResume = targetIsBuffered || likelyToKeepUp || playbackBufferFull
+
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "🎯 Seek completion: targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
+                    )
+                    #endif
+
+                    if shouldForceImmediateResume {
+                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
                     } else {
                         self.playbackState = .buffering
                         self.setupStallRecovery(recordStallEvent: false)
                     }
                 }
+                self.clearPendingSeekState()
             }
         }
     }
@@ -2370,8 +2404,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     #if DEBUG
                     EnsembleLogger.debug("✅ Buffer ready - resuming playback")
                     #endif
-                    self.player?.play()
-                    self.playbackState = .playing
+                    self.resumePlayerFromBuffering(forceImmediate: false, reason: "likely-to-keep-up")
                 }
             }
         }
@@ -2396,6 +2429,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             EnsembleLogger.debug("✅ AVPlayer actually playing audio")
                             #endif
                             self.playbackState = .playing
+                            self.adaptiveBufferingState.conservativeWaitCycles = 0
                         }
 
                     case .paused:
@@ -2492,6 +2526,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         pendingSeekTrackID = nil
         pendingSeekStartedAt = nil
         pendingSeekShouldResume = false
+    }
+
+    @MainActor
+    private func resumePlayerFromBuffering(forceImmediate: Bool, reason: String) {
+        guard let player else { return }
+        if forceImmediate {
+            if #available(iOS 10.0, macOS 10.12, *) {
+                player.playImmediately(atRate: 1.0)
+            } else {
+                player.play()
+            }
+        } else {
+            player.play()
+        }
+        playbackState = .playing
+        adaptiveBufferingState.conservativeWaitCycles = 0
+        #if DEBUG
+        EnsembleLogger.debug("▶️ Resuming playback (\(reason)) immediate=\(forceImmediate)")
+        #endif
+    }
+
+    private func isCurrentPlaybackPositionBuffered() -> Bool {
+        guard let item = player?.currentItem else { return false }
+        return Self.contiguousBufferedRangeEnd(
+            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+            playbackTime: currentTime
+        ) != nil
     }
 
     private func applyActiveBufferingProfileToPlayer(reason: String) {
@@ -2622,9 +2683,42 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         if isConservativeModeActive(now: now) {
+            adaptiveBufferingState.conservativeWaitCycles += 1
+            let conservativeCycle = adaptiveBufferingState.conservativeWaitCycles
+            let positionBuffered = isCurrentPlaybackPositionBuffered()
+            let bufferFull = player?.currentItem?.isPlaybackBufferFull == true
+
             #if DEBUG
-            EnsembleLogger.debug("🎚️ Conservative mode active - waiting for buffer before retry")
+            EnsembleLogger.debug(
+                "🎚️ Conservative mode active - cycle=\(conservativeCycle), positionBuffered=\(positionBuffered), bufferFull=\(bufferFull)"
+            )
             #endif
+
+            if positionBuffered || bufferFull {
+                resumePlayerFromBuffering(forceImmediate: true, reason: "conservative-buffered")
+                scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+                return
+            }
+
+            if conservativeCycle >= 2 {
+                if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
+                   now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
+                    #if DEBUG
+                    EnsembleLogger.debug("⏱️ Conservative retry cooldown active - delaying reload")
+                    #endif
+                    scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+                    return
+                }
+
+                adaptiveBufferingState.lastRecoveryAttemptAt = now
+                adaptiveBufferingState.conservativeWaitCycles = 0
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Conservative mode timed out repeatedly - retrying current track")
+                #endif
+                await retryCurrentTrack()
+                return
+            }
+
             player?.play()
             scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
             return
@@ -2824,12 +2918,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         let playbackTime = max(0, currentTime)
-        let playbackCMTime = CMTime(seconds: playbackTime, preferredTimescale: 600)
-        let currentRangeEnd = ranges.first(where: { CMTimeRangeContainsTime($0, time: playbackCMTime) })
-            .map { $0.start.seconds + $0.duration.seconds }
-
-        let furthestRangeEnd = ranges.map { $0.start.seconds + $0.duration.seconds }.max() ?? 0
-        let rangeEnd = currentRangeEnd ?? furthestRangeEnd
+        let rangeEnd = Self.contiguousBufferedRangeEnd(ranges: ranges, playbackTime: playbackTime) ?? playbackTime
         let progress = max(0, min(1, rangeEnd / duration))
 
         bufferedProgress = progress

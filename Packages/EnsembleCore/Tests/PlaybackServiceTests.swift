@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import EnsembleCore
 
@@ -236,5 +237,33 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(shouldGate)
+    }
+
+    func testContiguousBufferedRangeEndReturnsRangeEndWhenPlaybackInsideRange() throws {
+        let ranges = [
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600))
+        ]
+
+        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
+            ranges: ranges,
+            playbackTime: 12
+        )
+
+        let unwrappedRangeEnd = try XCTUnwrap(rangeEnd)
+        XCTAssertEqual(unwrappedRangeEnd, 20, accuracy: 0.001)
+    }
+
+    func testContiguousBufferedRangeEndReturnsNilWhenPlaybackInGap() {
+        let ranges = [
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
+            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600))
+        ]
+
+        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
+            ranges: ranges,
+            playbackTime: 30
+        )
+
+        XCTAssertNil(rangeEnd)
     }
 }
