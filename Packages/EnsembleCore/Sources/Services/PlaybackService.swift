@@ -2115,6 +2115,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.currentTrack = track
                 self.currentTime = 0
                 self.bufferedProgress = 0
+                self.updateNowPlayingInfo()
             }
 
             generateWaveform(for: track.id)
@@ -2131,6 +2132,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.currentTrack = track
             self.currentTime = 0
             self.bufferedProgress = 0
+            self.updateNowPlayingInfo()
         }
 
         // Start delayed loading state (150ms) to prevent flash on quick loads
