@@ -143,11 +143,11 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(shouldIgnore)
     }
 
-    func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthTwo() {
+    func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {
         let profile = PlaybackService.baseBufferingProfile(for: .online(.wifi))
         XCTAssertFalse(profile.waitsToMinimizeStalling)
         XCTAssertEqual(profile.preferredForwardBufferDuration, 8)
-        XCTAssertEqual(profile.prefetchDepth, 2)
+        XCTAssertEqual(profile.prefetchDepth, 1)
         XCTAssertEqual(profile.stallRecoveryTimeout, 8)
     }
 
@@ -220,6 +220,32 @@ final class PlaybackServiceTests: XCTestCase {
                 pendingSeekTargetTime: 42
             )
         )
+    }
+
+    func testUnexpectedPauseRecoveryActionReturnsImmediateResumeWhenBufferHealthy() {
+        let action = PlaybackService.unexpectedPauseRecoveryAction(
+            playbackState: .playing,
+            isPlaybackLikelyToKeepUp: true,
+            isPlaybackBufferFull: false,
+            isPlaybackBufferEmpty: false,
+            pendingSeekTargetTime: nil
+        )
+
+        XCTAssertEqual(action?.resumeImmediately, true)
+        XCTAssertEqual(action?.recordStallEvent, false)
+    }
+
+    func testUnexpectedPauseRecoveryActionSchedulesRecoveryWhenBufferNotReady() {
+        let action = PlaybackService.unexpectedPauseRecoveryAction(
+            playbackState: .playing,
+            isPlaybackLikelyToKeepUp: false,
+            isPlaybackBufferFull: false,
+            isPlaybackBufferEmpty: true,
+            pendingSeekTargetTime: nil
+        )
+
+        XCTAssertEqual(action?.resumeImmediately, false)
+        XCTAssertEqual(action?.recordStallEvent, true)
     }
 
     func testTransportRecoveryIncludesNetworkConnectionLost() {

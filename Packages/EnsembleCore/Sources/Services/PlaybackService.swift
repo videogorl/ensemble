@@ -183,7 +183,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let wifiOrWired = PlaybackBufferingProfile(
             waitsToMinimizeStalling: false,
             preferredForwardBufferDuration: 8,
-            prefetchDepth: 2,
+            prefetchDepth: 1,
             stallRecoveryTimeout: 8,
             label: "wifi/wired"
         )
@@ -384,6 +384,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard playbackState == .playing else { return false }
         guard pendingSeekTargetTime == nil else { return false }
         return isPlaybackBufferEmpty
+    }
+
+    static func unexpectedPauseRecoveryAction(
+        playbackState: PlaybackState,
+        isPlaybackLikelyToKeepUp: Bool,
+        isPlaybackBufferFull: Bool,
+        isPlaybackBufferEmpty: Bool,
+        pendingSeekTargetTime: TimeInterval?
+    ) -> (resumeImmediately: Bool, recordStallEvent: Bool)? {
+        switch playbackState {
+        case .playing, .buffering, .loading:
+            if isPlaybackLikelyToKeepUp || isPlaybackBufferFull {
+                return (true, false)
+            }
+            let shouldRecordStallEvent = pendingSeekTargetTime == nil && isPlaybackBufferEmpty
+            return (false, shouldRecordStallEvent)
+        default:
+            return nil
+        }
     }
 
     static func contiguousBufferedRangeEnd(
@@ -2625,11 +2644,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     case .paused:
                         // Player is paused (but not stopped)
-                        if self.playbackState == .playing || self.playbackState == .buffering {
+                        let item = self.player?.currentItem
+                        if let recoveryAction = Self.unexpectedPauseRecoveryAction(
+                            playbackState: self.playbackState,
+                            isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp == true,
+                            isPlaybackBufferFull: item?.isPlaybackBufferFull == true,
+                            isPlaybackBufferEmpty: item?.isPlaybackBufferEmpty == true,
+                            pendingSeekTargetTime: self.pendingSeekTargetTime
+                        ) {
                             #if DEBUG
                             EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly")
                             #endif
-                            // Don't override user-initiated pause
+                            if recoveryAction.resumeImmediately {
+                                self.resumePlayerFromBuffering(forceImmediate: true, reason: "unexpected-pause")
+                            } else {
+                                self.playbackState = .buffering
+                                self.setupStallRecovery(recordStallEvent: recoveryAction.recordStallEvent)
+                            }
                         }
 
                     case .waitingToPlayAtSpecifiedRate:
