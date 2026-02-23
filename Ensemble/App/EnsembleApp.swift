@@ -60,6 +60,7 @@ struct EnsembleApp: App {
             case .active:
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()

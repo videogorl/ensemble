@@ -179,6 +179,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
+    @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     
     public init() {
         if enabledTabsData.isEmpty {
@@ -209,6 +210,16 @@ public final class SettingsManager: ObservableObject {
         AppAccentColor(rawValue: accentColorName) ?? .blue
     }
 
+    public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy {
+        get {
+            AllowInsecureConnectionsPolicy(rawValue: allowInsecureConnectionsPolicyRawValue) ?? .defaultForEnsemble
+        }
+        set {
+            allowInsecureConnectionsPolicyRawValue = newValue.rawValue
+            objectWillChange.send()
+        }
+    }
+
     public var trackSwipeLayout: TrackSwipeLayout {
         get {
             guard !trackSwipeLayoutData.isEmpty,
@@ -234,6 +245,10 @@ public final class SettingsManager: ObservableObject {
     public func setAccentColor(_ color: AppAccentColor) {
         accentColorName = color.rawValue
         objectWillChange.send()
+    }
+
+    public func setAllowInsecureConnectionsPolicy(_ policy: AllowInsecureConnectionsPolicy) {
+        allowInsecureConnectionsPolicy = policy
     }
 
     public func resetTrackSwipeLayoutToDefaults() {

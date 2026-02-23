@@ -114,10 +114,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         Task { @MainActor in
             DependencyContainer.shared.networkMonitor.startMonitoring()
 
-            // Proactively check server health and update connections
-            // (network monitor will also trigger this, but doing it immediately ensures faster failover)
-            await DependencyContainer.shared.serverHealthChecker.checkAllServers()
-            await DependencyContainer.shared.syncCoordinator.refreshAPIClientConnections()
+            // Route foreground refresh through SyncCoordinator to coalesce
+            // with network state transitions and cooldown/staleness guards.
+            await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
             
             // Restart periodic sync timers
             DependencyContainer.shared.syncCoordinator.startPeriodicSync()

@@ -9,6 +9,8 @@ public final class AccountManager: ObservableObject {
 
     private let keychain: KeychainServiceProtocol
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
+    private static let authMigrationVersionKey = "plex_auth_migration_version"
+    private static let authMigrationVersion = 1
 
     public init(keychain: KeychainServiceProtocol) {
         self.keychain = keychain
@@ -17,6 +19,10 @@ public final class AccountManager: ObservableObject {
     // MARK: - Load / Save
 
     public func loadAccounts() {
+        if applyAuthMigrationIfNeeded() {
+            return
+        }
+
         guard let json = try? keychain.get(KeychainKey.plexAccounts),
               let data = json.data(using: .utf8) else {
             plexAccounts = []
@@ -24,6 +30,7 @@ public final class AccountManager: ObservableObject {
         }
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
+        _ = enforceAuthTokenPolicy()
     }
 
     private func saveAccounts() {
@@ -97,6 +104,7 @@ public final class AccountManager: ObservableObject {
             id: account.id,
             username: account.username,
             authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
             servers: updatedServers
         )
         
@@ -194,17 +202,36 @@ public final class AccountManager: ObservableObject {
         EnsembleLogger.debug("  - Server URL: \(server.url)")
         #endif
 
-        // Get all connection URLs from server config, excluding the primary URL
-        let alternativeURLs = server.orderedConnections
-            .map { $0.uri }
-            .filter { $0 != server.url }
+        let insecurePolicy = currentAllowInsecureConnectionsPolicy()
+        let orderedConnections = policyFilteredConnections(
+            from: server.orderedConnections,
+            allowInsecure: insecurePolicy
+        )
+
+        let endpointDescriptors = orderedConnections.map { connection in
+            PlexEndpointDescriptor(
+                url: connection.uri,
+                local: connection.local,
+                relay: connection.relay ?? false,
+                secure: connection.protocol == "https"
+            )
+        }
+
+        let primaryURL = endpointDescriptors.first?.url ?? server.url
+        let alternativeURLs = endpointDescriptors
+            .map(\.url)
+            .filter { $0 != primaryURL }
         #if DEBUG
+        EnsembleLogger.debug("  - Connection policy: \(insecurePolicy.rawValue)")
         EnsembleLogger.debug("  - Alternative URLs available: \(alternativeURLs.count)")
         #endif
 
         let connection = PlexServerConnection(
-            url: server.url,
+            url: primaryURL,
             alternativeURLs: alternativeURLs,
+            endpoints: endpointDescriptors,
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecurePolicy: insecurePolicy,
             token: server.token,
             identifier: server.id,
             name: server.name
@@ -227,5 +254,77 @@ public final class AccountManager: ObservableObject {
     public func clearAPIClientCache(accountId: String, serverId: String) {
         let cacheKey = "\(accountId):\(serverId)"
         apiClientCache.removeValue(forKey: cacheKey)
+    }
+
+    /// Remove accounts with expired auth tokens.
+    @discardableResult
+    public func enforceAuthTokenPolicy() -> Bool {
+        let now = Date()
+        let validAccounts = plexAccounts.filter { account in
+            let metadata = account.authTokenMetadata ?? PlexAuthService.tokenMetadata(from: account.authToken)
+            return !metadata.isExpired(now: now)
+        }
+
+        if validAccounts.count == plexAccounts.count {
+            return false
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "🔐 AccountManager: Removed \(plexAccounts.count - validAccounts.count) account(s) with expired auth tokens"
+        )
+        #endif
+        plexAccounts = validAccounts
+        clearAPIClientCache()
+        saveAccounts()
+        return true
+    }
+
+    private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
+        let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
+        return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+    }
+
+    private func policyFilteredConnections(
+        from connections: [PlexConnectionConfig],
+        allowInsecure: AllowInsecureConnectionsPolicy
+    ) -> [PlexConnectionConfig] {
+        let filtered = connections.filter { connection in
+            let isSecure = connection.protocol == "https" || connection.uri.lowercased().hasPrefix("https://")
+            guard !isSecure else { return true }
+            switch allowInsecure {
+            case .always:
+                return true
+            case .never:
+                return false
+            case .sameNetwork:
+                return connection.local
+            }
+        }
+
+        // Guard against policy lockout when only insecure endpoints are returned.
+        if filtered.isEmpty {
+            return connections
+        }
+        return filtered
+    }
+
+    private func applyAuthMigrationIfNeeded() -> Bool {
+        let defaults = UserDefaults.standard
+        let previousVersion = defaults.integer(forKey: Self.authMigrationVersionKey)
+        guard previousVersion < Self.authMigrationVersion else {
+            return false
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "🔐 AccountManager: Applying auth migration v\(Self.authMigrationVersion) (previous: \(previousVersion)); forcing re-login"
+        )
+        #endif
+        try? keychain.delete(KeychainKey.plexAccounts)
+        plexAccounts = []
+        clearAPIClientCache()
+        defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
+        return true
     }
 }

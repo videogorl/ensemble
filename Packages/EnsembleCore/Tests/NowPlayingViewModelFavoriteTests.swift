@@ -37,11 +37,13 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
         private let recommendationsSubject = CurrentValueSubject<Bool, Never>(false)
         private let historySubject = CurrentValueSubject<[QueueItem], Never>([])
+        private var mockedDuration: TimeInterval = 0
 
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
         var currentTime: TimeInterval { currentTimeSubject.value }
-        var duration: TimeInterval { currentTrack?.duration ?? 0 }
+        var bufferedProgressValue: Double { 0 }
+        var duration: TimeInterval { mockedDuration > 0 ? mockedDuration : (currentTrack?.duration ?? 0) }
         var queue: [QueueItem] { queueSubject.value }
         var currentQueueIndex: Int { queueIndexSubject.value }
         var isShuffleEnabled: Bool { shuffleSubject.value }
@@ -75,6 +77,18 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             currentTrackSubject.send(track)
         }
 
+        func setPlaybackState(_ state: PlaybackState) {
+            playbackStateSubject.send(state)
+        }
+
+        func setCurrentTime(_ time: TimeInterval) {
+            currentTimeSubject.send(time)
+        }
+
+        func setDuration(_ duration: TimeInterval) {
+            mockedDuration = duration
+        }
+
         func play(track: Track) async {}
         func play(tracks: [Track], startingAt index: Int) async {}
         func shufflePlay(tracks: [Track]) async {}
@@ -85,7 +99,9 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func retryCurrentTrack() async {}
         func next() {}
         func previous() {}
-        func seek(to time: TimeInterval) {}
+        func seek(to time: TimeInterval) {
+            currentTimeSubject.send(time)
+        }
         func addToQueue(_ track: Track) {}
         func addToQueue(_ tracks: [Track]) {}
         func playNext(_ track: Track) {}
@@ -259,5 +275,34 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 300_000_000)
 
         XCTAssertFalse(viewModel.isTrackFavorited(track))
+    }
+
+    func testProgressStaysBelowCompleteWhilePlayingAtReportedEnd() async {
+        let (viewModel, playback) = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
+        playback.setCurrentTrack(track)
+        playback.setDuration(100)
+        playback.setPlaybackState(.playing)
+        playback.setCurrentTime(100)
+
+        await Task.yield()
+
+        XCTAssertLessThan(viewModel.progress, 1.0)
+        XCTAssertEqual(viewModel.scrubberDuration, 101, accuracy: 0.001)
+    }
+
+    func testSeekToProgressUsesScrubberDurationWhilePlaying() async {
+        let (viewModel, playback) = makeViewModel()
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
+        playback.setCurrentTrack(track)
+        playback.setDuration(100)
+        playback.setPlaybackState(.playing)
+        playback.setCurrentTime(100)
+
+        await Task.yield()
+
+        viewModel.seekToProgress(1.0)
+
+        XCTAssertEqual(playback.currentTime, 101, accuracy: 0.001)
     }
 }

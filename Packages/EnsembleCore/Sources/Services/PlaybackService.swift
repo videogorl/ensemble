@@ -20,7 +20,7 @@ public enum PlaybackState: Equatable, Sendable {
 
 public enum PlaybackError: Error, LocalizedError {
     case offline
-    case serverUnavailable
+    case serverUnavailable(message: String?)
     case networkError(Error)
     case unknown(Error)
     
@@ -28,8 +28,8 @@ public enum PlaybackError: Error, LocalizedError {
         switch self {
         case .offline:
             return "No internet connection"
-        case .serverUnavailable:
-            return "Server is unavailable"
+        case .serverUnavailable(let message):
+            return message ?? "Server is unavailable"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
         case .unknown(let error):
@@ -118,6 +118,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var currentTimeValue: TimeInterval { get }
+    var bufferedProgressValue: Double { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
@@ -172,6 +173,52 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let isInterfaceSwitch: Bool
     }
 
+    struct PlaybackBufferingProfile: Equatable {
+        let waitsToMinimizeStalling: Bool
+        let preferredForwardBufferDuration: TimeInterval
+        let prefetchDepth: Int
+        let stallRecoveryTimeout: TimeInterval
+        let label: String
+
+        static let wifiOrWired = PlaybackBufferingProfile(
+            waitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: 8,
+            prefetchDepth: 1,
+            stallRecoveryTimeout: 8,
+            label: "wifi/wired"
+        )
+
+        static let cellularOrOther = PlaybackBufferingProfile(
+            waitsToMinimizeStalling: true,
+            preferredForwardBufferDuration: 18,
+            prefetchDepth: 1,
+            stallRecoveryTimeout: 12,
+            label: "cellular/other"
+        )
+
+        static let conservative = PlaybackBufferingProfile(
+            waitsToMinimizeStalling: true,
+            preferredForwardBufferDuration: 20,
+            prefetchDepth: 0,
+            stallRecoveryTimeout: 15,
+            label: "conservative"
+        )
+    }
+
+    struct AdaptiveBufferingState {
+        var stallTimestamps: [Date] = []
+        var conservativeModeUntil: Date?
+        var lastRecoveryAttemptAt: Date?
+        var conservativeWaitCycles: Int = 0
+    }
+
+    static let stallEscalationThreshold = 2
+    static let stallEscalationWindow: TimeInterval = 30
+    static let conservativeModeDuration: TimeInterval = 120
+    static let recoveryCooldown: TimeInterval = 6
+    static let bufferedSeekGateDuration: TimeInterval = 3
+    static let prefetchThrottleDuration: TimeInterval = 90
+
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
             // Toggle between loved (10) and none (0).
@@ -219,11 +266,178 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
+    /// During an active seek, reject stale periodic observer samples that still point to the pre-seek playhead.
+    static func isObservedTimeSynchronizedWithPendingSeek(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        tolerance: TimeInterval = 1.25
+    ) -> Bool {
+        abs(observedTime - pendingSeekTargetTime) <= tolerance
+    }
+
+    static func isObservedTimeBehindPendingSeekTarget(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        tolerance: TimeInterval = 1.25
+    ) -> Bool {
+        observedTime + tolerance < pendingSeekTargetTime
+    }
+
+    static func shouldIgnoreObservedTimeDuringPendingSeek(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        elapsedSinceSeek: TimeInterval,
+        maxGateDuration: TimeInterval = 1.0
+    ) -> Bool {
+        guard elapsedSinceSeek < maxGateDuration else { return false }
+        return !isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: observedTime,
+            pendingSeekTargetTime: pendingSeekTargetTime
+        )
+    }
+
+    static func shouldContinueSeekProgressGate(
+        observedTime: TimeInterval,
+        pendingSeekTargetTime: TimeInterval,
+        elapsedSinceSeek: TimeInterval,
+        playbackState: PlaybackState,
+        maxGateDuration: TimeInterval = 1.0
+    ) -> Bool {
+        if shouldIgnoreObservedTimeDuringPendingSeek(
+            observedTime: observedTime,
+            pendingSeekTargetTime: pendingSeekTargetTime,
+            elapsedSinceSeek: elapsedSinceSeek,
+            maxGateDuration: maxGateDuration
+        ) {
+            return true
+        }
+
+        let isBehindSeekTarget = isObservedTimeBehindPendingSeekTarget(
+            observedTime: observedTime,
+            pendingSeekTargetTime: pendingSeekTargetTime
+        )
+        if playbackState == .buffering,
+           isBehindSeekTarget,
+           elapsedSinceSeek < bufferedSeekGateDuration {
+            return true
+        }
+
+        return false
+    }
+
+    static func baseBufferingProfile(for networkState: NetworkState) -> PlaybackBufferingProfile {
+        switch networkState {
+        case .online(.wifi), .online(.wired):
+            return .wifiOrWired
+        case .online(.cellular), .online(.other), .unknown, .limited, .offline:
+            return .cellularOrOther
+        }
+    }
+
+    static func trimmedStallTimestamps(
+        _ timestamps: [Date],
+        now: Date,
+        window: TimeInterval = stallEscalationWindow
+    ) -> [Date] {
+        timestamps.filter { now.timeIntervalSince($0) <= window }
+    }
+
+    static func shouldEnterConservativeMode(
+        stallTimestamps: [Date],
+        now: Date,
+        threshold: Int = stallEscalationThreshold,
+        window: TimeInterval = stallEscalationWindow
+    ) -> Bool {
+        trimmedStallTimestamps(stallTimestamps, now: now, window: window).count >= threshold
+    }
+
+    static func resolvedBufferingProfile(
+        for networkState: NetworkState,
+        conservativeModeUntil: Date?,
+        now: Date
+    ) -> PlaybackBufferingProfile {
+        if let conservativeModeUntil, conservativeModeUntil > now {
+            return .conservative
+        }
+        return baseBufferingProfile(for: networkState)
+    }
+
+    static func throttledPrefetchProfileIfNeeded(
+        _ profile: PlaybackBufferingProfile,
+        throttleActive: Bool
+    ) -> PlaybackBufferingProfile {
+        guard throttleActive, profile.prefetchDepth > 0 else { return profile }
+        return PlaybackBufferingProfile(
+            waitsToMinimizeStalling: profile.waitsToMinimizeStalling,
+            preferredForwardBufferDuration: profile.preferredForwardBufferDuration,
+            prefetchDepth: 0,
+            stallRecoveryTimeout: profile.stallRecoveryTimeout,
+            label: "\(profile.label)-prefetch-throttled"
+        )
+    }
+
+    static func shouldRecordWaitingStallEvent(
+        playbackState: PlaybackState,
+        isPlaybackBufferEmpty: Bool,
+        pendingSeekTargetTime: TimeInterval?
+    ) -> Bool {
+        guard playbackState == .playing else { return false }
+        guard pendingSeekTargetTime == nil else { return false }
+        return isPlaybackBufferEmpty
+    }
+
+    static func unexpectedPauseRecoveryAction(
+        playbackState: PlaybackState,
+        isPlaybackLikelyToKeepUp: Bool,
+        isPlaybackBufferFull: Bool,
+        isPlaybackBufferEmpty: Bool,
+        pendingSeekTargetTime: TimeInterval?
+    ) -> (resumeImmediately: Bool, recordStallEvent: Bool)? {
+        switch playbackState {
+        case .playing, .buffering, .loading:
+            if isPlaybackLikelyToKeepUp || isPlaybackBufferFull {
+                return (true, false)
+            }
+            let shouldRecordStallEvent = pendingSeekTargetTime == nil && isPlaybackBufferEmpty
+            return (false, shouldRecordStallEvent)
+        default:
+            return nil
+        }
+    }
+
+    static func contiguousBufferedRangeEnd(
+        ranges: [CMTimeRange],
+        playbackTime: TimeInterval
+    ) -> TimeInterval? {
+        let playbackCMTime = CMTime(seconds: max(0, playbackTime), preferredTimescale: 600)
+        guard let currentRange = ranges.first(where: { CMTimeRangeContainsTime($0, time: playbackCMTime) }) else {
+            return nil
+        }
+        return currentRange.start.seconds + currentRange.duration.seconds
+    }
+
+    static func effectiveDuration(
+        metadataDuration: TimeInterval,
+        itemDuration: TimeInterval?
+    ) -> TimeInterval {
+        let baseDuration = max(0, metadataDuration)
+
+        guard let itemDuration else { return baseDuration }
+        guard itemDuration.isFinite else { return baseDuration }
+        guard itemDuration > 0 else { return baseDuration }
+        // Defensive bound for malformed media durations.
+        guard itemDuration < 24 * 60 * 60 else { return baseDuration }
+
+        // Prefer the longer duration so progress/scrubber doesn't complete early.
+        return max(baseDuration, itemDuration)
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var playbackState: PlaybackState = .stopped
     @Published public private(set) var currentTime: TimeInterval = 0
+    @Published public private(set) var bufferedProgress: Double = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
@@ -239,6 +453,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
     public var currentTimeValue: TimeInterval { currentTime }
+    public var bufferedProgressValue: Double { bufferedProgress }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
@@ -251,7 +466,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
 
     public var duration: TimeInterval {
-        currentTrack?.duration ?? 0
+        let metadataDuration = currentTrack?.duration ?? 0
+        let itemDuration = player?.currentItem?.duration.seconds
+        return Self.effectiveDuration(
+            metadataDuration: metadataDuration,
+            itemDuration: itemDuration
+        )
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -287,10 +507,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var currentItemObservation: NSKeyValueObservation?
     private var bufferEmptyObservation: NSKeyValueObservation?
     private var bufferLikelyToKeepUpObservation: NSKeyValueObservation?
+    private var loadedTimeRangesObservation: NSKeyValueObservation?
     private var timeControlStatusObservation: NSKeyValueObservation?
+    private var itemPlaybackStalledObserver: NSObjectProtocol?
+    private var itemFailedToPlayToEndObserver: NSObjectProtocol?
+    private var itemErrorLogEntryObserver: NSObjectProtocol?
+    private var isHandlingQueueExhaustion = false
+    private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
+    private var pendingSeekRequestID: UInt64?
+    private var pendingSeekTargetTime: TimeInterval?
+    private var pendingSeekTrackID: String?
+    private var pendingSeekStartedAt: Date?
+    private var pendingSeekShouldResume: Bool = false
+    private var seekRequestCounter: UInt64 = 0
+    private var adaptiveBufferingState = AdaptiveBufferingState()
+    private var activeBufferingProfile = PlaybackBufferingProfile.cellularOrOther
+    private var nowPlayingArtworkTask: Task<Void, Never>?
+    private var nowPlayingArtworkRequestKey: String?
+    private var nowPlayingArtworkTrackID: String?
+    private var nowPlayingArtwork: MPMediaItemArtwork?
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -392,10 +630,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func setupPlayer() {
         player = AVQueuePlayer()
         player?.actionAtItemEnd = .advance
-        // Prioritize quick track switches over waiting for deep buffer fill.
-        // Music tracks are short and users frequently skip, so lower startup latency
-        // produces a more reliable interaction than aggressive anti-stall waiting.
-        player?.automaticallyWaitsToMinimizeStalling = false
+        applyActiveBufferingProfileToPlayer(reason: "setup")
         
         currentItemObservation = player?.observe(\.currentItem, options: [.new, .old]) { [weak self] _, change in
             guard let self = self else { return }
@@ -409,7 +644,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         guard let self = self else { return }
                         await Task.yield()
                         guard self.player?.currentItem == nil else { return }
-                        self.handleQueueExhausted()
+                        await self.handleQueueExhausted()
                     }
                 }
             }
@@ -417,6 +652,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     
     private func handleItemChange(_ item: AVPlayerItem) {
+        // Seeks should only apply to the previously active item. Clear stale seek gating
+        // immediately when AVQueuePlayer advances to a different item.
+        clearPendingSeekState()
+
         // Find which track this item belongs to
         if let pair = playerItems.first(where: { $0.value === item }) {
             let ratingKey = pair.key
@@ -475,7 +714,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
     @MainActor
-    private func handleQueueExhausted() {
+    private func handleQueueExhausted() async {
+        guard !isHandlingQueueExhaustion else {
+            #if DEBUG
+            EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
+            #endif
+            return
+        }
+        isHandlingQueueExhaustion = true
+        defer { isHandlingQueueExhaustion = false }
+
         guard !queue.isEmpty else {
             stop()
             return
@@ -485,44 +733,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
+        let nextIndex = currentQueueIndex + 1
+        if nextIndex < queue.count {
+            currentQueueIndex = nextIndex
+            await playCurrentQueueItem()
+            savePlaybackState()
+            await checkAndRefreshAutoplayQueue()
+            return
+        }
+
         if repeatMode == .all {
             currentQueueIndex = 0
-            Task {
-                await playCurrentQueueItem()
-                savePlaybackState()
-                await checkAndRefreshAutoplayQueue()
-            }
+            await playCurrentQueueItem()
+            savePlaybackState()
+            await checkAndRefreshAutoplayQueue()
             return
         }
 
         if isAutoplayEnabled {
-            let nextIndex = currentQueueIndex + 1
-            if nextIndex < queue.count {
-                currentQueueIndex = nextIndex
-                Task {
-                    await playCurrentQueueItem()
-                    savePlaybackState()
-                    await checkAndRefreshAutoplayQueue()
-                }
-                return
-            }
+            let previousCount = queue.count
+            await refreshAutoplayQueue()
 
-            Task { @MainActor in
-                let previousCount = queue.count
-                await refreshAutoplayQueue()
-
-                let refreshedNextIndex = currentQueueIndex + 1
-                if queue.count > previousCount, refreshedNextIndex < queue.count {
-                    currentQueueIndex = refreshedNextIndex
-                    await playCurrentQueueItem()
-                    savePlaybackState()
-                    await checkAndRefreshAutoplayQueue()
-                } else {
-                    #if DEBUG
-                    EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
-                    #endif
-                    stop()
-                }
+            let refreshedNextIndex = currentQueueIndex + 1
+            if queue.count > previousCount, refreshedNextIndex < queue.count {
+                currentQueueIndex = refreshedNextIndex
+                await playCurrentQueueItem()
+                savePlaybackState()
+                await checkAndRefreshAutoplayQueue()
+            } else {
+                #if DEBUG
+                EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                #endif
+                stop()
             }
             return
         }
@@ -1018,17 +1260,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         cleanup()
+        cancelNowPlayingArtworkLoad(clearArtwork: true)
         currentTrack = nil
         playbackState = .stopped
         currentTime = 0
+        bufferedProgress = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
     }
     
     /// Retry playing the current track (useful after network errors)
     public func retryCurrentTrack() async {
-        guard currentTrack != nil else { return }
-        await playCurrentQueueItem()
+        await retryCurrentTrack(forceConnectionRefresh: false, reason: "manual")
     }
 
     public func next() {
@@ -1105,11 +1348,75 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func seek(to time: TimeInterval) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 1000)
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        currentTime = time
+        let clampedTime: TimeInterval
+        if duration > 0 {
+            clampedTime = max(0, min(time, duration))
+        } else {
+            clampedTime = max(0, time)
+        }
+
+        currentTime = clampedTime
         updateNowPlayingInfo()
         savePlaybackState()
+
+        guard let player else {
+            clearPendingSeekState()
+            return
+        }
+
+        let shouldResumeAfterSeek = playbackState == .playing || playbackState == .buffering
+        if shouldResumeAfterSeek {
+            player.pause()
+            playbackState = .buffering
+        }
+
+        seekRequestCounter &+= 1
+        let requestID = seekRequestCounter
+        pendingSeekRequestID = requestID
+        pendingSeekTargetTime = clampedTime
+        pendingSeekTrackID = currentTrack?.id
+        pendingSeekStartedAt = Date()
+        pendingSeekShouldResume = shouldResumeAfterSeek
+
+        let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard self.pendingSeekRequestID == requestID else { return }
+                let seekTargetTime = self.pendingSeekTargetTime
+                let shouldResume = self.pendingSeekShouldResume
+                if shouldResume {
+                    let item = self.player?.currentItem
+                    let targetIsBuffered: Bool
+                    if let item, let seekTargetTime {
+                        targetIsBuffered = Self.contiguousBufferedRangeEnd(
+                            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+                            playbackTime: seekTargetTime
+                        ) != nil
+                    } else {
+                        targetIsBuffered = false
+                    }
+
+                    let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
+                    let playbackBufferFull = item?.isPlaybackBufferFull == true
+                    let shouldForceImmediateResume = targetIsBuffered || likelyToKeepUp || playbackBufferFull
+
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "🎯 Seek completion: targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
+                    )
+                    #endif
+
+                    if shouldForceImmediateResume {
+                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
+                    } else {
+                        self.playbackState = .buffering
+                        self.setupStallRecovery(recordStallEvent: false)
+                    }
+                }
+                self.clearPendingSeekState()
+            }
+        }
     }
 
     // MARK: - Queue Management
@@ -1751,15 +2058,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
+    private func removeCachedPlayerItem(for trackID: String) {
+        if let item = playerItems.removeValue(forKey: trackID) {
+            item.asset.cancelLoading()
+        }
+        playerItemsLRU.removeAll { $0 == trackID }
+    }
+
     // MARK: - Private Methods
 
-    private func playCurrentQueueItem() async {
+    private func playCurrentQueueItem(
+        forcingFreshItem: Bool = false,
+        seekTo startTime: TimeInterval? = nil
+    ) async {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else {
             stop()
             return
         }
 
         let track = queue[currentQueueIndex].track
+        let recoverySeekTime = validatedRecoverySeekTime(startTime, for: track)
 
         #if DEBUG
         EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
@@ -1775,9 +2093,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
+        if forcingFreshItem {
+            removeCachedPlayerItem(for: track.id)
+        }
+
         // Check if we have a cached player item that's ready to play
         if let cachedItem = getCachedPlayerItem(for: track.id),
-           cachedItem.status == .readyToPlay {
+           cachedItem.status == .readyToPlay,
+           !forcingFreshItem {
             #if DEBUG
             EnsembleLogger.debug("   ✅ Using cached player item (ready)")
             #endif
@@ -1791,6 +2114,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await MainActor.run {
                 self.currentTrack = track
                 self.currentTime = 0
+                self.bufferedProgress = 0
             }
 
             generateWaveform(for: track.id)
@@ -1806,6 +2130,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run {
             self.currentTrack = track
             self.currentTime = 0
+            self.bufferedProgress = 0
         }
 
         // Start delayed loading state (150ms) to prevent flash on quick loads
@@ -1824,6 +2149,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             let item = try await createPlayerItem(for: track)
             await loadAndPlay(item: item, track: track)
+            if let recoverySeekTime, recoverySeekTime > 0 {
+                await MainActor.run {
+                    self.seekCurrentItemForRecovery(to: recoverySeekTime)
+                }
+                #if DEBUG
+                EnsembleLogger.debug("   ↩️ Recovered playback position at \(recoverySeekTime)s")
+                #endif
+            }
 
             // Prefetch next for gapless
             Task { await prefetchNextItem() }
@@ -1839,6 +2172,57 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if DEBUG
         EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
         #endif
+    }
+
+    private func validatedRecoverySeekTime(_ requestedTime: TimeInterval?, for track: Track) -> TimeInterval? {
+        guard let requestedTime else { return nil }
+        guard requestedTime.isFinite else { return nil }
+        guard requestedTime > 1 else { return nil }
+
+        // Keep recovery seeks slightly away from track end to avoid instant completion.
+        let effectiveTrackDuration = max(track.duration, duration)
+        let upperBound = max(1, effectiveTrackDuration - 2)
+        return min(requestedTime, upperBound)
+    }
+
+    @MainActor
+    private func seekCurrentItemForRecovery(to recoverySeekTime: TimeInterval) {
+        guard let player else { return }
+
+        seekRequestCounter &+= 1
+        pendingSeekRequestID = seekRequestCounter
+        pendingSeekTargetTime = recoverySeekTime
+        pendingSeekTrackID = currentTrack?.id
+        pendingSeekStartedAt = Date()
+        pendingSeekShouldResume = false
+        currentTime = recoverySeekTime
+
+        let targetTime = CMTime(seconds: recoverySeekTime, preferredTimescale: 1000)
+        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    private func retryCurrentTrack(forceConnectionRefresh: Bool, reason: String) async {
+        guard let track = currentTrack else { return }
+
+        let recoveryTime: TimeInterval?
+        switch playbackState {
+        case .playing, .buffering:
+            recoveryTime = currentTime
+        default:
+            recoveryTime = nil
+        }
+
+        if forceConnectionRefresh, track.localFilePath == nil {
+            do {
+                try await syncCoordinator.refreshConnection()
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to refresh connection before retry (\(reason)): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime)
     }
     
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
@@ -1878,10 +2262,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("   ✅ Server connection ready")
             #endif
         } catch {
+            let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
             #if DEBUG
             EnsembleLogger.debug("   ❌ Failed to ensure server connection: \(error)")
+            if let failureMessage {
+                EnsembleLogger.debug("   ❌ Server failure reason: \(failureMessage)")
+            }
             #endif
-            throw PlaybackError.serverUnavailable
+            throw PlaybackError.serverUnavailable(message: failureMessage)
         }
 
         // Attempt to get stream URL. If it fails due to connectivity issues, refresh
@@ -1923,8 +2311,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
         let asset = AVURLAsset(url: streamURL)
         let item = AVPlayerItem(asset: asset)
-        // Keep a modest forward buffer for smoother playback without adding large delay.
-        item.preferredForwardBufferDuration = 5
+        item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
+        #if DEBUG
+        EnsembleLogger.debug(
+            "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s"
+        )
+        #endif
         return item
     }
 
@@ -1946,7 +2338,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let plexError = error as? PlexAPIError {
             switch plexError {
             case .noServerSelected:
-                return .serverUnavailable
+                return .serverUnavailable(message: nil)
             case .networkError:
                 return .networkError(error)
             default:
@@ -1961,63 +2353,147 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         return .unknown(error)
     }
+
+    static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
+        guard domain == NSURLErrorDomain else { return false }
+        switch errorCode {
+        case NSURLErrorNotConnectedToInternet,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldForceTransportRecovery(for error: NSError) -> Bool {
+        Self.shouldForceTransportRecovery(errorCode: error.code, domain: error.domain)
+    }
+
+    private func handlePlayerItemTransportErrorIfNeeded(_ error: NSError, context: String, item: AVPlayerItem?) {
+        if let item, player?.currentItem !== item {
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ Ignoring transport error from stale item (\(context)) code=\(error.code)")
+            #endif
+            return
+        }
+        guard shouldForceTransportRecovery(for: error) else { return }
+        let now = Date()
+        prefetchThrottleUntil = now.addingTimeInterval(Self.prefetchThrottleDuration)
+        Task { @MainActor [weak self] in
+            self?.refreshAdaptiveBufferingProfile(reason: "transport-recovery", now: now)
+        }
+        if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
+           now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ Transport recovery cooldown active (\(context))")
+            #endif
+            return
+        }
+
+        adaptiveBufferingState.lastRecoveryAttemptAt = now
+        #if DEBUG
+        EnsembleLogger.debug("🌐 Transport failure detected (\(context)) code=\(error.code) - rebuilding current stream item")
+        #endif
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.retryCurrentTrack(forceConnectionRefresh: true, reason: "transport-\(context)")
+        }
+    }
     
     private func prefetchNextItem() async {
-        // Determine which track should be queued next
-        let nextIndex: Int
+        await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
+    }
+
+    private func upcomingQueueIndices(depth: Int) -> [Int] {
+        guard depth > 0, !queue.isEmpty else { return [] }
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return [] }
+
         if repeatMode == .one {
-            // For repeat.one, queue the same track to play again
-            nextIndex = currentQueueIndex
-        } else {
-            // Normal case: queue the next track
-            nextIndex = currentQueueIndex + 1
+            return [currentQueueIndex]
         }
-        
-        if nextIndex >= 0, nextIndex < queue.count {
-            let nextTrack = queue[nextIndex].track
-            do {
-                let item = try await createPlayerItem(for: nextTrack)
-                cachePlayerItem(item, for: nextTrack.id)
 
-                await MainActor.run {
-                    if let player = self.player, !player.items().contains(item) {
-                        player.insert(item, after: player.currentItem)
-                        if repeatMode == .one {
-                            #if DEBUG
-                            EnsembleLogger.debug("✅ Queued same track for repeat.one: \(nextTrack.title)")
-                            #endif
-                        } else {
-                            #if DEBUG
-                            EnsembleLogger.debug("✅ Queued next track for gapless: \(nextTrack.title)")
-                            #endif
-                        }
-                    }
+        var indices: [Int] = []
+        var nextIndex = currentQueueIndex
+
+        for _ in 0..<depth {
+            nextIndex += 1
+            if nextIndex >= queue.count {
+                guard repeatMode == .all else { break }
+                nextIndex = 0
+            }
+            indices.append(nextIndex)
+        }
+
+        return indices
+    }
+
+    private func prefetchUpcomingItems(depth: Int) async {
+        guard let player else { return }
+
+        let targetIndices = upcomingQueueIndices(depth: depth)
+        let requestedDepth = max(0, depth)
+        if targetIndices.isEmpty {
+            await MainActor.run {
+                for item in player.items().dropFirst() {
+                    player.remove(item)
                 }
+            }
+            #if DEBUG
+            EnsembleLogger.debug("📦 Prefetch window fill: requestedDepth=\(requestedDepth), queuedCount=0, cacheHits=0, cacheMisses=0")
+            #endif
+            return
+        }
+
+        var prefetchedItems: [AVPlayerItem] = []
+        var cacheHits = 0
+        var cacheMisses = 0
+
+        for index in targetIndices {
+            let track = queue[index].track
+            do {
+                let item: AVPlayerItem
+                let cachedItem = getCachedPlayerItem(for: track.id)
+                let isCurrentItem = cachedItem != nil && cachedItem === player.currentItem
+
+                if let cachedItem, !isCurrentItem {
+                    item = cachedItem
+                    cacheHits += 1
+                } else {
+                    item = try await createPlayerItem(for: track)
+                    cachePlayerItem(item, for: track.id)
+                    cacheMisses += 1
+                }
+
+                prefetchedItems.append(item)
             } catch {
                 #if DEBUG
-                EnsembleLogger.debug("⚠️ Failed to prefetch next track: \(error)")
-                #endif
-            }
-        } else if repeatMode == .all && !queue.isEmpty {
-            let nextTrack = queue[0].track
-            do {
-                let item = try await createPlayerItem(for: nextTrack)
-                cachePlayerItem(item, for: nextTrack.id)
-
-                await MainActor.run {
-                    if let player = self.player, !player.items().contains(item) {
-                        player.insert(item, after: player.currentItem)
-                        #if DEBUG
-                        EnsembleLogger.debug("✅ Queued first track for repeat all: \(nextTrack.title)")
-                        #endif
-                    }
-                }
-            } catch {
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ Failed to prefetch first track for repeat all: \(error)")
+                EnsembleLogger.debug("⚠️ Failed to prefetch track '\(track.title)': \(error)")
                 #endif
             }
         }
+
+        let queuedItems = prefetchedItems
+        await MainActor.run {
+            var insertAfter = player.currentItem
+            for item in player.items().dropFirst() {
+                player.remove(item)
+            }
+
+            for item in queuedItems where !player.items().contains(where: { $0 === item }) {
+                player.insert(item, after: insertAfter)
+                insertAfter = item
+            }
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "📦 Prefetch window fill: requestedDepth=\(requestedDepth), queuedCount=\(prefetchedItems.count), cacheHits=\(cacheHits), cacheMisses=\(cacheMisses)"
+        )
+        #endif
     }
 
     private func updatePlayerQueueAfterReorder() async {
@@ -2037,8 +2513,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
         
-        // Queue the correct next item based on the new order
-        await prefetchNextItem()
+        // Refill queue using the active adaptive profile depth.
+        await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
     }
 
     @MainActor
@@ -2053,8 +2529,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
+        removeCurrentItemNotificationObservers()
 
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -2076,16 +2556,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask = nil
 
         setupObservers(for: item)
+        updateBufferedProgress()
         #if DEBUG
         EnsembleLogger.debug("🎵 Starting playback")
         #endif
         player?.play()
 
-        // Always set to playing - the observers will handle buffering/stall states
-        // This fixes race conditions where the button shows wrong state
-        playbackState = .playing
+        // Keep startup state as loading until AVPlayer confirms audio output via timeControlStatus.
+        playbackState = .loading
         #if DEBUG
-        EnsembleLogger.debug("🎵 Set playbackState = .playing")
+        EnsembleLogger.debug("🎵 Set playbackState = .loading")
         #endif
     }
 
@@ -2121,6 +2601,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("⚠️ Playback buffer empty - switching to buffering state")
                     #endif
                     self.playbackState = .buffering
+                    self.setupStallRecovery(recordStallEvent: self.pendingSeekTargetTime == nil)
                 }
             }
         }
@@ -2133,9 +2614,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     #if DEBUG
                     EnsembleLogger.debug("✅ Buffer ready - resuming playback")
                     #endif
-                    self.player?.play()
-                    self.playbackState = .playing
+                    self.resumePlayerFromBuffering(forceImmediate: false, reason: "likely-to-keep-up")
                 }
+            }
+        }
+
+        loadedTimeRangesObservation = item.observe(\.loadedTimeRanges, options: [.new, .initial]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.updateBufferedProgress()
             }
         }
 
@@ -2153,15 +2639,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             EnsembleLogger.debug("✅ AVPlayer actually playing audio")
                             #endif
                             self.playbackState = .playing
+                            self.adaptiveBufferingState.conservativeWaitCycles = 0
                         }
 
                     case .paused:
                         // Player is paused (but not stopped)
-                        if self.playbackState == .playing || self.playbackState == .buffering {
+                        let item = self.player?.currentItem
+                        if let recoveryAction = Self.unexpectedPauseRecoveryAction(
+                            playbackState: self.playbackState,
+                            isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp == true,
+                            isPlaybackBufferFull: item?.isPlaybackBufferFull == true,
+                            isPlaybackBufferEmpty: item?.isPlaybackBufferEmpty == true,
+                            pendingSeekTargetTime: self.pendingSeekTargetTime
+                        ) {
                             #if DEBUG
                             EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly")
                             #endif
-                            // Don't override user-initiated pause
+                            if recoveryAction.resumeImmediately {
+                                self.resumePlayerFromBuffering(forceImmediate: true, reason: "unexpected-pause")
+                            } else {
+                                self.playbackState = .buffering
+                                self.setupStallRecovery(recordStallEvent: recoveryAction.recordStallEvent)
+                            }
                         }
 
                     case .waitingToPlayAtSpecifiedRate:
@@ -2172,8 +2671,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             #endif
                             self.playbackState = .buffering
 
-                            // Set up stall recovery with timeout
-                            self.setupStallRecovery()
+                            // Only count waiting events as stalls when we're actually buffer-starved.
+                            let shouldRecordStallEvent = Self.shouldRecordWaitingStallEvent(
+                                playbackState: .playing,
+                                isPlaybackBufferEmpty: item.isPlaybackBufferEmpty,
+                                pendingSeekTargetTime: self.pendingSeekTargetTime
+                            )
+                            self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
+                        } else if self.playbackState == .loading {
+                            // Initial startup waits are expected and should not escalate adaptive buffering.
+                            self.setupStallRecovery(recordStallEvent: false)
                         }
 
                     @unknown default:
@@ -2183,13 +2690,75 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        itemPlaybackStalledObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if let error = item.error as NSError? {
+                self.handlePlayerItemTransportErrorIfNeeded(error, context: "playback-stalled", item: item)
+            }
+        }
+
+        itemFailedToPlayToEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let nsError = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
+                ?? (item.error as NSError?)
+            if let nsError {
+                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "failed-to-end", item: item)
+            }
+        }
+
+        itemErrorLogEntryObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemNewErrorLogEntry,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if let nsError = item.error as NSError? {
+                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "error-log", item: item)
+            }
+        }
+
         // Time observer
         timeObserver = player?.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 1000),
             queue: .main
         ) { [weak self] time in
             guard let self = self else { return }
+
+            if let pendingSeekTargetTime = self.pendingSeekTargetTime {
+                if self.pendingSeekTrackID != nil && self.pendingSeekTrackID != self.currentTrack?.id {
+                    // Track switched while seek was in flight; clear stale seek gate.
+                    self.clearPendingSeekState()
+                } else {
+                    let observedTime = time.seconds
+                    let elapsedSinceSeek = Date().timeIntervalSince(self.pendingSeekStartedAt ?? Date.distantPast)
+                    if Self.shouldContinueSeekProgressGate(
+                        observedTime: observedTime,
+                        pendingSeekTargetTime: pendingSeekTargetTime,
+                        elapsedSinceSeek: elapsedSinceSeek,
+                        playbackState: self.playbackState
+                    ) {
+                        self.currentTime = pendingSeekTargetTime
+                        self.updateBufferedProgress()
+                        self.updateNowPlayingProgress()
+                        return
+                    }
+
+                    // Once observer time catches up (or the guard times out),
+                    // clear synchronization and resume normal progress updates.
+                    self.clearPendingSeekState()
+                }
+            }
+
             self.currentTime = time.seconds
+            self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 
             // Report timeline to Plex every 10 seconds when playing
@@ -2209,8 +2778,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Scrobble track at 90% completion
             if !self.hasScrobbled,
                let track = self.currentTrack,
-               track.duration > 0,
-               time.seconds / track.duration >= 0.9 {
+               self.duration > 0,
+               time.seconds / self.duration >= 0.9 {
                 self.hasScrobbled = true
                 Task {
                     await self.syncCoordinator.scrobbleTrack(track)
@@ -2219,49 +2788,249 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    /// Set up automatic recovery from stalled playback (with 10s timeout)
-    private func setupStallRecovery() {
-        // Cancel any existing recovery task
-        stallRecoveryTask?.cancel()
+    private func clearPendingSeekState() {
+        pendingSeekRequestID = nil
+        pendingSeekTargetTime = nil
+        pendingSeekTrackID = nil
+        pendingSeekStartedAt = nil
+        pendingSeekShouldResume = false
+    }
 
-        stallRecoveryTask = Task { @MainActor [weak self] in
-            // Wait 10 seconds for playback to resume
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
+    private func removeCurrentItemNotificationObservers() {
+        if let itemPlaybackStalledObserver {
+            NotificationCenter.default.removeObserver(itemPlaybackStalledObserver)
+            self.itemPlaybackStalledObserver = nil
+        }
+        if let itemFailedToPlayToEndObserver {
+            NotificationCenter.default.removeObserver(itemFailedToPlayToEndObserver)
+            self.itemFailedToPlayToEndObserver = nil
+        }
+        if let itemErrorLogEntryObserver {
+            NotificationCenter.default.removeObserver(itemErrorLogEntryObserver)
+            self.itemErrorLogEntryObserver = nil
+        }
+    }
 
-            guard let self = self, !Task.isCancelled else { return }
+    @MainActor
+    private func resumePlayerFromBuffering(forceImmediate: Bool, reason: String) {
+        guard let player else { return }
+        if forceImmediate {
+            if #available(iOS 10.0, macOS 10.12, *) {
+                player.playImmediately(atRate: 1.0)
+            } else {
+                player.play()
+            }
+        } else {
+            player.play()
+        }
+        playbackState = .playing
+        adaptiveBufferingState.conservativeWaitCycles = 0
+        #if DEBUG
+        EnsembleLogger.debug("▶️ Resuming playback (\(reason)) immediate=\(forceImmediate)")
+        #endif
+    }
 
-            // If still buffering after 10s, try to recover
-            if self.playbackState == .buffering {
-                // End-of-queue often presents as "waiting" with no current item.
-                // Treat this as completion instead of retrying the same track.
-                if self.player?.currentItem == nil {
-                    #if DEBUG
-                    EnsembleLogger.debug("⏹️ Stall recovery detected empty player queue - handling as queue end")
-                    #endif
-                    self.handleQueueExhausted()
-                    return
-                }
+    private func isCurrentPlaybackPositionBuffered() -> Bool {
+        guard let item = player?.currentItem else { return false }
+        return Self.contiguousBufferedRangeEnd(
+            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+            playbackTime: currentTime
+        ) != nil
+    }
 
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ Playback stalled for 10s - attempting recovery")
-                #endif
+    private func applyActiveBufferingProfileToPlayer(reason: String) {
+        player?.automaticallyWaitsToMinimizeStalling = activeBufferingProfile.waitsToMinimizeStalling
+        #if DEBUG
+        EnsembleLogger.debug(
+            "🎚️ Active playback profile (\(reason)): network=\(lastObservedNetworkState?.description ?? "Unknown"), mode=\(activeBufferingProfile.label), waits=\(activeBufferingProfile.waitsToMinimizeStalling), forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s, prefetchDepth=\(activeBufferingProfile.prefetchDepth), stallTimeout=\(activeBufferingProfile.stallRecoveryTimeout)s"
+        )
+        #endif
+    }
 
-                // Check if network is available
-                if !self.networkMonitor.isConnected {
-                    #if DEBUG
-                    EnsembleLogger.debug("❌ No network connection - waiting for network")
-                    #endif
-                    self.playbackState = .failed("No internet connection")
-                    return
-                }
+    @MainActor
+    private func refreshAdaptiveBufferingProfile(reason: String, now: Date = Date()) {
+        if let conservativeModeUntil = adaptiveBufferingState.conservativeModeUntil,
+           conservativeModeUntil <= now {
+            adaptiveBufferingState.conservativeModeUntil = nil
+            #if DEBUG
+            EnsembleLogger.debug("🎚️ Exiting conservative playback mode")
+            #endif
+        }
+        if let prefetchThrottleUntil, prefetchThrottleUntil <= now {
+            self.prefetchThrottleUntil = nil
+            #if DEBUG
+            EnsembleLogger.debug("🎚️ Prefetch throttle window expired")
+            #endif
+        }
 
-                // Try to reload the current track
-                #if DEBUG
-                EnsembleLogger.debug("🔄 Attempting to reload current track...")
-                #endif
-                await self.retryCurrentTrack()
+        let networkState = lastObservedNetworkState ?? networkMonitor.networkState
+        let baseProfile = Self.resolvedBufferingProfile(
+            for: networkState,
+            conservativeModeUntil: adaptiveBufferingState.conservativeModeUntil,
+            now: now
+        )
+        let resolvedProfile = Self.throttledPrefetchProfileIfNeeded(
+            baseProfile,
+            throttleActive: (prefetchThrottleUntil?.timeIntervalSince(now) ?? 0) > 0
+        )
+        guard resolvedProfile != activeBufferingProfile else { return }
+
+        let previousPrefetchDepth = activeBufferingProfile.prefetchDepth
+        activeBufferingProfile = resolvedProfile
+        applyActiveBufferingProfileToPlayer(reason: reason)
+        if previousPrefetchDepth != resolvedProfile.prefetchDepth {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.prefetchUpcomingItems(depth: resolvedProfile.prefetchDepth)
             }
         }
+    }
+
+    @MainActor
+    private func registerBufferingStallEvent(now: Date = Date()) {
+        adaptiveBufferingState.stallTimestamps = Self.trimmedStallTimestamps(
+            adaptiveBufferingState.stallTimestamps,
+            now: now
+        )
+        adaptiveBufferingState.stallTimestamps.append(now)
+
+        if Self.shouldEnterConservativeMode(
+            stallTimestamps: adaptiveBufferingState.stallTimestamps,
+            now: now
+        ) {
+            let expiresAt = now.addingTimeInterval(Self.conservativeModeDuration)
+            let hasExistingWindow = adaptiveBufferingState.conservativeModeUntil != nil
+            adaptiveBufferingState.conservativeModeUntil = expiresAt
+            if !hasExistingWindow {
+                #if DEBUG
+                EnsembleLogger.debug("🎚️ Entering conservative playback mode after repeated stalls")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        let stallCount = Self.trimmedStallTimestamps(
+            adaptiveBufferingState.stallTimestamps,
+            now: now
+        ).count
+        EnsembleLogger.debug("🎚️ Stall window count=\(stallCount) in \(Int(Self.stallEscalationWindow))s")
+        #endif
+
+        refreshAdaptiveBufferingProfile(reason: "stall-event", now: now)
+    }
+
+    @MainActor
+    private func isConservativeModeActive(now: Date = Date()) -> Bool {
+        if let conservativeModeUntil = adaptiveBufferingState.conservativeModeUntil,
+           conservativeModeUntil > now {
+            return true
+        }
+        return false
+    }
+
+    @MainActor
+    private func setupStallRecovery(recordStallEvent: Bool = true) {
+        let now = Date()
+        if recordStallEvent {
+            registerBufferingStallEvent(now: now)
+        } else {
+            refreshAdaptiveBufferingProfile(reason: "stall-recovery", now: now)
+        }
+        scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+    }
+
+    @MainActor
+    private func scheduleStallRecovery(timeout: TimeInterval) {
+        stallRecoveryTask?.cancel()
+        let nanoseconds = UInt64(max(timeout, 0) * 1_000_000_000)
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard let self = self, !Task.isCancelled else { return }
+            await self.handleStallRecoveryTimeout()
+        }
+    }
+
+    @MainActor
+    private func handleStallRecoveryTimeout() async {
+        guard playbackState == .buffering else { return }
+
+        // End-of-queue often presents as "waiting" with no current item.
+        // Treat this as completion instead of retrying the same track.
+        if player?.currentItem == nil {
+            #if DEBUG
+            EnsembleLogger.debug("⏹️ Stall recovery detected empty player queue - handling as queue end")
+            #endif
+            await handleQueueExhausted()
+            return
+        }
+
+        let now = Date()
+        refreshAdaptiveBufferingProfile(reason: "stall-timeout", now: now)
+
+        if !networkMonitor.isConnected {
+            #if DEBUG
+            EnsembleLogger.debug("❌ No network connection - waiting for network")
+            #endif
+            playbackState = .failed("No internet connection")
+            return
+        }
+
+        if isConservativeModeActive(now: now) {
+            adaptiveBufferingState.conservativeWaitCycles += 1
+            let conservativeCycle = adaptiveBufferingState.conservativeWaitCycles
+            let positionBuffered = isCurrentPlaybackPositionBuffered()
+            let bufferFull = player?.currentItem?.isPlaybackBufferFull == true
+
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🎚️ Conservative mode active - cycle=\(conservativeCycle), positionBuffered=\(positionBuffered), bufferFull=\(bufferFull)"
+            )
+            #endif
+
+            if positionBuffered || bufferFull {
+                resumePlayerFromBuffering(forceImmediate: true, reason: "conservative-buffered")
+                scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+                return
+            }
+
+            if conservativeCycle >= 2 {
+                if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
+                   now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
+                    #if DEBUG
+                    EnsembleLogger.debug("⏱️ Conservative retry cooldown active - delaying reload")
+                    #endif
+                    scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+                    return
+                }
+
+                adaptiveBufferingState.lastRecoveryAttemptAt = now
+                adaptiveBufferingState.conservativeWaitCycles = 0
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Conservative mode timed out repeatedly - retrying current track")
+                #endif
+                await retryCurrentTrack(forceConnectionRefresh: false, reason: "stall-timeout-conservative")
+                return
+            }
+
+            player?.play()
+            scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+            return
+        }
+
+        if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
+           now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ Stall recovery cooldown active - skipping retry")
+            #endif
+            scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+            return
+        }
+
+        adaptiveBufferingState.lastRecoveryAttemptAt = now
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ Playback stalled - retrying current track")
+        #endif
+        await retryCurrentTrack(forceConnectionRefresh: false, reason: "stall-timeout")
     }
 
     /// Set up network state observation to handle network transitions during playback
@@ -2270,6 +3039,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             self.lastObservedNetworkState = self.networkMonitor.networkState
+            self.refreshAdaptiveBufferingProfile(reason: "network-observation-start")
             self.networkStateObservation = self.networkMonitor.$networkState
                 .dropFirst() // Ignore initial value
                 .sink { [weak self] newState in
@@ -2288,6 +3058,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleNetworkStateTransition(from previous: NetworkState?, to current: NetworkState) async {
         let decision = Self.evaluateNetworkTransition(from: previous, to: current)
+        refreshAdaptiveBufferingProfile(reason: "network-transition")
 
         #if DEBUG
         EnsembleLogger.debug("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
@@ -2323,7 +3094,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
                 #endif
-                await retryCurrentTrack()
+                await retryCurrentTrack(forceConnectionRefresh: false, reason: "network-reconnect")
             } else if playbackState == .buffering {
                 #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
@@ -2375,9 +3146,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🔄 Auto-healed upcoming queue after network transition")
         EnsembleLogger.debug("   Removed queued player items: \(removedPlayerItems)")
         EnsembleLogger.debug("   Evicted cached upcoming items: \(evictedCount)")
+        EnsembleLogger.debug("   Rebuilding prefetch window depth: \(activeBufferingProfile.prefetchDepth)")
         #endif
 
-        await prefetchNextItem()
+        await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
     }
 
     private func cleanup() {
@@ -2403,8 +3175,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
+        removeCurrentItemNotificationObservers()
 
         networkStateObservation?.cancel()
         networkStateObservation = nil
@@ -2414,26 +3190,51 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         loadingStateTask?.cancel()
         loadingStateTask = nil
+        cancelNowPlayingArtworkLoad(clearArtwork: true)
 
         player?.pause()
         player?.removeAllItems()
         clearPlayerItemCache()
+        bufferedProgress = 0
+        clearPendingSeekState()
+    }
+
+    private func updateBufferedProgress() {
+        guard let item = player?.currentItem, duration > 0 else {
+            bufferedProgress = 0
+            return
+        }
+
+        let ranges = item.loadedTimeRanges.map { $0.timeRangeValue }
+
+        guard !ranges.isEmpty else {
+            bufferedProgress = 0
+            return
+        }
+
+        let playbackTime = max(0, currentTime)
+        let rangeEnd = Self.contiguousBufferedRangeEnd(ranges: ranges, playbackTime: playbackTime) ?? playbackTime
+        let progress = max(0, min(1, rangeEnd / duration))
+
+        bufferedProgress = progress
     }
 
     // MARK: - Now Playing Info
 
     private func updateNowPlayingInfo() {
         guard let track = currentTrack else {
+            cancelNowPlayingArtworkLoad(clearArtwork: true)
             updateFeedbackCommandState(isLiked: false, isDisliked: false)
             return
         }
         let feedbackFlags = Self.feedbackFlags(for: track.rating)
         let isLiked = feedbackFlags.isLiked
         let isDisliked = feedbackFlags.isDisliked
+        let artworkRequestKey = "\(track.id)|\(track.thumbPath ?? "")|\(track.fallbackThumbPath ?? "")|\(track.sourceCompositeKey ?? "")"
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyPlaybackDuration: track.duration,
+            MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: playbackState == .playing ? 1.0 : 0.0
         ]
@@ -2446,35 +3247,63 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             info[MPMediaItemPropertyAlbumTitle] = album
         }
 
+        if nowPlayingArtworkTrackID == track.id, let nowPlayingArtwork {
+            info[MPMediaItemPropertyArtwork] = nowPlayingArtwork
+        }
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
-        
-        // Load artwork asynchronously using the injected loader
-        Task {
-            if let url = await artworkLoader.artworkURLAsync(
+
+        guard nowPlayingArtworkRequestKey != artworkRequestKey else { return }
+        cancelNowPlayingArtworkLoad(clearArtwork: false)
+        nowPlayingArtworkRequestKey = artworkRequestKey
+
+        // Keep lock-screen artwork loading to one task per track/artwork key.
+        nowPlayingArtworkTask = Task { [weak self] in
+            guard let self else { return }
+
+            guard let url = await self.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
                 fallbackPath: track.fallbackThumbPath,
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 600
-            ) {
-                let request = ImageRequest(url: url)
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                        return image
-                    }
-                    
-                    await MainActor.run {
-                        // Ensure we're still playing the same track
-                        if self.currentTrack?.id == track.id {
-                            var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                            currentInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
-                        }
-                    }
-                }
+            ) else {
+                return
             }
+
+            if Task.isCancelled { return }
+
+            let request = ImageRequest(url: url)
+            guard let image = try? await ImagePipeline.shared.image(for: request) else {
+                return
+            }
+
+            if Task.isCancelled { return }
+
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                image
+            }
+
+            await MainActor.run {
+                guard self.currentTrack?.id == track.id else { return }
+                self.nowPlayingArtwork = artwork
+                self.nowPlayingArtworkTrackID = track.id
+                var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                currentInfo[MPMediaItemPropertyArtwork] = artwork
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+            }
+        }
+    }
+
+    private func cancelNowPlayingArtworkLoad(clearArtwork: Bool) {
+        nowPlayingArtworkTask?.cancel()
+        nowPlayingArtworkTask = nil
+        nowPlayingArtworkRequestKey = nil
+        if clearArtwork {
+            nowPlayingArtworkTrackID = nil
+            nowPlayingArtwork = nil
         }
     }
 
@@ -2668,8 +3497,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferLikelyToKeepUpObservation?.invalidate()
         bufferLikelyToKeepUpObservation = nil
 
+        loadedTimeRangesObservation?.invalidate()
+        loadedTimeRangesObservation = nil
+
         timeControlStatusObservation?.invalidate()
         timeControlStatusObservation = nil
+        removeCurrentItemNotificationObservers()
 
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -2687,6 +3520,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.insert(item, after: nil)
 
         setupObservers(for: item)
+        updateBufferedProgress()
 
         // Seek to the saved position
         if time > 0 {
@@ -2701,5 +3535,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🎵 Track prepared and paused at \(time)s")
         #endif
         updateNowPlayingInfo()
+        Task { await prefetchNextItem() }
     }
 }

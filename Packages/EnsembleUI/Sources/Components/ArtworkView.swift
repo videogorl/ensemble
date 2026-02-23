@@ -22,6 +22,17 @@ public struct ArtworkView: View {
         return "\(actualPath ?? "")|\(actualRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
     }
 
+    private var imagePriority: ImageRequest.Priority {
+        switch size {
+        case .tiny:
+            return .high
+        case .thumbnail, .small:
+            return .low
+        case .medium, .large, .extraLarge:
+            return .normal
+        }
+    }
+
     public init(
         path: String?,
         sourceKey: String? = nil,
@@ -49,15 +60,11 @@ public struct ArtworkView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                } else if let error = state.error {
-                    // Show placeholder on error
-                    let _ = EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Load error - \(error.localizedDescription) for URL: \(artworkURL?.absoluteString ?? "nil")")
+                } else if state.error != nil {
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
                 } else {
-                    // Loading or no URL yet
-                    let _ = EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Loading state - URL: \(artworkURL?.absoluteString ?? "nil")")
                     Image(systemName: "music.note")
                         .font(.system(size: size.cgSize.width * 0.3))
                         .foregroundColor(.gray.opacity(0.5))
@@ -65,7 +72,7 @@ public struct ArtworkView: View {
             }
         }
         .processors([.resize(size: size.cgSize, contentMode: .aspectFill, upscale: true)])
-        .priority(.high)
+        .priority(imagePriority)
         .aspectRatio(1, contentMode: .fill)
         .frame(maxWidth: size.cgSize.width, maxHeight: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -105,10 +112,6 @@ public struct ArtworkView: View {
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
             #endif
             artworkURL = url
-        } else {
-            #if DEBUG
-            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: URL unchanged")
-            #endif
         }
     }
 }

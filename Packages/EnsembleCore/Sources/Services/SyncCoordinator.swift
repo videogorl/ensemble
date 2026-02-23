@@ -49,6 +49,30 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
+    private enum NetworkTransition {
+        case reconnect
+        case interfaceSwitch(from: NetworkType, to: NetworkType)
+        case disconnect
+        case none
+    }
+
+    private enum HealthRefreshReason: Equatable {
+        case networkReconnect
+        case interfaceSwitch(from: NetworkType, to: NetworkType)
+        case appForeground
+
+        var description: String {
+            switch self {
+            case .networkReconnect:
+                return "network_reconnect"
+            case .interfaceSwitch(let from, let to):
+                return "interface_switch(\(from.description)->\(to.description))"
+            case .appForeground:
+                return "app_foreground"
+            }
+        }
+    }
+
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
@@ -63,7 +87,11 @@ public final class SyncCoordinator: ObservableObject {
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
-    private var lastHealthCheckTime: Date?
+    private var lastObservedNetworkState: NetworkState?
+    private var lastHealthRefreshAt: Date?
+    private var activeHealthRefreshTask: Task<Void, Never>?
+    private let healthRefreshCooldown: TimeInterval = 30
+    private let foregroundHealthStalenessThreshold: TimeInterval = 60
     
     // Periodic sync timers
     private var incrementalSyncTimer: Timer?
@@ -76,6 +104,9 @@ public final class SyncCoordinator: ObservableObject {
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
+    internal var nowProviderForTesting: () -> Date = { Date() }
+    internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
+    internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
     public init(
         accountManager: AccountManager,
@@ -821,6 +852,10 @@ public final class SyncCoordinator: ObservableObject {
         
         // Check if we already have a connected state
         let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
+
+        #if DEBUG
+        EnsembleLogger.debug("🎵 ensureServerConnection[v2]: current state for \(accountId):\(serverId) = \(currentState.description)")
+        #endif
         
         // If already connected or degraded, we're good
         if case .connected = currentState {
@@ -832,9 +867,13 @@ public final class SyncCoordinator: ObservableObject {
         
         // Need to check server health
         #if DEBUG
-        EnsembleLogger.debug("🔍 Checking server connection before playback...")
+        EnsembleLogger.debug("🔍 Checking server connection before playback")
         #endif
-        let newState = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+        let newState = await serverHealthChecker.checkServer(
+            accountId: accountId,
+            serverId: serverId,
+            forceRefresh: false
+        )
         
         // Update the API client with the working URL
         switch newState {
@@ -847,9 +886,25 @@ public final class SyncCoordinator: ObservableObject {
             }
         case .offline:
             #if DEBUG
-            EnsembleLogger.debug("❌ Server is offline, cannot play track")
+            EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
             #endif
-            throw PlexAPIError.noServerSelected
+            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
+                let refreshResult = try? await apiClient.refreshConnection()
+                #if DEBUG
+                let refreshedURL = await apiClient.getCurrentServerURL()
+                EnsembleLogger.debug(
+                    "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
+                )
+                if let refreshResult {
+                    EnsembleLogger.debug(
+                        "⚠️ ensureServerConnection[v2]: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
+                    )
+                }
+                #endif
+            }
+            // Do not fail fast on health-check offline. Stream URL retrieval/playback
+            // performs its own network path and can still succeed on slower paths.
+            return
         case .connecting, .unknown:
             #if DEBUG
             EnsembleLogger.debug("⚠️ Server state uncertain, attempting playback anyway")
@@ -857,23 +912,55 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    private func hostForDebugURL(_ urlString: String) -> String {
+        URL(string: urlString)?.host ?? "invalid"
+    }
+
+    public func serverFailureMessage(for track: Track) async -> String? {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            return nil
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            return nil
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        return serverHealthChecker.getServerFailureReason(accountId: accountId, serverId: serverId)?.userMessage
+    }
+
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
         var refreshedAnyConnection = false
+        var lastError: Error?
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
                 guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
                     continue
                 }
-                await apiClient.refreshConnection()
-                refreshedAnyConnection = true
+                do {
+                    let result = try await apiClient.refreshConnection()
+                    refreshedAnyConnection = true
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "🔄 SyncCoordinator: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
+                    )
+                    #endif
+                } catch {
+                    lastError = error
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ SyncCoordinator: Failed to refresh \(server.name): \(error.localizedDescription)")
+                    #endif
+                }
             }
         }
 
         guard refreshedAnyConnection else {
-            throw PlexAPIError.noServerSelected
+            throw lastError ?? PlexAPIError.noServerSelected
         }
     }
     
@@ -1361,79 +1448,214 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Set up observation of network state changes
     private func setupNetworkMonitoring() {
+        lastObservedNetworkState = networkMonitor.networkState
+
         networkMonitor.$networkState
+            .dropFirst()
             .sink { [weak self] state in
-                #if DEBUG
-                EnsembleLogger.debug("🌐 SyncCoordinator.sink: Received network state \(state.description)")
-                #endif
-                // Don't await - let the handler run asynchronously
                 Task { @MainActor [weak self] in
-                    #if DEBUG
-                    EnsembleLogger.debug("🌐 SyncCoordinator.sink: Task spawned, calling handleNetworkChange")
-                    #endif
-                    self?.handleNetworkChange(state)
-                    #if DEBUG
-                    EnsembleLogger.debug("🌐 SyncCoordinator.sink: handleNetworkChange returned")
-                    #endif
+                    await self?.handleObservedNetworkState(state)
                 }
             }
             .store(in: &cancellables)
     }
-    
-    /// Handle network state changes
-    private func handleNetworkChange(_ state: NetworkState) {
+
+    /// Foreground hook used by app lifecycle to coalesce network health updates.
+    public func handleAppWillEnterForeground() async {
+        if accountManager.enforceAuthTokenPolicy() {
+            refreshProviders()
+        }
+
+        let currentState = networkMonitor.networkState
+
         #if DEBUG
-        EnsembleLogger.debug("🌐 SyncCoordinator: Network state changed to \(state.description)")
+        EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
+        #endif
+
+        switch currentState {
+        case .online:
+            isOffline = false
+            scheduleHealthRefresh(reason: .appForeground, forceServerRefresh: false)
+        case .offline, .limited:
+            isOffline = true
+            updateSourceConnectionStates()
+        case .unknown:
+            break
+        }
+    }
+
+    private func handleObservedNetworkState(_ state: NetworkState) async {
+        let previous = lastObservedNetworkState
+        lastObservedNetworkState = state
+
+        let transition = classifyNetworkTransition(from: previous, to: state)
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "🌐 SyncCoordinator: Network transition \(previous?.description ?? "nil") -> \(state.description)"
+        )
+        if case .interfaceSwitch(let from, let to) = transition {
+            EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
+        }
         #endif
 
         switch state {
         case .online:
             isOffline = false
-            
-            // Throttle health checks - don't run if one is already in progress
-            // or if we checked within the last 5 seconds
-            if isCheckingHealth {
-                #if DEBUG
-                EnsembleLogger.debug("🌐 SyncCoordinator: Health check already in progress, skipping")
-                #endif
-                return
-            }
-            
-            if let lastCheck = lastHealthCheckTime,
-               Date().timeIntervalSince(lastCheck) < 5.0 {
-                #if DEBUG
-                EnsembleLogger.debug("🌐 SyncCoordinator: Health check too recent (\(Date().timeIntervalSince(lastCheck))s ago), skipping")
-                #endif
-                return
-            }
-            
-            isCheckingHealth = true
-            lastHealthCheckTime = Date()
-            
-            // Check server health when coming back online (non-blocking)
-            // Run in background to avoid blocking UI
-            Task.detached(priority: .userInitiated) { [weak self] in
-                guard let self = self else { return }
-                await self.serverHealthChecker.checkAllServers()
-                
-                // Update states on main actor after checks complete
-                await MainActor.run {
-                    self.updateSourceConnectionStates()
-                    self.isCheckingHealth = false
-                }
-                
-                // Update API clients with new connection URLs
-                await self.refreshAPIClientConnections()
-            }
-
         case .offline, .limited:
             isOffline = true
             updateSourceConnectionStates()
-
         case .unknown:
-            // Don't trigger health checks for unknown state
             break
         }
+
+        switch transition {
+        case .reconnect:
+            scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
+        case .interfaceSwitch(let from, let to):
+            scheduleHealthRefresh(reason: .interfaceSwitch(from: from, to: to), forceServerRefresh: true)
+        case .disconnect, .none:
+            break
+        }
+    }
+
+    private func classifyNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransition {
+        let previousType = networkType(from: previous)
+        let currentType = networkType(from: current)
+        let previousConnected = previous?.isConnected ?? false
+        let currentConnected = current.isConnected
+
+        if !previousConnected && currentConnected {
+            return .reconnect
+        }
+
+        if previousConnected && !currentConnected {
+            return .disconnect
+        }
+
+        if let previousType, let currentType, previousType != currentType {
+            return .interfaceSwitch(from: previousType, to: currentType)
+        }
+
+        return .none
+    }
+
+    private func networkType(from state: NetworkState?) -> NetworkType? {
+        guard let state, case .online(let type) = state else {
+            return nil
+        }
+        return type
+    }
+
+    private func scheduleHealthRefresh(reason: HealthRefreshReason, forceServerRefresh: Bool) {
+        if activeHealthRefreshTask != nil {
+            #if DEBUG
+            EnsembleLogger.debug("🌐 SyncCoordinator: Coalescing health refresh request (\(reason.description))")
+            #endif
+            return
+        }
+
+        let now = nowProviderForTesting()
+
+        if reason == .appForeground,
+           let lastRefresh = lastHealthRefreshAt,
+           now.timeIntervalSince(lastRefresh) < foregroundHealthStalenessThreshold {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Skipping foreground health refresh (last run \(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
+            )
+            #endif
+            return
+        }
+
+        if let lastRefresh = lastHealthRefreshAt,
+           now.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Skipping health refresh due to cooldown (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
+            )
+            #endif
+            return
+        }
+
+        let eligibleServerKeys = enabledServerKeysForHealthChecks()
+        guard !eligibleServerKeys.isEmpty else {
+            #if DEBUG
+            EnsembleLogger.debug("🌐 SyncCoordinator: No enabled-library servers eligible for health checks")
+            #endif
+            return
+        }
+
+        isCheckingHealth = true
+        let startedAt = nowProviderForTesting()
+
+        activeHealthRefreshTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            defer {
+                self.isCheckingHealth = false
+                self.lastHealthRefreshAt = self.nowProviderForTesting()
+                self.activeHealthRefreshTask = nil
+            }
+
+            let summary = await self.runHealthChecks(forceServerRefresh: forceServerRefresh, eligibleServerKeys: eligibleServerKeys)
+            self.updateSourceConnectionStates()
+            await self.runAPIClientConnectionRefresh()
+
+            #if DEBUG
+            let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Health refresh complete reason=\(reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
+            )
+            #endif
+        }
+    }
+
+    private func enabledServerKeysForHealthChecks() -> Set<String> {
+        var keys = Set<String>()
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers where server.libraries.contains(where: \.isEnabled) {
+                keys.insert("\(account.id):\(server.id)")
+            }
+        }
+
+        return keys
+    }
+
+    private func runHealthChecks(
+        forceServerRefresh: Bool,
+        eligibleServerKeys: Set<String>
+    ) async -> ServerHealthChecker.CheckSummary {
+        if let healthCheckRunnerForTesting {
+            return await healthCheckRunnerForTesting(forceServerRefresh, eligibleServerKeys)
+        }
+
+        return await serverHealthChecker.checkAllServers(
+            forceRefresh: forceServerRefresh,
+            eligibleServerKeys: eligibleServerKeys
+        )
+    }
+
+    private func runAPIClientConnectionRefresh() async {
+        if let refreshAPIClientConnectionsRunnerForTesting {
+            await refreshAPIClientConnectionsRunnerForTesting()
+            return
+        }
+
+        await refreshAPIClientConnections()
+    }
+
+    internal func handleObservedNetworkStateForTesting(_ state: NetworkState) async {
+        await handleObservedNetworkState(state)
+    }
+
+    internal func awaitHealthRefreshForTesting() async {
+        await activeHealthRefreshTask?.value
+    }
+
+    internal func setLastHealthRefreshForTesting(_ date: Date?) {
+        lastHealthRefreshAt = date
     }
 
     /// Update all API clients with the latest working connection URLs from health checks

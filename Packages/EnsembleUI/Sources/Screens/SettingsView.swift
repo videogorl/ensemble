@@ -111,6 +111,16 @@ public struct SettingsView: View {
                 }
 
                 NavigationLink {
+                    ConnectionPolicySettingsView()
+                } label: {
+                    HStack {
+                        Image(systemName: "lock.shield")
+                            .frame(width: 44)
+                        Text("Connection Security")
+                    }
+                }
+
+                NavigationLink {
                     TrackSwipeActionsSettingsView()
                 } label: {
                     HStack {
@@ -307,6 +317,50 @@ struct AudioQualitySettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+}
+
+// MARK: - Connection Policy Settings
+
+struct ConnectionPolicySettingsView: View {
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Allow Insecure Connections", selection: policyBinding) {
+                    ForEach(AllowInsecureConnectionsPolicy.allCases, id: \.rawValue) { policy in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(policy.title)
+                            Text(policy.subtitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .tag(policy)
+                    }
+                }
+                .pickerStyle(.inline)
+            } footer: {
+                Text("Changing this setting rebuilds server connection candidates and refreshes provider routing.")
+            }
+        }
+        .navigationTitle("Connection Security")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var policyBinding: Binding<AllowInsecureConnectionsPolicy> {
+        Binding(
+            get: { settingsManager.allowInsecureConnectionsPolicy },
+            set: { newPolicy in
+                settingsManager.setAllowInsecureConnectionsPolicy(newPolicy)
+                accountManager.clearAPIClientCache()
+                syncCoordinator.refreshProviders()
+            }
+        )
     }
 }
 

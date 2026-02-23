@@ -164,10 +164,31 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastPlaylistTarget)
 
-        // Update duration when track changes
+        // Reset duration when track changes, then let periodic playback updates refine it.
         $currentTrack
-            .compactMap { $0?.duration }
-            .assign(to: &$duration)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self else { return }
+                if track == nil {
+                    self.duration = 0
+                } else {
+                    self.duration = self.playbackService.duration
+                }
+            }
+            .store(in: &cancellables)
+
+        // Keep duration synchronized with AVPlayer's effective item duration as playback advances.
+        playbackService.currentTimePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let latestDuration = self.playbackService.duration
+                guard latestDuration.isFinite else { return }
+                if abs(self.duration - latestDuration) > 0.05 {
+                    self.duration = latestDuration
+                }
+            }
+            .store(in: &cancellables)
         
         // Update rating when track changes (but not if we're actively updating it)
         $currentTrack
@@ -188,9 +209,28 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.currentTimeValue
     }
 
+    /// Keeps the scrubber from reaching 100% while playback is still active when
+    /// stream metadata under-reports duration.
+    public var scrubberDuration: TimeInterval {
+        let baseDuration = max(0, duration)
+        guard currentTrack != nil else { return baseDuration }
+
+        switch playbackState {
+        case .playing, .buffering, .loading:
+            return max(baseDuration, currentTime + 1.0)
+        default:
+            return max(baseDuration, currentTime)
+        }
+    }
+
     public var progress: Double {
-        guard duration > 0 else { return 0 }
-        return currentTime / duration
+        let displayDuration = scrubberDuration
+        guard displayDuration > 0 else { return 0 }
+        return max(0, min(1, currentTime / displayDuration))
+    }
+
+    public var bufferedProgress: Double {
+        max(0, min(1, playbackService.bufferedProgressValue))
     }
 
     public var isPlaying: Bool {
@@ -210,7 +250,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public var formattedRemainingTime: String {
-        let remaining = max(0, duration - currentTime)
+        let remaining = max(0, scrubberDuration - currentTime)
         return "-" + formatTime(remaining)
     }
     
@@ -276,7 +316,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func seekToProgress(_ progress: Double) {
-        let time = progress * duration
+        let time = progress * scrubberDuration
         seek(to: time)
     }
 

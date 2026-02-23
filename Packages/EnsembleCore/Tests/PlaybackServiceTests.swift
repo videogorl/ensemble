@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import EnsembleCore
 
@@ -102,5 +103,294 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(decision.shouldAutoHealQueue)
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertTrue(decision.shouldHandleDisconnect)
+    }
+
+    func testObservedTimeSyncAcceptsSamplesNearPendingSeekTarget() {
+        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: 120.8,
+            pendingSeekTargetTime: 120.0
+        )
+
+        XCTAssertTrue(isSynchronized)
+    }
+
+    func testObservedTimeSyncRejectsDistantSamplesDuringPendingSeek() {
+        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0
+        )
+
+        XCTAssertFalse(isSynchronized)
+    }
+
+    func testPendingSeekGateIgnoresUnsyncedSamplesDuringInitialWindow() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 0.3
+        )
+
+        XCTAssertTrue(shouldIgnore)
+    }
+
+    func testPendingSeekGateStopsIgnoringAfterTimeout() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 1.2
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
+
+    func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {
+        let profile = PlaybackService.baseBufferingProfile(for: .online(.wifi))
+        XCTAssertFalse(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.preferredForwardBufferDuration, 8)
+        XCTAssertEqual(profile.prefetchDepth, 1)
+        XCTAssertEqual(profile.stallRecoveryTimeout, 8)
+    }
+
+    func testBaseBufferingProfileForCellularUsesConservativeBuffering() {
+        let profile = PlaybackService.baseBufferingProfile(for: .online(.cellular))
+        XCTAssertTrue(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.preferredForwardBufferDuration, 18)
+        XCTAssertEqual(profile.prefetchDepth, 1)
+        XCTAssertEqual(profile.stallRecoveryTimeout, 12)
+    }
+
+    func testBaseBufferingProfileForOfflineUsesSinglePrefetchDepth() {
+        let profile = PlaybackService.baseBufferingProfile(for: .offline)
+        XCTAssertTrue(profile.waitsToMinimizeStalling)
+        XCTAssertEqual(profile.prefetchDepth, 1)
+    }
+
+    func testResolvedBufferingProfileUsesConservativeProfileDuringEscalationWindow() {
+        let now = Date()
+        let conservativeUntil = now.addingTimeInterval(60)
+        let profile = PlaybackService.resolvedBufferingProfile(
+            for: .online(.wifi),
+            conservativeModeUntil: conservativeUntil,
+            now: now
+        )
+        XCTAssertEqual(profile, .conservative)
+        XCTAssertEqual(profile.prefetchDepth, 0)
+    }
+
+    func testResolvedBufferingProfileFallsBackToBaseProfileAfterEscalationExpires() {
+        let now = Date()
+        let conservativeUntil = now.addingTimeInterval(-1)
+        let profile = PlaybackService.resolvedBufferingProfile(
+            for: .online(.wifi),
+            conservativeModeUntil: conservativeUntil,
+            now: now
+        )
+        XCTAssertEqual(profile, .wifiOrWired)
+    }
+
+    func testWaitingStallEventRequiresPlayingAndBufferEmpty() {
+        XCTAssertTrue(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .loading,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: false,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: 42
+            )
+        )
+    }
+
+    func testUnexpectedPauseRecoveryActionReturnsImmediateResumeWhenBufferHealthy() {
+        let action = PlaybackService.unexpectedPauseRecoveryAction(
+            playbackState: .playing,
+            isPlaybackLikelyToKeepUp: true,
+            isPlaybackBufferFull: false,
+            isPlaybackBufferEmpty: false,
+            pendingSeekTargetTime: nil
+        )
+
+        XCTAssertEqual(action?.resumeImmediately, true)
+        XCTAssertEqual(action?.recordStallEvent, false)
+    }
+
+    func testUnexpectedPauseRecoveryActionSchedulesRecoveryWhenBufferNotReady() {
+        let action = PlaybackService.unexpectedPauseRecoveryAction(
+            playbackState: .playing,
+            isPlaybackLikelyToKeepUp: false,
+            isPlaybackBufferFull: false,
+            isPlaybackBufferEmpty: true,
+            pendingSeekTargetTime: nil
+        )
+
+        XCTAssertEqual(action?.resumeImmediately, false)
+        XCTAssertEqual(action?.recordStallEvent, true)
+    }
+
+    func testTransportRecoveryIncludesNetworkConnectionLost() {
+        XCTAssertTrue(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorNetworkConnectionLost,
+                domain: NSURLErrorDomain
+            )
+        )
+        XCTAssertFalse(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorCancelled,
+                domain: NSURLErrorDomain
+            )
+        )
+        XCTAssertFalse(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorNetworkConnectionLost,
+                domain: NSCocoaErrorDomain
+            )
+        )
+    }
+
+    func testPrefetchThrottleDropsDepthToZeroWhenActive() {
+        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
+        XCTAssertEqual(profile.prefetchDepth, 0)
+        XCTAssertTrue(profile.label.contains("prefetch-throttled"))
+    }
+
+    func testPrefetchThrottleLeavesProfileUntouchedWhenInactive() {
+        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: false)
+        XCTAssertEqual(profile, .wifiOrWired)
+    }
+
+    func testConservativeEscalationTriggersAfterTwoStallsWithinWindow() {
+        let now = Date()
+        let stalls = [
+            now.addingTimeInterval(-10),
+            now.addingTimeInterval(-5)
+        ]
+
+        XCTAssertTrue(
+            PlaybackService.shouldEnterConservativeMode(
+                stallTimestamps: stalls,
+                now: now
+            )
+        )
+    }
+
+    func testConservativeEscalationDoesNotTriggerWhenStallsAreOutsideWindow() {
+        let now = Date()
+        let stalls = [
+            now.addingTimeInterval(-40),
+            now.addingTimeInterval(-35)
+        ]
+
+        XCTAssertFalse(
+            PlaybackService.shouldEnterConservativeMode(
+                stallTimestamps: stalls,
+                now: now
+            )
+        )
+    }
+
+    func testPendingSeekGateStaysActiveWhileBufferingAndUnsynchronized() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .buffering
+        )
+
+        XCTAssertTrue(shouldGate)
+    }
+
+    func testPendingSeekGateReleasesWhenUnsynchronizedAndNotBuffering() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 44.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .playing
+        )
+
+        XCTAssertFalse(shouldGate)
+    }
+
+    func testPendingSeekGateReleasesWhenBufferingButObservedTimeIsAhead() {
+        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
+            observedTime: 126.0,
+            pendingSeekTargetTime: 120.0,
+            elapsedSinceSeek: 2.0,
+            playbackState: .buffering
+        )
+
+        XCTAssertFalse(shouldGate)
+    }
+
+    func testContiguousBufferedRangeEndReturnsRangeEndWhenPlaybackInsideRange() throws {
+        let ranges = [
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600))
+        ]
+
+        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
+            ranges: ranges,
+            playbackTime: 12
+        )
+
+        let unwrappedRangeEnd = try XCTUnwrap(rangeEnd)
+        XCTAssertEqual(unwrappedRangeEnd, 20, accuracy: 0.001)
+    }
+
+    func testContiguousBufferedRangeEndReturnsNilWhenPlaybackInGap() {
+        let ranges = [
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
+            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600))
+        ]
+
+        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
+            ranges: ranges,
+            playbackTime: 30
+        )
+
+        XCTAssertNil(rangeEnd)
+    }
+
+    func testEffectiveDurationPrefersLongerItemDuration() {
+        let effective = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: 186.10
+        )
+
+        XCTAssertEqual(effective, 186.10, accuracy: 0.001)
+    }
+
+    func testEffectiveDurationFallsBackToMetadataForInvalidItemDuration() {
+        let effectiveNaN = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: .nan
+        )
+        let effectiveNegative = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: -1
+        )
+
+        XCTAssertEqual(effectiveNaN, 179.44, accuracy: 0.001)
+        XCTAssertEqual(effectiveNegative, 179.44, accuracy: 0.001)
     }
 }

@@ -114,6 +114,55 @@ Library and search surfaces now support configurable swipe actions for track row
 - `TrackSwipeActionsSettingsView.swift` - Slot customization UI in Settings
 - `NowPlayingViewModel.swift` - Per-track favorite mutation methods used by swipe/context actions
 
+### Network Health + Hub Refresh Hardening (Feb 2026)
+Network transition handling now coalesces health checks, repairs stale endpoint usage after interface handoff, and avoids Home feed jumps while users scroll:
+
+- **Network monitor lifecycle safety:** `NetworkMonitor` recreates `NWPathMonitor` instances on restart so background/foreground cycles continue publishing connectivity changes.
+- **Transition-aware health orchestration:** `SyncCoordinator` classifies reconnect/interface-switch transitions, applies 30s cooldown + 60s foreground staleness guards, and coalesces concurrent refreshes into a single run.
+- **Scoped health checks:** only servers with enabled libraries are checked during sync health refresh runs.
+- **Probe fan-out reduction:** `ConnectionFailoverManager` tries a recent healthy URL first, then falls back to parallel probing if needed.
+- **Home scrolling stability:** `HomeViewModel` defers auto-refresh and hub snapshot application while users are interacting, then applies once idle.
+- **Lifecycle routing:** foreground health refresh now flows through `SyncCoordinator.handleAppWillEnterForeground()` so app lifecycle and monitor transitions share one policy path.
+
+**Key files:**
+- `NetworkMonitor.swift` - restart-safe monitor lifecycle and debounce testing seams
+- `SyncCoordinator.swift` - transition classification, cooldown/staleness policy, coalesced refresh path
+- `ServerHealthChecker.swift` - per-server TTL cache, forced refresh support, cancellation fixes
+- `ConnectionFailoverManager.swift` - preferred recent connection fast-path
+- `HomeViewModel.swift` - deferred auto-refresh + idle apply policy
+- `HomeView.swift` - visibility and scroll interaction callbacks
+
+### Plex Connectivity Spec Parity Cutover (Feb 2026)
+Plex endpoint discovery/routing/auth now follows a stricter spec-parity path to avoid stale routing and generic "server unavailable" failures:
+
+- **Discovery parity:** resource discovery requests now include IPv6 candidates and shared Plex headers.
+- **Policy-driven endpoint ordering:** connection selection now prefers local/direct endpoints before remote and relay, with secure-first behavior and configurable insecure fallback policy.
+- **Failover discipline:** endpoint failover now triggers on transport/connectivity failures only (not arbitrary HTTP semantic errors).
+- **Structured refresh outcomes:** server connection refresh returns typed outcomes instead of swallowing failures, and call sites now react explicitly.
+- **Failure taxonomy:** server checks classify failures (local-only reachable, remote access unavailable, relay unavailable, TLS policy blocked, offline) for clearer user-facing messages.
+- **Auth lifecycle cutover:** account token metadata stores JWT `iat`/`exp`; a migration version bump forces re-login and expired tokens are rejected on load/foreground.
+
+**Key files:**
+- `PlexAPIClient.swift` - resources request contract, transport-only failover policy, structured refresh
+- `PlexConnectionPolicy.swift` - endpoint descriptors, selection policy, connection refresh result types
+- `ConnectionFailoverManager.swift` - policy-aware probing and probe failure classification
+- `PlexAuthService.swift` + `PlexAuthTokenMetadata.swift` - auth token metadata parsing and lifecycle helpers
+- `AccountManager.swift` - auth migration cutover and expiry enforcement
+- `ServerHealthChecker.swift` - classified health failure reasons
+
+### Adaptive Playback Stability (Feb 2026)
+Playback buffering now uses an internal adaptive profile tuned by network conditions and recent stall history to reduce skip/seek buffering loops:
+
+- **Adaptive profile defaults:** Wi-Fi/wired uses low-latency buffering with deeper prefetch (`prefetchDepth=2`), while cellular/other uses anti-stall waits with deeper forward buffering (`prefetchDepth=1`).
+- **Stall escalation:** repeated stalls in a short window temporarily switch playback into a conservative recovery profile.
+- **Windowed prefetch:** upcoming queue prefetch is depth-based instead of single-item, and queue rebuild paths refill using the active profile depth.
+- **Seek stability:** pending seek progress gate now stays active longer while buffering to prevent scrubber/audio drift during unbuffered seeks.
+- **Recovery throttling:** stall retries use profile-based timeout and a retry cooldown to avoid rapid reload thrash on weak links.
+
+**Key files:**
+- `PlaybackService.swift` - adaptive buffering profile, stall escalation/cooldown logic, windowed prefetch, seek-progress gating
+- `PlaybackServiceTests.swift` - adaptive profile/escalation and seek-gate helper coverage
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 
