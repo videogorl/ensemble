@@ -164,10 +164,31 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastPlaylistTarget)
 
-        // Update duration when track changes
+        // Reset duration when track changes, then let periodic playback updates refine it.
         $currentTrack
-            .compactMap { $0?.duration }
-            .assign(to: &$duration)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self else { return }
+                if track == nil {
+                    self.duration = 0
+                } else {
+                    self.duration = self.playbackService.duration
+                }
+            }
+            .store(in: &cancellables)
+
+        // Keep duration synchronized with AVPlayer's effective item duration as playback advances.
+        playbackService.currentTimePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let latestDuration = self.playbackService.duration
+                guard latestDuration.isFinite else { return }
+                if abs(self.duration - latestDuration) > 0.05 {
+                    self.duration = latestDuration
+                }
+            }
+            .store(in: &cancellables)
         
         // Update rating when track changes (but not if we're actively updating it)
         $currentTrack
@@ -190,7 +211,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public var progress: Double {
         guard duration > 0 else { return 0 }
-        return currentTime / duration
+        return max(0, min(1, currentTime / duration))
     }
 
     public var bufferedProgress: Double {

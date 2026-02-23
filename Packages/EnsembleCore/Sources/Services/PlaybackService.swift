@@ -372,6 +372,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return currentRange.start.seconds + currentRange.duration.seconds
     }
 
+    static func effectiveDuration(
+        metadataDuration: TimeInterval,
+        itemDuration: TimeInterval?
+    ) -> TimeInterval {
+        let baseDuration = max(0, metadataDuration)
+
+        guard let itemDuration else { return baseDuration }
+        guard itemDuration.isFinite else { return baseDuration }
+        guard itemDuration > 0 else { return baseDuration }
+        // Defensive bound for malformed media durations.
+        guard itemDuration < 24 * 60 * 60 else { return baseDuration }
+
+        // Prefer the longer duration so progress/scrubber doesn't complete early.
+        return max(baseDuration, itemDuration)
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
@@ -406,7 +422,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
 
     public var duration: TimeInterval {
-        currentTrack?.duration ?? 0
+        let metadataDuration = currentTrack?.duration ?? 0
+        let itemDuration = player?.currentItem?.duration.seconds
+        return Self.effectiveDuration(
+            metadataDuration: metadataDuration,
+            itemDuration: itemDuration
+        )
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -2110,7 +2131,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard requestedTime > 1 else { return nil }
 
         // Keep recovery seeks slightly away from track end to avoid instant completion.
-        let upperBound = max(1, track.duration - 2)
+        let effectiveTrackDuration = max(track.duration, duration)
+        let upperBound = max(1, effectiveTrackDuration - 2)
         return min(requestedTime, upperBound)
     }
 
@@ -2673,8 +2695,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Scrobble track at 90% completion
             if !self.hasScrobbled,
                let track = self.currentTrack,
-               track.duration > 0,
-               time.seconds / track.duration >= 0.9 {
+               self.duration > 0,
+               time.seconds / self.duration >= 0.9 {
                 self.hasScrobbled = true
                 Task {
                     await self.syncCoordinator.scrobbleTrack(track)
@@ -3119,7 +3141,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
-            MPMediaItemPropertyPlaybackDuration: track.duration,
+            MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: playbackState == .playing ? 1.0 : 0.0
         ]

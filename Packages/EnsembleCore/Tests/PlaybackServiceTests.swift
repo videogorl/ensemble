@@ -278,4 +278,27 @@ final class PlaybackServiceTests: XCTestCase {
 
         XCTAssertNil(rangeEnd)
     }
+
+    func testEffectiveDurationPrefersLongerItemDuration() {
+        let effective = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: 186.10
+        )
+
+        XCTAssertEqual(effective, 186.10, accuracy: 0.001)
+    }
+
+    func testEffectiveDurationFallsBackToMetadataForInvalidItemDuration() {
+        let effectiveNaN = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: .nan
+        )
+        let effectiveNegative = PlaybackService.effectiveDuration(
+            metadataDuration: 179.44,
+            itemDuration: -1
+        )
+
+        XCTAssertEqual(effectiveNaN, 179.44, accuracy: 0.001)
+        XCTAssertEqual(effectiveNegative, 179.44, accuracy: 0.001)
+    }
 }
