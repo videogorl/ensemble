@@ -16,7 +16,7 @@ public struct SettingsView: View {
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
 
     // Hardcoded support URL — safe to force-unwrap as a named constant (literal cannot fail)
-    private static let supportURL = URL(string: "https://github.com/")!
+    private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
 
     public init() {}
 
@@ -201,6 +201,7 @@ public struct SettingsView: View {
         #else
         .listStyle(.inset)
         #endif
+        .miniPlayerBottomSpacing(140)
         .navigationTitle("Settings")
         .sheet(isPresented: $showingAddAccount) {
             AddPlexAccountView()
