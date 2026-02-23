@@ -188,6 +188,40 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(profile, .wifiOrWired)
     }
 
+    func testWaitingStallEventRequiresPlayingAndBufferEmpty() {
+        XCTAssertTrue(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .loading,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: false,
+                pendingSeekTargetTime: nil
+            )
+        )
+
+        XCTAssertFalse(
+            PlaybackService.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                pendingSeekTargetTime: 42
+            )
+        )
+    }
+
     func testConservativeEscalationTriggersAfterTwoStallsWithinWindow() {
         let now = Date()
         let stalls = [

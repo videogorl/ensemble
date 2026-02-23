@@ -361,6 +361,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return baseBufferingProfile(for: networkState)
     }
 
+    static func shouldRecordWaitingStallEvent(
+        playbackState: PlaybackState,
+        isPlaybackBufferEmpty: Bool,
+        pendingSeekTargetTime: TimeInterval?
+    ) -> Bool {
+        guard playbackState == .playing else { return false }
+        guard pendingSeekTargetTime == nil else { return false }
+        return isPlaybackBufferEmpty
+    }
+
     static func contiguousBufferedRangeEnd(
         ranges: [CMTimeRange],
         playbackTime: TimeInterval
@@ -2502,11 +2512,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
         player?.play()
 
-        // Always set to playing - the observers will handle buffering/stall states
-        // This fixes race conditions where the button shows wrong state
-        playbackState = .playing
+        // Keep startup state as loading until AVPlayer confirms audio output via timeControlStatus.
+        playbackState = .loading
         #if DEBUG
-        EnsembleLogger.debug("🎵 Set playbackState = .playing")
+        EnsembleLogger.debug("🎵 Set playbackState = .loading")
         #endif
     }
 
@@ -2600,8 +2609,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             #endif
                             self.playbackState = .buffering
 
-                            // Set up stall recovery with timeout
-                            self.setupStallRecovery(recordStallEvent: self.pendingSeekTargetTime == nil)
+                            // Only count waiting events as stalls when we're actually buffer-starved.
+                            let shouldRecordStallEvent = Self.shouldRecordWaitingStallEvent(
+                                playbackState: .playing,
+                                isPlaybackBufferEmpty: item.isPlaybackBufferEmpty,
+                                pendingSeekTargetTime: self.pendingSeekTargetTime
+                            )
+                            self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
+                        } else if self.playbackState == .loading {
+                            // Initial startup waits are expected and should not escalate adaptive buffering.
+                            self.setupStallRecovery(recordStallEvent: false)
                         }
 
                     @unknown default:
