@@ -5,6 +5,9 @@ private extension Notification.Name {
     static let playlistDeletionStarted = Notification.Name("playlistDeletionStarted")
     static let playlistDeletionSucceeded = Notification.Name("playlistDeletionSucceeded")
     static let playlistDeletionFailed = Notification.Name("playlistDeletionFailed")
+    static let playlistRenameStarted = Notification.Name("playlistRenameStarted")
+    static let playlistRenameSucceeded = Notification.Name("playlistRenameSucceeded")
+    static let playlistRenameFailed = Notification.Name("playlistRenameFailed")
 }
 
 public struct PlaylistsView: View {
@@ -149,6 +152,32 @@ public struct PlaylistsView: View {
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String,
+                      let newTitle = note.userInfo?["newTitle"] as? String else {
+                    return
+                }
+                viewModel.applyOptimisticRename(forPlaylistID: playlistID, newTitle: newTitle)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameSucceeded)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String,
+                      let newTitle = note.userInfo?["newTitle"] as? String else {
+                    return
+                }
+                Task {
+                    await viewModel.awaitRenamedPlaylistMaterialization(
+                        for: playlistID,
+                        expectedTitle: newTitle
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .playlistRenameFailed)) { note in
+                guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
+                viewModel.clearOptimisticRename(for: playlistID)
+                Task {
+                    await viewModel.loadPlaylists()
                 }
             }
             .refreshable {
@@ -549,8 +578,10 @@ public struct PlaylistsView: View {
         Task {
             do {
                 try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
-                viewModel.clearOptimisticRename(for: playlist.id)
-                await viewModel.loadPlaylists()
+                await viewModel.awaitRenamedPlaylistMaterialization(
+                    for: playlist.id,
+                    expectedTitle: trimmed
+                )
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     ToastPayload(
@@ -583,8 +614,7 @@ public struct PlaylistsView: View {
 public struct PlaylistDetailView: View {
     @StateObject private var viewModel: PlaylistDetailViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    
-    private let playlist: Playlist
+
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
     @State private var renameTitle = ""
@@ -597,7 +627,6 @@ public struct PlaylistDetailView: View {
     @Environment(\.dependencies) private var deps
 
     public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, startInEditMode: Bool = false) {
-        self.playlist = playlist
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist))
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
@@ -612,7 +641,7 @@ public struct PlaylistDetailView: View {
                     viewModel: viewModel,
                     nowPlayingVM: nowPlayingVM,
                     headerData: headerData,
-                    navigationTitle: playlist.title,
+                    navigationTitle: viewModel.playlist.title,
                     showArtwork: true,
                     showTrackNumbers: false,
                     groupByDisc: false,
@@ -696,35 +725,57 @@ public struct PlaylistDetailView: View {
                 let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 let previousTitle = viewModel.playlist.title
+                let playlistID = viewModel.playlist.id
                 let renamingToast = ToastPayload(
                     style: .info,
                     iconSystemName: "pencil",
                     title: "Renaming \(previousTitle)...",
                     isPersistent: true,
-                    dedupeKey: "playlist-rename-pending-\(viewModel.playlist.id)",
+                    dedupeKey: "playlist-rename-pending-\(playlistID)",
                     showsActivityIndicator: true
                 )
                 deps.toastCenter.show(renamingToast)
+                NotificationCenter.default.post(
+                    name: .playlistRenameStarted,
+                    object: nil,
+                    userInfo: [
+                        "playlistID": playlistID,
+                        "newTitle": trimmed
+                    ]
+                )
                 Task {
                     let didRename = await viewModel.renamePlaylist(to: trimmed)
                     deps.toastCenter.dismiss(id: renamingToast.id)
                     if didRename {
+                        NotificationCenter.default.post(
+                            name: .playlistRenameSucceeded,
+                            object: nil,
+                            userInfo: [
+                                "playlistID": playlistID,
+                                "newTitle": trimmed
+                            ]
+                        )
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .success,
                                 iconSystemName: "pencil.circle.fill",
                                 title: "Renamed playlist",
-                                dedupeKey: "playlist-rename-success-\(viewModel.playlist.id)"
+                                dedupeKey: "playlist-rename-success-\(playlistID)"
                             )
                         )
                     } else {
+                        NotificationCenter.default.post(
+                            name: .playlistRenameFailed,
+                            object: nil,
+                            userInfo: ["playlistID": playlistID]
+                        )
                         deps.toastCenter.show(
                             ToastPayload(
                                 style: .error,
                                 iconSystemName: "xmark.octagon.fill",
                                 title: "Could not rename playlist",
                                 message: viewModel.error ?? "Try again later.",
-                                dedupeKey: "playlist-rename-error-\(viewModel.playlist.id)"
+                                dedupeKey: "playlist-rename-error-\(playlistID)"
                             )
                         )
                     }
@@ -805,6 +856,7 @@ public struct PlaylistDetailView: View {
     
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []
+        let playlist = viewModel.playlist
         
         if playlist.isSmart {
             metadataParts.append("Smart Playlist")
@@ -845,7 +897,7 @@ public struct PlaylistDetailView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle(playlist.title)
+        .navigationTitle(viewModel.playlist.title)
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif

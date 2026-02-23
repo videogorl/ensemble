@@ -186,8 +186,7 @@ public final class PlaylistViewModel: ObservableObject {
         error = nil
 
         do {
-            let cached = try await playlistRepository.fetchPlaylists()
-            let serverPlaylists = cached.map { Playlist(from: $0) }
+            let serverPlaylists = try await fetchCachedPlaylists()
             optimisticCreatingPlaylists.removeAll { optimistic in
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
@@ -270,12 +269,45 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func applyOptimisticRename(for playlist: Playlist, newTitle: String) {
-        optimisticRenamedPlaylistTitlesByID[playlist.id] = newTitle
+        applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+    }
+
+    public func applyOptimisticRename(forPlaylistID playlistID: String, newTitle: String) {
+        optimisticRenamedPlaylistTitlesByID[playlistID] = newTitle
         playlists = applyOptimisticRenames(to: playlists)
     }
 
     public func clearOptimisticRename(for playlistID: String) {
         optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlistID)
+    }
+
+    public func awaitRenamedPlaylistMaterialization(for playlistID: String, expectedTitle: String) async {
+        let normalizedExpectedTitle = normalizedTitle(expectedTitle)
+
+        for _ in 0..<20 {
+            do {
+                let serverPlaylists = try await fetchCachedPlaylists()
+                let hasMaterializedTitle = serverPlaylists.contains {
+                    $0.id == playlistID && normalizedTitle($0.title) == normalizedExpectedTitle
+                }
+
+                if hasMaterializedTitle {
+                    clearOptimisticRename(for: playlistID)
+                    playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+                    return
+                }
+
+                playlists = mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+            } catch {
+                self.error = error.localizedDescription
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+
+        clearOptimisticRename(for: playlistID)
+        await reloadPlaylists(showLoading: false)
     }
 
     private static func isOptimisticCreatingPlaylistID(_ id: String) -> Bool {
@@ -289,6 +321,11 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func normalizedTitle(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func fetchCachedPlaylists() async throws -> [Playlist] {
+        let cached = try await playlistRepository.fetchPlaylists()
+        return cached.map { Playlist(from: $0) }
     }
 }
 
