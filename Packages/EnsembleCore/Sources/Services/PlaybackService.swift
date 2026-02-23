@@ -217,6 +217,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let conservativeModeDuration: TimeInterval = 120
     static let recoveryCooldown: TimeInterval = 6
     static let bufferedSeekGateDuration: TimeInterval = 3
+    static let prefetchThrottleDuration: TimeInterval = 90
 
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
@@ -361,6 +362,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return baseBufferingProfile(for: networkState)
     }
 
+    static func throttledPrefetchProfileIfNeeded(
+        _ profile: PlaybackBufferingProfile,
+        throttleActive: Bool
+    ) -> PlaybackBufferingProfile {
+        guard throttleActive, profile.prefetchDepth > 0 else { return profile }
+        return PlaybackBufferingProfile(
+            waitsToMinimizeStalling: profile.waitsToMinimizeStalling,
+            preferredForwardBufferDuration: profile.preferredForwardBufferDuration,
+            prefetchDepth: 0,
+            stallRecoveryTimeout: profile.stallRecoveryTimeout,
+            label: "\(profile.label)-prefetch-throttled"
+        )
+    }
+
     static func shouldRecordWaitingStallEvent(
         playbackState: PlaybackState,
         isPlaybackBufferEmpty: Bool,
@@ -479,6 +494,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var itemFailedToPlayToEndObserver: NSObjectProtocol?
     private var itemErrorLogEntryObserver: NSObjectProtocol?
     private var isHandlingQueueExhaustion = false
+    private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
@@ -2319,22 +2335,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return .unknown(error)
     }
 
-    private func shouldForceTransportRecovery(for error: NSError) -> Bool {
-        guard error.domain == NSURLErrorDomain else { return false }
-        switch error.code {
+    static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
+        guard domain == NSURLErrorDomain else { return false }
+        switch errorCode {
         case NSURLErrorNotConnectedToInternet,
             NSURLErrorCannotConnectToHost,
             NSURLErrorCannotFindHost,
-            NSURLErrorTimedOut:
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost:
             return true
         default:
             return false
         }
     }
 
-    private func handlePlayerItemTransportErrorIfNeeded(_ error: NSError, context: String) {
+    private func shouldForceTransportRecovery(for error: NSError) -> Bool {
+        Self.shouldForceTransportRecovery(errorCode: error.code, domain: error.domain)
+    }
+
+    private func handlePlayerItemTransportErrorIfNeeded(_ error: NSError, context: String, item: AVPlayerItem?) {
+        if let item, player?.currentItem !== item {
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ Ignoring transport error from stale item (\(context)) code=\(error.code)")
+            #endif
+            return
+        }
         guard shouldForceTransportRecovery(for: error) else { return }
         let now = Date()
+        prefetchThrottleUntil = now.addingTimeInterval(Self.prefetchThrottleDuration)
+        Task { @MainActor [weak self] in
+            self?.refreshAdaptiveBufferingProfile(reason: "transport-recovery", now: now)
+        }
         if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
            now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
             #if DEBUG
@@ -2635,7 +2666,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] _ in
             guard let self else { return }
             if let error = item.error as NSError? {
-                self.handlePlayerItemTransportErrorIfNeeded(error, context: "playback-stalled")
+                self.handlePlayerItemTransportErrorIfNeeded(error, context: "playback-stalled", item: item)
             }
         }
 
@@ -2648,7 +2679,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let nsError = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)
                 ?? (item.error as NSError?)
             if let nsError {
-                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "failed-to-end")
+                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "failed-to-end", item: item)
             }
         }
 
@@ -2659,7 +2690,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] _ in
             guard let self else { return }
             if let nsError = item.error as NSError? {
-                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "error-log")
+                self.handlePlayerItemTransportErrorIfNeeded(nsError, context: "error-log", item: item)
             }
         }
 
@@ -2794,12 +2825,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("🎚️ Exiting conservative playback mode")
             #endif
         }
+        if let prefetchThrottleUntil, prefetchThrottleUntil <= now {
+            self.prefetchThrottleUntil = nil
+            #if DEBUG
+            EnsembleLogger.debug("🎚️ Prefetch throttle window expired")
+            #endif
+        }
 
         let networkState = lastObservedNetworkState ?? networkMonitor.networkState
-        let resolvedProfile = Self.resolvedBufferingProfile(
+        let baseProfile = Self.resolvedBufferingProfile(
             for: networkState,
             conservativeModeUntil: adaptiveBufferingState.conservativeModeUntil,
             now: now
+        )
+        let resolvedProfile = Self.throttledPrefetchProfileIfNeeded(
+            baseProfile,
+            throttleActive: (prefetchThrottleUntil?.timeIntervalSince(now) ?? 0) > 0
         )
         guard resolvedProfile != activeBufferingProfile else { return }
 

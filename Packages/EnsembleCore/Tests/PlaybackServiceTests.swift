@@ -222,6 +222,38 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testTransportRecoveryIncludesNetworkConnectionLost() {
+        XCTAssertTrue(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorNetworkConnectionLost,
+                domain: NSURLErrorDomain
+            )
+        )
+        XCTAssertFalse(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorCancelled,
+                domain: NSURLErrorDomain
+            )
+        )
+        XCTAssertFalse(
+            PlaybackService.shouldForceTransportRecovery(
+                errorCode: NSURLErrorNetworkConnectionLost,
+                domain: NSCocoaErrorDomain
+            )
+        )
+    }
+
+    func testPrefetchThrottleDropsDepthToZeroWhenActive() {
+        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
+        XCTAssertEqual(profile.prefetchDepth, 0)
+        XCTAssertTrue(profile.label.contains("prefetch-throttled"))
+    }
+
+    func testPrefetchThrottleLeavesProfileUntouchedWhenInactive() {
+        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: false)
+        XCTAssertEqual(profile, .wifiOrWired)
+    }
+
     func testConservativeEscalationTriggersAfterTwoStallsWithinWindow() {
         let now = Date()
         let stalls = [
