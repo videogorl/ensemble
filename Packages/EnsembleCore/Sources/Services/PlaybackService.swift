@@ -458,6 +458,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var seekRequestCounter: UInt64 = 0
     private var adaptiveBufferingState = AdaptiveBufferingState()
     private var activeBufferingProfile = PlaybackBufferingProfile.cellularOrOther
+    private var nowPlayingArtworkTask: Task<Void, Never>?
+    private var nowPlayingArtworkRequestKey: String?
+    private var nowPlayingArtworkTrackID: String?
+    private var nowPlayingArtwork: MPMediaItemArtwork?
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -1186,6 +1190,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         cleanup()
+        cancelNowPlayingArtworkLoad(clearArtwork: true)
         currentTrack = nil
         playbackState = .stopped
         currentTime = 0
@@ -3070,6 +3075,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         loadingStateTask?.cancel()
         loadingStateTask = nil
+        cancelNowPlayingArtworkLoad(clearArtwork: true)
 
         player?.pause()
         player?.removeAllItems()
@@ -3102,12 +3108,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func updateNowPlayingInfo() {
         guard let track = currentTrack else {
+            cancelNowPlayingArtworkLoad(clearArtwork: true)
             updateFeedbackCommandState(isLiked: false, isDisliked: false)
             return
         }
         let feedbackFlags = Self.feedbackFlags(for: track.rating)
         let isLiked = feedbackFlags.isLiked
         let isDisliked = feedbackFlags.isDisliked
+        let artworkRequestKey = "\(track.id)|\(track.thumbPath ?? "")|\(track.fallbackThumbPath ?? "")|\(track.sourceCompositeKey ?? "")"
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
@@ -3124,35 +3132,63 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             info[MPMediaItemPropertyAlbumTitle] = album
         }
 
+        if nowPlayingArtworkTrackID == track.id, let nowPlayingArtwork {
+            info[MPMediaItemPropertyArtwork] = nowPlayingArtwork
+        }
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
-        
-        // Load artwork asynchronously using the injected loader
-        Task {
-            if let url = await artworkLoader.artworkURLAsync(
+
+        guard nowPlayingArtworkRequestKey != artworkRequestKey else { return }
+        cancelNowPlayingArtworkLoad(clearArtwork: false)
+        nowPlayingArtworkRequestKey = artworkRequestKey
+
+        // Keep lock-screen artwork loading to one task per track/artwork key.
+        nowPlayingArtworkTask = Task { [weak self] in
+            guard let self else { return }
+
+            guard let url = await self.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
                 fallbackPath: track.fallbackThumbPath,
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 600
-            ) {
-                let request = ImageRequest(url: url)
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                        return image
-                    }
-                    
-                    await MainActor.run {
-                        // Ensure we're still playing the same track
-                        if self.currentTrack?.id == track.id {
-                            var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                            currentInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
-                        }
-                    }
-                }
+            ) else {
+                return
             }
+
+            if Task.isCancelled { return }
+
+            let request = ImageRequest(url: url)
+            guard let image = try? await ImagePipeline.shared.image(for: request) else {
+                return
+            }
+
+            if Task.isCancelled { return }
+
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                image
+            }
+
+            await MainActor.run {
+                guard self.currentTrack?.id == track.id else { return }
+                self.nowPlayingArtwork = artwork
+                self.nowPlayingArtworkTrackID = track.id
+                var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                currentInfo[MPMediaItemPropertyArtwork] = artwork
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+            }
+        }
+    }
+
+    private func cancelNowPlayingArtworkLoad(clearArtwork: Bool) {
+        nowPlayingArtworkTask?.cancel()
+        nowPlayingArtworkTask = nil
+        nowPlayingArtworkRequestKey = nil
+        if clearArtwork {
+            nowPlayingArtworkTrackID = nil
+            nowPlayingArtwork = nil
         }
     }
 

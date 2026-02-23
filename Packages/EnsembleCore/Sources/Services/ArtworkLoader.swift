@@ -13,17 +13,29 @@ public protocol ArtworkLoaderProtocol {
 public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
+    private static let asyncArtworkURLCacheTTL: TimeInterval = 5
+    private static let legacyArtworkURLCacheTTL: TimeInterval = 60
     
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
-        private var cache: [String: URL] = [:]
-        
-        func get(_ key: String) -> URL? {
-            cache[key]
+        private struct Entry {
+            let url: URL
+            let expiresAt: Date
         }
         
-        func set(_ key: String, url: URL) {
-            cache[key] = url
+        private var cache: [String: Entry] = [:]
+        
+        func get(_ key: String) -> URL? {
+            guard let entry = cache[key] else { return nil }
+            if entry.expiresAt <= Date() {
+                cache.removeValue(forKey: key)
+                return nil
+            }
+            return entry.url
+        }
+        
+        func set(_ key: String, url: URL, ttl: TimeInterval) {
+            cache[key] = Entry(url: url, expiresAt: Date().addingTimeInterval(ttl))
         }
     }
     
@@ -87,7 +99,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
             
             if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
-                await urlCache.set(cacheKey, url: url)
+                await urlCache.set(cacheKey, url: url, ttl: Self.legacyArtworkURLCacheTTL)
             }
         }
 
@@ -108,7 +120,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     ) async -> URL? {
         // Cap size at 1000px to avoid excessive memory usage
         let cappedSize = min(size, 1000)
-        // Determine which path and ratingKey to use
+        // Determine which path and ratingKey to use.
         let actualPath: String?
         let actualRatingKey: String?
         let usedFallback: Bool
@@ -132,10 +144,15 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
         
         guard let finalPath = actualPath else { return nil }
+        let isOffline = await syncCoordinator.isOffline
+        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(isOffline ? "offline" : "online")"
+
+        if let cachedURL = await urlCache.get(cacheKey) {
+            return cachedURL
+        }
 
         // Only use local file cache when offline
         // When online, always use network to get fresh artwork (Nuke handles efficient caching)
-        let isOffline = await syncCoordinator.isOffline
         if isOffline, let key = actualRatingKey {
             // Try album artwork cache
             let albumFilename = "\(key)_album.jpg"
@@ -145,6 +162,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 #if DEBUG
                 EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
                 #endif
+                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
                 return url
             }
 
@@ -156,6 +174,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 #if DEBUG
                 EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
                 #endif
+                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
                 return url
             }
         }
@@ -172,6 +191,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
                 #endif
             }
+            await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
         }
         return networkURL
     }
