@@ -276,7 +276,15 @@ public struct AlbumDetailView: View {
             showTrackNumbers: true,
             groupByDisc: true,
             showFilter: false,
-            mediaType: .album
+            mediaType: .album,
+            albumMenuActions: AlbumDetailMenuActions(
+                onPlayNext: {
+                    nowPlayingVM.playNext(viewModel.filteredTracks)
+                },
+                onPlayLast: {
+                    nowPlayingVM.playLast(viewModel.filteredTracks)
+                }
+            )
         )
     }
     

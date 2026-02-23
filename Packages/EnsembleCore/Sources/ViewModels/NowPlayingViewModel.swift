@@ -333,6 +333,10 @@ public final class NowPlayingViewModel: ObservableObject {
     public func playNext(_ track: Track) {
         playbackService.playNext(track)
     }
+
+    public func playNext(_ tracks: [Track]) {
+        playbackService.playNext(tracks)
+    }
     
     public func playLast(_ track: Track) {
         playbackService.playLast(track)

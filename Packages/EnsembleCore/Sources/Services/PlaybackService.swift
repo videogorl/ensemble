@@ -145,6 +145,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func addToQueue(_ track: Track)
     func addToQueue(_ tracks: [Track])
     func playNext(_ track: Track)
+    func playNext(_ tracks: [Track])
     func playLast(_ track: Track)
     func playLast(_ tracks: [Track])
     func removeFromQueue(at index: Int)
@@ -1451,6 +1452,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 originalQueue.insert(item, at: originalIdx + 1)
             } else {
                 originalQueue.append(item)
+            }
+        }
+
+        savePlaybackState()
+        Task { await checkAndRefreshAutoplayQueue() }
+    }
+
+    /// Insert multiple tracks to play immediately after the current track, preserving order
+    public func playNext(_ tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        let items = tracks.map { QueueItem(track: $0, source: .upNext) }
+        let insertIndex = currentQueueIndex + 1
+        if insertIndex <= queue.count {
+            queue.insert(contentsOf: items, at: insertIndex)
+            // If inserted among autoplay items, flatten preceding autoplay
+            flattenAutoplayItemsBeforeIndex(insertIndex)
+        } else {
+            queue.append(contentsOf: items)
+        }
+
+        // Keep originalQueue in sync for shuffle restore
+        if isShuffleEnabled {
+            // Find current track in originalQueue and insert after it
+            if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
+               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id }) {
+                originalQueue.insert(contentsOf: items, at: originalIdx + 1)
+            } else {
+                originalQueue.append(contentsOf: items)
             }
         }
 

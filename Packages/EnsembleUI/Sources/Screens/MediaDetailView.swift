@@ -39,6 +39,13 @@ public struct PlaylistDetailMenuActions {
     let onRename: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onPlayNext: () -> Void
+    let onPlayLast: () -> Void
+}
+
+public struct AlbumDetailMenuActions {
+    let onPlayNext: () -> Void
+    let onPlayLast: () -> Void
 }
 
 // MARK: - Media Detail View
@@ -61,6 +68,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showFilter: Bool
     let mediaType: PinnedItemType?
     let playlistMenuActions: PlaylistDetailMenuActions?
+    let albumMenuActions: AlbumDetailMenuActions?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -80,7 +88,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         groupByDisc: Bool = false,
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
-        playlistMenuActions: PlaylistDetailMenuActions? = nil
+        playlistMenuActions: PlaylistDetailMenuActions? = nil,
+        albumMenuActions: AlbumDetailMenuActions? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -92,6 +101,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showFilter = showFilter
         self.mediaType = mediaType
         self.playlistMenuActions = playlistMenuActions
+        self.albumMenuActions = albumMenuActions
     }
 
     public var body: some View {
@@ -250,9 +260,39 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Add to Playlist…", systemImage: "text.badge.plus")
                 }
                 .disabled(viewModel.filteredTracks.isEmpty)
+
+                if let albumMenuActions {
+                    Divider()
+
+                    Button {
+                        albumMenuActions.onPlayNext()
+                    } label: {
+                        Label("Play Next", systemImage: "text.insert")
+                    }
+
+                    Button {
+                        albumMenuActions.onPlayLast()
+                    } label: {
+                        Label("Play Last", systemImage: "text.append")
+                    }
+                }
             }
 
             if let playlistMenuActions {
+                Button {
+                    playlistMenuActions.onPlayNext()
+                } label: {
+                    Label("Play Next", systemImage: "text.insert")
+                }
+
+                Button {
+                    playlistMenuActions.onPlayLast()
+                } label: {
+                    Label("Play Last", systemImage: "text.append")
+                }
+
+                Divider()
+
                 Button {
                     playlistMenuActions.onRename()
                 } label: {

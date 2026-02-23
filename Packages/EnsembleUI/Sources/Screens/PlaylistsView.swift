@@ -485,6 +485,22 @@ public struct PlaylistsView: View {
             Label("Shuffle", systemImage: "shuffle")
         }
 
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
         let isPinned = pinManager.isPinned(id: playlist.id)
         Button {
             if isPinned {
@@ -660,6 +676,12 @@ public struct PlaylistDetailView: View {
                         },
                         onDelete: {
                             showDeleteConfirmation = true
+                        },
+                        onPlayNext: {
+                            nowPlayingVM.playNext(viewModel.filteredTracks)
+                        },
+                        onPlayLast: {
+                            nowPlayingVM.playLast(viewModel.filteredTracks)
                         }
                     )
                 )

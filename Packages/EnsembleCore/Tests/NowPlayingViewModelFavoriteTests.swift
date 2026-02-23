@@ -105,6 +105,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func addToQueue(_ track: Track) {}
         func addToQueue(_ tracks: [Track]) {}
         func playNext(_ track: Track) {}
+        func playNext(_ tracks: [Track]) {}
         func playLast(_ track: Track) {}
         func playLast(_ tracks: [Track]) {}
         func removeFromQueue(at index: Int) {}

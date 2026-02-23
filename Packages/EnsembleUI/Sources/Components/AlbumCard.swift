@@ -116,6 +116,22 @@ public struct AlbumGrid: View {
 
         Button {
             withAlbumTracks(album) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withAlbumTracks(album) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
+        Button {
+            withAlbumTracks(album) { tracks in
                 nowPlayingVM.enableRadio(tracks: tracks)
             }
         } label: {

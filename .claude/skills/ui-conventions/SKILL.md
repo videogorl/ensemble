@@ -108,10 +108,10 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
-- Album menu: `Play`, `Shuffle`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
+- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
 - Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
-- Playlist menu on Playlists screen can include destructive/edit actions (`Rename…`, `Edit Playlist`, `Delete`) with smart-playlist guards
-- Playlist menu on Search should be non-destructive only
+- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
+- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
 ## Visual Design
 

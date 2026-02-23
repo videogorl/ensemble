@@ -924,6 +924,22 @@ public struct SearchView: View {
 
         Button {
             withAlbumTracks(album) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withAlbumTracks(album) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
+        Button {
+            withAlbumTracks(album) { tracks in
                 nowPlayingVM.enableRadio(tracks: tracks)
             }
         } label: {
@@ -1030,6 +1046,22 @@ public struct SearchView: View {
             }
         } label: {
             Label("Shuffle", systemImage: "shuffle")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
         }
 
         let isPinned = pinManager.isPinned(id: playlist.id)
