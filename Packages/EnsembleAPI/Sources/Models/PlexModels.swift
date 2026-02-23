@@ -235,8 +235,50 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let updatedAt: Int?
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
+    public let media: [PlexMedia]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+        case key
+        case parentRatingKey
+        case title
+        case parentTitle
+        case summary
+        case thumb
+        case art
+        case year
+        case originallyAvailableAt
+        case addedAt
+        case updatedAt
+        case leafCount
+        case viewedLeafCount
+        case media = "Media"
+    }
 
     public var id: String { ratingKey }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        ratingKey = try container.decode(String.self, forKey: .ratingKey)
+        key = try container.decode(String.self, forKey: .key)
+        parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
+
+        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        art = try container.decodeIfPresent(String.self, forKey: .art)
+        year = try container.decodeIfPresent(Int.self, forKey: .year)
+        originallyAvailableAt = try container.decodeIfPresent(String.self, forKey: .originallyAvailableAt)
+        addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
+        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
+        viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
+    }
 }
 
 // MARK: - Track
@@ -311,8 +353,11 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         key = try container.decode(String.self, forKey: .key)
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         grandparentRatingKey = try container.decodeIfPresent(String.self, forKey: .grandparentRatingKey)
-        title = try container.decode(String.self, forKey: .title)
-        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        title = PlexTitleFallback.trackTitle(from: decodedTitle, media: media)
+        let decodedParentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        parentTitle = PlexTitleFallback.albumTitle(from: decodedParentTitle, media: media)
         grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
         index = try container.decodeIfPresent(Int.self, forKey: .index)
@@ -327,7 +372,6 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         viewCount = try container.decodeIfPresent(Int.self, forKey: .viewCount)
         lastViewedAt = try container.decodeIfPresent(Int.self, forKey: .lastViewedAt)
         userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
-        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
         loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
 
         if let playlistItemString = try? container.decodeIfPresent(String.self, forKey: .playlistItemID) {
@@ -337,6 +381,57 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         } else {
             playlistItemID = nil
         }
+    }
+}
+
+private enum PlexTitleFallback {
+    static func trackTitle(from title: String?, media: [PlexMedia]?) -> String {
+        normalized(title)
+            ?? fileStem(from: media)
+            ?? "Unknown Track"
+    }
+
+    static func albumTitle(from title: String?, media: [PlexMedia]?) -> String {
+        normalized(title)
+            ?? parentDirectoryName(from: media)
+            ?? fileStem(from: media)
+            ?? "Unknown Album"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func fileStem(from media: [PlexMedia]?) -> String? {
+        guard
+            let filePath = media?.first?.part?.first?.file,
+            !filePath.isEmpty
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: filePath).deletingPathExtension().lastPathComponent.nonEmptyTitle
+    }
+
+    private static func parentDirectoryName(from media: [PlexMedia]?) -> String? {
+        guard
+            let filePath = media?.first?.part?.first?.file,
+            !filePath.isEmpty
+        else {
+            return nil
+        }
+
+        let directoryPath = URL(fileURLWithPath: filePath).deletingLastPathComponent().path
+        return URL(fileURLWithPath: directoryPath).lastPathComponent.nonEmptyTitle
+    }
+}
+
+private extension String {
+    var nonEmptyTitle: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

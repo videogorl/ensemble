@@ -37,6 +37,47 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(track.durationSeconds, 180.0)
     }
 
+    func testPlexTrackDecodingFallsBackToFileNameWhenTitleMissing() throws {
+        let trackJSON = """
+        {
+            "ratingKey": "12345",
+            "key": "/library/metadata/12345",
+            "title": "",
+            "Media": [
+                {
+                    "Part": [
+                        { "file": "/music/Boards of Canada/Geogaddi/1969.mp3" }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
+        XCTAssertEqual(track.title, "1969")
+        XCTAssertEqual(track.parentTitle, "Geogaddi")
+    }
+
+    func testPlexAlbumDecodingFallsBackToDirectoryNameWhenTitleMissing() throws {
+        let albumJSON = """
+        {
+            "ratingKey": "album-1",
+            "key": "/library/metadata/album-1",
+            "title": "   ",
+            "Media": [
+                {
+                    "Part": [
+                        { "file": "/music/Boards of Canada/Music Has the Right to Children/Turquoise Hexagon Sun.mp3" }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let album = try JSONDecoder().decode(PlexAlbum.self, from: Data(albumJSON.utf8))
+        XCTAssertEqual(album.title, "Music Has the Right to Children")
+    }
+
     func testPlexDeviceDecoding() throws {
         let deviceJSON = """
         {

@@ -530,6 +530,18 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                             albumRequest.predicate = NSPredicate(format: "ratingKey == %@", albumKey)
                         }
                         track.album = try context.fetch(albumRequest).first
+
+                        // If album metadata arrived without a usable title, backfill from track-level album name.
+                        if
+                            let album = track.album,
+                            let resolvedAlbumName = albumName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                            !resolvedAlbumName.isEmpty
+                        {
+                            let existingAlbumTitle = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if existingAlbumTitle.isEmpty || existingAlbumTitle == "Unknown Album" {
+                                album.title = resolvedAlbumName
+                            }
+                        }
                     }
 
                     if let sourceKey = sourceCompositeKey {
