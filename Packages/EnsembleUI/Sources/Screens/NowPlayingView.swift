@@ -353,7 +353,7 @@ public struct NowPlayingView: View {
             HStack {
                 Group {
                     if isDraggingSlider {
-                        Text(formatTime(localProgress * viewModel.duration))
+                        Text(formatTime(localProgress * viewModel.scrubberDuration))
                     } else {
                         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                             Text(viewModel.formattedCurrentTime)
@@ -375,7 +375,7 @@ public struct NowPlayingView: View {
 
                 Group {
                     if isDraggingSlider {
-                        Text(formatTime((1 - localProgress) * viewModel.duration))
+                        Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
                     } else {
                         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                             Text(viewModel.formattedRemainingTime)
@@ -832,7 +832,7 @@ public struct NowPlayingView: View {
                 guard let viewModel = viewModel else { return }
                 let currentTime = viewModel.currentTime
                 let seekAmount: TimeInterval = forward ? 2.0 : -2.0
-                let newTime = max(0, min(currentTime + seekAmount, viewModel.duration))
+                let newTime = max(0, min(currentTime + seekAmount, viewModel.scrubberDuration))
                 viewModel.seek(to: newTime)
             }
         }

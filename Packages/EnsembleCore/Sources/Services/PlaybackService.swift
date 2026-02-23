@@ -468,6 +468,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var itemPlaybackStalledObserver: NSObjectProtocol?
     private var itemFailedToPlayToEndObserver: NSObjectProtocol?
     private var itemErrorLogEntryObserver: NSObjectProtocol?
+    private var isHandlingQueueExhaustion = false
     private var networkStateObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
@@ -598,7 +599,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         guard let self = self else { return }
                         await Task.yield()
                         guard self.player?.currentItem == nil else { return }
-                        self.handleQueueExhausted()
+                        await self.handleQueueExhausted()
                     }
                 }
             }
@@ -668,7 +669,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
     @MainActor
-    private func handleQueueExhausted() {
+    private func handleQueueExhausted() async {
+        guard !isHandlingQueueExhaustion else {
+            #if DEBUG
+            EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
+            #endif
+            return
+        }
+        isHandlingQueueExhaustion = true
+        defer { isHandlingQueueExhaustion = false }
+
         guard !queue.isEmpty else {
             stop()
             return
@@ -678,44 +688,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
+        let nextIndex = currentQueueIndex + 1
+        if nextIndex < queue.count {
+            currentQueueIndex = nextIndex
+            await playCurrentQueueItem()
+            savePlaybackState()
+            await checkAndRefreshAutoplayQueue()
+            return
+        }
+
         if repeatMode == .all {
             currentQueueIndex = 0
-            Task {
-                await playCurrentQueueItem()
-                savePlaybackState()
-                await checkAndRefreshAutoplayQueue()
-            }
+            await playCurrentQueueItem()
+            savePlaybackState()
+            await checkAndRefreshAutoplayQueue()
             return
         }
 
         if isAutoplayEnabled {
-            let nextIndex = currentQueueIndex + 1
-            if nextIndex < queue.count {
-                currentQueueIndex = nextIndex
-                Task {
-                    await playCurrentQueueItem()
-                    savePlaybackState()
-                    await checkAndRefreshAutoplayQueue()
-                }
-                return
-            }
+            let previousCount = queue.count
+            await refreshAutoplayQueue()
 
-            Task { @MainActor in
-                let previousCount = queue.count
-                await refreshAutoplayQueue()
-
-                let refreshedNextIndex = currentQueueIndex + 1
-                if queue.count > previousCount, refreshedNextIndex < queue.count {
-                    currentQueueIndex = refreshedNextIndex
-                    await playCurrentQueueItem()
-                    savePlaybackState()
-                    await checkAndRefreshAutoplayQueue()
-                } else {
-                    #if DEBUG
-                    EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
-                    #endif
-                    stop()
-                }
+            let refreshedNextIndex = currentQueueIndex + 1
+            if queue.count > previousCount, refreshedNextIndex < queue.count {
+                currentQueueIndex = refreshedNextIndex
+                await playCurrentQueueItem()
+                savePlaybackState()
+                await checkAndRefreshAutoplayQueue()
+            } else {
+                #if DEBUG
+                EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
+                #endif
+                stop()
             }
             return
         }
@@ -2867,7 +2871,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #if DEBUG
             EnsembleLogger.debug("⏹️ Stall recovery detected empty player queue - handling as queue end")
             #endif
-            handleQueueExhausted()
+            await handleQueueExhausted()
             return
         }
 

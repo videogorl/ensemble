@@ -209,9 +209,24 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.currentTimeValue
     }
 
+    /// Keeps the scrubber from reaching 100% while playback is still active when
+    /// stream metadata under-reports duration.
+    public var scrubberDuration: TimeInterval {
+        let baseDuration = max(0, duration)
+        guard currentTrack != nil else { return baseDuration }
+
+        switch playbackState {
+        case .playing, .buffering, .loading:
+            return max(baseDuration, currentTime + 1.0)
+        default:
+            return max(baseDuration, currentTime)
+        }
+    }
+
     public var progress: Double {
-        guard duration > 0 else { return 0 }
-        return max(0, min(1, currentTime / duration))
+        let displayDuration = scrubberDuration
+        guard displayDuration > 0 else { return 0 }
+        return max(0, min(1, currentTime / displayDuration))
     }
 
     public var bufferedProgress: Double {
@@ -235,7 +250,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public var formattedRemainingTime: String {
-        let remaining = max(0, duration - currentTime)
+        let remaining = max(0, scrubberDuration - currentTime)
         return "-" + formatTime(remaining)
     }
     
@@ -301,7 +316,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func seekToProgress(_ progress: Double) {
-        let time = progress * duration
+        let time = progress * scrubberDuration
         seek(to: time)
     }
 
