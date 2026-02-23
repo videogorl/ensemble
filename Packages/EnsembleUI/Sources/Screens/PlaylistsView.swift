@@ -535,10 +535,23 @@ public struct PlaylistsView: View {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        let renamingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "pencil",
+            title: "Renaming \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: "playlist-rename-pending-\(playlist.id)",
+            showsActivityIndicator: true
+        )
+        viewModel.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        deps.toastCenter.show(renamingToast)
+
         Task {
             do {
                 try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
+                viewModel.clearOptimisticRename(for: playlist.id)
                 await viewModel.loadPlaylists()
+                deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
@@ -548,6 +561,9 @@ public struct PlaylistsView: View {
                     )
                 )
             } catch {
+                viewModel.clearOptimisticRename(for: playlist.id)
+                await viewModel.loadPlaylists()
+                deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .error,
@@ -677,8 +693,41 @@ public struct PlaylistDetailView: View {
             TextField("Playlist name", text: $renameTitle)
             Button("Cancel", role: .cancel) {}
             Button("Save") {
+                let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                let previousTitle = viewModel.playlist.title
+                let renamingToast = ToastPayload(
+                    style: .info,
+                    iconSystemName: "pencil",
+                    title: "Renaming \(previousTitle)...",
+                    isPersistent: true,
+                    dedupeKey: "playlist-rename-pending-\(viewModel.playlist.id)",
+                    showsActivityIndicator: true
+                )
+                deps.toastCenter.show(renamingToast)
                 Task {
-                    await viewModel.renamePlaylist(to: renameTitle)
+                    let didRename = await viewModel.renamePlaylist(to: trimmed)
+                    deps.toastCenter.dismiss(id: renamingToast.id)
+                    if didRename {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .success,
+                                iconSystemName: "pencil.circle.fill",
+                                title: "Renamed playlist",
+                                dedupeKey: "playlist-rename-success-\(viewModel.playlist.id)"
+                            )
+                        )
+                    } else {
+                        deps.toastCenter.show(
+                            ToastPayload(
+                                style: .error,
+                                iconSystemName: "xmark.octagon.fill",
+                                title: "Could not rename playlist",
+                                message: viewModel.error ?? "Try again later.",
+                                dedupeKey: "playlist-rename-error-\(viewModel.playlist.id)"
+                            )
+                        )
+                    }
                 }
             }
         } message: {

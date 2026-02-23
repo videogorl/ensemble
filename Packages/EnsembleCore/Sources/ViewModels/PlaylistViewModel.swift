@@ -20,6 +20,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
+    private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
@@ -190,7 +191,8 @@ public final class PlaylistViewModel: ObservableObject {
             optimisticCreatingPlaylists.removeAll { optimistic in
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
-            playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+            let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
+            playlists = mergeWithOptimisticCreatingPlaylists(renamedApplied)
         } catch {
             self.error = error.localizedDescription
         }
@@ -243,6 +245,37 @@ public final class PlaylistViewModel: ObservableObject {
             !serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
         }
         return serverPlaylists + unresolvedOptimistic
+    }
+
+    private func applyOptimisticRenames(to playlists: [Playlist]) -> [Playlist] {
+        playlists.map { playlist in
+            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByID[playlist.id] else {
+                return playlist
+            }
+            return Playlist(
+                id: playlist.id,
+                key: playlist.key,
+                title: optimisticTitle,
+                summary: playlist.summary,
+                isSmart: playlist.isSmart,
+                trackCount: playlist.trackCount,
+                duration: playlist.duration,
+                compositePath: playlist.compositePath,
+                dateAdded: playlist.dateAdded,
+                dateModified: playlist.dateModified,
+                lastPlayed: playlist.lastPlayed,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            )
+        }
+    }
+
+    public func applyOptimisticRename(for playlist: Playlist, newTitle: String) {
+        optimisticRenamedPlaylistTitlesByID[playlist.id] = newTitle
+        playlists = applyOptimisticRenames(to: playlists)
+    }
+
+    public func clearOptimisticRename(for playlistID: String) {
+        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlistID)
     }
 
     private static func isOptimisticCreatingPlaylistID(_ id: String) -> Bool {
@@ -366,12 +399,39 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         return filtered
     }
 
-    public func renamePlaylist(to newTitle: String) async {
+    @discardableResult
+    public func renamePlaylist(to newTitle: String) async -> Bool {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            error = "Playlist name cannot be empty."
+            return false
+        }
+
+        let previousPlaylist = playlist
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: trimmed,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: playlist.trackCount,
+            duration: playlist.duration,
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        error = nil
+
         do {
-            try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
+            try await syncCoordinator.renamePlaylist(playlist, to: trimmed)
             await loadTracks()
+            return true
         } catch {
+            playlist = previousPlaylist
             self.error = error.localizedDescription
+            return false
         }
     }
 
