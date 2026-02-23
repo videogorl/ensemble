@@ -72,7 +72,11 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     ) {
         self.id = id
         self.key = key
-        self.title = title
+        self.title = Self.normalizedTrackTitle(
+            rawTitle: title,
+            localFilePath: localFilePath,
+            streamKey: streamKey
+        )
         self.artistName = artistName
         self.albumName = albumName
         self.albumRatingKey = albumRatingKey
@@ -102,6 +106,39 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private static func normalizedTrackTitle(
+        rawTitle: String,
+        localFilePath: String?,
+        streamKey: String?
+    ) -> String {
+        if let normalized = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
+            return normalized
+        }
+        if let localFileName = filenameStem(fromPath: localFilePath) {
+            return localFileName
+        }
+        if let streamFileName = filenameStem(fromPath: streamKey) {
+            return streamFileName
+        }
+        return "Unknown Track"
+    }
+
+    private static func filenameStem(fromPath rawPath: String?) -> String? {
+        guard let rawPath = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else {
+            return nil
+        }
+
+        if
+            let components = URLComponents(string: rawPath),
+            let path = components.percentEncodedPath.removingPercentEncoding,
+            !path.isEmpty
+        {
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent.nonEmpty
+        }
+
+        return URL(fileURLWithPath: rawPath).deletingPathExtension().lastPathComponent.nonEmpty
     }
 }
 
@@ -164,6 +201,13 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             title: title,
             artistName: artistName
         )
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

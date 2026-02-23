@@ -14,6 +14,17 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(track.formattedDuration, "3:05")
     }
 
+    func testTrackTitleFallsBackToStreamFilenameWhenEmpty() {
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "  ",
+            streamKey: "/library/parts/4321/Blemish%20Bass%2003202025.mp3?download=0"
+        )
+
+        XCTAssertEqual(track.title, "Blemish Bass 03202025")
+    }
+
     func testRepeatModeCycle() {
         var mode = RepeatMode.off
 

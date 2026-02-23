@@ -501,7 +501,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
                     track.ratingKey = ratingKey
                     track.key = key
-                    track.title = title
+                    track.title = Self.normalizedTrackTitle(title, streamKey: streamKey)
                     track.artistName = artistName
                     track.albumName = albumName
                     track.trackNumber = Int32(trackNumber ?? 0)
@@ -943,5 +943,34 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 }
             }
         }
+    }
+}
+
+private extension LibraryRepository {
+    static func normalizedTrackTitle(_ title: String, streamKey: String?) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+
+        if let streamKey = streamKey?.trimmingCharacters(in: .whitespacesAndNewlines), !streamKey.isEmpty {
+            if
+                let components = URLComponents(string: streamKey),
+                let path = components.percentEncodedPath.removingPercentEncoding,
+                !path.isEmpty
+            {
+                let filename = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+                if !filename.isEmpty {
+                    return filename
+                }
+            }
+
+            let filename = URL(fileURLWithPath: streamKey).deletingPathExtension().lastPathComponent
+            if !filename.isEmpty {
+                return filename
+            }
+        }
+
+        return "Unknown Track"
     }
 }
