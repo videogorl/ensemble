@@ -212,9 +212,9 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeAddPlexAccountViewModel() -> AddPlexAccountViewModel {
         AddPlexAccountViewModel(
             authService: authService,
+            accountDiscoveryService: accountDiscoveryService,
             accountManager: accountManager,
-            syncCoordinator: syncCoordinator,
-            keychain: keychain
+            syncCoordinator: syncCoordinator
         )
     }
 

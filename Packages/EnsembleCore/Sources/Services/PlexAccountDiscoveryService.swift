@@ -50,6 +50,10 @@ public protocol PlexAccountDiscoveryClientProtocol: Sendable {
     ) async throws -> [PlexLibrarySection]
 }
 
+public protocol PlexAccountDiscoveryServiceProtocol: Sendable {
+    func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult
+}
+
 public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol {
     private let keychain: KeychainServiceProtocol
 
@@ -258,3 +262,5 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
         )
     }
 }
+
+extension PlexAccountDiscoveryService: PlexAccountDiscoveryServiceProtocol {}
