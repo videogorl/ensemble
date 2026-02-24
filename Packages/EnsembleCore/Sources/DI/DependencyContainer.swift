@@ -16,6 +16,7 @@ public final class DependencyContainer: @unchecked Sendable {
     // MARK: - Multi-Source
 
     public let accountManager: AccountManager
+    public let accountDiscoveryService: PlexAccountDiscoveryService
     public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
@@ -70,6 +71,7 @@ public final class DependencyContainer: @unchecked Sendable {
             AccountManager(keychain: keychainRef)
         }
         accountManager = am
+        accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
 
         // Network monitoring (must be created before SyncCoordinator)
         let nm = MainActor.assumeIsolated {
