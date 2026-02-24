@@ -211,7 +211,7 @@ public final class AddPlexAccountViewModel: ObservableObject {
         let tokenMetadata = PlexAuthService.tokenMetadata(from: authToken)
         let account = PlexAccountConfig(
             id: accountId,
-            username: server.name,
+            displayTitle: server.name,
             authToken: authToken,
             authTokenMetadata: tokenMetadata,
             servers: [serverConfig]

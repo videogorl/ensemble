@@ -36,7 +36,7 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         let keychain = TestKeychain()
         let existing = PlexAccountConfig(
             id: "account-1",
-            username: "tester",
+            displayTitle: "tester",
             authToken: "legacy-token",
             servers: []
         )
@@ -48,11 +48,11 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
 
         XCTAssertTrue(manager.plexAccounts.isEmpty)
         XCTAssertNil(try keychain.get(KeychainKey.plexAccounts))
-        XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 1)
+        XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 2)
     }
 
     func testExpiredAccountIsRemovedDuringPolicyEnforcement() {
-        UserDefaults.standard.set(1, forKey: migrationDefaultsKey)
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
 
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)
@@ -64,7 +64,7 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         manager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "token",
                 authTokenMetadata: expiredMetadata,
                 servers: []

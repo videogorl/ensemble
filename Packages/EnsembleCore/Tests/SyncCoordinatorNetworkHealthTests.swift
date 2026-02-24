@@ -84,7 +84,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "auth",
                 servers: [
                     PlexServerConfig(
@@ -285,7 +285,7 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "auth",
                 servers: [
                     PlexServerConfig(

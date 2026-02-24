@@ -460,7 +460,9 @@ public final class ServerHealthChecker: ObservableObject {
             }
             let updatedAccount = PlexAccountConfig(
                 id: account.id,
-                username: account.username,
+                email: account.email,
+                plexUsername: account.plexUsername,
+                displayTitle: account.displayTitle,
                 authToken: account.authToken,
                 authTokenMetadata: account.authTokenMetadata,
                 servers: updatedServers

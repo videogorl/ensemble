@@ -10,7 +10,7 @@ public final class AccountManager: ObservableObject {
     private let keychain: KeychainServiceProtocol
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private static let authMigrationVersionKey = "plex_auth_migration_version"
-    private static let authMigrationVersion = 1
+    private static let authMigrationVersion = 2
 
     public init(keychain: KeychainServiceProtocol) {
         self.keychain = keychain
@@ -102,7 +102,9 @@ public final class AccountManager: ObservableObject {
         // Create new account with updated servers
         plexAccounts[accountIndex] = PlexAccountConfig(
             id: account.id,
-            username: account.username,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
             servers: updatedServers
@@ -146,7 +148,7 @@ public final class AccountManager: ObservableObject {
                     sources.append(MusicSource(
                         id: identifier,
                         displayName: "\(server.name) - \(library.title)",
-                        accountName: account.username,
+                        accountName: account.accountIdentifier,
                         sourceType: .plex
                     ))
                 }

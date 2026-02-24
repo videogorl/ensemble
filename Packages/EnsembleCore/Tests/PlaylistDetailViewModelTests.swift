@@ -84,7 +84,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "auth",
                 servers: [
                     PlexServerConfig(
