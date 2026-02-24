@@ -1,9 +1,15 @@
 import EnsembleCore
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 public struct AddPlexAccountView: View {
     @StateObject private var viewModel: AddPlexAccountViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
 
     public init() {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAddPlexAccountViewModel())
@@ -80,10 +86,10 @@ public struct AddPlexAccountView: View {
             pinView(code: code, linkURL: linkURL)
 
         case .selectingServer:
-            serverSelectionView
+            serverLibrarySelectionView
 
         case .selectingLibraries:
-            librarySelectionView
+            serverLibrarySelectionView
 
         case .complete:
             ProgressView()
@@ -122,15 +128,38 @@ public struct AddPlexAccountView: View {
             Text("Enter this code at plex.tv/link")
                 .font(.headline)
 
-            Text(code)
-                .font(.system(size: 48, weight: .bold, design: .monospaced))
-                .tracking(8)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            Button {
+                copyToClipboard(code)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "checkmark.circle.fill",
+                        title: "Code copied",
+                        message: "Paste it at plex.tv/link",
+                        dedupeKey: "add-account-pin-copied"
+                    )
+                )
+            } label: {
+                VStack(spacing: 8) {
+                    Text(code)
+                        .font(.system(size: 48, weight: .bold, design: .monospaced))
+                        .tracking(8)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.doc")
+                        Text("Tap to copy")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
                 .frame(maxWidth: 320)
+            }
+            .buttonStyle(.plain)
 
             Link(destination: linkURL) {
                 HStack {
@@ -155,9 +184,9 @@ public struct AddPlexAccountView: View {
         }
     }
 
-    private var serverSelectionView: some View {
+    private var serverLibrarySelectionView: some View {
         VStack(spacing: 16) {
-            Text("Select a Server")
+            Text("Select Servers and Libraries")
                 .font(.headline)
 
             if viewModel.isLoading {
@@ -173,48 +202,49 @@ public struct AddPlexAccountView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 16) {
                         ForEach(viewModel.servers) { server in
-                            ServerRow(server: server) {
-                                Task {
-                                    await viewModel.selectServer(server)
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "server.rack")
+                                        .font(.subheadline)
+                                        .foregroundColor(.accentColor)
+
+                                    Text(server.name)
+                                        .font(.headline)
+
+                                    if let platform = server.platform {
+                                        Text("(\(platform))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+
+                                if let serverError = viewModel.serverLibraryErrors[server.id] {
+                                    Text(serverError)
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                        .padding(.bottom, 4)
+                                } else {
+                                    let serverLibraries = viewModel.libraries(for: server.id)
+                                    if serverLibraries.isEmpty {
+                                        Text("No music libraries found")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        ServerLibrariesSelection(
+                                            libraries: serverLibraries
+                                        ) { library in
+                                            viewModel.isLibrarySelected(serverId: server.id, libraryKey: library.key)
+                                        } onToggle: { library in
+                                            viewModel.toggleLibrary(for: server.id, library: library)
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .frame(maxHeight: 300)
-            }
-        }
-    }
-
-    private var librarySelectionView: some View {
-        VStack(spacing: 16) {
-            Text("Select Libraries")
-                .font(.headline)
-
-            if viewModel.isLoading {
-                ProgressView()
-            } else if viewModel.libraries.isEmpty {
-                Text("No music libraries found")
-                    .foregroundColor(.secondary)
-
-                Button("Refresh") {
-                    Task {
-                        await viewModel.loadLibraries()
-                    }
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(viewModel.libraries) { library in
-                            LibrarySelectionRow(
-                                library: library,
-                                isSelected: viewModel.selectedLibraryKeys.contains(library.key)
-                            ) {
-                                viewModel.toggleLibrary(library)
-                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(12)
                         }
                     }
                     .padding(.horizontal)
@@ -233,9 +263,18 @@ public struct AddPlexAccountView: View {
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 32)
-                .disabled(viewModel.selectedLibraryKeys.isEmpty)
+                .disabled(viewModel.selectedLibraryCompositeKeys.isEmpty)
             }
         }
+    }
+
+    private func copyToClipboard(_ value: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = value
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        #endif
     }
 }
 
@@ -302,5 +341,24 @@ struct ServerRow: View {
             .cornerRadius(12)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct ServerLibrariesSelection: View {
+    let libraries: [Library]
+    let isSelected: (Library) -> Bool
+    let onToggle: (Library) -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(libraries) { library in
+                LibrarySelectionRow(
+                    library: library,
+                    isSelected: isSelected(library)
+                ) {
+                    onToggle(library)
+                }
+            }
+        }
     }
 }

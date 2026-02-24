@@ -142,14 +142,36 @@ public final class AddPlexAccountViewModel: ObservableObject {
 
     public func toggleLibrary(_ library: Library) {
         guard let selectedServer else { return }
-        let compositeKey = Self.selectionKey(serverId: selectedServer.id, libraryKey: library.key)
+        toggleLibrary(for: selectedServer.id, library: library)
+    }
+
+    public func toggleLibrary(for serverId: String, library: Library) {
+        let compositeKey = Self.selectionKey(serverId: serverId, libraryKey: library.key)
         if selectedLibraryCompositeKeys.contains(compositeKey) {
             selectedLibraryCompositeKeys.remove(compositeKey)
-            selectedLibraryKeys.remove(library.key)
+            if selectedServer?.id == serverId {
+                selectedLibraryKeys.remove(library.key)
+            }
         } else {
             selectedLibraryCompositeKeys.insert(compositeKey)
-            selectedLibraryKeys.insert(library.key)
+            if selectedServer?.id == serverId {
+                selectedLibraryKeys.insert(library.key)
+            }
         }
+    }
+
+    public func libraries(for serverId: String) -> [Library] {
+        guard let server = discoveredServers.first(where: { $0.id == serverId }) else {
+            return []
+        }
+
+        return server.libraries.map {
+            Library(id: $0.key, key: $0.key, title: $0.title, type: "music")
+        }
+    }
+
+    public func isLibrarySelected(serverId: String, libraryKey: String) -> Bool {
+        selectedLibraryCompositeKeys.contains(Self.selectionKey(serverId: serverId, libraryKey: libraryKey))
     }
 
     public func confirmLibraries() {
