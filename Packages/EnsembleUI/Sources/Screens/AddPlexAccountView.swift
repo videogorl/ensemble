@@ -201,55 +201,55 @@ public struct AddPlexAccountView: View {
                     }
                 }
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(viewModel.servers) { server in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "server.rack")
-                                        .font(.subheadline)
-                                        .foregroundColor(.accentColor)
+                LazyVStack(spacing: 16) {
+                    ForEach(viewModel.servers) { server in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "server.rack")
+                                    .font(.subheadline)
+                                    .foregroundColor(.accentColor)
 
-                                    Text(server.name)
-                                        .font(.headline)
+                                Text(server.name)
+                                    .font(.headline)
 
-                                    if let platform = server.platform {
-                                        Text("(\(platform))")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-
-                                if let serverError = viewModel.serverLibraryErrors[server.id] {
-                                    Text(serverError)
+                                if let platform = server.platform {
+                                    Text("(\(platform))")
                                         .font(.caption)
-                                        .foregroundColor(.red)
-                                        .padding(.bottom, 4)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            if let serverError = viewModel.serverLibraryErrors[server.id] {
+                                Text(serverError)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .padding(.bottom, 4)
+                            } else {
+                                let serverLibraries = viewModel.libraries(for: server.id)
+                                if serverLibraries.isEmpty {
+                                    Text("No music libraries found")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 } else {
-                                    let serverLibraries = viewModel.libraries(for: server.id)
-                                    if serverLibraries.isEmpty {
-                                        Text("No music libraries found")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    } else {
-                                        ServerLibrariesSelection(
-                                            libraries: serverLibraries
-                                        ) { library in
-                                            viewModel.isLibrarySelected(serverId: server.id, libraryKey: library.key)
-                                        } onToggle: { library in
-                                            viewModel.toggleLibrary(for: server.id, library: library)
-                                        }
+                                    ServerLibrariesSelection(
+                                        libraries: serverLibraries
+                                    ) { library in
+                                        viewModel.isLibrarySelected(serverId: server.id, libraryKey: library.key)
+                                    } onToggle: { library in
+                                        viewModel.toggleLibrary(for: server.id, library: library)
                                     }
                                 }
                             }
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(12)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(12)
                     }
-                    .padding(.horizontal)
                 }
-                .frame(maxHeight: 300)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
 
                 Button {
                     viewModel.confirmLibraries()
@@ -298,6 +298,7 @@ struct LibrarySelectionRow: View {
 
                 Spacer()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
             .background(Color.gray.opacity(0.1))
             .cornerRadius(12)
