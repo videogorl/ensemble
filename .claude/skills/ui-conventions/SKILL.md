@@ -69,6 +69,11 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 
+### CoverFlow + Rotation Policy
+- CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
+- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
+- iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
+
 ### Button Labels
 
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:

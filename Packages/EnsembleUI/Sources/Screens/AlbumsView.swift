@@ -21,26 +21,36 @@ public struct AlbumsView: View {
         return Array(Set(artists))
     }
 
+    private var supportsCoverFlow: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
     public var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
+            let isCoverFlowActive = supportsCoverFlow && isLandscape
             
             Group {
                 if libraryVM.isLoading && libraryVM.albums.isEmpty {
                     loadingView
                 } else if libraryVM.albums.isEmpty {
                     emptyView
-                } else if isLandscape {
+                } else if isCoverFlowActive {
                     landscapeCoverFlowView
                 } else {
                     albumGridView
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isLandscape)
+            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .navigationTitle(isLandscape ? "" : "Albums")
+            .navigationTitle(isCoverFlowActive ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
                 await libraryVM.refreshFromServer()
@@ -48,7 +58,7 @@ public struct AlbumsView: View {
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty && !isLandscape {
+                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -87,7 +97,7 @@ public struct AlbumsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.albums.isEmpty && !isLandscape {
+                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
