@@ -26,7 +26,7 @@ public struct SettingsView: View {
             Section {
                 ForEach(accountManager.plexAccounts) { account in
                     NavigationLink {
-                        MusicSourceAccountPreviewView(account: account)
+                        MusicSourceAccountDetailView(accountId: account.id)
                     } label: {
                         MusicSourceAccountRow(
                             sourceName: "Plex",
@@ -291,37 +291,6 @@ struct MusicSourceAccountRow: View {
                     .foregroundColor(.secondary)
             }
         }
-    }
-}
-
-private struct MusicSourceAccountPreviewView: View {
-    let account: PlexAccountConfig
-
-    var body: some View {
-        List {
-            ForEach(account.servers) { server in
-                Section {
-                    if server.libraries.isEmpty {
-                        Text("No music libraries found")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(server.libraries) { library in
-                            HStack(spacing: 10) {
-                                Image(systemName: library.isEnabled ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(library.isEnabled ? .accentColor : .secondary)
-                                Text(library.title)
-                            }
-                        }
-                    }
-                } header: {
-                    Text(server.name)
-                }
-            }
-        }
-        .navigationTitle(account.accountIdentifier)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 }
 

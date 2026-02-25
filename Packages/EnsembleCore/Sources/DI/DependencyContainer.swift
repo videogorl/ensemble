@@ -225,6 +225,15 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager
         )
     }
+
+    @MainActor
+    public func makeMusicSourceAccountDetailViewModel(accountId: String) -> MusicSourceAccountDetailViewModel {
+        MusicSourceAccountDetailViewModel(
+            accountId: accountId,
+            accountManager: accountManager,
+            syncCoordinator: syncCoordinator
+        )
+    }
     
     @MainActor
     public func makeFavoritesViewModel() -> FavoritesViewModel {

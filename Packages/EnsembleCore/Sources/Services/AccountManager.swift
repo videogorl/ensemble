@@ -113,6 +113,61 @@ public final class AccountManager: ObservableObject {
         saveAccounts()
     }
 
+    /// Updates enabled state for a single server library in an account.
+    @discardableResult
+    public func setLibraryEnabled(
+        accountId: String,
+        serverId: String,
+        libraryKey: String,
+        isEnabled: Bool
+    ) -> Bool {
+        guard let accountIndex = plexAccounts.firstIndex(where: { $0.id == accountId }),
+              let serverIndex = plexAccounts[accountIndex].servers.firstIndex(where: { $0.id == serverId }),
+              let libraryIndex = plexAccounts[accountIndex].servers[serverIndex].libraries.firstIndex(where: { $0.key == libraryKey }) else {
+            return false
+        }
+
+        let account = plexAccounts[accountIndex]
+        let server = account.servers[serverIndex]
+        let library = server.libraries[libraryIndex]
+
+        guard library.isEnabled != isEnabled else {
+            return true
+        }
+
+        var updatedLibraries = server.libraries
+        updatedLibraries[libraryIndex] = PlexLibraryConfig(
+            id: library.id,
+            key: library.key,
+            title: library.title,
+            isEnabled: isEnabled
+        )
+
+        var updatedServers = account.servers
+        updatedServers[serverIndex] = PlexServerConfig(
+            id: server.id,
+            name: server.name,
+            url: server.url,
+            connections: server.connections,
+            token: server.token,
+            platform: server.platform,
+            libraries: updatedLibraries
+        )
+
+        plexAccounts[accountIndex] = PlexAccountConfig(
+            id: account.id,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
+            authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
+            servers: updatedServers
+        )
+
+        saveAccounts()
+        return true
+    }
+
     // MARK: - Source Enumeration
 
     /// Returns all enabled MusicSourceIdentifiers across all accounts
