@@ -45,6 +45,15 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Ensemble Music</string>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
