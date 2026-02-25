@@ -5,7 +5,6 @@ import SwiftUI
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let onSyncTap: () -> Void
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dependencies) private var deps
     
@@ -13,12 +12,10 @@ public struct MoreView: View {
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        onSyncTap: @escaping () -> Void
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self.onSyncTap = onSyncTap
     }
     
     private var barTabs: [TabItem] {
@@ -122,12 +119,6 @@ public struct MoreView: View {
                             }
                             .foregroundColor(.primary)
                         }
-                    }
-                    
-                    Button {
-                        onSyncTap()
-                    } label: {
-                        Label("Library Sync", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
             }
