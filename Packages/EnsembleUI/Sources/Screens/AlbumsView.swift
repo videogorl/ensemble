@@ -7,6 +7,7 @@ public struct AlbumsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -122,6 +123,12 @@ public struct AlbumsView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
+            .sheet(isPresented: $showingManageSources) {
+                SettingsView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
         }
     }
 
@@ -156,6 +163,7 @@ public struct AlbumsView: View {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
 
                 Button {
                     showingAddSourceFlow = true
@@ -168,12 +176,39 @@ public struct AlbumsView: View {
                         .cornerRadius(20)
                 }
                 .buttonStyle(.plain)
-            } else {
-                Text("Tap the sync button to sync your library")
+            } else if libraryVM.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !libraryVM.hasEnabledLibraries {
+                Text("No libraries enabled")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("No albums found in enabled libraries")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
+        .padding(.horizontal)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private struct AlbumSection: Identifiable {

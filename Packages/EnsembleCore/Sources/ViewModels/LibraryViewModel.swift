@@ -12,6 +12,7 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var error: String?
     @Published public private(set) var isSyncing = false
     @Published public private(set) var hasAnySources = false
+    @Published public private(set) var hasEnabledLibraries = false
     
     // Sort preferences
     @Published public var trackSortOption: TrackSortOption = .title {
@@ -88,6 +89,17 @@ public final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .map { !$0.isEmpty }
             .assign(to: &$hasAnySources)
+
+        accountManager.$plexAccounts
+            .receive(on: DispatchQueue.main)
+            .map { accounts in
+                accounts.contains { account in
+                    account.servers.contains { server in
+                        server.libraries.contains(where: \.isEnabled)
+                    }
+                }
+            }
+            .assign(to: &$hasEnabledLibraries)
 
         // Reflect account/library enablement changes immediately in cached browse surfaces.
         accountManager.$plexAccounts

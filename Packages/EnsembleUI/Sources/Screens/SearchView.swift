@@ -17,8 +17,10 @@ public struct SearchView: View {
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -59,6 +61,12 @@ public struct SearchView: View {
         }
         .sheet(isPresented: $showingAddSourceFlow) {
             AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            SettingsView()
             #if os(macOS)
                 .frame(width: 720, height: 560)
             #endif
@@ -645,13 +653,35 @@ public struct SearchView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            Text("Start exploring your music")
-                .font(.title3)
-                .foregroundColor(.secondary)
-            
-            Text("Start typing to search your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if syncCoordinator.isSyncing {
+                Text("Sync in progress…")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Start exploring your music")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+                
+                Text("Start typing to search your library")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
             
             Spacer()
         }
@@ -1310,6 +1340,29 @@ public struct SearchView: View {
                         .cornerRadius(20)
                 }
                 .buttonStyle(.plain)
+            } else if syncCoordinator.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
             } else {
                 Text("Try a different search term")
                     .font(.subheadline)
@@ -1324,6 +1377,14 @@ public struct SearchView: View {
     
     private var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)]
+    }
+
+    private var hasEnabledLibraries: Bool {
+        accountManager.plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
     
     private var recommendedDisplayItems: [HubItem] {
