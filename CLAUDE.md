@@ -67,6 +67,25 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Account-Centric Source Management + Sign-In Redesign (Feb 2026)
+The Plex source flow now centers on accounts (not individual server rows), and sync controls live in account detail:
+
+- **Add-account flow:** PIN can be copied on tap; discovery returns account identity plus all available servers/libraries in one checklist.
+- **Music Sources settings:** list now shows account-level sources (`Plex` + account identifier subtitle), and navigation opens account detail.
+- **Account detail:** shows server-grouped libraries (checked + unchecked), per-library sync/connection status, and a single “sync enabled libraries” action.
+- **Reconciliation behavior:** newly discovered libraries default unchecked; removed libraries are auto-disabled and purged.
+- **Purge semantics:** unchecking a library purges only that library’s cache; if the last enabled library for a server is removed/disabled, server-level playlists are purged.
+- **Navigation cleanup:** legacy standalone Sync Panel routes were removed from tab/more/sidebar flows.
+- **Visibility groundwork:** `LibraryVisibilityProfile` + `LibraryVisibilityStore` are in place, and `LibraryViewModel`/`SearchViewModel`/`HomeViewModel` now support source-level visibility filtering (without changing sync enablement).
+
+**Key files:**
+- `AddPlexAccountViewModel.swift` + `AddPlexAccountView.swift` - account discovery, grouped selection, PIN copy UX
+- `SettingsView.swift` + `MusicSourceAccountDetailView.swift` + `MusicSourceAccountDetailViewModel.swift` - account-level source list and detail flow
+- `AccountManager.swift` + `SyncCoordinator.swift` + `PlaylistRepository.swift` - reconciliation, selective purge, server playlist cleanup
+- `MainTabView.swift` + `MoreView.swift` - Sync Panel entry-point removal
+- `LibraryVisibilityProfile.swift` + `LibraryVisibilityStore.swift` - visibility profile foundation
+- `LibraryViewModel.swift` + `SearchViewModel.swift` + `HomeViewModel.swift` - visibility filter seams
+
 ### Sync System Overhaul (Feb 2026)
 The sync system now supports **incremental sync** using Plex API timestamp filters (`addedAt>=`, `updatedAt>=`):
 

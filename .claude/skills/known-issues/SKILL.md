@@ -30,6 +30,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - Not currently called during library sync
 - Would improve offline experience if wired up to `SyncCoordinator`
 
+### Library Visibility Profile Selector UI Not Shipped Yet
+- `LibraryVisibilityProfile` + `LibraryVisibilityStore` groundwork exists in `EnsembleCore`
+- `LibraryViewModel`, `SearchViewModel`, and `HomeViewModel` already support source-key visibility filtering seams
+- **Missing:** user-facing selector/editor UI to switch and manage profiles in Settings
+- **Current behavior:** filtering is foundation-only; sync-enable state remains unchanged
+
 ## Resolved
 
 ### Infrastructure
@@ -60,9 +66,9 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - Server health now reports classified failure reasons instead of generic offline.
 - Auth cutover now enforces token metadata lifecycle and forced re-login migration.
 
-### Residual Risk: Forced Re-Login After Auth Migration
+### Residual Risk: Forced Re-Login After Auth/Account Migrations
 - **Status:** Expected behavior
-- **Impact:** Existing beta users are signed out once when migration version bumps.
+- **Impact:** Existing beta users are signed out once when migration version bumps (auth lifecycle and account-schema cutovers).
 - **Mitigation:** Add release-note callout for one-time sign-in requirement.
 
 ## Future Enhancements (Waveform System)

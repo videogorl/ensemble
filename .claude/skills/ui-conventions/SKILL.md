@@ -22,6 +22,12 @@ These are core design decisions that must be maintained throughout the app.
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
 
+### Music Sources Navigation
+- **Account-centric source list:** Settings → Music Sources lists accounts/sources, not individual server rows.
+- **Account row content:** title is source type (currently `Plex`), subtitle is account identifier (email-first fallback chain).
+- **Detail destination:** tapping an account opens `MusicSourceAccountDetailView` with server headings and library checklists.
+- **Sync controls location:** per-library status and manual sync actions live in account detail; do not add standalone Sync Panel entry points.
+
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
@@ -97,6 +103,11 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
 - Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it
 - Global toast window must stay above mini player and modal sheets for consistent feedback visibility
+
+### Add-Account Plex Flow
+- PIN code in `AddPlexAccountView` should support copy-on-tap with toast confirmation.
+- Server/library selection UI should be grouped by server heading with library checkboxes.
+- Keep server cards full width even when no music libraries are found to avoid narrow/uneven layout.
 
 ### Gesture Actions (iOS/iPadOS)
 - Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)

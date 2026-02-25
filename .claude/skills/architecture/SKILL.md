@@ -55,6 +55,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
+- `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
@@ -75,6 +76,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
 - `MoodRepository` -- Mood data persistence (CDMood)
+- `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 
@@ -83,6 +85,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
 - `PlexAccountConfig` -- Account/server/library hierarchy for configuration
+- `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
 - `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` -- Network state management models
@@ -109,6 +112,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `CoverFlowView` -- 3D carousel view with perspective rotation, scaling, and tap-to-zoom/flip interactions
 - `TrackSwipeContainer` -- Shared swipe-action wrapper for track rows on iOS/iPadOS
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
+- `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
+- `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
 
 ## Key Architectural Patterns
 
@@ -221,6 +226,22 @@ Dynamic home screen powered by Plex's hub system:
 - `FilterPersistence` saves/loads per-view to UserDefaults
 
 **FilterSheet UI:** Search bar, sort picker, genre/artist multi-select chips, year range slider, downloaded-only toggle
+
+## Subsystem: Account-Centric Source Management
+
+- Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
+- `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
+- `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
+- Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
+- Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
+- Legacy standalone Sync Panel routes were removed from `MainTabView`/`MoreView`/sidebar flows.
+
+## Subsystem: Library Visibility Profiles (Groundwork)
+
+- `LibraryVisibilityProfile` stores hidden `sourceCompositeKey` values independent of sync enablement.
+- `LibraryVisibilityStore` persists profiles + active profile in `UserDefaults`.
+- `LibraryViewModel`, `SearchViewModel`, and `HomeViewModel` apply visibility filtering seams to published collections without toggling `PlexLibraryConfig.isEnabled`.
+- Selector/editor UI for switching profiles is intentionally deferred; groundwork is backend/viewmodel only.
 
 ## Subsystem: Network Resilience
 
