@@ -41,6 +41,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let pinManager: PinManager
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
+    public let siriMediaIndexStore: SiriMediaIndexStore
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -136,6 +137,13 @@ public final class DependencyContainer: @unchecked Sendable {
 
         libraryVisibilityStore = MainActor.assumeIsolated {
             LibraryVisibilityStore()
+        }
+
+        siriMediaIndexStore = MainActor.assumeIsolated {
+            SiriMediaIndexStore(
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef
+            )
         }
     }
 

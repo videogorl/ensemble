@@ -37,6 +37,7 @@ public final class AccountManager: ObservableObject {
         guard let data = try? JSONEncoder().encode(plexAccounts),
               let json = String(data: data, encoding: .utf8) else { return }
         try? keychain.save(json, forKey: KeychainKey.plexAccounts)
+        SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
     }
 
     // MARK: - Account Management
