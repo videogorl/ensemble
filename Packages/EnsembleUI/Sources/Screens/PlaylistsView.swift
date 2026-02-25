@@ -135,7 +135,19 @@ public struct PlaylistsView: View {
                 #endif
             }
             .sheet(isPresented: $showingManageSources) {
-                SettingsView()
+                NavigationView {
+                    SettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingManageSources = false
+                                }
+                            }
+                        }
+                }
+                #if os(iOS)
+                .navigationViewStyle(.stack)
+                #endif
                 #if os(macOS)
                     .frame(width: 720, height: 560)
                 #endif
