@@ -219,14 +219,6 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
-    public func makeSyncPanelViewModel() -> SyncPanelViewModel {
-        SyncPanelViewModel(
-            syncCoordinator: syncCoordinator,
-            accountManager: accountManager
-        )
-    }
-
-    @MainActor
     public func makeMusicSourceAccountDetailViewModel(accountId: String) -> MusicSourceAccountDetailViewModel {
         MusicSourceAccountDetailViewModel(
             accountId: accountId,
