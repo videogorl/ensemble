@@ -30,6 +30,8 @@ public struct HomeView: View {
                     viewModel.enterEditMode()
                     viewModel.isEditingOrder = true
                 }
+                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
@@ -80,6 +82,28 @@ public struct HomeView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+                    } else if !viewModel.hasConfiguredAccounts {
+                        Text("No music sources connected")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Text("Add a Plex account in Settings > Music Sources to populate Feed.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    } else if !viewModel.hasEnabledLibraries {
+                        Text("No libraries enabled")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Text("Enable at least one library in Settings > Music Sources to populate Feed.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     } else {
                         Text("No content available yet")
                             .font(.subheadline)
@@ -108,6 +132,8 @@ public struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 8)
+                .opacity(viewModel.hasEnabledLibraries ? 1 : 0.6)
+                .disabled(!viewModel.hasEnabledLibraries)
                 
                 Spacer()
             }
