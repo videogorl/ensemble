@@ -115,6 +115,29 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Handle background download completion
         completionHandler()
     }
+
+    func application(
+        _ application: UIApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+    ) -> Bool {
+        guard userActivity.activityType == SiriPlaybackActivityCodec.activityType,
+              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+            return false
+        }
+
+        Task { @MainActor in
+            do {
+                try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            } catch {
+                #if DEBUG
+                AppLogger.debug("📱 AppDelegate: Siri playback execution failed: \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        return true
+    }
     
     func applicationDidEnterBackground(_ application: UIApplication) {
         // Stop network monitoring to save battery

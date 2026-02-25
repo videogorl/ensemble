@@ -42,6 +42,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
+    public let siriPlaybackCoordinator: SiriPlaybackCoordinator
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -100,8 +101,22 @@ public final class DependencyContainer: @unchecked Sendable {
 
         // Services using sync coordinator
         // Note: artworkLoader must be created before playbackService since it's a dependency
-        artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
-        playbackService = PlaybackService(syncCoordinator: syncCoordinator, networkMonitor: nm, artworkLoader: artworkLoader)
+        let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
+        artworkLoader = artworkLoaderRef
+        let playbackServiceRef = PlaybackService(
+            syncCoordinator: syncCoordinator,
+            networkMonitor: nm,
+            artworkLoader: artworkLoaderRef
+        )
+        playbackService = playbackServiceRef
+        siriPlaybackCoordinator = MainActor.assumeIsolated {
+            SiriPlaybackCoordinator(
+                accountManager: am,
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef,
+                playbackService: playbackServiceRef
+            )
+        }
 
         // Settings manager
         settingsManager = MainActor.assumeIsolated {
