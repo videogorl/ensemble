@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
 ---
 
 # Ensemble Architecture
@@ -79,6 +79,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
+- `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
+- `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -91,6 +93,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` -- Network state management models
 - `PinnedItem` -- User-pinned content (albums, artists, playlists) with sort order
 - `Mood` -- Plex mood/vibe category (title and ratingKey)
+- `SiriPlaybackRequestPayload` / `SiriMediaKind` -- Versioned extension -> app handoff contract for Siri media intents
+- `SiriMediaIndex` / `SiriMediaIndexItem` -- Compact index records used by extension-side lookup/ranking
 
 **Key ViewModels:**
 - `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
@@ -126,6 +130,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - API models (`Plex*` in EnsembleAPI) -- Raw server responses
   - CoreData models (`CD*` in EnsemblePersistence) -- Persisted entities
   - Domain models (in EnsembleCore) -- UI-facing, protocol-conforming types
+- **In-app-first Siri execution** -- Siri extension resolves/disambiguates and returns `handleInApp`; playback always executes in main app process through `SiriPlaybackCoordinator`
 - **Multi-source architecture** -- Designed to support multiple Plex accounts and future services (Apple Music, Spotify)
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
@@ -235,6 +240,21 @@ Dynamic home screen powered by Plex's hub system:
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
 - Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
 - Legacy standalone Sync Panel routes were removed from `MainTabView`/`MoreView`/sidebar flows.
+
+## Subsystem: Siri Media Intents (In-App-First)
+
+- Siri extension target (`EnsembleSiriIntentsExtension`) implements `INPlayMediaIntentHandling` for query resolution/disambiguation only.
+- Extension reads `SiriMediaIndex` from the shared App Group container and ranks candidates deterministically:
+  - Match quality: exact normalized > prefix > contains
+  - Tie-breaks: last played > play count > track count > deterministic name/id
+- Extension returns `.handleInApp` with serialized `SiriPlaybackRequestPayload` in `NSUserActivity.userInfo`.
+- `AppDelegate.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
+- `SiriPlaybackCoordinator` resolves media against enabled sources and executes:
+  - Track: direct playback from resolved track
+  - Album: queue album tracks from first track
+  - Artist: queue artist tracks
+  - Playlist: queue playlist tracks in saved order
+- `SiriMediaIndexStore` rebuilds the index after sync completion and account/source configuration changes.
 
 ## Subsystem: Library Visibility Profiles (Groundwork)
 

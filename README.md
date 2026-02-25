@@ -38,6 +38,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
+- **Siri Voice Playback (In-App-First)** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
@@ -205,6 +206,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Immersive mode support with ChromeVisibilityPreferenceKey for full-screen experiences
 - Account-centric Music Sources flow with grouped server/library selection and integrated sync status/actions
 - Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
+- Siri media intents (track/album/artist/playlist) with thin extension resolution and in-app playback execution coordinator
 
 **Next Steps:**
 - Complete offline playback wiring

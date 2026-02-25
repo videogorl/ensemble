@@ -67,6 +67,24 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Siri Media Intents v1.1 (In-App-First) (Feb 2026)
+Siri playback now supports **track, album, artist, and playlist** phrases through SiriKit Media Intents with in-app execution:
+
+- **Thin extension:** `INPlayMediaIntentHandling` resolves/ranks candidates and uses Siri disambiguation when confidence is low.
+- **In-app execution:** extension returns `handleInApp`; the app decodes a versioned payload and executes playback via a dedicated coordinator.
+- **Indexing path:** shared App Group JSON index includes track/album/artist/playlist candidates with ranking metadata.
+- **Precision search:** repositories now expose scoped title/name search methods for deterministic Siri matching.
+- **Routing + outcomes:** deterministic ranking (exact > prefix > contains), tie-breakers, and Siri-friendly failure mapping.
+- **HomePod compatibility path:** SiriKit media handoff remains compatible with iPhone-hosted playback/AirPlay routing.
+
+**Key files:**
+- `EnsembleSiriIntentsExtension/IntentHandler.swift` + `PlayMediaIntentHandler.swift` + `Info.plist` - Siri media extension entry and intent handling
+- `SiriIntentPayload.swift` + `SiriMediaIndex.swift` - versioned handoff payload + compact index models
+- `SiriMediaIndexStore.swift` - App Group index persistence/rebuild notification hooks
+- `SiriPlaybackCoordinator.swift` - in-app execution for track/album/artist/playlist intents
+- `AppDelegate.swift` + `DependencyContainer.swift` - lifecycle routing + DI wiring
+- `LibraryRepository.swift` + `PlaylistRepository.swift` - precision search methods used by Siri matching
+
 ### Account-Centric Source Management + Sign-In Redesign (Feb 2026)
 The Plex source flow now centers on accounts (not individual server rows), and sync controls live in account detail:
 

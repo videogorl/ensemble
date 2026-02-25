@@ -23,6 +23,13 @@ ensemble/
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # App icons, colors, images
 |   +-- Info.plist
+|   +-- Ensemble.entitlements     # App entitlements (Siri + shared App Group)
+|
++-- EnsembleSiriIntentsExtension/  # SiriKit Media Intents extension target
+|   +-- IntentHandler.swift        # Extension entry point for intent handlers
+|   +-- PlayMediaIntentHandler.swift # INPlayMediaIntentHandling implementation
+|   +-- Info.plist                 # Intents extension configuration
+|   +-- EnsembleSiriIntentsExtension.entitlements # Extension entitlements (Siri + shared App Group)
 |
 +-- EnsembleWatch/                 # watchOS app target
 |   +-- App/
@@ -98,6 +105,8 @@ Sources/
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
+|   +-- SiriMediaIndex.swift           # Siri media index model used by extension lookup
 |   +-- LibraryVisibilityProfile.swift # Source visibility profile model (non-sync filtering)
 |   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
@@ -120,6 +129,8 @@ Sources/
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
+|   +-- SiriMediaIndexStore.swift      # Shared App Group Siri index persistence/rebuild hooks
+|   +-- SiriPlaybackCoordinator.swift  # In-app Siri play intent execution (track/album/artist/playlist)
 |   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
@@ -150,6 +161,8 @@ Tests/
 +-- AccountManagerAuthPolicyTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
++-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
++-- SiriPlaybackCoordinatorTests.swift # In-app Siri playback execution coverage
 ```
 
 ## EnsembleUI (Presentation Layer)

@@ -232,6 +232,33 @@ Use these patterns when extending gesture actions:
 6. For album/artist/playlist long-press, use `contextMenu` and mirror detail-view capabilities; keep Search playlist menus non-destructive.
 7. If action opens follow-up UI, keep ellipsis in labels (`Add to Playlist…`, `Rename…`).
 
+## Adding or Updating Siri Media Play Intents (In-App-First)
+
+Use this flow for Siri phrases like "play track/album/artist/playlist ... on Ensemble":
+
+1. Keep extension logic thin in `EnsembleSiriIntentsExtension/PlayMediaIntentHandler.swift`:
+   - Resolve candidates from `SiriMediaIndexStore` data.
+   - Rank deterministically (exact normalized > prefix > contains + tie-breakers).
+   - Return disambiguation when confidence is close.
+   - Return `.handleInApp` only; never execute playback in the extension.
+2. Encode handoff payload with `SiriPlaybackActivityCodec` (`SiriIntentPayload.swift`) and include schema version.
+3. Route in app lifecycle via `AppDelegate.application(_:continue:restorationHandler:)`.
+4. Execute playback in `SiriPlaybackCoordinator`:
+   - `executePlayTrack(request:)`
+   - `executePlayAlbum(request:)`
+   - `executePlayArtist(request:)`
+   - `executePlayPlaylist(request:)`
+5. Use repository precision-search APIs for Siri matching (`LibraryRepository`/`PlaylistRepository`), scoped to enabled source keys.
+6. Keep index fresh by posting `SiriMediaIndexNotifications.postRebuildRequest(...)` after sync/account configuration changes.
+
+Coordinator usage pattern:
+```swift
+let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo)
+if let payload {
+    try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+}
+```
+
 ## Triggering Incremental vs Full Sync
 
 ```swift
