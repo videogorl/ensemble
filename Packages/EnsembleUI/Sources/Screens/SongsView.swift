@@ -22,6 +22,14 @@ public struct SongsView: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+
+    private var supportsCoverFlow: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -39,23 +47,25 @@ public struct SongsView: View {
     public var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
+            let isCoverFlowActive = supportsCoverFlow && isLandscape
             
             Group {
                 if libraryVM.isLoading && libraryVM.tracks.isEmpty {
                     loadingView
                 } else if libraryVM.tracks.isEmpty {
                     emptyView
-                } else if isLandscape {
+                } else if isCoverFlowActive {
                     landscapeAlbumCoverFlowView
                 } else {
                     trackListView
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isLandscape)
+            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .navigationTitle(isLandscape ? "" : "Songs")
+            .navigationTitle(isCoverFlowActive ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {
                 await libraryVM.refreshFromServer()
@@ -63,7 +73,7 @@ public struct SongsView: View {
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -120,7 +130,7 @@ public struct SongsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true

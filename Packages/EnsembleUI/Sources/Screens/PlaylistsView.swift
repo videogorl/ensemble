@@ -33,6 +33,14 @@ public struct PlaylistsView: View {
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
+    private var supportsCoverFlow: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self.nowPlayingVM = nowPlayingVM
@@ -41,13 +49,14 @@ public struct PlaylistsView: View {
     public var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
+            let isCoverFlowActive = supportsCoverFlow && isLandscape
             
             Group {
                 if viewModel.isLoading && effectivePlaylists.isEmpty {
                     loadingView
                 } else if effectivePlaylists.isEmpty {
                     emptyView
-                } else if isLandscape {
+                } else if isCoverFlowActive {
                     landscapeCoverFlowView
                 } else {
                     playlistListView
@@ -152,11 +161,12 @@ public struct PlaylistsView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
-            .hideTabBarIfAvailable(isHidden: isLandscape)
+            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .navigationTitle(isLandscape ? "" : "Playlists")
+            .navigationTitle(isCoverFlowActive ? "" : "Playlists")
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {
                 await viewModel.loadPlaylists()
@@ -214,7 +224,7 @@ public struct PlaylistsView: View {
             .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !isLandscape {
+                if !isCoverFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showCreatePlaylistPrompt = true
@@ -243,7 +253,7 @@ public struct PlaylistsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !isLandscape {
+                if !isCoverFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showCreatePlaylistPrompt = true

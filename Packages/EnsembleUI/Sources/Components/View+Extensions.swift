@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -23,6 +24,16 @@ public extension View {
         } else {
             self
         }
+        #else
+        self
+        #endif
+    }
+
+    /// Enables/disables landscape rotation support while this view is active.
+    @ViewBuilder
+    func coverFlowRotationSupport(isEnabled: Bool) -> some View {
+        #if os(iOS)
+        self.modifier(CoverFlowRotationSupportModifier(isEnabled: isEnabled))
         #else
         self
         #endif
@@ -58,6 +69,30 @@ public extension View {
 }
 
 #if os(iOS)
+private struct CoverFlowRotationSupportModifier: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                postRotationSupport(isEnabled)
+            }
+            .onChange(of: isEnabled) { enabled in
+                postRotationSupport(enabled)
+            }
+            .onDisappear {
+                postRotationSupport(false)
+            }
+    }
+
+    private func postRotationSupport(_ isEnabled: Bool) {
+        NotificationCenter.default.post(
+            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            object: isEnabled
+        )
+    }
+}
+
 /// Applies a bottom content inset directly to the nearest UIKit scroll view.
 /// This keeps scrolling behavior native on iOS 15 while avoiding SwiftUI
 /// preference recursion from safeAreaInset in complex navigation stacks.

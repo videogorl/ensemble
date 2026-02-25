@@ -4,11 +4,20 @@ import UIKit
 import EnsembleCore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    private var coverFlowRotationSupportEnabled = false
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCoverFlowRotationSupportChanged(_:)),
+            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            object: nil
+        )
         
         // Configure audio session for background playback
         configureAudioSession()
@@ -77,6 +86,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            object: nil
+        )
+    }
+
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
@@ -121,6 +138,38 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Restart periodic sync timers
             DependencyContainer.shared.syncCoordinator.startPeriodicSync()
         }
+    }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        if coverFlowRotationSupportEnabled {
+            return .allButUpsideDown
+        }
+        return .portrait
+    }
+
+    @objc
+    private func handleCoverFlowRotationSupportChanged(_ notification: Notification) {
+        guard let isEnabled = notification.object as? Bool else { return }
+        guard coverFlowRotationSupportEnabled != isEnabled else { return }
+
+        coverFlowRotationSupportEnabled = isEnabled
+        refreshSupportedOrientations()
+    }
+
+    private func refreshSupportedOrientations() {
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in windowScenes {
+            for window in scene.windows {
+                if #available(iOS 16.0, *) {
+                    window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                }
+            }
+        }
+
+        UIViewController.attemptRotationToDeviceOrientation()
     }
 }
 #endif
