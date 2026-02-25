@@ -14,6 +14,8 @@ public final class HomeViewModel: ObservableObject {
     @Published public private(set) var hubs: [Hub] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
+    @Published public private(set) var hasConfiguredAccounts = false
+    @Published public private(set) var hasEnabledLibraries = false
     
     // Edit mode state
     @Published public var isEditingOrder = false
@@ -24,6 +26,7 @@ public final class HomeViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let hubRepository: HubRepositoryProtocol
     private let hubOrderManager: HubOrderManager
+    private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
@@ -34,6 +37,7 @@ public final class HomeViewModel: ObservableObject {
     private var deferredAutoRefreshTask: Task<Void, Never>?
     private var pendingHubSnapshot: [Hub]?
     private var pendingHubApplyTask: Task<Void, Never>?
+    private var unfilteredHubs: [Hub] = []
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -51,30 +55,52 @@ public final class HomeViewModel: ObservableObject {
         accountManager: AccountManager,
         syncCoordinator: SyncCoordinator,
         hubRepository: HubRepositoryProtocol,
-        hubOrderManager: HubOrderManager = HubOrderManager()
+        hubOrderManager: HubOrderManager = HubOrderManager(),
+        visibilityStore: LibraryVisibilityStore? = nil
     ) {
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         self.hubRepository = hubRepository
         self.hubOrderManager = hubOrderManager
+        self.visibilityStore = visibilityStore ?? .shared
+        updateSourceAvailability()
         
         // Load cached hubs immediately for offline-first experience
         Task { @MainActor in
             do {
                 let cached = try await hubRepository.fetchHubs()
-                if !cached.isEmpty {
+                let enabledSourceKeys = enabledSourceCompositeKeys()
+                let cachedForEnabledSources = Self.filterHubsToEnabledSources(
+                    cached,
+                    enabledSourceCompositeKeys: enabledSourceKeys
+                )
+                if !cachedForEnabledSources.isEmpty {
                     // Apply saved custom order to cached hubs
                     updateCurrentSource()
                     if let sourceKey = currentSourceKey {
-                        let serverHubs = hubsForServer(sourceKey: sourceKey, in: cached)
+                        let serverHubs = hubsForServer(sourceKey: sourceKey, in: cachedForEnabledSources)
                         let orderedServerHubs = hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
-                        self.hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: cached)
+                        self.unfilteredHubs = mergeOrderedServerHubs(
+                            orderedServerHubs,
+                            sourceKey: sourceKey,
+                            into: cachedForEnabledSources
+                        )
+                        self.hubs = Self.filterHubsForVisibility(
+                            self.unfilteredHubs,
+                            hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
+                        )
                         #if DEBUG
                         EnsembleLogger.debug("[HubOrder] Applied saved order to \(serverHubs.count) cached hubs")
                         #endif
                     } else {
-                        self.hubs = cached
+                        self.unfilteredHubs = cachedForEnabledSources
+                        self.hubs = Self.filterHubsForVisibility(
+                            cachedForEnabledSources,
+                            hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
+                        )
                     }
+                } else {
+                    self.clearHubContentForUnavailableSources()
                 }
             } catch {
                 #if DEBUG
@@ -86,8 +112,14 @@ public final class HomeViewModel: ObservableObject {
         // Reload when accounts change
         accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.requestAutoRefresh(reason: .accountChange)
+            .sink { [weak self] accounts in
+                guard let self else { return }
+                self.updateSourceAvailability(from: accounts)
+                guard self.hasEnabledLibraries else {
+                    self.clearHubContentForUnavailableSources()
+                    return
+                }
+                self.requestAutoRefresh(reason: .accountChange)
             }
             .store(in: &cancellables)
         
@@ -100,6 +132,15 @@ public final class HomeViewModel: ObservableObject {
                 if !syncing {
                     self?.requestAutoRefresh(reason: .syncCompleted)
                 }
+            }
+            .store(in: &cancellables)
+
+        self.visibilityStore.$profiles
+            .combineLatest(self.visibilityStore.$activeProfileID)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.applyVisibilityToPublishedHubs()
             }
             .store(in: &cancellables)
     }
@@ -116,6 +157,12 @@ public final class HomeViewModel: ObservableObject {
         applySavedOrder: Bool = true,
         deferUIUpdatesWhileInteracting: Bool = true
     ) async {
+        updateSourceAvailability()
+        guard hasEnabledLibraries else {
+            clearHubContentForUnavailableSources()
+            return
+        }
+
         // Check if we should debounce
         if let lastLoad = lastLoadTime,
            Date().timeIntervalSince(lastLoad) < debounceInterval {
@@ -163,6 +210,11 @@ public final class HomeViewModel: ObservableObject {
                         fetchTasks.append((sourceKey, client, library.key))
                     }
                 }
+            }
+
+            guard !fetchTasks.isEmpty else {
+                clearHubContentForUnavailableSources()
+                return
             }
             
             // Perform loading with parallel fetching and optional progressive UI updates.
@@ -414,6 +466,11 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func requestAutoRefresh(reason: AutoRefreshReason) {
+        guard hasEnabledLibraries else {
+            clearHubContentForUnavailableSources()
+            return
+        }
+
         guard !syncCoordinator.isOffline else {
             #if DEBUG
             EnsembleLogger.debug("📴 Home auto-refresh skipped (offline) reason=\(reason.rawValue)")
@@ -487,14 +544,21 @@ public final class HomeViewModel: ObservableObject {
             #endif
             self.pendingHubSnapshot = nil
             self.hubs = pendingHubSnapshot
+            if isEditingOrder {
+                self.editableHubs = pendingHubSnapshot
+            }
         }
     }
 
     private func applyHubSnapshot(_ snapshot: [Hub], deferIfInteracting: Bool, source: String) {
-        guard !snapshot.isEmpty else { return }
+        unfilteredHubs = snapshot
+        let visibleSnapshot = Self.filterHubsForVisibility(
+            snapshot,
+            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+        )
 
         if deferIfInteracting && isViewVisible && isUserInteracting && !hubs.isEmpty {
-            pendingHubSnapshot = snapshot
+            pendingHubSnapshot = visibleSnapshot
             pendingHubApplyTask?.cancel()
             pendingHubApplyTask = Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -503,14 +567,36 @@ public final class HomeViewModel: ObservableObject {
                 self.flushDeferredUpdatesIfIdle()
             }
             #if DEBUG
-            EnsembleLogger.debug("🏠 Deferred hub snapshot update source=\(source) count=\(snapshot.count)")
+            EnsembleLogger.debug("🏠 Deferred hub snapshot update source=\(source) count=\(visibleSnapshot.count)")
             #endif
             return
         }
 
         pendingHubSnapshot = nil
         pendingHubApplyTask?.cancel()
-        hubs = snapshot
+        hubs = visibleSnapshot
+        if isEditingOrder {
+            editableHubs = visibleSnapshot
+        }
+    }
+
+    private func applyVisibilityToPublishedHubs() {
+        let visibleHubs = Self.filterHubsForVisibility(
+            unfilteredHubs,
+            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+        )
+
+        if isViewVisible && isUserInteracting && !hubs.isEmpty {
+            pendingHubSnapshot = visibleHubs
+            return
+        }
+
+        pendingHubSnapshot = nil
+        pendingHubApplyTask?.cancel()
+        hubs = visibleHubs
+        if isEditingOrder {
+            editableHubs = visibleHubs
+        }
     }
 
     internal var hasPendingAutoRefreshForTesting: Bool {
@@ -525,6 +611,22 @@ public final class HomeViewModel: ObservableObject {
         pendingAutoRefreshReasons.removeAll()
         deferredAutoRefreshTask?.cancel()
         deferredAutoRefreshTask = nil
+    }
+
+    internal static func filterHubsForVisibility(
+        _ hubs: [Hub],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Hub] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return hubs }
+
+        return hubs.compactMap { hub in
+            let visibleItems = hub.items.filter { item in
+                !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
+            }
+
+            guard !visibleItems.isEmpty else { return nil }
+            return Hub(id: hub.id, title: hub.title, type: hub.type, items: visibleItems)
+        }
     }
     
     /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
@@ -659,6 +761,56 @@ public final class HomeViewModel: ObservableObject {
         currentSourceKey = nil
         currentSourceName = "Editing Music"
     }
+
+    private func updateSourceAvailability(from accounts: [PlexAccountConfig]? = nil) {
+        let snapshot = accounts ?? accountManager.plexAccounts
+        hasConfiguredAccounts = !snapshot.isEmpty
+        hasEnabledLibraries = snapshot.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
+    }
+
+    private func enabledSourceCompositeKeys(from accounts: [PlexAccountConfig]? = nil) -> Set<String> {
+        let snapshot = accounts ?? accountManager.plexAccounts
+        var keys = Set<String>()
+        for account in snapshot {
+            for server in account.servers {
+                for library in server.libraries where library.isEnabled {
+                    keys.insert("plex:\(account.id):\(server.id):\(library.key)")
+                }
+            }
+        }
+        return keys
+    }
+
+    private static func filterHubsToEnabledSources(
+        _ hubs: [Hub],
+        enabledSourceCompositeKeys: Set<String>
+    ) -> [Hub] {
+        guard !enabledSourceCompositeKeys.isEmpty else { return [] }
+        return hubs.compactMap { hub in
+            let enabledItems = hub.items.filter { enabledSourceCompositeKeys.contains($0.sourceCompositeKey) }
+            guard !enabledItems.isEmpty else { return nil }
+            return Hub(id: hub.id, title: hub.title, type: hub.type, items: enabledItems)
+        }
+    }
+
+    private func clearHubContentForUnavailableSources() {
+        loadTask?.cancel()
+        isLoading = false
+        error = nil
+        unfilteredHubs = []
+        hubs = []
+        editableHubs = []
+        isEditingOrder = false
+        pendingHubSnapshot = nil
+        pendingHubApplyTask?.cancel()
+        pendingAutoRefreshReasons.removeAll()
+        deferredAutoRefreshTask?.cancel()
+        deferredAutoRefreshTask = nil
+    }
     
     /// Enter edit mode - prepare the hub list for reordering
     public func enterEditMode() {
@@ -703,15 +855,13 @@ public final class HomeViewModel: ObservableObject {
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Apply cached default order immediately
-        let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        let serverHubs = hubsForServer(sourceKey: sourceKey, in: unfilteredHubs)
         #if DEBUG
         EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
         #endif
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
-        hubs = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
-        if isEditingOrder {
-            editableHubs = hubs
-        }
+        let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
+        applyHubSnapshot(orderedSnapshot, deferIfInteracting: false, source: "resetOrder")
 
         // Clear debounce and reload hubs to show the reset order
         lastLoadTime = nil

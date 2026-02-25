@@ -18,8 +18,12 @@ public struct FavoritesView: View {
 
     @StateObject private var viewModel: FavoritesViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -93,6 +97,30 @@ public struct FavoritesView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
     }
     
     private var emptyView: some View {
@@ -104,19 +132,71 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            VStack(spacing: 8) {
-                Text("Rate tracks 4 or 5 stars to add them here")
+            if !accountManager.hasAnySources {
+                Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                
-                Text("\(viewModel.tracks.count) total tracks • Showing favorites from all libraries")
-                    .font(.caption)
-                    .foregroundColor(.secondary.opacity(0.8))
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if syncCoordinator.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                VStack(spacing: 8) {
+                    Text("Rate tracks 4 or 5 stars to add them here")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("\(viewModel.tracks.count) total tracks • Showing favorites from all libraries")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var hasEnabledLibraries: Bool {
+        accountManager.plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
     
     private var trackListView: some View {

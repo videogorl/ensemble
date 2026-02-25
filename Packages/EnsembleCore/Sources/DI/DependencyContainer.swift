@@ -16,6 +16,7 @@ public final class DependencyContainer: @unchecked Sendable {
     // MARK: - Multi-Source
 
     public let accountManager: AccountManager
+    public let accountDiscoveryService: PlexAccountDiscoveryService
     public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
@@ -39,6 +40,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
     public let toastCenter: ToastCenter
+    public let libraryVisibilityStore: LibraryVisibilityStore
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -70,6 +72,7 @@ public final class DependencyContainer: @unchecked Sendable {
             AccountManager(keychain: keychainRef)
         }
         accountManager = am
+        accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
 
         // Network monitoring (must be created before SyncCoordinator)
         let nm = MainActor.assumeIsolated {
@@ -130,6 +133,10 @@ public final class DependencyContainer: @unchecked Sendable {
         toastCenter = MainActor.assumeIsolated {
             ToastCenter()
         }
+
+        libraryVisibilityStore = MainActor.assumeIsolated {
+            LibraryVisibilityStore()
+        }
     }
 
     // MARK: - View Model Factories
@@ -139,7 +146,8 @@ public final class DependencyContainer: @unchecked Sendable {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -197,7 +205,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playlistRepository: playlistRepository,
             hubRepository: hubRepository,
             moodRepository: moodRepository,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -210,17 +219,19 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeAddPlexAccountViewModel() -> AddPlexAccountViewModel {
         AddPlexAccountViewModel(
             authService: authService,
+            accountDiscoveryService: accountDiscoveryService,
             accountManager: accountManager,
-            syncCoordinator: syncCoordinator,
-            keychain: keychain
+            syncCoordinator: syncCoordinator
         )
     }
 
     @MainActor
-    public func makeSyncPanelViewModel() -> SyncPanelViewModel {
-        SyncPanelViewModel(
-            syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+    public func makeMusicSourceAccountDetailViewModel(accountId: String) -> MusicSourceAccountDetailViewModel {
+        MusicSourceAccountDetailViewModel(
+            accountId: accountId,
+            accountManager: accountManager,
+            accountDiscoveryService: accountDiscoveryService,
+            syncCoordinator: syncCoordinator
         )
     }
     
@@ -244,7 +255,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             hubRepository: hubRepository,
-            hubOrderManager: hubOrderManager
+            hubOrderManager: hubOrderManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 }

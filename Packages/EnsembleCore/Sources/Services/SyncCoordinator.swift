@@ -247,25 +247,69 @@ public final class SyncCoordinator: ObservableObject {
                     )
                 }
                 
+                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                    for: sourceId,
+                    fallback: currentConnectionState
+                )
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .lastSynced(Date()),
-                    connectionState: currentConnectionState
+                    connectionState: resolvedConnectionState
                 )
             } catch {
                 sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .error(error.localizedDescription),
+                    syncStatus: .error(syncErrorMessage(for: error)),
                     connectionState: currentConnectionState
                 )
             }
         }
     }
 
-    /// Sync a single source
+    /// Sync a single source.
     public func sync(source: MusicSourceIdentifier) async {
+        await syncSingleSource(source, publishGlobalSyncState: true)
+    }
+
+    /// Sync a scoped set of sources while publishing one global sync lifecycle.
+    public func sync(sources: [MusicSourceIdentifier]) async {
+        var uniqueSources: [MusicSourceIdentifier] = []
+        var seenCompositeKeys = Set<String>()
+        for source in sources where seenCompositeKeys.insert(source.compositeKey).inserted {
+            uniqueSources.append(source)
+        }
+        guard !uniqueSources.isEmpty else { return }
+
+        let shouldPublishGlobalSyncState = !isSyncing
+        if shouldPublishGlobalSyncState {
+            isSyncing = true
+        }
+        defer {
+            if shouldPublishGlobalSyncState {
+                isSyncing = false
+            }
+        }
+
+        for source in uniqueSources {
+            await syncSingleSource(source, publishGlobalSyncState: false)
+        }
+    }
+
+    private func syncSingleSource(
+        _ source: MusicSourceIdentifier,
+        publishGlobalSyncState: Bool
+    ) async {
         guard let provider = syncProviders[source.compositeKey] else { return }
 
+        let shouldPublishGlobalSyncState = publishGlobalSyncState && !isSyncing
+        if shouldPublishGlobalSyncState {
+            isSyncing = true
+        }
+        defer {
+            if shouldPublishGlobalSyncState {
+                isSyncing = false
+            }
+        }
+
         let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
-        
         sourceStatuses[source] = MusicSourceStatus(
             syncStatus: .syncing(progress: 0),
             connectionState: currentConnectionState
@@ -287,7 +331,7 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
             // Sync playlists for this server
             try await provider.syncPlaylists(
                 to: playlistRepository,
@@ -303,17 +347,62 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
+            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                for: source,
+                fallback: currentConnectionState
+            )
             sourceStatuses[source] = MusicSourceStatus(
                 syncStatus: .lastSynced(Date()),
-                connectionState: currentConnectionState
+                connectionState: resolvedConnectionState
             )
         } catch {
             sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .error(error.localizedDescription),
+                syncStatus: .error(syncErrorMessage(for: error)),
                 connectionState: currentConnectionState
             )
         }
+    }
+
+    private func connectionStateAfterSuccessfulSync(
+        for source: MusicSourceIdentifier,
+        fallback: ServerConnectionState
+    ) async -> ServerConnectionState {
+        var resolvedURL: String?
+
+        if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {
+            let currentURL = await apiClient.getCurrentServerURL().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentURL.isEmpty {
+                resolvedURL = currentURL
+            }
+        }
+
+        if resolvedURL == nil,
+           let account = accountManager.plexAccounts.first(where: { $0.id == source.accountId }),
+           let server = account.servers.first(where: { $0.id == source.serverId }) {
+            let fallbackURL = server.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallbackURL.isEmpty {
+                resolvedURL = fallbackURL
+            }
+        }
+
+        guard let resolvedURL else {
+            return fallback
+        }
+
+        if case .degraded = fallback {
+            return .degraded(url: resolvedURL)
+        }
+
+        return .connected(url: resolvedURL)
+    }
+
+    private func syncErrorMessage(for error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, message.caseInsensitiveCompare("unknown") != .orderedSame else {
+            return "Sync failed. Please try again."
+        }
+        return message
     }
     
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
@@ -363,13 +452,17 @@ public final class SyncCoordinator: ObservableObject {
                         }
                     )
                     
+                    let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                        for: sourceId,
+                        fallback: currentConnectionState
+                    )
                     sourceStatuses[sourceId] = MusicSourceStatus(
                         syncStatus: .lastSynced(Date()),
-                        connectionState: currentConnectionState
+                        connectionState: resolvedConnectionState
                     )
                 } catch {
                     sourceStatuses[sourceId] = MusicSourceStatus(
-                        syncStatus: .error(error.localizedDescription),
+                        syncStatus: .error(syncErrorMessage(for: error)),
                         connectionState: currentConnectionState
                     )
                 }
@@ -418,13 +511,17 @@ public final class SyncCoordinator: ObservableObject {
                     )
                 }
                 
+                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                    for: sourceId,
+                    fallback: currentConnectionState
+                )
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .lastSynced(Date()),
-                    connectionState: currentConnectionState
+                    connectionState: resolvedConnectionState
                 )
             } catch {
                 sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .error(error.localizedDescription),
+                    syncStatus: .error(syncErrorMessage(for: error)),
                     connectionState: currentConnectionState
                 )
             }
@@ -485,13 +582,17 @@ public final class SyncCoordinator: ObservableObject {
                 }
             )
             
+            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                for: source,
+                fallback: currentConnectionState
+            )
             sourceStatuses[source] = MusicSourceStatus(
                 syncStatus: .lastSynced(Date()),
-                connectionState: currentConnectionState
+                connectionState: resolvedConnectionState
             )
         } catch {
             sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .error(error.localizedDescription),
+                syncStatus: .error(syncErrorMessage(for: error)),
                 connectionState: currentConnectionState
             )
         }
@@ -1135,6 +1236,21 @@ public final class SyncCoordinator: ObservableObject {
             #endif
         }
     }
+
+    /// Delete server-scoped playlists when no enabled libraries remain on that server.
+    public func cleanupServerPlaylists(accountId: String, serverId: String) async {
+        let serverSourceKey = "plex:\(accountId):\(serverId)"
+        do {
+            try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
+            clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
+            let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+            UserDefaults.standard.removeObject(forKey: timestampKey)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
+            #endif
+        }
+    }
     
     // MARK: - Artwork Pre-Caching
     
@@ -1365,6 +1481,20 @@ public final class SyncCoordinator: ObservableObject {
         if let lastPlaylistTarget,
            lastPlaylistTarget.id == deletedPlaylist.id,
            lastPlaylistTarget.sourceCompositeKey == deletedSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
+    private func clearLastPlaylistTargets(forServerSourceKey serverSourceKey: String) {
+        lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.sourceCompositeKey == serverSourceKey {
             self.lastPlaylistTarget = nil
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: Self.lastPlaylistIdKey)

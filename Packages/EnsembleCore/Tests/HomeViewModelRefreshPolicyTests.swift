@@ -61,6 +61,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
         func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
         func deletePlaylist(ratingKey: String) async throws {}
+        func deletePlaylists(sourceCompositeKey: String) async throws {}
         func removeDuplicatePlaylists() async throws {}
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
     }
@@ -76,7 +77,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     }
 
     private final class MockHubRepository: HubRepositoryProtocol, @unchecked Sendable {
-        func fetchHubs() async throws -> [Hub] { [] }
+        var cachedHubs: [Hub] = []
+
+        func fetchHubs() async throws -> [Hub] { cachedHubs }
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
     }
@@ -85,8 +88,20 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         case unimplemented
     }
 
-    private func makeViewModel() -> HomeViewModel {
+    private struct Harness {
+        let viewModel: HomeViewModel
+        let accountManager: AccountManager
+        let hubRepository: MockHubRepository
+    }
+
+    private func makeHarness(
+        accounts: [PlexAccountConfig] = [],
+        cachedHubs: [Hub] = []
+    ) -> Harness {
         let accountManager = AccountManager(keychain: TestKeychain())
+        for account in accounts {
+            accountManager.addPlexAccount(account)
+        }
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,
             monitorQueue: DispatchQueue(label: "test.home.network"),
@@ -101,12 +116,44 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             networkMonitor: networkMonitor,
             serverHealthChecker: serverHealthChecker
         )
+        let hubRepository = MockHubRepository()
+        hubRepository.cachedHubs = cachedHubs
 
-        return HomeViewModel(
+        let viewModel = HomeViewModel(
             accountManager: accountManager,
             syncCoordinator: coordinator,
-            hubRepository: MockHubRepository()
+            hubRepository: hubRepository
         )
+
+        return Harness(
+            viewModel: viewModel,
+            accountManager: accountManager,
+            hubRepository: hubRepository
+        )
+    }
+
+    private func makeViewModel() -> HomeViewModel {
+        let enabledAccount = PlexAccountConfig(
+            id: "account-enabled",
+            email: "enabled@example.com",
+            plexUsername: "enabled",
+            displayTitle: "Enabled",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-enabled",
+                    name: "Enabled Server",
+                    url: "https://enabled.example.com",
+                    connections: [PlexConnectionConfig(uri: "https://enabled.example.com", local: false, relay: false, protocol: "https")],
+                    token: "token-enabled",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-enabled", key: "lib-enabled", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )
+        return makeHarness(accounts: [enabledAccount]).viewModel
     }
 
     func testSyncCompleteTriggerDefersWhileInteracting() async {
@@ -194,5 +241,53 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 420_000_000)
 
         XCTAssertEqual(refreshCount, 0)
+    }
+
+    func testNoEnabledLibrariesClearsCachedFeedContent() async {
+        let account = PlexAccountConfig(
+            id: "account-1",
+            email: "tester@example.com",
+            plexUsername: "tester",
+            displayTitle: "Tester",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")],
+                    token: "token-1",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Music", isEnabled: false)
+                    ]
+                )
+            ]
+        )
+        let staleHub = Hub(
+            id: "plex:account-1:server-1:hub-1",
+            title: "Recently Played",
+            type: "mixed",
+            items: [
+                HubItem(
+                    id: "track-1",
+                    type: "track",
+                    title: "Track One",
+                    subtitle: "Artist",
+                    thumbPath: nil,
+                    year: nil,
+                    sourceCompositeKey: "plex:account-1:server-1:lib-1"
+                )
+            ]
+        )
+        let harness = makeHarness(accounts: [account], cachedHubs: [staleHub])
+        let sut = harness.viewModel
+
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        await sut.loadHubs()
+
+        XCTAssertTrue(sut.hubs.isEmpty)
+        XCTAssertTrue(sut.hasConfiguredAccounts)
+        XCTAssertFalse(sut.hasEnabledLibraries)
     }
 }

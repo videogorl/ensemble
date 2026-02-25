@@ -5,20 +5,40 @@ import Foundation
 
 public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
     public let id: String             // Plex user UUID or generated ID
-    public let username: String
+    public let email: String?
+    public let plexUsername: String?
+    public let displayTitle: String?
     public let authToken: String
     public let authTokenMetadata: PlexAuthTokenMetadata?
     public let servers: [PlexServerConfig]
 
+    /// Preferred account label for UI presentation.
+    public var accountIdentifier: String {
+        if let email = email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            return email
+        }
+        if let username = plexUsername?.trimmingCharacters(in: .whitespacesAndNewlines), !username.isEmpty {
+            return username
+        }
+        if let title = displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        return "Plex Account"
+    }
+
     public init(
         id: String,
-        username: String,
+        email: String? = nil,
+        plexUsername: String? = nil,
+        displayTitle: String? = nil,
         authToken: String,
         authTokenMetadata: PlexAuthTokenMetadata? = nil,
         servers: [PlexServerConfig]
     ) {
         self.id = id
-        self.username = username
+        self.email = email
+        self.plexUsername = plexUsername
+        self.displayTitle = displayTitle
         self.authToken = authToken
         self.authTokenMetadata = authTokenMetadata ?? PlexAuthService.tokenMetadata(from: authToken)
         self.servers = servers

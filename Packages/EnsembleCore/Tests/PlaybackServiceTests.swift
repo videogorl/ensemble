@@ -404,4 +404,128 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(effectiveNaN, 179.44, accuracy: 0.001)
         XCTAssertEqual(effectiveNegative, 179.44, accuracy: 0.001)
     }
+
+    func testEnabledSourceCompositeKeysIncludesOnlyEnabledLibraries() {
+        let accounts = [
+            PlexAccountConfig(
+                id: "account-1",
+                email: "felicity@nysics.com",
+                plexUsername: "felicity",
+                displayTitle: "Felicity",
+                authToken: "token",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-1",
+                        name: "Server 1",
+                        url: "https://server-1.example.com",
+                        connections: [],
+                        token: "server-token",
+                        platform: "Linux",
+                        libraries: [
+                            PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: true),
+                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false)
+                        ]
+                    )
+                ]
+            )
+        ]
+
+        let keys = PlaybackService.enabledSourceCompositeKeys(from: accounts)
+
+        XCTAssertEqual(keys, ["plex:account-1:server-1:lib-1"])
+    }
+
+    func testPruneQueueRemovesDisabledSourceItemsAndAdvancesToNextAvailable() {
+        let current = QueueItem(
+            id: "current",
+            track: Track(
+                id: "track-1",
+                key: "/library/metadata/1",
+                title: "Current",
+                sourceCompositeKey: "plex:account-1:server-1:lib-disabled"
+            ),
+            source: .continuePlaying
+        )
+        let next = QueueItem(
+            id: "next",
+            track: Track(
+                id: "track-2",
+                key: "/library/metadata/2",
+                title: "Next",
+                sourceCompositeKey: "plex:account-1:server-1:lib-enabled"
+            ),
+            source: .continuePlaying
+        )
+        let removedLater = QueueItem(
+            id: "removed",
+            track: Track(
+                id: "track-3",
+                key: "/library/metadata/3",
+                title: "Removed",
+                sourceCompositeKey: "plex:account-1:server-1:lib-disabled"
+            ),
+            source: .autoplay
+        )
+
+        let result = PlaybackService.pruneQueueForEnabledSources(
+            queue: [current, next, removedLater],
+            originalQueue: [current, next, removedLater],
+            playbackHistory: [current, next],
+            currentQueueIndex: 0,
+            enabledSourceCompositeKeys: ["plex:account-1:server-1:lib-enabled"]
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["next"])
+        XCTAssertEqual(result.originalQueue.map(\.id), ["next"])
+        XCTAssertEqual(result.playbackHistory.map(\.id), ["next"])
+        XCTAssertEqual(result.nextCurrentQueueIndex, 0)
+        XCTAssertTrue(result.removedCurrentQueueItem)
+        XCTAssertEqual(result.removedQueueItemCount, 2)
+    }
+
+    func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
+        let current = QueueItem(
+            id: "current",
+            track: Track(
+                id: "track-1",
+                key: "/library/metadata/1",
+                title: "Current",
+                sourceCompositeKey: "plex:account-1:server-1:lib-enabled"
+            ),
+            source: .continuePlaying
+        )
+        let removedNext = QueueItem(
+            id: "removed",
+            track: Track(
+                id: "track-2",
+                key: "/library/metadata/2",
+                title: "Removed",
+                sourceCompositeKey: "plex:account-1:server-1:lib-disabled"
+            ),
+            source: .continuePlaying
+        )
+        let otherEnabled = QueueItem(
+            id: "other",
+            track: Track(
+                id: "track-3",
+                key: "/library/metadata/3",
+                title: "Other Enabled",
+                sourceCompositeKey: "plex:account-1:server-1:lib-enabled"
+            ),
+            source: .continuePlaying
+        )
+
+        let result = PlaybackService.pruneQueueForEnabledSources(
+            queue: [current, removedNext, otherEnabled],
+            originalQueue: [current, removedNext, otherEnabled],
+            playbackHistory: [],
+            currentQueueIndex: 0,
+            enabledSourceCompositeKeys: ["plex:account-1:server-1:lib-enabled"]
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["current", "other"])
+        XCTAssertEqual(result.nextCurrentQueueIndex, 0)
+        XCTAssertFalse(result.removedCurrentQueueItem)
+        XCTAssertEqual(result.removedQueueItemCount, 1)
+    }
 }

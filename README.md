@@ -43,7 +43,8 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
 
 **Management:**
-- **Settings & Sync** — Manual library sync with progress tracking
+- **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
+- **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
 - **Download Management** — Infrastructure for offline track downloads (UI complete, playback in progress)
@@ -51,6 +52,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 ### Planned Features
 - **Offline Playback** — Wire up audio file downloads for true offline playback (infrastructure complete)
 - **Apple Music Integration** — Multi-source architecture ready for additional services
+- **Library Visibility Profile Selector** — Add UI to switch and edit visibility presets without changing sync enablement
 - **Advanced Queue Management** — Reordering, playback history, queue persistence
 - **Lyrics Support** — Display synced lyrics from Plex servers
 - **CarPlay Support** — Native CarPlay interface for safe driving
@@ -79,9 +81,9 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 ### First Launch
 1. Launch the app
 2. Tap "Add Plex Account"
-3. Visit `plex.tv/link` and enter the PIN code
-4. Select your Plex server
-5. Choose a music library
+3. Visit `plex.tv/link` and enter the PIN code (the PIN can be tapped to copy)
+4. Review discovered servers and music libraries in one grouped checklist
+5. Keep at least one library selected and add the account
 6. Wait for initial sync to complete
 
 ## Architecture
@@ -111,7 +113,7 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 |---------|---------|----------------|
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
-| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
+| **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `PlexAccountDiscoveryService`, `LibraryVisibilityStore`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
 | **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `CoverFlowView`, `HubOrderingSheet`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
 
 ### Key Design Patterns
@@ -182,6 +184,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
   - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
 - **Offline Playback:** Infrastructure complete but audio file downloads not wired to playback
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
+- **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
 
 ## Development Status
 
@@ -200,6 +203,8 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Waveform visualization with Plex sonic analysis integration and deterministic fallback
 - iOS 15+ compatibility with NestedNavigationLink pattern
 - Immersive mode support with ChromeVisibilityPreferenceKey for full-screen experiences
+- Account-centric Music Sources flow with grouped server/library selection and integrated sync status/actions
+- Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
 
 **Next Steps:**
 - Complete offline playback wiring
@@ -225,7 +230,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Queue management with shuffle/repeat
 - [x] Search functionality
 - [x] iPad sidebar navigation
-- [x] Settings & manual sync
+- [x] Account-centric Music Sources settings and detail flow
 - [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
@@ -247,6 +252,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
 - [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
 - [x] **Background Sync** — iOS BGAppRefreshTask refreshes hubs every ~15 minutes (system-controlled)
+- [x] **Library Visibility Profile Groundwork** — Core profile/store + visibility filtering seams (selector UI still pending)
 - [ ] Queue reordering and persistence
 - [ ] Waveform seeking (jump to specific parts of track)
 

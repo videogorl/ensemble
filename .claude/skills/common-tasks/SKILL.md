@@ -118,6 +118,37 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 4. Add account configuration model similar to `PlexAccountConfig`
 5. Update `AccountManager` to handle new account type
 
+## Updating Plex Source Selection (Account-Centric Flow)
+
+When modifying Plex library enablement/sync behavior:
+1. Keep source entry points in `SettingsView` and `MusicSourceAccountDetailView` (do not reintroduce standalone sync-panel routes).
+2. Use `MusicSourceAccountDetailViewModel.refreshInventory()` reconciliation semantics:
+   - Newly discovered libraries default to unchecked.
+   - Removed libraries are auto-disabled and purged.
+3. For toggle-off behavior, call `toggleLibraryEnabled(...)` and preserve selective purge semantics:
+   - Purge only the unchecked library’s cache.
+   - If no enabled libraries remain on that server, also purge server-level playlists via `SyncCoordinator.purgeServerPlaylists(...)`.
+4. Keep sync-enable (`PlexLibraryConfig.isEnabled`) logic separate from non-destructive visibility filtering.
+
+## Working With LibraryVisibilityProfile Groundwork
+
+Use this for browse-surface visibility controls that must not affect sync:
+
+```swift
+let store = DependencyContainer.shared.libraryVisibilityStore
+
+// Hide a source in the active profile (without changing isEnabled)
+store.setSourceVisibility(sourceCompositeKey: sourceKey, isVisible: false)
+
+// Switch active profile
+store.setActiveProfile(id: profileID)
+```
+
+Rules:
+- Visibility profiles hide/show content only; they do not enable/disable sync libraries.
+- Apply profile filtering in ViewModels after loading data (`LibraryViewModel`, `SearchViewModel`, `HomeViewModel` seams).
+- Keep source filtering keyed by full `sourceCompositeKey` to avoid collisions across servers/libraries.
+
 ## Creating a DetailLoader
 
 For new content types that need async hub-to-detail navigation:

@@ -5,11 +5,11 @@ public struct SettingsView: View {
     @State private var showingAddAccount = false
     @State private var showingDeleteAlert = false
     @State private var showingClearDataAlert = false
-    @State private var sourceToDelete: MusicSource?
+    @State private var accountToDelete: PlexAccountConfig?
 
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     private let playbackService = DependencyContainer.shared.playbackService
-    private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
 
@@ -24,13 +24,21 @@ public struct SettingsView: View {
         List {
             // Music Sources section
             Section {
-                ForEach(accountManager.enabledMusicSources()) { source in
-                    MusicSourceRow(source: source)
+                ForEach(accountManager.plexAccounts) { account in
+                    NavigationLink {
+                        MusicSourceAccountDetailView(accountId: account.id)
+                    } label: {
+                        MusicSourceAccountRow(
+                            sourceName: "Plex",
+                            accountIdentifier: preferredAccountSubtitle(for: account)
+                        )
+                    }
                 }
                 .onDelete { indexSet in
                     guard let index = indexSet.first else { return }
-                    let sources = accountManager.enabledMusicSources()
-                    sourceToDelete = sources[index]
+                    let accounts = accountManager.plexAccounts
+                    guard accounts.indices.contains(index) else { return }
+                    accountToDelete = accounts[index]
                     showingDeleteAlert = true
                 }
 
@@ -49,8 +57,8 @@ public struct SettingsView: View {
                     .foregroundColor(.accentColor)
                     .textCase(nil)
             } footer: {
-                if accountManager.enabledMusicSources().isEmpty {
-                    Text("Add a Plex server to access your music library.")
+                if accountManager.plexAccounts.isEmpty {
+                    Text("Add a music source account to access your libraries.")
                 }
             }
 
@@ -209,26 +217,33 @@ public struct SettingsView: View {
                 .frame(width: 720, height: 560)
             #endif
         }
-        .alert("Remove Music Source", isPresented: $showingDeleteAlert) {
+        .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
-                sourceToDelete = nil
+                accountToDelete = nil
             }
             Button("Remove", role: .destructive) {
-                if let source = sourceToDelete {
-                    accountManager.removeMusicSource(source.id)
-                    
-                    // Clean up CoreData for this source
+                if let account = accountToDelete {
+                    let sourceIds = enabledSources(for: account)
+                    let serverIds = account.servers.map(\.id)
+                    accountManager.removePlexAccount(id: account.id)
+
+                    // Clean up CoreData for all libraries tied to this account.
                     Task {
-                        await syncCoordinator.cleanupRemovedSource(source.id)
+                        for sourceId in sourceIds {
+                            await syncCoordinator.cleanupRemovedSource(sourceId)
+                        }
+                        for serverId in serverIds {
+                            await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
+                        }
                         syncCoordinator.refreshProviders()
                     }
-                    
-                    sourceToDelete = nil
+
+                    accountToDelete = nil
                 }
             }
         } message: {
-            if let source = sourceToDelete {
-                Text("Remove \(source.displayName)? Your music will remain in the library until the next sync.")
+            if let account = accountToDelete {
+                Text("Remove Plex account \(account.accountIdentifier)? Libraries from this account will be removed from local cache.")
             }
         }
         .alert("Clear All Library Data", isPresented: $showingClearDataAlert) {
@@ -242,36 +257,56 @@ public struct SettingsView: View {
             Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
         }
     }
+
+    private func enabledSources(for account: PlexAccountConfig) -> [MusicSourceIdentifier] {
+        account.servers.flatMap { server in
+            server.libraries.compactMap { library in
+                guard library.isEnabled else { return nil }
+                return MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: account.id,
+                    serverId: server.id,
+                    libraryId: library.key
+                )
+            }
+        }
+    }
+
+    private func preferredAccountSubtitle(for account: PlexAccountConfig) -> String {
+        let trimmedEmail = account.email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedEmail, !trimmedEmail.isEmpty {
+            return trimmedEmail
+        }
+
+        let trimmedUsername = account.plexUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedUsername, !trimmedUsername.isEmpty {
+            return trimmedUsername
+        }
+
+        return "Plex Account"
+    }
 }
 
-// MARK: - Music Source Row
+// MARK: - Music Source Account Row
 
-struct MusicSourceRow: View {
-    let source: MusicSource
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+struct MusicSourceAccountRow: View {
+    let sourceName: String
+    let accountIdentifier: String
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "server.rack")
+            Image(systemName: "music.note.list")
                 .font(.title2)
                 .foregroundColor(.accentColor)
                 .frame(width: 44)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(source.displayName)
+                Text(sourceName)
                     .font(.body)
 
-                Text(source.accountName)
+                Text(accountIdentifier)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
-                // Show connection count for debugging
-                if let account = accountManager.plexAccounts.first(where: { $0.id == source.id.accountId }),
-                   let server = account.servers.first(where: { $0.id == source.id.serverId }) {
-                    Text("\(server.connections.count) connection\(server.connections.count == 1 ? "" : "s")")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
             }
         }
     }

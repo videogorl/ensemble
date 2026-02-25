@@ -10,7 +10,7 @@ public final class AccountManager: ObservableObject {
     private let keychain: KeychainServiceProtocol
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private static let authMigrationVersionKey = "plex_auth_migration_version"
-    private static let authMigrationVersion = 1
+    private static let authMigrationVersion = 2
 
     public init(keychain: KeychainServiceProtocol) {
         self.keychain = keychain
@@ -102,13 +102,70 @@ public final class AccountManager: ObservableObject {
         // Create new account with updated servers
         plexAccounts[accountIndex] = PlexAccountConfig(
             id: account.id,
-            username: account.username,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
             servers: updatedServers
         )
         
         saveAccounts()
+    }
+
+    /// Updates enabled state for a single server library in an account.
+    @discardableResult
+    public func setLibraryEnabled(
+        accountId: String,
+        serverId: String,
+        libraryKey: String,
+        isEnabled: Bool
+    ) -> Bool {
+        guard let accountIndex = plexAccounts.firstIndex(where: { $0.id == accountId }),
+              let serverIndex = plexAccounts[accountIndex].servers.firstIndex(where: { $0.id == serverId }),
+              let libraryIndex = plexAccounts[accountIndex].servers[serverIndex].libraries.firstIndex(where: { $0.key == libraryKey }) else {
+            return false
+        }
+
+        let account = plexAccounts[accountIndex]
+        let server = account.servers[serverIndex]
+        let library = server.libraries[libraryIndex]
+
+        guard library.isEnabled != isEnabled else {
+            return true
+        }
+
+        var updatedLibraries = server.libraries
+        updatedLibraries[libraryIndex] = PlexLibraryConfig(
+            id: library.id,
+            key: library.key,
+            title: library.title,
+            isEnabled: isEnabled
+        )
+
+        var updatedServers = account.servers
+        updatedServers[serverIndex] = PlexServerConfig(
+            id: server.id,
+            name: server.name,
+            url: server.url,
+            connections: server.connections,
+            token: server.token,
+            platform: server.platform,
+            libraries: updatedLibraries
+        )
+
+        plexAccounts[accountIndex] = PlexAccountConfig(
+            id: account.id,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
+            authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
+            servers: updatedServers
+        )
+
+        saveAccounts()
+        return true
     }
 
     // MARK: - Source Enumeration
@@ -146,7 +203,7 @@ public final class AccountManager: ObservableObject {
                     sources.append(MusicSource(
                         id: identifier,
                         displayName: "\(server.name) - \(library.title)",
-                        accountName: account.username,
+                        accountName: account.accountIdentifier,
                         sourceType: .plex
                     ))
                 }

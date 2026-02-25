@@ -6,6 +6,9 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     @Environment(\.dependencies) private var deps
     
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -30,10 +33,36 @@ public struct HomeView: View {
                     viewModel.enterEditMode()
                     viewModel.isEditingOrder = true
                 }
+                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
+                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
         .task {
             await viewModel.loadHubs()
@@ -80,6 +109,47 @@ public struct HomeView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+                    } else if !viewModel.hasConfiguredAccounts {
+                        Text("No music sources connected")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            showingAddSourceFlow = true
+                        } label: {
+                            Label("Add Source", systemImage: "plus.circle.fill")
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(20)
+                        }
+                        .buttonStyle(.plain)
+                    } else if syncCoordinator.isSyncing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Sync in progress…")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if !viewModel.hasEnabledLibraries {
+                        Text("No libraries enabled")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            showingManageSources = true
+                        } label: {
+                            Label("Manage Sources", systemImage: "slider.horizontal.3")
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(20)
+                        }
+                        .buttonStyle(.plain)
                     } else {
                         Text("No content available yet")
                             .font(.subheadline)
@@ -93,21 +163,23 @@ public struct HomeView: View {
                             .padding(.horizontal)
                     }
                 }
-                
-                Button {
-                    Task {
-                        await viewModel.refresh()
+
+                if viewModel.hasEnabledLibraries {
+                    Button {
+                        Task {
+                            await viewModel.refresh()
+                        }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .cornerRadius(20)
                     }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
                 
                 Spacer()
             }

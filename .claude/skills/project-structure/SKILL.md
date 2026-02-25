@@ -98,6 +98,7 @@ Sources/
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- LibraryVisibilityProfile.swift # Source visibility profile model (non-sync filtering)
 |   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
@@ -118,6 +119,7 @@ Sources/
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
+|   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
 |   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
@@ -131,11 +133,11 @@ Sources/
 |   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
+|   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
-|   +-- SyncPanelViewModel.swift
 +-- EnsembleCore.swift                 # Public exports
 
 Tests/
@@ -147,6 +149,7 @@ Tests/
 +-- SettingsManagerConnectionPolicyTests.swift
 +-- AccountManagerAuthPolicyTests.swift
 +-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
++-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -206,7 +209,7 @@ Sources/
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
 |   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
-|   +-- SyncPanelView.swift           # Library sync status & controls
+|   +-- MusicSourceAccountDetailView.swift # Source account detail (library toggles + sync status/actions)
 +-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports
 

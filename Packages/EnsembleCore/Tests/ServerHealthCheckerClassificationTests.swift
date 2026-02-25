@@ -26,7 +26,7 @@ final class ServerHealthCheckerClassificationTests: XCTestCase {
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "auth-token",
                 servers: [
                     PlexServerConfig(
@@ -73,7 +73,7 @@ final class ServerHealthCheckerClassificationTests: XCTestCase {
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
-                username: "tester",
+                displayTitle: "tester",
                 authToken: "auth-token",
                 servers: [
                     PlexServerConfig(

@@ -16,27 +16,33 @@ public final class AddPlexAccountViewModel: ObservableObject {
     @Published public private(set) var servers: [Server] = []
     @Published public private(set) var selectedServer: Server?
     @Published public private(set) var libraries: [Library] = []
+    @Published public private(set) var serverLibraryErrors: [String: String] = [:]
     @Published public var selectedLibraryKeys: Set<String> = []
+    @Published public var selectedLibraryCompositeKeys: Set<String> = []
     @Published public private(set) var error: String?
     @Published public private(set) var isLoading = false
 
     private let authService: PlexAuthService
+    private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
-    private let keychain: KeychainServiceProtocol
     private var pollTask: Task<Void, Never>?
     private var authToken: String?
+    private var discoveredServers: [PlexServerConfig] = []
+    private var discoveredIdentity: PlexAccountIdentity?
+    internal var refreshProvidersHandlerForTesting: (() -> Void)?
+    internal var syncAllHandlerForTesting: (() async -> Void)?
 
     public init(
         authService: PlexAuthService,
+        accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
         accountManager: AccountManager,
-        syncCoordinator: SyncCoordinator,
-        keychain: KeychainServiceProtocol
+        syncCoordinator: SyncCoordinator
     ) {
         self.authService = authService
+        self.accountDiscoveryService = accountDiscoveryService
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
-        self.keychain = keychain
     }
 
     // MARK: - Auth Flow
@@ -83,18 +89,16 @@ public final class AddPlexAccountViewModel: ObservableObject {
         error = nil
 
         do {
-            let tempConnection = PlexServerConnection(
-                url: "https://plex.tv",
-                token: token,
-                identifier: "temp",
-                name: "temp"
-            )
-            let client = PlexAPIClient(connection: tempConnection, keychain: keychain)
-            guard let token = authToken else {
-                throw NSError(domain: "AddPlexAccount", code: -1, userInfo: [NSLocalizedDescriptionKey: "No auth token"])
-            }
-            let devices = try await client.getResources(token: token)
-            servers = devices.map { Server(from: $0) }
+            let discovery = try await accountDiscoveryService.discoverAccount(authToken: token)
+            discoveredIdentity = discovery.identity
+            serverLibraryErrors = discovery.serverLibraryErrors
+            discoveredServers = discovery.servers
+            servers = discovery.servers.map(Self.mapServerConfigToServer)
+
+            // Default to all discovered libraries selected.
+            selectedLibraryCompositeKeys = Set(discovery.servers.flatMap { server in
+                server.libraries.map { Self.selectionKey(serverId: server.id, libraryKey: $0.key) }
+            })
         } catch {
             self.error = error.localizedDescription
         }
@@ -105,126 +109,135 @@ public final class AddPlexAccountViewModel: ObservableObject {
     public func selectServer(_ server: Server) async {
         selectedServer = server
         state = .selectingLibraries
-        await loadLibraries()
+        await loadLibraries(for: server.id)
     }
 
     // MARK: - Library Selection
 
     public func loadLibraries() async {
-        guard let server = selectedServer, let token = server.accessToken else { return }
+        guard let server = selectedServer else { return }
+        await loadLibraries(for: server.id)
+    }
+
+    public func loadLibraries(for serverId: String) async {
         isLoading = true
         error = nil
 
-        do {
-            // Include all alternative connection URLs for failover support
-            let allowInsecurePolicy = AllowInsecureConnectionsPolicy(
-                rawValue: UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy") ?? ""
-            ) ?? .defaultForEnsemble
-            let endpointDescriptors = server.connections.map { connection in
-                PlexEndpointDescriptor(
-                    url: connection.uri,
-                    local: connection.local,
-                    relay: connection.relay,
-                    secure: connection.protocol == "https"
-                )
+        if let server = discoveredServers.first(where: { $0.id == serverId }) {
+            libraries = server.libraries.map {
+                Library(id: $0.key, key: $0.key, title: $0.title, type: "music")
             }
-            let alternativeURLs = endpointDescriptors
-                .map(\.url)
-                .filter { $0 != server.url }
-            
-            let connection = PlexServerConnection(
-                url: server.url,
-                alternativeURLs: alternativeURLs,
-                endpoints: endpointDescriptors,
-                selectionPolicy: .plexSpecBalanced,
-                allowInsecurePolicy: allowInsecurePolicy,
-                token: token,
-                identifier: server.id,
-                name: server.name
+            selectedLibraryKeys = Set(
+                server.libraries
+                    .filter { selectedLibraryCompositeKeys.contains(Self.selectionKey(serverId: server.id, libraryKey: $0.key)) }
+                    .map(\.key)
             )
-            let client = PlexAPIClient(connection: connection, keychain: keychain)
-            
-            // Proactively test connections to avoid waiting for timeout
-            #if DEBUG
-            EnsembleLogger.debug("📚 Testing server connections before loading libraries...")
-            #endif
-            _ = try await client.refreshConnection()
-            
-            let sections = try await client.getMusicLibrarySections()
-            libraries = sections.map { Library(from: $0) }
-
-            // Pre-select all libraries
-            selectedLibraryKeys = Set(libraries.map { $0.key })
-        } catch {
-            self.error = error.localizedDescription
+        } else {
+            libraries = []
+            selectedLibraryKeys = []
         }
 
         isLoading = false
     }
 
     public func toggleLibrary(_ library: Library) {
-        if selectedLibraryKeys.contains(library.key) {
-            selectedLibraryKeys.remove(library.key)
+        guard let selectedServer else { return }
+        toggleLibrary(for: selectedServer.id, library: library)
+    }
+
+    public func toggleLibrary(for serverId: String, library: Library) {
+        let compositeKey = Self.selectionKey(serverId: serverId, libraryKey: library.key)
+        if selectedLibraryCompositeKeys.contains(compositeKey) {
+            selectedLibraryCompositeKeys.remove(compositeKey)
+            if selectedServer?.id == serverId {
+                selectedLibraryKeys.remove(library.key)
+            }
         } else {
-            selectedLibraryKeys.insert(library.key)
+            selectedLibraryCompositeKeys.insert(compositeKey)
+            if selectedServer?.id == serverId {
+                selectedLibraryKeys.insert(library.key)
+            }
         }
     }
 
-    public func confirmLibraries() {
-        guard let server = selectedServer,
-              let token = server.accessToken,
-              let authToken = authToken else { return }
+    public func libraries(for serverId: String) -> [Library] {
+        guard let server = discoveredServers.first(where: { $0.id == serverId }) else {
+            return []
+        }
 
-        let selectedLibs = libraries.filter { selectedLibraryKeys.contains($0.key) }
-        guard !selectedLibs.isEmpty else {
+        return server.libraries.map {
+            Library(id: $0.key, key: $0.key, title: $0.title, type: "music")
+        }
+    }
+
+    public func isLibrarySelected(serverId: String, libraryKey: String) -> Bool {
+        selectedLibraryCompositeKeys.contains(Self.selectionKey(serverId: serverId, libraryKey: libraryKey))
+    }
+
+    public func confirmLibraries() {
+        guard let authToken = authToken else { return }
+        guard !selectedLibraryCompositeKeys.isEmpty else {
             error = "Please select at least one library"
             return
         }
 
-        let libraryConfigs = selectedLibs.map { lib in
-            PlexLibraryConfig(id: lib.key, key: lib.key, title: lib.title, isEnabled: true)
+        guard !discoveredServers.isEmpty else {
+            error = "No servers found for this account"
+            return
         }
 
-        // Convert server connections to PlexConnectionConfig
-        let connectionConfigs = server.connections.map { conn in
-            PlexConnectionConfig(
-                uri: conn.uri,
-                local: conn.local,
-                relay: conn.relay,
-                address: conn.address,
-                port: conn.port,
-                protocol: conn.protocol
+        let serverConfigs = discoveredServers.map { server in
+            let updatedLibraries = server.libraries.map { library in
+                PlexLibraryConfig(
+                    id: library.id,
+                    key: library.key,
+                    title: library.title,
+                    isEnabled: selectedLibraryCompositeKeys.contains(
+                        Self.selectionKey(serverId: server.id, libraryKey: library.key)
+                    )
+                )
+            }
+
+            return PlexServerConfig(
+                id: server.id,
+                name: server.name,
+                url: server.url,
+                connections: server.connections,
+                token: server.token,
+                platform: server.platform,
+                libraries: updatedLibraries
             )
         }
 
-        let serverConfig = PlexServerConfig(
-            id: server.id,
-            name: server.name,
-            url: server.url,
-            connections: connectionConfigs,
-            token: token,
-            platform: server.platform,
-            libraries: libraryConfigs
-        )
-
-        let accountId = UUID().uuidString
+        let accountId = discoveredIdentity?.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedAccountID = (accountId?.isEmpty == false) ? accountId! : UUID().uuidString
         let tokenMetadata = PlexAuthService.tokenMetadata(from: authToken)
         let account = PlexAccountConfig(
-            id: accountId,
-            username: server.name,
+            id: resolvedAccountID,
+            email: discoveredIdentity?.email,
+            plexUsername: discoveredIdentity?.plexUsername,
+            displayTitle: discoveredIdentity?.displayTitle,
             authToken: authToken,
             authTokenMetadata: tokenMetadata,
-            servers: [serverConfig]
+            servers: serverConfigs
         )
 
         accountManager.addPlexAccount(account)
         
         // Refresh sync providers to include the new account
-        syncCoordinator.refreshProviders()
+        if let refreshProvidersHandlerForTesting {
+            refreshProvidersHandlerForTesting()
+        } else {
+            syncCoordinator.refreshProviders()
+        }
         
         // Trigger initial sync in the background
         Task {
-            await syncCoordinator.syncAll()
+            if let syncAllHandlerForTesting {
+                await syncAllHandlerForTesting()
+            } else {
+                await syncCoordinator.syncAll()
+            }
         }
         
         state = .complete
@@ -246,8 +259,51 @@ public final class AddPlexAccountViewModel: ObservableObject {
         selectedServer = nil
         libraries = []
         selectedLibraryKeys = []
+        selectedLibraryCompositeKeys = []
+        serverLibraryErrors = [:]
         error = nil
         isLoading = false
         authToken = nil
+        discoveredServers = []
+        discoveredIdentity = nil
+    }
+
+    internal func applyDiscoveryForTesting(
+        authToken: String,
+        identity: PlexAccountIdentity,
+        servers: [PlexServerConfig]
+    ) {
+        self.authToken = authToken
+        discoveredIdentity = identity
+        discoveredServers = servers
+        self.servers = servers.map(Self.mapServerConfigToServer)
+        selectedLibraryCompositeKeys = Set(servers.flatMap { server in
+            server.libraries.map { Self.selectionKey(serverId: server.id, libraryKey: $0.key) }
+        })
+    }
+
+    private static func selectionKey(serverId: String, libraryKey: String) -> String {
+        "\(serverId):\(libraryKey)"
+    }
+
+    private static func mapServerConfigToServer(_ server: PlexServerConfig) -> Server {
+        Server(
+            id: server.id,
+            name: server.name,
+            url: server.url,
+            connections: server.connections.map {
+                ServerConnection(
+                    uri: $0.uri,
+                    local: $0.local,
+                    relay: $0.relay ?? false,
+                    address: $0.address,
+                    port: $0.port,
+                    protocol: $0.protocol
+                )
+            },
+            accessToken: server.token,
+            platform: server.platform,
+            isLocal: server.connections.first(where: \.local) != nil
+        )
     }
 }

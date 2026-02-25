@@ -229,6 +229,7 @@ func testFilterOptionsMatchesByGenre() {
 | `SettingsManagerConnectionPolicyTests.swift` | persisted insecure-policy default + round-trip persistence |
 | `AccountManagerAuthPolicyTests.swift` | auth migration cutover and expired-account pruning |
 | `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
+| `LibraryVisibilityProfileTests.swift` | visibility profile persistence + source-level filtering seams (without changing sync enablement) |
 | `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
 
 When adding tests, check this list first to avoid duplicating coverage.

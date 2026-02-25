@@ -61,6 +61,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
         func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
         func deletePlaylist(ratingKey: String) async throws {}
+        func deletePlaylists(sourceCompositeKey: String) async throws {}
         func removeDuplicatePlaylists() async throws {}
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
     }
@@ -85,7 +86,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             accountManager.addPlexAccount(
                 PlexAccountConfig(
                     id: "account-1",
-                    username: "tester",
+                    displayTitle: "tester",
                     authToken: "auth",
                     servers: [
                         PlexServerConfig(

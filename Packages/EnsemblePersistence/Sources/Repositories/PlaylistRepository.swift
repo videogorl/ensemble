@@ -23,6 +23,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     ) async throws -> CDPlaylist
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
+    func deletePlaylists(sourceCompositeKey: String) async throws
     func removeDuplicatePlaylists() async throws
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 }
@@ -238,6 +239,28 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 do {
                     if let playlist = try context.fetch(request).first {
                         context.delete(playlist)
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deletePlaylists(sourceCompositeKey: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            self.coreDataStack.performBackgroundTask { context in
+                let request = CDPlaylist.fetchRequest()
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+
+                do {
+                    let playlists = try context.fetch(request)
+                    for playlist in playlists {
+                        context.delete(playlist)
+                    }
+                    if !playlists.isEmpty {
                         try context.save()
                     }
                     continuation.resume()

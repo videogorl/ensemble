@@ -26,7 +26,11 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     private var supportsCoverFlow: Bool {
@@ -132,6 +136,30 @@ public struct PlaylistsView: View {
                         startInEditMode: true
                     )
                 }
+            }
+            .sheet(isPresented: $showingAddSourceFlow) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
+            .sheet(isPresented: $showingManageSources) {
+                NavigationView {
+                    SettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingManageSources = false
+                                }
+                            }
+                        }
+                }
+                #if os(iOS)
+                .navigationViewStyle(.stack)
+                #endif
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
             }
             .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
             .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
@@ -284,12 +312,56 @@ public struct PlaylistsView: View {
             Text("No Playlists")
                 .font(.title2)
 
-            Text("Create playlists in Plex to see them here")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            if !accountManager.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if syncCoordinator.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Create playlists in Plex to see them here")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var playlistListView: some View {
@@ -349,6 +421,14 @@ public struct PlaylistsView: View {
 
     private var displayedFilteredPlaylists: [Playlist] {
         viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+    }
+
+    private var hasEnabledLibraries: Bool {
+        accountManager.plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
 
     private func startOptimisticDelete(for playlist: Playlist) {

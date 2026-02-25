@@ -16,7 +16,11 @@ public struct SearchView: View {
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -55,6 +59,30 @@ public struct SearchView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
 
         if #available(iOS 18.0, macOS 15.0, *) {
             content.searchFocused($isSearchFieldFocused)
@@ -65,8 +93,37 @@ public struct SearchView: View {
 
     // MARK: - Explore View (Empty State)
 
+    @ViewBuilder
     private var exploreView: some View {
-        ScrollView {
+        if !accountManager.hasAnySources {
+            VStack(spacing: 16) {
+                Spacer()
+
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 60))
+                    .foregroundColor(.secondary)
+
+                Text("No music sources connected")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+            .padding(.top, 40)
+        } else {
+            ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 // Recent Searches
                 if !viewModel.recentSearches.isEmpty {
@@ -203,6 +260,7 @@ public struct SearchView: View {
             await viewModel.loadExploreContent()
         }
         .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
+        }
     }
     
     /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
@@ -607,13 +665,35 @@ public struct SearchView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
             
-            Text("Start exploring your music")
-                .font(.title3)
-                .foregroundColor(.secondary)
-            
-            Text("Start typing to search your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if syncCoordinator.isSyncing {
+                Text("Sync in progress…")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Start exploring your music")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+                
+                Text("Start typing to search your library")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
             
             Spacer()
         }
@@ -1256,9 +1336,50 @@ public struct SearchView: View {
             Text("No Results")
                 .font(.title2)
 
-            Text("Try a different search term")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !accountManager.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if syncCoordinator.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Try a different search term")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
 
             Spacer()
         }
@@ -1268,6 +1389,14 @@ public struct SearchView: View {
     
     private var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)]
+    }
+
+    private var hasEnabledLibraries: Bool {
+        accountManager.plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
     
     private var recommendedDisplayItems: [HubItem] {
