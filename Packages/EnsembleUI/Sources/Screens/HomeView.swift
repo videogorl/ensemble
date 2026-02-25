@@ -6,6 +6,7 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @State private var showingAddSourceFlow = false
     @Environment(\.dependencies) private var deps
     
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -36,6 +37,12 @@ public struct HomeView: View {
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
         .task {
             await viewModel.loadHubs()
@@ -93,6 +100,18 @@ public struct HomeView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+
+                        Button {
+                            showingAddSourceFlow = true
+                        } label: {
+                            Label("Add Source", systemImage: "plus.circle.fill")
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(20)
+                        }
+                        .buttonStyle(.plain)
                     } else if !viewModel.hasEnabledLibraries {
                         Text("No libraries enabled")
                             .font(.subheadline)

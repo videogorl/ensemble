@@ -157,6 +157,37 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertTrue(playlists.isEmpty)
     }
 
+    func testRemoveSourceAccountPurgesLibrariesAndServerPlaylists() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [("lib-1", "Library One", true)]
+        )
+        harness.accountManager.addPlexAccount(account)
+        harness.syncCoordinator.refreshProviders()
+
+        let source = "plex:account-1:server-1:lib-1"
+        let serverSource = "plex:account-1:server-1"
+
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-1", sourceCompositeKey: source)
+        try await seedPlaylist(repository: harness.playlistRepository, ratingKey: "playlist-1", sourceCompositeKey: serverSource)
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+
+        let removed = await viewModel.removeSourceAccount()
+
+        XCTAssertTrue(removed)
+        XCTAssertTrue(harness.accountManager.plexAccounts.isEmpty)
+        XCTAssertTrue(viewModel.isAccountMissing)
+
+        let tracks = try await harness.libraryRepository.fetchTracks()
+        XCTAssertFalse(tracks.contains(where: { $0.sourceCompositeKey == source }))
+
+        let playlists = try await harness.playlistRepository.fetchPlaylists(sourceCompositeKey: serverSource)
+        XCTAssertTrue(playlists.isEmpty)
+    }
+
     func testRefreshReconcilesNewUncheckedAndRemovedPurged() async throws {
         let harness = makeHarness()
         let account = makeAccount(

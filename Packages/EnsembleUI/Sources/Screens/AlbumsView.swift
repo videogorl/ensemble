@@ -6,6 +6,7 @@ public struct AlbumsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+    @State private var showingAddSourceFlow = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -115,6 +116,12 @@ public struct AlbumsView: View {
                     showArtistFilter: true
                 )
             }
+            .sheet(isPresented: $showingAddSourceFlow) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
         }
     }
 
@@ -145,9 +152,27 @@ public struct AlbumsView: View {
             Text("No Albums")
                 .font(.title2)
 
-            Text("Tap the sync button to sync your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !libraryVM.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Tap the sync button to sync your library")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 

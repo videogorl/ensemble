@@ -8,8 +8,8 @@ public struct SettingsView: View {
     @State private var accountToDelete: PlexAccountConfig?
 
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     private let playbackService = DependencyContainer.shared.playbackService
-    private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
 
@@ -224,12 +224,16 @@ public struct SettingsView: View {
             Button("Remove", role: .destructive) {
                 if let account = accountToDelete {
                     let sourceIds = enabledSources(for: account)
+                    let serverIds = account.servers.map(\.id)
                     accountManager.removePlexAccount(id: account.id)
 
                     // Clean up CoreData for all libraries tied to this account.
                     Task {
                         for sourceId in sourceIds {
                             await syncCoordinator.cleanupRemovedSource(sourceId)
+                        }
+                        for serverId in serverIds {
+                            await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
                         }
                         syncCoordinator.refreshProviders()
                     }

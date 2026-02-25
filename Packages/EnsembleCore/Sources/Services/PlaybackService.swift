@@ -433,6 +433,135 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return max(baseDuration, itemDuration)
     }
 
+    struct QueueSourcePruneResult: Equatable {
+        let queue: [QueueItem]
+        let originalQueue: [QueueItem]
+        let playbackHistory: [QueueItem]
+        let nextCurrentQueueIndex: Int
+        let removedCurrentQueueItem: Bool
+        let removedQueueItemCount: Int
+    }
+
+    static func enabledSourceCompositeKeys(from accounts: [PlexAccountConfig]) -> Set<String> {
+        Set(
+            accounts.flatMap { account in
+                account.servers.flatMap { server in
+                    server.libraries.compactMap { library in
+                        guard library.isEnabled else { return nil }
+                        return "plex:\(account.id):\(server.id):\(library.key)"
+                    }
+                }
+            }
+        )
+    }
+
+    static func isTrackSourceAvailable(_ track: Track, enabledSourceCompositeKeys: Set<String>) -> Bool {
+        guard let sourceCompositeKey = track.sourceCompositeKey else {
+            return true
+        }
+        return enabledSourceCompositeKeys.contains(sourceCompositeKey)
+    }
+
+    static func pruneQueueForEnabledSources(
+        queue: [QueueItem],
+        originalQueue: [QueueItem],
+        playbackHistory: [QueueItem],
+        currentQueueIndex: Int,
+        enabledSourceCompositeKeys: Set<String>
+    ) -> QueueSourcePruneResult {
+        let filteredQueue = queue.filter {
+            isTrackSourceAvailable($0.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys)
+        }
+        let filteredOriginalQueue = originalQueue.filter {
+            isTrackSourceAvailable($0.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys)
+        }
+        let filteredHistory = playbackHistory.filter {
+            isTrackSourceAvailable($0.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys)
+        }
+
+        let removedQueueItemCount = max(0, queue.count - filteredQueue.count)
+        let currentItemID: String?
+        if queue.indices.contains(currentQueueIndex) {
+            currentItemID = queue[currentQueueIndex].id
+        } else {
+            currentItemID = nil
+        }
+
+        guard !filteredQueue.isEmpty else {
+            return QueueSourcePruneResult(
+                queue: filteredQueue,
+                originalQueue: filteredOriginalQueue,
+                playbackHistory: filteredHistory,
+                nextCurrentQueueIndex: -1,
+                removedCurrentQueueItem: currentItemID != nil,
+                removedQueueItemCount: removedQueueItemCount
+            )
+        }
+
+        if let currentItemID,
+           let preservedIndex = filteredQueue.firstIndex(where: { $0.id == currentItemID }) {
+            return QueueSourcePruneResult(
+                queue: filteredQueue,
+                originalQueue: filteredOriginalQueue,
+                playbackHistory: filteredHistory,
+                nextCurrentQueueIndex: preservedIndex,
+                removedCurrentQueueItem: false,
+                removedQueueItemCount: removedQueueItemCount
+            )
+        }
+
+        let fallbackItemID = preferredFallbackQueueItemID(
+            afterRemovingCurrentAt: currentQueueIndex,
+            from: queue,
+            enabledSourceCompositeKeys: enabledSourceCompositeKeys
+        )
+        let fallbackIndex: Int
+        if let fallbackItemID,
+           let index = filteredQueue.firstIndex(where: { $0.id == fallbackItemID }) {
+            fallbackIndex = index
+        } else {
+            fallbackIndex = min(max(currentQueueIndex, 0), filteredQueue.count - 1)
+        }
+
+        return QueueSourcePruneResult(
+            queue: filteredQueue,
+            originalQueue: filteredOriginalQueue,
+            playbackHistory: filteredHistory,
+            nextCurrentQueueIndex: fallbackIndex,
+            removedCurrentQueueItem: currentItemID != nil,
+            removedQueueItemCount: removedQueueItemCount
+        )
+    }
+
+    private static func preferredFallbackQueueItemID(
+        afterRemovingCurrentAt currentQueueIndex: Int,
+        from queue: [QueueItem],
+        enabledSourceCompositeKeys: Set<String>
+    ) -> String? {
+        guard !queue.isEmpty else { return nil }
+
+        if queue.indices.contains(currentQueueIndex) {
+            let nextStart = currentQueueIndex + 1
+            if nextStart < queue.count {
+                for item in queue[nextStart...] where
+                    isTrackSourceAvailable(item.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys) {
+                    return item.id
+                }
+            }
+
+            if currentQueueIndex > 0 {
+                for item in queue[..<currentQueueIndex] where
+                    isTrackSourceAvailable(item.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys) {
+                    return item.id
+                }
+            }
+        }
+
+        return queue.first(where: {
+            isTrackSourceAvailable($0.track, enabledSourceCompositeKeys: enabledSourceCompositeKeys)
+        })?.id
+    }
+
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
@@ -516,6 +645,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isHandlingQueueExhaustion = false
     private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
+    private var accountSourcesObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var pendingSeekRequestID: UInt64?
@@ -622,10 +752,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupRemoteCommands()
         setupPlayer()
         setupNetworkObservation()
+        setupAccountSourcesObservation()
     }
 
     deinit {
         cleanup()
+        accountSourcesObservation?.cancel()
+        accountSourcesObservation = nil
     }
 
     private func setupPlayer() {
@@ -3083,6 +3216,104 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         }
+    }
+
+    /// Keep queue/current playback aligned with currently enabled sources.
+    private func setupAccountSourcesObservation() {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.accountSourcesObservation = self.syncCoordinator.accountManager.$plexAccounts
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] accounts in
+                    Task { @MainActor in
+                        await self?.handleAccountSourcesChanged(accounts)
+                    }
+                }
+        }
+    }
+
+    @MainActor
+    private func handleAccountSourcesChanged(_ accounts: [PlexAccountConfig]) async {
+        let enabledSourceCompositeKeys = Self.enabledSourceCompositeKeys(from: accounts)
+        let currentTrackStillAvailable = currentTrack.map {
+            Self.isTrackSourceAvailable($0, enabledSourceCompositeKeys: enabledSourceCompositeKeys)
+        } ?? true
+
+        let pruneResult = Self.pruneQueueForEnabledSources(
+            queue: queue,
+            originalQueue: originalQueue,
+            playbackHistory: playbackHistory,
+            currentQueueIndex: currentQueueIndex,
+            enabledSourceCompositeKeys: enabledSourceCompositeKeys
+        )
+
+        let hasQueueChanges = pruneResult.removedQueueItemCount > 0
+            || pruneResult.queue.count != queue.count
+            || pruneResult.originalQueue.count != originalQueue.count
+            || pruneResult.playbackHistory.count != playbackHistory.count
+
+        guard hasQueueChanges || !currentTrackStillAvailable else { return }
+
+        let previousPlaybackState = playbackState
+
+        queue = pruneResult.queue
+        originalQueue = pruneResult.originalQueue
+        playbackHistory = pruneResult.playbackHistory
+        currentQueueIndex = pruneResult.nextCurrentQueueIndex
+        autoGeneratedTrackIds = Set(queue.filter { $0.source == .autoplay }.map(\.track.id))
+
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else {
+            clearPlaybackAfterSourcePrune()
+            return
+        }
+
+        let didReplaceCurrentTrack = pruneResult.removedCurrentQueueItem || !currentTrackStillAvailable
+
+        if didReplaceCurrentTrack {
+            switch previousPlaybackState {
+            case .playing, .loading, .buffering:
+                await playCurrentQueueItem(forcingFreshItem: true)
+            case .paused:
+                await playCurrentQueueItem(forcingFreshItem: true)
+                pause()
+            case .stopped, .failed:
+                currentTrack = queue[currentQueueIndex].track
+                currentTime = 0
+                bufferedProgress = 0
+                playbackState = .stopped
+                updateNowPlayingInfo()
+                await updatePlayerQueueAfterReorder()
+            }
+        } else {
+            currentTrack = queue[currentQueueIndex].track
+            await updatePlayerQueueAfterReorder()
+        }
+
+        savePlaybackState()
+    }
+
+    @MainActor
+    private func clearPlaybackAfterSourcePrune() {
+        player?.pause()
+        player?.removeAllItems()
+        clearPlayerItemCache()
+        cancelNowPlayingArtworkLoad(clearArtwork: true)
+        clearPendingSeekState()
+
+        queue = []
+        originalQueue = []
+        currentQueueIndex = -1
+        currentTrack = nil
+        playbackState = .stopped
+        currentTime = 0
+        bufferedProgress = 0
+        lastTimelineReportTime = 0
+        hasScrobbled = false
+        autoGeneratedTrackIds.removeAll()
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        updateFeedbackCommandState(isLiked: false, isDisliked: false)
+        savePlaybackState()
     }
 
     /// Handles network transitions so queued stream endpoints are refreshed after handoffs.

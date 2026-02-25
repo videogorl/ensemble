@@ -43,6 +43,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     @Published public private(set) var sections: [ServerSection] = []
     @Published public private(set) var isSyncingEnabledLibraries = false
     @Published public private(set) var isRefreshingInventory = false
+    @Published public private(set) var isRemovingAccount = false
     @Published public private(set) var isAccountMissing = false
     @Published public private(set) var isReauthenticationRequired = false
     @Published public private(set) var serverLibraryErrors: [String: String] = [:]
@@ -171,6 +172,48 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         defer { isSyncingEnabledLibraries = false }
 
         await syncSources(enabledSources)
+    }
+
+    /// Removes this account and purges all server/library data tied to it.
+    @discardableResult
+    public func removeSourceAccount() async -> Bool {
+        guard !isRemovingAccount else { return false }
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }) else {
+            isAccountMissing = true
+            return false
+        }
+
+        isRemovingAccount = true
+        error = nil
+        defer { isRemovingAccount = false }
+
+        let enabledSources = account.servers.flatMap { server in
+            server.libraries.compactMap { library -> MusicSourceIdentifier? in
+                guard library.isEnabled else { return nil }
+                return MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: account.id,
+                    serverId: server.id,
+                    libraryId: library.key
+                )
+            }
+        }
+        let serverIDs = account.servers.map(\.id)
+
+        accountManager.removePlexAccount(id: account.id)
+
+        for source in enabledSources {
+            await syncCoordinator.cleanupRemovedSource(source)
+        }
+
+        for serverID in serverIDs {
+            await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverID)
+        }
+
+        syncCoordinator.refreshProviders()
+        isAccountMissing = true
+        sections = []
+        return true
     }
 
     private func refreshAccountInventory() async {

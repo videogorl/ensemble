@@ -4,6 +4,8 @@ import SwiftUI
 /// Account-level source detail screen for managing server libraries and sync operations.
 public struct MusicSourceAccountDetailView: View {
     @StateObject private var viewModel: MusicSourceAccountDetailViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingRemoveSourceAlert = false
 
     public init(accountId: String) {
         self._viewModel = StateObject(
@@ -52,42 +54,59 @@ public struct MusicSourceAccountDetailView: View {
                     Text("This account is no longer available.")
                         .foregroundColor(.secondary)
                 }
-            } else if viewModel.isReauthenticationRequired {
-                Section {
-                    Text("Session expired. Re-authenticate this account to change libraries or sync.")
-                        .foregroundColor(.secondary)
-                }
             } else {
-                ForEach(viewModel.sections) { server in
+                if viewModel.isReauthenticationRequired {
                     Section {
-                        if let refreshError = viewModel.serverLibraryErrors[server.id] {
-                            Text(refreshError)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-
-                        if server.libraries.isEmpty {
-                            Text("No music libraries found")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(server.libraries) { library in
-                                LibrarySyncStatusRow(row: library) {
-                                    Task {
-                                        await viewModel.toggleLibrary(library)
-                                    }
-                                }
-                                .disabled(viewModel.isReauthenticationRequired)
+                        Text("Session expired. Re-authenticate this account to change libraries or sync.")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    ForEach(viewModel.sections) { server in
+                        Section {
+                            if let refreshError = viewModel.serverLibraryErrors[server.id] {
+                                Text(refreshError)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
                             }
-                        }
-                    } header: {
-                        HStack(spacing: 8) {
-                            Text(server.serverName)
-                            if let platform = server.serverPlatform {
-                                Text("(\(platform))")
+
+                            if server.libraries.isEmpty {
+                                Text("No music libraries found")
                                     .foregroundColor(.secondary)
+                            } else {
+                                ForEach(server.libraries) { library in
+                                    LibrarySyncStatusRow(row: library) {
+                                        Task {
+                                            await viewModel.toggleLibrary(library)
+                                        }
+                                    }
+                                    .disabled(viewModel.isReauthenticationRequired)
+                                }
+                            }
+                        } header: {
+                            HStack(spacing: 8) {
+                                Text(server.serverName)
+                                if let platform = server.serverPlatform {
+                                    Text("(\(platform))")
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
                     }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showingRemoveSourceAlert = true
+                    } label: {
+                        HStack {
+                            Text("Remove Source")
+                            Spacer()
+                            if viewModel.isRemovingAccount {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isRemovingAccount)
                 }
             }
         }
@@ -95,6 +114,19 @@ public struct MusicSourceAccountDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .alert("Remove Source", isPresented: $showingRemoveSourceAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                Task {
+                    let removed = await viewModel.removeSourceAccount()
+                    if removed {
+                        dismiss()
+                    }
+                }
+            }
+        } message: {
+            Text("This removes the source account and clears synced library data from this source.")
+        }
         .task {
             await viewModel.performInitialRefreshIfNeeded()
         }

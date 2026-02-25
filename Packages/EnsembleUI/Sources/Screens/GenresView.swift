@@ -4,6 +4,7 @@ import SwiftUI
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @State private var searchText = ""
+    @State private var showingAddSourceFlow = false
 
     public init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
@@ -36,6 +37,12 @@ public struct GenresView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
     }
 
     private var loadingView: some View {
@@ -55,9 +62,27 @@ public struct GenresView: View {
             Text("No Genres")
                 .font(.title2)
 
-            Text("Tap the sync button to sync your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !libraryVM.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Tap the sync button to sync your library")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 

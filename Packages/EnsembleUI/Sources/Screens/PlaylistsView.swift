@@ -26,7 +26,9 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
+    @State private var showingAddSourceFlow = false
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -123,6 +125,12 @@ public struct PlaylistsView: View {
                         startInEditMode: true
                     )
                 }
+            }
+            .sheet(isPresented: $showingAddSourceFlow) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
             }
             .hideTabBarIfAvailable(isHidden: isLandscape)
             #if os(iOS)
@@ -274,10 +282,29 @@ public struct PlaylistsView: View {
             Text("No Playlists")
                 .font(.title2)
 
-            Text("Create playlists in Plex to see them here")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            if !accountManager.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("Create playlists in Plex to see them here")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding()
     }
