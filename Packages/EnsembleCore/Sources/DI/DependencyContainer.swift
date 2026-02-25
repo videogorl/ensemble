@@ -40,6 +40,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
     public let toastCenter: ToastCenter
+    public let libraryVisibilityStore: LibraryVisibilityStore
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -132,6 +133,10 @@ public final class DependencyContainer: @unchecked Sendable {
         toastCenter = MainActor.assumeIsolated {
             ToastCenter()
         }
+
+        libraryVisibilityStore = MainActor.assumeIsolated {
+            LibraryVisibilityStore()
+        }
     }
 
     // MARK: - View Model Factories
@@ -141,7 +146,8 @@ public final class DependencyContainer: @unchecked Sendable {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -199,7 +205,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playlistRepository: playlistRepository,
             hubRepository: hubRepository,
             moodRepository: moodRepository,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -248,7 +255,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             hubRepository: hubRepository,
-            hubOrderManager: hubOrderManager
+            hubOrderManager: hubOrderManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 }

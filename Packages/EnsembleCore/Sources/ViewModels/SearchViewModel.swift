@@ -64,6 +64,7 @@ public final class SearchViewModel: ObservableObject {
     private let hubRepository: HubRepositoryProtocol
     private let moodRepository: MoodRepositoryProtocol
     private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -72,19 +73,30 @@ public final class SearchViewModel: ObservableObject {
     private let recentSearchesKey = "ensemble_recent_searches"
     private var commitSearchTask: Task<Void, Never>?
     private var hasLoadedExploreContent = false
+    private var unfilteredTrackResults: [Track] = []
+    private var unfilteredArtistResults: [Artist] = []
+    private var unfilteredAlbumResults: [Album] = []
+    private var unfilteredPlaylistResults: [Playlist] = []
+    private var unfilteredRecentlyPlayedAlbums: [Album] = []
+    private var unfilteredRecentlyPlayedArtists: [Artist] = []
+    private var unfilteredRecentlyAddedAlbums: [Album] = []
+    private var unfilteredRecommendedItems: [HubItem] = []
+    private var unfilteredMoods: [Mood] = []
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
         moodRepository: MoodRepositoryProtocol,
-        accountManager: AccountManager
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
         self.moodRepository = moodRepository
         self.accountManager = accountManager
+        self.visibilityStore = visibilityStore ?? .shared
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
@@ -118,6 +130,16 @@ public final class SearchViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        self.visibilityStore.$profiles
+            .combineLatest(self.visibilityStore.$activeProfileID)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.applyVisibilityToSearchResults()
+                self?.applyVisibilityToExploreContent()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Search
@@ -130,6 +152,10 @@ public final class SearchViewModel: ObservableObject {
         guard !trimmed.isEmpty else {
             isSearching = false
             searchError = nil
+            unfilteredTrackResults = []
+            unfilteredArtistResults = []
+            unfilteredAlbumResults = []
+            unfilteredPlaylistResults = []
             trackResults = []
             artistResults = []
             albumResults = []
@@ -155,13 +181,11 @@ public final class SearchViewModel: ObservableObject {
             
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
             
-            trackResults = tracks.map { Track(from: $0) }
-            artistResults = artists.map { Artist(from: $0) }
-            albumResults = albums.map { Album(from: $0) }
-            playlistResults = playlists.map { Playlist(from: $0) }
-            
-            // Determine intelligent section ordering based on match count
-            determineSearchSectionOrder()
+            unfilteredTrackResults = tracks.map { Track(from: $0) }
+            unfilteredArtistResults = artists.map { Artist(from: $0) }
+            unfilteredAlbumResults = albums.map { Album(from: $0) }
+            unfilteredPlaylistResults = playlists.map { Playlist(from: $0) }
+            applyVisibilityToSearchResults()
         } catch {
             if !Task.isCancelled {
                 self.searchError = error.localizedDescription
@@ -269,8 +293,120 @@ public final class SearchViewModel: ObservableObject {
         orderedSections = sectionCounts.filter { $0.count > 0 }.map { $0.section }
     }
 
+    private func applyVisibilityToSearchResults() {
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        trackResults = Self.filterTracksForVisibility(
+            unfilteredTrackResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        artistResults = Self.filterArtistsForVisibility(
+            unfilteredArtistResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        albumResults = Self.filterAlbumsForVisibility(
+            unfilteredAlbumResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        playlistResults = Self.filterPlaylistsForVisibility(
+            unfilteredPlaylistResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        determineSearchSectionOrder()
+    }
+
+    private func applyVisibilityToExploreContent() {
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        recentlyPlayedAlbums = Self.filterAlbumsForVisibility(
+            unfilteredRecentlyPlayedAlbums,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recentlyPlayedArtists = Self.filterArtistsForVisibility(
+            unfilteredRecentlyPlayedArtists,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recentlyAddedAlbums = Self.filterAlbumsForVisibility(
+            unfilteredRecentlyAddedAlbums,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recommendedItems = Self.filterHubItemsForVisibility(
+            unfilteredRecommendedItems,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        allMoods = Self.filterMoodsForVisibility(
+            unfilteredMoods,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+    }
+
+    internal static func filterTracksForVisibility(
+        _ tracks: [Track],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Track] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return tracks }
+        return tracks.filter { track in
+            guard let sourceKey = track.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterArtistsForVisibility(
+        _ artists: [Artist],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Artist] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return artists }
+        return artists.filter { artist in
+            guard let sourceKey = artist.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterAlbumsForVisibility(
+        _ albums: [Album],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Album] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return albums }
+        return albums.filter { album in
+            guard let sourceKey = album.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterPlaylistsForVisibility(
+        _ playlists: [Playlist],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Playlist] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return playlists }
+        return playlists.filter { playlist in
+            guard let sourceKey = playlist.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterHubItemsForVisibility(
+        _ items: [HubItem],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [HubItem] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return items }
+        return items.filter { !hiddenSourceCompositeKeys.contains($0.sourceCompositeKey) }
+    }
+
+    internal static func filterMoodsForVisibility(
+        _ moods: [Mood],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Mood] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return moods }
+        return moods.filter { mood in
+            guard let sourceKey = mood.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
     public func clearSearch() {
         searchQuery = ""
+        unfilteredTrackResults = []
+        unfilteredArtistResults = []
+        unfilteredAlbumResults = []
+        unfilteredPlaylistResults = []
         trackResults = []
         artistResults = []
         albumResults = []
@@ -330,10 +466,11 @@ public final class SearchViewModel: ObservableObject {
         do {
             let cachedHubs = try await hubRepository.fetchHubs()
             let results = extractContentFromHubs(cachedHubs)
-            recentlyPlayedAlbums = Array(results.albums.prefix(6))
-            recentlyPlayedArtists = Array(results.artists.prefix(6))
-            recentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
-            recommendedItems = Array(results.recommendedItems.prefix(6))
+            unfilteredRecentlyPlayedAlbums = Array(results.albums.prefix(6))
+            unfilteredRecentlyPlayedArtists = Array(results.artists.prefix(6))
+            unfilteredRecentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
+            unfilteredRecommendedItems = Array(results.recommendedItems.prefix(6))
+            applyVisibilityToExploreContent()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("ℹ️ No cached explore content available")
@@ -342,7 +479,8 @@ public final class SearchViewModel: ObservableObject {
 
         // Load cached moods immediately while fresh network fetch runs.
         if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
-            allMoods = cachedMoods
+            unfilteredMoods = cachedMoods
+            applyVisibilityToExploreContent()
         }
 
         guard !Task.isCancelled else { return }
@@ -431,10 +569,11 @@ public final class SearchViewModel: ObservableObject {
             }
         }
 
-        recentlyPlayedAlbums = Array(recentAlbums.prefix(6))
-        recentlyPlayedArtists = Array(recentArtists.prefix(6))
-        recentlyAddedAlbums = Array(addedAlbums.prefix(6))
-        recommendedItems = Array(recommendedHubItems.prefix(6))
+        unfilteredRecentlyPlayedAlbums = Array(recentAlbums.prefix(6))
+        unfilteredRecentlyPlayedArtists = Array(recentArtists.prefix(6))
+        unfilteredRecentlyAddedAlbums = Array(addedAlbums.prefix(6))
+        unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
+        applyVisibilityToExploreContent()
 
         // Fetch moods once per library and dedupe by key.
         var moodsByKey: [String: Mood] = [:]
@@ -470,7 +609,8 @@ public final class SearchViewModel: ObservableObject {
                 EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
                 #endif
             }
-            allMoods = moodsToPublish
+            unfilteredMoods = moodsToPublish
+            applyVisibilityToExploreContent()
         }
     }
 

@@ -43,16 +43,23 @@ public final class LibraryViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
+    private var allArtists: [Artist] = []
+    private var allAlbums: [Album] = []
+    private var allTracks: [Track] = []
+    private var allGenres: [Genre] = []
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        accountManager: AccountManager
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
+        self.visibilityStore = visibilityStore ?? .shared
 
         // Load saved filter options
         let savedTracks = FilterPersistence.load(for: "Songs")
@@ -101,6 +108,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Keep cached filtered collections in sync with their inputs
         setupComputedPipelines()
+        setupVisibilityObservation()
     }
 
     /// Wires Combine pipelines that keep the cached filtered collections up to date.
@@ -182,6 +190,17 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func setupVisibilityObservation() {
+        self.visibilityStore.$profiles
+            .combineLatest(self.visibilityStore.$activeProfileID)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.applyVisibilityToPublishedCollections()
+            }
+            .store(in: &cancellables)
+    }
+
     public func loadLibrary() async {
         isLoading = true
         error = nil
@@ -202,10 +221,11 @@ public final class LibraryViewModel: ObservableObject {
                 genresTask
             )
 
-            artists = fetchedArtists.map { Artist(from: $0) }
-            albums = fetchedAlbums.map { Album(from: $0) }
-            tracks = fetchedTracks.map { Track(from: $0) }
-            genres = fetchedGenres.map { Genre(from: $0) }
+            allArtists = fetchedArtists.map { Artist(from: $0) }
+            allAlbums = fetchedAlbums.map { Album(from: $0) }
+            allTracks = fetchedTracks.map { Track(from: $0) }
+            allGenres = fetchedGenres.map { Genre(from: $0) }
+            applyVisibilityToPublishedCollections()
         } catch {
             self.error = error.localizedDescription
         }
@@ -277,6 +297,58 @@ public final class LibraryViewModel: ObservableObject {
     public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption) }
     public var sortedGenres: [Genre] {
         genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+    }
+
+    private func applyVisibilityToPublishedCollections() {
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        artists = Self.filterArtistsForVisibility(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        albums = Self.filterAlbumsForVisibility(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        tracks = Self.filterTracksForVisibility(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        genres = Self.filterGenresForVisibility(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+    }
+
+    internal static func filterTracksForVisibility(
+        _ tracks: [Track],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Track] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return tracks }
+        return tracks.filter { track in
+            guard let sourceKey = track.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterArtistsForVisibility(
+        _ artists: [Artist],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Artist] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return artists }
+        return artists.filter { artist in
+            guard let sourceKey = artist.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterAlbumsForVisibility(
+        _ albums: [Album],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Album] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return albums }
+        return albums.filter { album in
+            guard let sourceKey = album.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterGenresForVisibility(
+        _ genres: [Genre],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Genre] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return genres }
+        return genres.filter { genre in
+            guard let sourceKey = genre.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
     }
 
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
