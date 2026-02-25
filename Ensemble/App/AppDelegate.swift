@@ -131,7 +131,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
             } catch {
                 #if DEBUG
-                AppLogger.debug("📱 AppDelegate: Siri playback execution failed: \(error.localizedDescription)")
+                if let siriError = error as? SiriPlaybackCoordinatorError {
+                    switch siriError {
+                    case .mediaNotFound:
+                        AppLogger.debug("📱 AppDelegate: Siri playback failed - media not found")
+                    case .noPlayableTracks:
+                        AppLogger.debug("📱 AppDelegate: Siri playback failed - no playable tracks")
+                    case .noEnabledSources:
+                        AppLogger.debug("📱 AppDelegate: Siri playback failed - no enabled sources")
+                    case .unsupportedPayloadVersion(let version):
+                        AppLogger.debug("📱 AppDelegate: Siri playback failed - unsupported payload version \(version)")
+                    }
+                } else {
+                    AppLogger.debug("📱 AppDelegate: Siri playback execution failed: \(error.localizedDescription)")
+                }
                 #endif
             }
         }
