@@ -7,6 +7,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
+    func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist]
     func upsertPlaylist(
         ratingKey: String,
         key: String,
@@ -73,6 +74,48 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
+    }
+
+    public func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDPlaylist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = self.coreDataStack.viewContext
+            context.perform {
+                let request = CDPlaylist.fetchRequest()
+                request.predicate = Self.scopedTitleSearchPredicate(query: title, sourceCompositeKeys: sourceCompositeKeys)
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                    NSSortDescriptor(key: "updatedAt", ascending: false)
+                ]
+                do {
+                    let playlists = try context.fetch(request)
+                    continuation.resume(returning: playlists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func scopedTitleSearchPredicate(query: String, sourceCompositeKeys: Set<String>?) -> NSPredicate {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base: NSPredicate
+        if trimmed.isEmpty {
+            base = NSPredicate(value: false)
+        } else {
+            base = NSCompoundPredicate(orPredicateWithSubpredicates: [
+                NSPredicate(format: "title ==[cd] %@", trimmed),
+                NSPredicate(format: "title BEGINSWITH[cd] %@", trimmed),
+                NSPredicate(format: "title CONTAINS[cd] %@", trimmed)
+            ])
+        }
+
+        guard let sourceCompositeKeys, !sourceCompositeKeys.isEmpty else {
+            return base
+        }
+
+        let scoped = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])
     }
 
     public func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? {
