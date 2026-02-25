@@ -33,6 +33,23 @@ public struct MusicSourceAccountDetailView: View {
                 }
                 .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
 
+                Button {
+                    Task {
+                        await viewModel.refreshAvailableLibraries()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundColor(.accentColor)
+                        Text("Refresh Available Libraries")
+                        Spacer()
+                        if viewModel.isRefreshingInventory {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
+
                 if viewModel.isRefreshingInventory {
                     HStack(spacing: 8) {
                         ProgressView()

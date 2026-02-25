@@ -100,6 +100,11 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         await refreshAccountInventory()
     }
 
+    /// Manually refreshes discovered servers/libraries for this account.
+    public func refreshAvailableLibraries() async {
+        await refreshAccountInventory()
+    }
+
     /// Toggles whether a single library is enabled for syncing under this account.
     public func toggleLibrary(_ row: LibraryRow) async {
         error = nil

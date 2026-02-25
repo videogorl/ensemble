@@ -24,8 +24,10 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     private final class MockDiscoveryService: PlexAccountDiscoveryServiceProtocol, @unchecked Sendable {
         var result: PlexAccountDiscoveryResult?
         var failure: Error?
+        var discoverCallCount = 0
 
         func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult {
+            discoverCallCount += 1
             if let failure {
                 throw failure
             }
@@ -295,6 +297,71 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
 
         XCTAssertNil(viewModel.error)
         XCTAssertTrue(viewModel.serverLibraryErrors.isEmpty)
+    }
+
+    func testManualRefreshAvailableLibrariesRunsAfterInitialRefresh() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [("lib-1", "Library One", true)]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        harness.discoveryService.result = PlexAccountDiscoveryResult(
+            identity: PlexAccountIdentity(
+                id: "account-1",
+                email: "felicity@nysics.com",
+                plexUsername: "felicity",
+                displayTitle: "Felicity"
+            ),
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-1",
+                    platform: "Linux",
+                    libraries: [PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: false)]
+                )
+            ],
+            serverLibraryErrors: [:]
+        )
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        await viewModel.performInitialRefreshIfNeeded()
+
+        harness.discoveryService.result = PlexAccountDiscoveryResult(
+            identity: PlexAccountIdentity(
+                id: "account-1",
+                email: "felicity@nysics.com",
+                plexUsername: "felicity",
+                displayTitle: "Felicity"
+            ),
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-1",
+                    platform: "Linux",
+                    libraries: [PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One Updated", isEnabled: false)]
+                )
+            ],
+            serverLibraryErrors: [:]
+        )
+        await viewModel.refreshAvailableLibraries()
+
+        XCTAssertEqual(harness.discoveryService.discoverCallCount, 2)
+        let updatedAccount = try XCTUnwrap(harness.accountManager.plexAccounts.first)
+        let updatedServer = try XCTUnwrap(updatedAccount.servers.first(where: { $0.id == "server-1" }))
+        XCTAssertEqual(updatedServer.libraries.first(where: { $0.key == "lib-1" })?.title, "Library One Updated")
     }
 
     func testExpiredAccountBlocksDestructiveToggle() async throws {
