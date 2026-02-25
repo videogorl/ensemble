@@ -215,6 +215,61 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         XCTAssertEqual(broken.libraries.count, 0)
     }
 
+    func testDiscoverAccountPropagatesCancellationError() async throws {
+        let user = try decodeUser(
+            """
+            {
+              "id": 42,
+              "uuid": "user-uuid",
+              "username": "felicity",
+              "title": "Felicity",
+              "email": "felicity@nysics.com"
+            }
+            """
+        )
+        let resources = try decodeResources(
+            """
+            [
+              {
+                "name": "Server A",
+                "product": "Plex Media Server",
+                "productVersion": "1.40.0",
+                "platform": "Linux",
+                "platformVersion": "6.0",
+                "device": "Linux",
+                "clientIdentifier": "server-a",
+                "provides": "server",
+                "owned": true,
+                "accessToken": "server-a-token",
+                "connections": [
+                  { "uri": "https://remote-a.plex.direct:32400", "local": false, "relay": false, "protocol": "https" }
+                ]
+              }
+            ]
+            """
+        )
+
+        let service = PlexAccountDiscoveryService(
+            client: MockClient(
+                user: user,
+                resources: resources,
+                librariesByServerID: [
+                    "server-a": .failure(CancellationError())
+                ]
+            ),
+            allowInsecurePolicyProvider: { .sameNetwork }
+        )
+
+        do {
+            _ = try await service.discoverAccount(authToken: "auth-token")
+            XCTFail("Expected cancellation error")
+        } catch is CancellationError {
+            // Expected
+        } catch {
+            XCTFail("Expected CancellationError but got \(error)")
+        }
+    }
+
     private func decodeUser(_ json: String) throws -> PlexUser {
         try JSONDecoder().decode(PlexUser.self, from: Data(json.utf8))
     }

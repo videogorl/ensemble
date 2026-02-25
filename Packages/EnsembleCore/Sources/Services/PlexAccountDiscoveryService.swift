@@ -168,7 +168,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
         var discoveredServers: [PlexServerConfig] = []
         var serverLibraryErrors: [String: String] = [:]
 
-        await withTaskGroup(of: (PlexServerConfig, String?).self) { group in
+        try await withThrowingTaskGroup(of: (PlexServerConfig, String?).self) { group in
             for device in devices {
                 group.addTask {
                     let orderedConnections = device.orderedConnections(
@@ -218,6 +218,10 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                             ),
                             nil
                         )
+                    } catch is CancellationError {
+                        // Navigation/task cancellation should abort discovery rather than surface
+                        // as a per-server error that appears in source management UI.
+                        throw CancellationError()
                     } catch {
                         let message = error.localizedDescription
                         return (
@@ -236,7 +240,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                 }
             }
 
-            for await (serverConfig, maybeError) in group {
+            for try await (serverConfig, maybeError) in group {
                 discoveredServers.append(serverConfig)
                 if let error = maybeError {
                     serverLibraryErrors[serverConfig.id] = error

@@ -280,6 +280,23 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.serverLibraryErrors["server-1"], "Library fetch failed")
     }
 
+    func testRefreshCancellationDoesNotSetUserVisibleError() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [("lib-1", "Library One", true)]
+        )
+        harness.accountManager.addPlexAccount(account)
+        harness.discoveryService.failure = CancellationError()
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        await viewModel.performInitialRefreshIfNeeded()
+
+        XCTAssertNil(viewModel.error)
+        XCTAssertTrue(viewModel.serverLibraryErrors.isEmpty)
+    }
+
     func testExpiredAccountBlocksDestructiveToggle() async throws {
         let harness = makeHarness()
         let expiredAccount = PlexAccountConfig(

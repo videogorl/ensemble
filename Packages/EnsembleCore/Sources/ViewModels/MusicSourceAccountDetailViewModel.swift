@@ -240,12 +240,16 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         do {
             let discovery = try await accountDiscoveryService.discoverAccount(authToken: account.authToken)
+            guard !Task.isCancelled else { return }
             serverLibraryErrors = discovery.serverLibraryErrors
             guard let latestAccount = accountManager.plexAccounts.first(where: { $0.id == accountId }) else {
                 isAccountMissing = true
                 return
             }
             await reconcileAccountConfiguration(existing: latestAccount, discovery: discovery)
+        } catch is CancellationError {
+            // Ignore cancellation when user leaves the screen mid-refresh.
+            return
         } catch {
             self.error = error.localizedDescription
         }
