@@ -30,7 +30,7 @@ public struct SettingsView: View {
                     } label: {
                         MusicSourceAccountRow(
                             sourceName: "Plex",
-                            accountIdentifier: account.accountIdentifier
+                            accountIdentifier: preferredAccountSubtitle(for: account)
                         )
                     }
                 }
@@ -266,6 +266,20 @@ public struct SettingsView: View {
                 )
             }
         }
+    }
+
+    private func preferredAccountSubtitle(for account: PlexAccountConfig) -> String {
+        let trimmedEmail = account.email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedEmail, !trimmedEmail.isEmpty {
+            return trimmedEmail
+        }
+
+        let trimmedUsername = account.plexUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedUsername, !trimmedUsername.isEmpty {
+            return trimmedUsername
+        }
+
+        return "Plex Account"
     }
 }
 
