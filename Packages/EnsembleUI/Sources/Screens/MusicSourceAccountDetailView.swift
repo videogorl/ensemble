@@ -161,7 +161,7 @@ private struct EnabledLibraryStatusView: View {
                     .foregroundColor(connectionColor)
                     .font(.caption)
 
-                Text(status.connectionState.description)
+                Text(connectionText)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -214,6 +214,9 @@ private struct EnabledLibraryStatusView: View {
         case .orange:
             return .orange
         case .red:
+            if case .unknown = status.connectionState {
+                return .secondary
+            }
             return .red
         case .gray:
             return .gray
@@ -228,9 +231,18 @@ private struct EnabledLibraryStatusView: View {
             return "arrow.triangle.2.circlepath"
         case .degraded:
             return "exclamationmark.triangle.fill"
-        case .offline, .unknown:
+        case .offline:
             return "xmark.circle.fill"
+        case .unknown:
+            return "questionmark.circle"
         }
+    }
+
+    private var connectionText: String {
+        if case .unknown = status.connectionState {
+            return "Checking connection…"
+        }
+        return status.connectionState.description
     }
 
     private func timeAgo(_ date: Date) -> String {

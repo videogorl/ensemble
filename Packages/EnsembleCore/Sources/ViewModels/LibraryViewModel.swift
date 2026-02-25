@@ -89,6 +89,17 @@ public final class LibraryViewModel: ObservableObject {
             .map { !$0.isEmpty }
             .assign(to: &$hasAnySources)
 
+        // Reflect account/library enablement changes immediately in cached browse surfaces.
+        accountManager.$plexAccounts
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadLibrary()
+                }
+            }
+            .store(in: &cancellables)
+
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)

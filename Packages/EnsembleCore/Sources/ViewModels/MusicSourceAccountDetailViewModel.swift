@@ -56,6 +56,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
     private var activeLibraryOperations = Set<String>()
+    internal var syncSourcesHandlerForTesting: (([MusicSourceIdentifier]) async -> Void)?
 
     public var hasEnabledLibraries: Bool {
         sections.contains { section in
@@ -124,6 +125,12 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             return
         }
 
+        if nextEnabledState {
+            syncCoordinator.refreshProviders()
+            await syncSources([row.sourceIdentifier])
+            return
+        }
+
         if !nextEnabledState {
             // Disabling a library purges only that library's cached data.
             await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
@@ -163,9 +170,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         isSyncingEnabledLibraries = true
         defer { isSyncingEnabledLibraries = false }
 
-        for source in enabledSources {
-            await syncCoordinator.sync(source: source)
-        }
+        await syncSources(enabledSources)
     }
 
     private func refreshAccountInventory() async {
@@ -193,9 +198,21 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         do {
             let discovery = try await accountDiscoveryService.discoverAccount(authToken: account.authToken)
             serverLibraryErrors = discovery.serverLibraryErrors
-            await reconcileAccountConfiguration(existing: account, discovery: discovery)
+            guard let latestAccount = accountManager.plexAccounts.first(where: { $0.id == accountId }) else {
+                isAccountMissing = true
+                return
+            }
+            await reconcileAccountConfiguration(existing: latestAccount, discovery: discovery)
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func syncSources(_ sources: [MusicSourceIdentifier]) async {
+        if let syncSourcesHandlerForTesting {
+            await syncSourcesHandlerForTesting(sources)
+        } else {
+            await syncCoordinator.sync(sources: sources)
         }
     }
 

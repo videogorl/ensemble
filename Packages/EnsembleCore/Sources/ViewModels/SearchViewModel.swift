@@ -124,9 +124,15 @@ public final class SearchViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .dropFirst()
             .sink { [weak self] _ in
-                guard let self, self.hasLoadedExploreContent else { return }
                 Task { @MainActor in
-                    await self.loadExploreContent()
+                    guard let self else { return }
+
+                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedQuery.isEmpty {
+                        await self.search(query: trimmedQuery)
+                    } else if self.hasLoadedExploreContent {
+                        await self.loadExploreContent()
+                    }
                 }
             }
             .store(in: &cancellables)

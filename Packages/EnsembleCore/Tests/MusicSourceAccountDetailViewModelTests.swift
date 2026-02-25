@@ -35,6 +35,48 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         }
     }
 
+    private actor GatedDiscoveryService: PlexAccountDiscoveryServiceProtocol {
+        var result: PlexAccountDiscoveryResult?
+        private var startContinuation: CheckedContinuation<Void, Never>?
+        private var gateContinuation: CheckedContinuation<Void, Never>?
+        private var hasStarted = false
+
+        func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult {
+            hasStarted = true
+            startContinuation?.resume()
+            startContinuation = nil
+
+            await withCheckedContinuation { continuation in
+                gateContinuation = continuation
+            }
+
+            guard let result else {
+                throw NSError(
+                    domain: "tests",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Missing discovery result"]
+                )
+            }
+            return result
+        }
+
+        func waitForStart() async {
+            if hasStarted { return }
+            await withCheckedContinuation { continuation in
+                startContinuation = continuation
+            }
+        }
+
+        func setResult(_ result: PlexAccountDiscoveryResult) {
+            self.result = result
+        }
+
+        func resume() {
+            gateContinuation?.resume()
+            gateContinuation = nil
+        }
+    }
+
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
@@ -248,6 +290,125 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let server = try XCTUnwrap(updated.servers.first)
         XCTAssertEqual(server.libraries.first?.isEnabled, true)
         XCTAssertEqual(viewModel.error, "Session expired. Re-authenticate this account.")
+    }
+
+    func testToggleEnabledLibraryImmediatelySyncsEnabledLibrary() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [("lib-1", "Library One", false)]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        let row = try XCTUnwrap(viewModel.sections.first?.libraries.first)
+
+        var syncedSources: [[MusicSourceIdentifier]] = []
+        viewModel.syncSourcesHandlerForTesting = { sources in
+            syncedSources.append(sources)
+        }
+
+        await viewModel.toggleLibrary(row)
+
+        XCTAssertEqual(syncedSources.count, 1)
+        XCTAssertEqual(syncedSources.first?.map(\.compositeKey), [row.sourceIdentifier.compositeKey])
+
+        let updatedAccount = try XCTUnwrap(harness.accountManager.plexAccounts.first)
+        let updatedServer = try XCTUnwrap(updatedAccount.servers.first(where: { $0.id == "server-1" }))
+        XCTAssertEqual(updatedServer.libraries.first(where: { $0.key == "lib-1" })?.isEnabled, true)
+    }
+
+    func testSyncEnabledLibrariesSyncsOnlyEnabledSourcesInSingleRun() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [
+                ("lib-1", "Library One", true),
+                ("lib-2", "Library Two", false),
+                ("lib-3", "Library Three", true)
+            ]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+
+        var syncedSources: [[MusicSourceIdentifier]] = []
+        viewModel.syncSourcesHandlerForTesting = { sources in
+            syncedSources.append(sources)
+        }
+
+        await viewModel.syncEnabledLibraries()
+
+        XCTAssertEqual(syncedSources.count, 1)
+        let syncedKeys = Set(syncedSources[0].map(\.compositeKey))
+        XCTAssertEqual(syncedKeys, [
+            "plex:account-1:server-1:lib-1",
+            "plex:account-1:server-1:lib-3"
+        ])
+    }
+
+    func testRefreshReconciliationUsesLatestAccountSnapshot() async throws {
+        let harness = makeHarness()
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraries: [("lib-1", "Library One", true)]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let gatedDiscovery = GatedDiscoveryService()
+        await gatedDiscovery.setResult(
+            PlexAccountDiscoveryResult(
+                identity: PlexAccountIdentity(
+                    id: "account-1",
+                    email: "felicity@nysics.com",
+                    plexUsername: "felicity",
+                    displayTitle: "Felicity"
+                ),
+                servers: [
+                    PlexServerConfig(
+                        id: "server-1",
+                        name: "Server One",
+                        url: "https://server-1.example.com",
+                        connections: [
+                            PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                        ],
+                        token: "token-1",
+                        platform: "Linux",
+                        libraries: [
+                            PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: false)
+                        ]
+                    )
+                ],
+                serverLibraryErrors: [:]
+            )
+        )
+
+        let viewModel = MusicSourceAccountDetailViewModel(
+            accountId: account.id,
+            accountManager: harness.accountManager,
+            accountDiscoveryService: gatedDiscovery,
+            syncCoordinator: harness.syncCoordinator
+        )
+
+        let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
+        await gatedDiscovery.waitForStart()
+
+        _ = harness.accountManager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "lib-1",
+            isEnabled: false
+        )
+
+        await gatedDiscovery.resume()
+        await refreshTask.value
+
+        let updatedAccount = try XCTUnwrap(harness.accountManager.plexAccounts.first)
+        let updatedServer = try XCTUnwrap(updatedAccount.servers.first(where: { $0.id == "server-1" }))
+        XCTAssertEqual(updatedServer.libraries.first(where: { $0.key == "lib-1" })?.isEnabled, false)
     }
 
     private func makeHarness() -> Harness {
