@@ -231,6 +231,7 @@ public final class DependencyContainer: @unchecked Sendable {
         MusicSourceAccountDetailViewModel(
             accountId: accountId,
             accountManager: accountManager,
+            accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator
         )
     }

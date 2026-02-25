@@ -1135,6 +1135,21 @@ public final class SyncCoordinator: ObservableObject {
             #endif
         }
     }
+
+    /// Delete server-scoped playlists when no enabled libraries remain on that server.
+    public func cleanupServerPlaylists(accountId: String, serverId: String) async {
+        let serverSourceKey = "plex:\(accountId):\(serverId)"
+        do {
+            try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
+            clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
+            let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+            UserDefaults.standard.removeObject(forKey: timestampKey)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
+            #endif
+        }
+    }
     
     // MARK: - Artwork Pre-Caching
     
@@ -1365,6 +1380,20 @@ public final class SyncCoordinator: ObservableObject {
         if let lastPlaylistTarget,
            lastPlaylistTarget.id == deletedPlaylist.id,
            lastPlaylistTarget.sourceCompositeKey == deletedSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
+    private func clearLastPlaylistTargets(forServerSourceKey serverSourceKey: String) {
+        lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.sourceCompositeKey == serverSourceKey {
             self.lastPlaylistTarget = nil
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: Self.lastPlaylistIdKey)

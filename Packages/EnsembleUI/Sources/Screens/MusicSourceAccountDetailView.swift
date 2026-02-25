@@ -29,7 +29,16 @@ public struct MusicSourceAccountDetailView: View {
                         }
                     }
                 }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries)
+                .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
+
+                if viewModel.isRefreshingInventory {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Checking for library updates…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
 
                 if let error = viewModel.error {
                     Text(error)
@@ -43,17 +52,31 @@ public struct MusicSourceAccountDetailView: View {
                     Text("This account is no longer available.")
                         .foregroundColor(.secondary)
                 }
+            } else if viewModel.isReauthenticationRequired {
+                Section {
+                    Text("Session expired. Re-authenticate this account to change libraries or sync.")
+                        .foregroundColor(.secondary)
+                }
             } else {
                 ForEach(viewModel.sections) { server in
                     Section {
+                        if let refreshError = viewModel.serverLibraryErrors[server.id] {
+                            Text(refreshError)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+
                         if server.libraries.isEmpty {
                             Text("No music libraries found")
                                 .foregroundColor(.secondary)
                         } else {
                             ForEach(server.libraries) { library in
                                 LibrarySyncStatusRow(row: library) {
-                                    viewModel.toggleLibrary(library)
+                                    Task {
+                                        await viewModel.toggleLibrary(library)
+                                    }
                                 }
+                                .disabled(viewModel.isReauthenticationRequired)
                             }
                         }
                     } header: {
@@ -72,6 +95,9 @@ public struct MusicSourceAccountDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            await viewModel.performInitialRefreshIfNeeded()
+        }
     }
 }
 
