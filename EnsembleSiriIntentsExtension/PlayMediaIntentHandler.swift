@@ -1,5 +1,6 @@
 import Foundation
 import Intents
+import os
 
 final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let appGroupIdentifier = "group.com.videogorl.ensemble"
@@ -8,19 +9,28 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let payloadUserInfoKey = "siriPlaybackPayload"
     private static let currentPayloadSchemaVersion = 1
     private static let disambiguationThreshold = 0.1
+    private let logger = Logger(
+        subsystem: "com.videogorl.ensemble.siri-intents",
+        category: "PlayMediaIntentHandler"
+    )
 
     func resolveMediaItems(
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
         guard let query = queryText(from: intent), !query.isEmpty else {
+            logger.debug("resolveMediaItems: missing query; requesting value from Siri")
             completion([.needsValue()])
             return
         }
 
         let requestedMediaType = mediaType(from: intent)
+        logger.debug(
+            "resolveMediaItems: query=\(query, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
+        )
 
         guard let index = loadIndex(), !index.items.isEmpty else {
+            logger.debug("resolveMediaItems: index unavailable or empty; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: query,
                 mediaType: requestedMediaType
@@ -35,6 +45,7 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             index: index
         )
         guard let top = ranked.first else {
+            logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: query,
                 mediaType: requestedMediaType
@@ -46,28 +57,34 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         if ranked.count > 1 {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
+                logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
                 let options = Array(ranked.prefix(6)).map(makeMediaItem(from:))
                 completion([.disambiguation(with: options)])
                 return
             }
         }
 
+        logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
         completion([.success(with: makeMediaItem(from: top))])
     }
 
     func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+        logger.debug("confirm: returning ready")
         completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
     }
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = mediaType(from: intent)
+        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
         let payload: SiriPayloadIdentifier
         if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
            let decodedPayload = decodePayloadIdentifier(identifier),
            decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
+            logger.debug("handle: using decoded payload identifier")
             payload = decodedPayload
         } else if let query = queryText(from: intent), !query.isEmpty {
+            logger.debug("handle: building fallback payload from query=\(query, privacy: .public)")
             payload = SiriPayloadIdentifier(
                 schemaVersion: Self.currentPayloadSchemaVersion,
                 kind: primaryKindFor(mediaType: requestedMediaType),
@@ -76,6 +93,7 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 displayName: query
             )
         } else {
+            logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
@@ -84,12 +102,14 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if let matchedItem = matchingItem(for: payload, in: index),
                requiresPlayableTracks(kind: payload.kind),
                (matchedItem.trackCount ?? 0) <= 0 {
+                logger.error("handle: matched container has no playable tracks")
                 completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
                 return
             }
         }
 
         guard let payloadData = try? JSONEncoder().encode(payload) else {
+            logger.error("handle: failed to encode payload")
             completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
@@ -99,6 +119,7 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         activity.userInfo = [Self.payloadUserInfoKey: payloadData]
         activity.isEligibleForSearch = false
         activity.isEligibleForPrediction = false
+        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 
@@ -109,8 +130,22 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
             return containerTitle
         }
-        if let searched = intent.mediaSearch?.mediaName, !searched.isEmpty {
-            return searched
+        if let mediaSearch = intent.mediaSearch {
+            if let searched = mediaSearch.mediaName, !searched.isEmpty {
+                return searched
+            }
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+                return artistName
+            }
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+                return albumName
+            }
+            if let genreName = mediaSearch.genreNames?.first, !genreName.isEmpty {
+                return genreName
+            }
+            if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
+                return moodName
+            }
         }
         return nil
     }
