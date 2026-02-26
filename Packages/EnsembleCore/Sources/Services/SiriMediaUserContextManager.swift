@@ -57,7 +57,7 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
             
             // Create and configure media user context
             let context = INMediaUserContext()
-            context.numberOfLibraryItems = totalItems as NSNumber
+            context.numberOfLibraryItems = totalItems
             context.subscriptionStatus = subscriptionStatus
             
             // Share context with Siri
