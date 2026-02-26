@@ -106,28 +106,32 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
+        os_log(.info, "SIRI_EXT: confirm ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
         logger.debug("confirm: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
-        // HomePod flows may stop after confirm without invoking handle(intent:).
-        // Return a continueInApp response with payload activity so the app can
-        // execute playback even if handle is skipped by Siri.
+        // Return ready so Siri can continue into handle(intent:), which preserves
+        // media-domain routing semantics better than forcing continueInApp.
         guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType),
-              let activity = playbackUserActivity(for: payload) else {
+              playbackUserActivity(for: payload) != nil else {
             logger.debug("confirm: no payload available; returning ready")
+            os_log(.info, "SIRI_EXT: confirm returning ready (no payload)")
             completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
             return
         }
 
-        logger.debug("confirm: returning continueInApp for payload kind=\(payload.kind, privacy: .public)")
-        completion(INPlayMediaIntentResponse(code: .continueInApp, userActivity: activity))
+        logger.debug("confirm: returning ready for payload kind=\(payload.kind, privacy: .public)")
+        os_log(.info, "SIRI_EXT: confirm returning ready kind=%{public}@", payload.kind)
+        completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
     }
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
+        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
         guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
+            os_log(.info, "SIRI_EXT: handle returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
@@ -138,11 +142,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         guard let activity = playbackUserActivity(for: payload) else {
             logger.error("handle: failed to construct playback user activity")
+            os_log(.info, "SIRI_EXT: handle returning failure (no activity)")
             completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
         logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
+        os_log(.info, "SIRI_EXT: handle returning handleInApp kind=%{public}@", payload.kind)
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 
