@@ -216,12 +216,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             return decoded
         }
 
+        // Fallback to query if identifier is missing or failed to decode
         guard let query = siriQueryText(from: intent), !query.isEmpty else {
             return nil
         }
 
+        let kind = siriMediaKind(from: intent)
+        #if DEBUG
+        AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(query)' kind=\(kind.rawValue)")
+        #endif
+
         return SiriPlaybackRequestPayload(
-            kind: siriMediaKind(from: intent),
+            kind: kind,
             entityID: query,
             sourceCompositeKey: nil,
             displayName: query

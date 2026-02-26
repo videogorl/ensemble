@@ -2,7 +2,7 @@ import Foundation
 import Intents
 import os
 
-final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
+public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let appGroupIdentifier = "group.com.videogorl.ensemble"
     private static let indexFilename = "siri-media-index.json"
     private static let activityType = "com.videogorl.ensemble.siri.playmedia"
@@ -14,7 +14,7 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         category: "PlayMediaIntentHandler"
     )
 
-    func resolveMediaItems(
+    public func resolveMediaItems(
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
@@ -68,12 +68,12 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         completion([.success(with: makeMediaItem(from: top))])
     }
 
-    func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+    public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         logger.debug("confirm: returning ready")
         completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
     }
 
-    func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+    public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = mediaType(from: intent)
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 

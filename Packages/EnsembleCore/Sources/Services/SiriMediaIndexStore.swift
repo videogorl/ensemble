@@ -75,10 +75,10 @@ public final class SiriMediaIndexStore {
     @discardableResult
     public func rebuildIndex() async -> SiriMediaIndex? {
         do {
-            let artists = try await libraryRepository.fetchArtists()
-            let albums = try await libraryRepository.fetchAlbums()
-            let tracks = try await libraryRepository.fetchSiriEligibleTracks()
-            let playlists = try await playlistRepository.fetchPlaylists()
+            let artists = Array(try await libraryRepository.fetchArtists().prefix(1500))
+            let albums = Array(try await libraryRepository.fetchAlbums().prefix(1500))
+            let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks().prefix(1000))
+            let playlists = Array(try await playlistRepository.fetchPlaylists().prefix(500))
 
             var items: [SiriMediaIndexItem] = []
             items.reserveCapacity(artists.count + albums.count + tracks.count + playlists.count)

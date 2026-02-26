@@ -219,15 +219,18 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDTrack? {
-        let tracks = try await libraryRepository.fetchTracks()
-        var candidates = tracks.filter { $0.ratingKey == request.entityID }
-
-        if candidates.isEmpty, let displayName = trimmedNonEmpty(request.displayName) {
-            candidates = try await libraryRepository.findTracksByTitle(
-                displayName,
-                sourceCompositeKeys: enabledSourceKeys
-            )
+        if let direct = try await libraryRepository.fetchTrack(ratingKey: request.entityID) {
+            return direct
         }
+
+        guard let displayName = trimmedNonEmpty(request.displayName) else {
+            return nil
+        }
+
+        let candidates = try await libraryRepository.findTracksByTitle(
+            displayName,
+            sourceCompositeKeys: enabledSourceKeys
+        )
 
         return choosePreferredCandidate(
             from: candidates,
@@ -244,15 +247,18 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDAlbum? {
-        let albums = try await libraryRepository.fetchAlbums()
-        var candidates = albums.filter { $0.ratingKey == request.entityID }
-
-        if candidates.isEmpty, let displayName = trimmedNonEmpty(request.displayName) {
-            candidates = try await libraryRepository.findAlbumsByTitle(
-                displayName,
-                sourceCompositeKeys: enabledSourceKeys
-            )
+        if let direct = try await libraryRepository.fetchAlbum(ratingKey: request.entityID) {
+            return direct
         }
+
+        guard let displayName = trimmedNonEmpty(request.displayName) else {
+            return nil
+        }
+
+        let candidates = try await libraryRepository.findAlbumsByTitle(
+            displayName,
+            sourceCompositeKeys: enabledSourceKeys
+        )
 
         return choosePreferredCandidate(
             from: candidates,
@@ -269,15 +275,18 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDArtist? {
-        let artists = try await libraryRepository.fetchArtists()
-        var candidates = artists.filter { $0.ratingKey == request.entityID }
-
-        if candidates.isEmpty, let displayName = trimmedNonEmpty(request.displayName) {
-            candidates = try await libraryRepository.findArtistsByName(
-                displayName,
-                sourceCompositeKeys: enabledSourceKeys
-            )
+        if let direct = try await libraryRepository.fetchArtist(ratingKey: request.entityID) {
+            return direct
         }
+
+        guard let displayName = trimmedNonEmpty(request.displayName) else {
+            return nil
+        }
+
+        let candidates = try await libraryRepository.findArtistsByName(
+            displayName,
+            sourceCompositeKeys: enabledSourceKeys
+        )
 
         return choosePreferredCandidate(
             from: candidates,
