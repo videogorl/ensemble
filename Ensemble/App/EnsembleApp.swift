@@ -36,6 +36,9 @@ struct EnsembleApp: App {
                 .onOpenURL { url in
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }
+                .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
+                    handleSiriPlaybackActivity(userActivity)
+                }
         }
         .applyBackgroundRefresh()
         .onChange(of: scenePhase) { newPhase in
@@ -93,6 +96,15 @@ struct EnsembleApp: App {
             }
         }
         #endif
+    }
+
+    private func handleSiriPlaybackActivity(_ userActivity: NSUserActivity) {
+        Task { @MainActor in
+            let handled = await DependencyContainer.shared.siriPlaybackCoordinator.handle(userActivity: userActivity)
+            #if DEBUG
+            AppLogger.debug("📱 EnsembleApp: onContinueUserActivity handled Siri activity=\(handled)")
+            #endif
+        }
     }
 }
 

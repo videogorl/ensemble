@@ -121,8 +121,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         continue userActivity: NSUserActivity,
         restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
     ) -> Bool {
-        guard userActivity.activityType == SiriPlaybackActivityCodec.activityType,
-              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+        #if DEBUG
+        AppLogger.debug("📱 AppDelegate: continue userActivity type=\(userActivity.activityType)")
+        #endif
+
+        guard userActivity.activityType == SiriPlaybackActivityCodec.activityType else {
+            return false
+        }
+
+        guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri activity payload decode failed")
+            #endif
             return false
         }
 
