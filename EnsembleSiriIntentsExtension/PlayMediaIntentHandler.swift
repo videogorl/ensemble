@@ -127,7 +127,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
-        os_log(.info, "SIRI_EXT: confirm EXIT")
+        os_log(.info, "SIRI_EXT: confirm EXIT returning .ready (not .handleInApp) for HomePod relay compatibility")
     }
 
     private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {

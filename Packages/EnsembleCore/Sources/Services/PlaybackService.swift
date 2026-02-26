@@ -219,6 +219,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let recoveryCooldown: TimeInterval = 6
     static let bufferedSeekGateDuration: TimeInterval = 3
     static let prefetchThrottleDuration: TimeInterval = 90
+    static let minUnexpectedPauseInterval: TimeInterval = 0.8
 
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
@@ -648,6 +649,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var accountSourcesObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
+    private var isInterrupted = false
+    private var lastUnexpectedPauseAt: Date?
+    private var audioSessionInterruptionObserver: Any?
     private var pendingSeekRequestID: UInt64?
     private var pendingSeekTargetTime: TimeInterval?
     private var pendingSeekTrackID: String?
@@ -1051,12 +1055,64 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 policy: .longFormAudio,
                 options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
             )
+
+            audioSessionInterruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor in
+                    self?.handleAudioSessionInterruption(notification)
+                }
+            }
         } catch {
             #if DEBUG
             EnsembleLogger.debug("Failed to setup audio session: \(error)")
             #endif
         }
         #endif
+    }
+
+    @MainActor
+    private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+
+        switch type {
+        case .began:
+            #if DEBUG
+            EnsembleLogger.debug("🔇 Audio session interruption BEGAN")
+            #endif
+            isInterrupted = true
+            // When interruption begins, the system will pause the player.
+            // We update internal state to prevent unexpected-pause recovery.
+            if playbackState == .playing || playbackState == .buffering {
+                playbackState = .buffering
+                setupStallRecovery(recordStallEvent: false)
+            }
+            
+        case .ended:
+            #if DEBUG
+            EnsembleLogger.debug("🔊 Audio session interruption ENDED")
+            #endif
+            isInterrupted = false
+            
+            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+            if options.contains(.shouldResume) {
+                #if DEBUG
+                EnsembleLogger.debug("▶️ Interruption options specify SHOULD RESUME")
+                #endif
+                if playbackState == .buffering {
+                    resume()
+                }
+            }
+        @unknown default:
+            break
+        }
     }
 
     // MARK: - Remote Commands
@@ -2730,6 +2786,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         setupObservers(for: item)
         updateBufferedProgress()
+        
+        // CRITICAL: If the audio session is currently interrupted, do NOT attempt to play yet.
+        // We set the state to buffering so that the interruption-end handler will 
+        // resume playback once Siri/system is done.
+        if isInterrupted {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Session interrupted; deferring playback start")
+            #endif
+            playbackState = .buffering
+            return
+        }
+
         #if DEBUG
         EnsembleLogger.debug("🎵 Starting playback")
         #endif
@@ -2817,6 +2885,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     case .paused:
                         // Player is paused (but not stopped)
+                        
+                        // If we are currently interrupted, ignore this pause event.
+                        // The system is managing the pause during interruption.
+                        if self.isInterrupted {
+                            #if DEBUG
+                            EnsembleLogger.debug("ℹ️ Ignoring AVPlayer pause during interruption")
+                            #endif
+                            return
+                        }
+
                         let item = self.player?.currentItem
                         if let recoveryAction = Self.unexpectedPauseRecoveryAction(
                             playbackState: self.playbackState,
@@ -2825,6 +2903,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             isPlaybackBufferEmpty: item?.isPlaybackBufferEmpty == true,
                             pendingSeekTargetTime: self.pendingSeekTargetTime
                         ) {
+                            let now = Date()
+                            let isLooping = self.lastUnexpectedPauseAt.map { now.timeIntervalSince($0) < Self.minUnexpectedPauseInterval } ?? false
+                            self.lastUnexpectedPauseAt = now
+
+                            if isLooping {
+                                #if DEBUG
+                                EnsembleLogger.debug("🛑 Detected unexpected pause loop - falling back to buffering")
+                                #endif
+                                self.playbackState = .buffering
+                                self.setupStallRecovery(recordStallEvent: true)
+                                return
+                            }
+
                             #if DEBUG
                             EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly")
                             #endif
@@ -2987,6 +3078,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func resumePlayerFromBuffering(forceImmediate: Bool, reason: String) {
         guard let player else { return }
+
+        // CRITICAL: If the audio session is currently interrupted, do NOT attempt to resume.
+        // Doing so while Siri is talking or another app has the session will cause AVPlayer 
+        // to immediately pause, leading to an infinite "unexpected-pause" loop.
+        if isInterrupted {
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ Skipping resumePlayerFromBuffering during interruption (\(reason))")
+            #endif
+            return
+        }
+
         if forceImmediate {
             if #available(iOS 10.0, macOS 10.12, *) {
                 player.playImmediately(atRate: 1.0)
@@ -3432,6 +3534,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let observer = itemEndObserver {
             NotificationCenter.default.removeObserver(observer)
             itemEndObserver = nil
+        }
+
+        if let observer = audioSessionInterruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+            audioSessionInterruptionObserver = nil
         }
 
         statusObservation?.invalidate()

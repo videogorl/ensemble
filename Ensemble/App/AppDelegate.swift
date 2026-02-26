@@ -193,16 +193,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func handleSiriPendingPlaybackNotification() {
-        os_log(.info, "SIRI_APP: Received Darwin notification for pending playback")
+        os_log(.info, "SIRI_APP: Received trigger for pending playback")
 
         // Read and execute the pending payload
         guard let payload = readAndClearPendingPayload() else {
-            os_log(.error, "SIRI_APP: No pending payload found after Darwin notification")
+            // This is expected if multiple triggers (Darwin + Background URL Session) arrive
+            // and the first one already cleared the payload.
+            os_log(.debug, "SIRI_APP: No pending payload found (already processed or not present)")
             return
         }
 
         os_log(.info, "SIRI_APP: Executing pending payload kind=%{public}@ entity=%{public}@", payload.kind.rawValue, payload.entityID)
-        executeSiriPlaybackInBackground(payload: payload, origin: "darwinNotification")
+        executeSiriPlaybackInBackground(payload: payload, origin: "pendingPlaybackTrigger")
     }
 
     private func readAndClearPendingPayload() -> SiriPlaybackRequestPayload? {
@@ -614,6 +616,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route BEFORE execute: %{public}@", origin, routeBefore)
             os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            
             let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
