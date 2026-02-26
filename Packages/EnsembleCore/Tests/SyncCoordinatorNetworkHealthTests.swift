@@ -31,6 +31,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
         func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
         func fetchTracks() async throws -> [CDTrack] { [] }
+        func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
