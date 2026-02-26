@@ -200,19 +200,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         os_log(.info, "SIRI_APP: Payload decoded - kind=%{public}@, entityID=%{public}@", payload.kind.rawValue, payload.entityID)
 
-        Task { @MainActor in
-            do {
-                os_log(.info, "SIRI_APP: Calling coordinator.execute()")
-                try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
-                os_log(.info, "SIRI_APP: Coordinator execute SUCCESS")
-            } catch {
-                if let siriError = error as? SiriPlaybackCoordinatorError {
-                    os_log(.error, "SIRI_APP: Coordinator error: %{public}@", siriError.localizedDescription)
-                } else {
-                    os_log(.error, "SIRI_APP: Unexpected error: %{public}@", error.localizedDescription)
-                }
-            }
-        }
+        executeSiriPlaybackInBackground(payload: payload, origin: "continueUserActivity")
 
         return true
     }
@@ -396,6 +384,34 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
+private func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
+    let application = UIApplication.shared
+    let backgroundTaskID = application.beginBackgroundTask(withName: "SiriPlayback.\(origin)")
+
+    Task { @MainActor in
+        defer {
+            if backgroundTaskID != .invalid {
+                application.endBackgroundTask(backgroundTaskID)
+            }
+        }
+
+        // Siri can launch us without the normal UI lifecycle warmup.
+        DependencyContainer.shared.accountManager.loadAccounts()
+
+        do {
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
+            try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS", origin)
+        } catch {
+            if let siriError = error as? SiriPlaybackCoordinatorError {
+                os_log(.error, "SIRI_APP: [origin=%{public}@] Coordinator error: %{public}@", origin, siriError.localizedDescription)
+            } else {
+                os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
+            }
+        }
+    }
+}
+
 // MARK: - In-App Intent Handler
 
 /// Handles INPlayMediaIntent when iOS routes it directly to the app (handleInApp path on iOS 18+)
@@ -425,18 +441,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func executePlaybackAsync(payload: SiriPlaybackRequestPayload) {
-        Task { @MainActor in
-            // Siri may cold-launch the app before normal UI startup has loaded account state.
-            DependencyContainer.shared.accountManager.loadAccounts()
-
-            do {
-                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - executing playback")
-                try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
-                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - playback SUCCESS")
-            } catch {
-                os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - playback FAILED: %{public}@", error.localizedDescription)
-            }
-        }
+        executeSiriPlaybackInBackground(payload: payload, origin: "inAppIntentHandler")
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
