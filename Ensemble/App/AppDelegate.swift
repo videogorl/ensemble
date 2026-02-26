@@ -63,6 +63,17 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await playbackService.restorePlaybackState()
             AppLogger.debug("📱 AppDelegate: Playback state restoration complete")
         }
+
+        // Ensure Siri media index exists even before the next sync/account-change notification.
+        Task { @MainActor in
+            let indexStore = DependencyContainer.shared.siriMediaIndexStore
+            if indexStore.loadIndex(maxAge: 3600) == nil {
+                let rebuilt = await indexStore.rebuildIndex()
+                #if DEBUG
+                AppLogger.debug("📱 AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
+                #endif
+            }
+        }
         
         // Perform startup sync (non-blocking, runs in background)
         Task.detached(priority: .utility) {

@@ -172,12 +172,42 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
 
+    func testExecutePlayArtistFallsBackToDisplayNameWhenEntityIDMissing() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayArtist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-artist-id",
+                sourceCompositeKey: fixture.librarySourceKey,
+                displayName: "Artist One"
+            )
+        )
+
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+    }
+
     func testExecutePlayPlaylistUsesSavedPlaylistOrder() async throws {
         let fixture = try await makeFixture()
 
         try await fixture.coordinator.executePlayPlaylist(
             request: SiriPlaybackRequest(
                 entityID: "playlist-1",
+                sourceCompositeKey: fixture.serverSourceKey,
+                displayName: "Playlist One"
+            )
+        )
+
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+    }
+
+    func testExecutePlayPlaylistFallsBackToDisplayNameWhenEntityIDMissing() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-playlist-id",
                 sourceCompositeKey: fixture.serverSourceKey,
                 displayName: "Playlist One"
             )

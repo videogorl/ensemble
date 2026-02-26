@@ -19,7 +19,11 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         guard let index = loadIndex(), !index.items.isEmpty else {
-            completion([.unsupported()])
+            let fallback = makeFallbackMediaItem(
+                query: query,
+                mediaType: intent.mediaSearch?.mediaType ?? .unknown
+            )
+            completion([.success(with: fallback)])
             return
         }
 
@@ -46,10 +50,6 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        guard let index = loadIndex(), !index.items.isEmpty else {
-            completion(INPlayMediaIntentResponse(code: .failureRestrictedContent, userActivity: nil))
-            return
-        }
         completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
     }
 
@@ -60,26 +60,19 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        guard let index = loadIndex(), !index.items.isEmpty else {
-            completion(INPlayMediaIntentResponse(code: .failureRestrictedContent, userActivity: nil))
-            return
-        }
-
         guard let payload = decodePayloadIdentifier(identifier),
               payload.schemaVersion == Self.currentPayloadSchemaVersion else {
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
 
-        guard let matchedItem = matchingItem(for: payload, in: index) else {
-            completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
-            return
-        }
-
-        if requiresPlayableTracks(kind: payload.kind),
-           (matchedItem.trackCount ?? 0) <= 0 {
-            completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
-            return
+        if let index = loadIndex(), !index.items.isEmpty {
+            if let matchedItem = matchingItem(for: payload, in: index),
+               requiresPlayableTracks(kind: payload.kind),
+               (matchedItem.trackCount ?? 0) <= 0 {
+                completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
+                return
+            }
         }
 
         guard let payloadData = try? JSONEncoder().encode(payload) else {
@@ -188,6 +181,30 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
     }
 
+    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType) -> INMediaItem {
+        let payload = SiriPayloadIdentifier(
+            schemaVersion: Self.currentPayloadSchemaVersion,
+            kind: primaryKindFor(mediaType: mediaType),
+            entityID: query,
+            sourceCompositeKey: nil,
+            displayName: query
+        )
+
+        let identifier: String
+        if let data = try? JSONEncoder().encode(payload) {
+            identifier = data.base64EncodedString()
+        } else {
+            identifier = ""
+        }
+
+        return INMediaItem(
+            identifier: identifier,
+            title: query,
+            type: mediaType,
+            artwork: nil
+        )
+    }
+
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPayloadIdentifier? {
         guard let data = Data(base64Encoded: identifier) else { return nil }
         return try? JSONDecoder().decode(SiriPayloadIdentifier.self, from: data)
@@ -227,6 +244,21 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return .playlist
         default:
             return .unknown
+        }
+    }
+
+    private func primaryKindFor(mediaType: INMediaItemType) -> String {
+        switch mediaType {
+        case .song:
+            return "track"
+        case .album:
+            return "album"
+        case .artist:
+            return "artist"
+        case .playlist:
+            return "playlist"
+        default:
+            return "track"
         }
     }
 
