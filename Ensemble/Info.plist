@@ -51,6 +51,10 @@
 	<array>
 		<string>INMediaCategoryMusic</string>
 	</array>
+	<key>IntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>com.videogorl.ensemble.siri.playmedia</string>

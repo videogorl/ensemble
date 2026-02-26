@@ -105,24 +105,56 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-        os_log(.info, "SIRI_EXT: confirm ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
-        logger.debug("confirm: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
+        os_log(.info, "SIRI_EXT: confirm ENTRY")
 
-        // For HomePod requests, returning ready preserves the system's media routing
-        // flow. We still attach userActivity so the app has a playback payload if the
-        // system chooses to continue execution in-app.
-        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType),
-              let activity = playbackUserActivity(for: payload) else {
-            logger.debug("confirm: no payload available; returning ready")
-            os_log(.info, "SIRI_EXT: confirm returning ready (no payload)")
-            completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
+        // For HomePod requests, handle() is never called after confirm returns .ready.
+        // As a workaround, we write the payload to the App Group and post a Darwin
+        // notification so the app can pick it up directly.
+        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
+
+        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
+            os_log(.info, "SIRI_EXT: confirm writing payload to App Group kind=%{public}@", payload.kind)
+            writePendingPayloadToAppGroup(payload)
+            postDarwinNotification()
+        }
+
+        // Also attach user activity in case the system decides to route it normally
+        let activity: NSUserActivity?
+        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
+            activity = playbackUserActivity(for: payload)
+        } else {
+            activity = nil
+        }
+
+        completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
+        os_log(.info, "SIRI_EXT: confirm EXIT")
+    }
+
+    private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else {
+            os_log(.error, "SIRI_EXT: Failed to get App Group container")
             return
         }
 
-        logger.debug("confirm: returning ready+activity for payload kind=\(payload.kind, privacy: .public)")
-        os_log(.info, "SIRI_EXT: confirm returning ready+activity kind=%{public}@", payload.kind)
-        completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
+        let pendingFile = containerURL.appendingPathComponent("siri-pending-playback.json")
+
+        do {
+            let data = try JSONEncoder().encode(payload)
+            try data.write(to: pendingFile, options: .atomic)
+            os_log(.info, "SIRI_EXT: Wrote pending payload to %{public}@", pendingFile.path)
+        } catch {
+            os_log(.error, "SIRI_EXT: Failed to write pending payload: %{public}@", error.localizedDescription)
+        }
+    }
+
+    private func postDarwinNotification() {
+        // Post a Darwin notification to wake the app
+        let notificationName = "com.videogorl.ensemble.siri.pendingPlayback" as CFString
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        CFNotificationCenterPostNotification(notifyCenter, CFNotificationName(notificationName), nil, nil, true)
+        os_log(.info, "SIRI_EXT: Posted Darwin notification")
     }
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {

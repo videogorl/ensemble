@@ -22,6 +22,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         "the track ",
         "track "
     ]
+    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
+    private static let pendingPlaybackFilename = "siri-pending-playback.json"
+    private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingPlayback"
 
     func application(
         _ application: UIApplication,
@@ -39,6 +42,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure audio session for background playback
         configureAudioSession()
         configureSiriAuthorization()
+
+        // Register for Darwin notification from Siri extension
+        registerForSiriPendingPlaybackNotification()
 
         // Load accounts synchronously before any Siri/playback code runs.
         // This is critical for cold launches from Siri where the coordinator
@@ -167,6 +173,83 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    private func registerForSiriPendingPlaybackNotification() {
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            notifyCenter,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                appDelegate.handleSiriPendingPlaybackNotification()
+            },
+            Self.darwinNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinNotificationName)
+    }
+
+    private func handleSiriPendingPlaybackNotification() {
+        os_log(.info, "SIRI_APP: Received Darwin notification for pending playback")
+
+        // Read and execute the pending payload
+        guard let payload = readAndClearPendingPayload() else {
+            os_log(.error, "SIRI_APP: No pending payload found after Darwin notification")
+            return
+        }
+
+        os_log(.info, "SIRI_APP: Executing pending payload kind=%{public}@ entity=%{public}@", payload.kind.rawValue, payload.entityID)
+        executeSiriPlaybackInBackground(payload: payload, origin: "darwinNotification")
+    }
+
+    private func readAndClearPendingPayload() -> SiriPlaybackRequestPayload? {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else {
+            return nil
+        }
+
+        let pendingFile = containerURL.appendingPathComponent(Self.pendingPlaybackFilename)
+
+        guard FileManager.default.fileExists(atPath: pendingFile.path) else {
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: pendingFile)
+
+            // Clear the file immediately to prevent duplicate execution
+            try FileManager.default.removeItem(at: pendingFile)
+
+            // Decode the payload (extension uses SiriPayloadIdentifier, we need to convert)
+            let decoder = JSONDecoder()
+            let extensionPayload = try decoder.decode(ExtensionSiriPayloadIdentifier.self, from: data)
+
+            // Convert to app payload format
+            let kind: SiriMediaKind
+            switch extensionPayload.kind {
+            case "track": kind = .track
+            case "album": kind = .album
+            case "artist": kind = .artist
+            case "playlist": kind = .playlist
+            default: kind = .track
+            }
+
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: extensionPayload.entityID,
+                sourceCompositeKey: extensionPayload.sourceCompositeKey,
+                displayName: extensionPayload.displayName
+            )
+        } catch {
+            os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
+            return nil
+        }
+    }
+
     func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
@@ -174,6 +257,28 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) {
         // Handle background download completion
         completionHandler()
+    }
+
+    // MARK: - Scene Will Connect (iOS 13+ scene lifecycle)
+
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        os_log(.info, "SIRI_APP: configurationForConnecting - activities=%{public}d, intents=%{public}d",
+               options.userActivities.count,
+               options.shortcutItem != nil ? 1 : 0)
+
+        // Check if there's a Siri userActivity in the connection options
+        for activity in options.userActivities {
+            os_log(.info, "SIRI_APP: scene connection has activity type=%{public}@", activity.activityType)
+            if activity.activityType == "com.videogorl.ensemble.siri.playmedia" {
+                os_log(.info, "SIRI_APP: Detected Siri playmedia activity in scene connection!")
+            }
+        }
+
+        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 
     // MARK: - Intent Handling (iOS 18+ may route handleInApp through this)
@@ -200,6 +305,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         os_log(.info, "SIRI_APP: AppDelegate.continue(userActivity:) ENTRY - type=%{public}@", userActivity.activityType)
 
+        // Log all details about the incoming activity
         let forwardedIntent: String
         if let intent = userActivity.interaction?.intent {
             forwardedIntent = String(describing: type(of: intent))
@@ -207,6 +313,25 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             forwardedIntent = "nil"
         }
         os_log(.info, "SIRI_APP: activity type=%{public}@, intent=%{public}@", userActivity.activityType, forwardedIntent)
+        os_log(.info, "SIRI_APP: interaction=%{public}@, userInfo keys=%{public}@",
+               userActivity.interaction != nil ? "present" : "nil",
+               String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))
+
+        // Log if this is a Siri-initiated activity
+        if let interaction = userActivity.interaction {
+            os_log(.info, "SIRI_APP: interaction.intentHandlingStatus=%{public}ld", interaction.intentHandlingStatus.rawValue)
+            if let playMediaIntent = interaction.intent as? INPlayMediaIntent {
+                os_log(.info, "SIRI_APP: INPlayMediaIntent found in interaction")
+                os_log(.info, "SIRI_APP: mediaItems count=%{public}d, container=%{public}@",
+                       playMediaIntent.mediaItems?.count ?? 0,
+                       playMediaIntent.mediaContainer?.title ?? "nil")
+                if let firstItem = playMediaIntent.mediaItems?.first {
+                    os_log(.info, "SIRI_APP: firstItem title=%{public}@, identifier=%{public}@",
+                           firstItem.title ?? "nil",
+                           firstItem.identifier ?? "nil")
+                }
+            }
+        }
 
         guard let payload = siriPlaybackPayload(from: userActivity) else {
             os_log(.error, "SIRI_APP: Payload decode FAILED - returning false")
@@ -442,6 +567,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         UIViewController.attemptRotationToDeviceOrientation()
     }
+}
+
+/// Mirrors the extension's SiriPayloadIdentifier for decoding from App Group
+private struct ExtensionSiriPayloadIdentifier: Codable {
+    let schemaVersion: Int
+    let kind: String
+    let entityID: String
+    let sourceCompositeKey: String?
+    let displayName: String?
 }
 
 func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {

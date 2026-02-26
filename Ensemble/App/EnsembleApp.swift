@@ -1,5 +1,6 @@
 import EnsembleCore
 import EnsembleUI
+import Intents
 import os
 import OSLog
 import SwiftUI
@@ -34,11 +35,30 @@ struct EnsembleApp: App {
             RootView()
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
+                .onAppear {
+                    os_log(.info, "SIRI_APP: RootView.onAppear - app UI is visible")
+                }
                 .onOpenURL { url in
+                    os_log(.info, "SIRI_APP: onOpenURL called with: %{public}@", url.absoluteString)
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
                 }
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
+                }
+                .onContinueUserActivity("INPlayMediaIntent") { userActivity in
+                    os_log(.info, "SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
+                    handleGenericSiriActivity(userActivity)
+                }
+                .onContinueUserActivity("com.apple.intents.PlayMediaIntent") { userActivity in
+                    os_log(.info, "SIRI_APP: Received com.apple.intents.PlayMediaIntent activity via SwiftUI")
+                    handleGenericSiriActivity(userActivity)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+                    os_log(.info, "SIRI_APP: Received web browsing activity: %{public}@", userActivity.webpageURL?.absoluteString ?? "nil")
+                }
+                .userActivity("com.videogorl.ensemble.active") { activity in
+                    // This registers a user activity so we can track if the app becomes active
+                    activity.title = "Ensemble Active"
                 }
         }
         .applyBackgroundRefresh()
@@ -99,10 +119,80 @@ struct EnsembleApp: App {
         #endif
     }
 
+    private func handleGenericSiriActivity(_ userActivity: NSUserActivity) {
+        os_log(.info, "SIRI_APP: handleGenericSiriActivity - type=%{public}@", userActivity.activityType)
+
+        // First try our custom payload
+        if let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) {
+            os_log(.info, "SIRI_APP: Found custom payload in generic activity")
+            #if os(iOS)
+            executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityCustomPayload")
+            #endif
+            return
+        }
+
+        #if os(iOS)
+        // Try to extract from INInteraction
+        if let interaction = userActivity.interaction,
+           let playMediaIntent = interaction.intent as? INPlayMediaIntent {
+            os_log(.info, "SIRI_APP: Found INPlayMediaIntent in interaction")
+            if let payload = extractPayload(from: playMediaIntent) {
+                executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityInteraction")
+                return
+            }
+        }
+        #endif
+
+        os_log(.error, "SIRI_APP: Could not extract playable payload from generic activity")
+    }
+
+    #if os(iOS)
+    private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
+        // Try to decode from identifier first
+        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+           let data = Data(base64Encoded: identifier),
+           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            return payload
+        }
+
+        // Fallback to query
+        guard let query = intent.mediaItems?.first?.title
+                ?? intent.mediaContainer?.title
+                ?? intent.mediaSearch?.mediaName,
+              !query.isEmpty else {
+            return nil
+        }
+
+        let mediaType = intent.mediaSearch?.mediaType
+            ?? intent.mediaContainer?.type
+            ?? intent.mediaItems?.first?.type
+            ?? .unknown
+
+        let kind: SiriMediaKind
+        switch mediaType {
+        case .song: kind = .track
+        case .album: kind = .album
+        case .artist: kind = .artist
+        case .playlist: kind = .playlist
+        default: kind = .track
+        }
+
+        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query)
+    }
+    #endif
+
     private func handleSiriPlaybackActivity(_ userActivity: NSUserActivity) {
         os_log(.info, "SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=%{public}@", userActivity.activityType)
+        os_log(.info, "SIRI_APP: userInfo keys: %{public}@", String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))
+
         guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
             os_log(.error, "SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
+            // Try to log the raw userInfo for debugging
+            if let userInfo = userActivity.userInfo {
+                for (key, value) in userInfo {
+                    os_log(.info, "SIRI_APP: userInfo[%{public}@] = %{public}@", "\(key)", "\(type(of: value))")
+                }
+            }
             return
         }
 
