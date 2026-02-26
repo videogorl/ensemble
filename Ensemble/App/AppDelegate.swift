@@ -464,6 +464,9 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         DependencyContainer.shared.accountManager.loadAccounts()
 
         do {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            await waitForPotentialExternalRoute(origin: origin)
+
             let routeBefore = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
@@ -482,6 +485,46 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
                 os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
             }
         }
+    }
+}
+
+@MainActor
+private func waitForPotentialExternalRoute(origin: String) async {
+    let session = AVAudioSession.sharedInstance()
+    let initialOutputs = session.currentRoute.outputs
+    guard !hasExternalOutputRoute(initialOutputs) else {
+        return
+    }
+
+    // HomePod requests can establish the AirPlay route shortly after Siri
+    // wakes the app. Give the route a brief chance to switch before playback.
+    let maxWaitNanoseconds: UInt64 = 2_500_000_000
+    let stepNanoseconds: UInt64 = 250_000_000
+    var waited: UInt64 = 0
+
+    while waited < maxWaitNanoseconds {
+        try? await Task.sleep(nanoseconds: stepNanoseconds)
+        waited += stepNanoseconds
+
+        let outputs = session.currentRoute.outputs
+        if hasExternalOutputRoute(outputs) {
+            let route = outputs
+                .map { "\($0.portType.rawValue):\($0.portName)" }
+                .joined(separator: ",")
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Route switched to external: %{public}@", origin, route)
+            return
+        }
+    }
+
+    let route = session.currentRoute.outputs
+        .map { "\($0.portType.rawValue):\($0.portName)" }
+        .joined(separator: ",")
+    os_log(.info, "SIRI_APP: [origin=%{public}@] Route remained local after wait: %{public}@", origin, route)
+}
+
+private func hasExternalOutputRoute(_ outputs: [AVAudioSessionPortDescription]) -> Bool {
+    outputs.contains { output in
+        output.portType != .builtInSpeaker && output.portType != .builtInReceiver
     }
 }
 
