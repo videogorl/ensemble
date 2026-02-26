@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import AppIntents
 import Intents
 import os
 import UIKit
@@ -82,6 +83,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 #if DEBUG
                 AppLogger.debug("📱 AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
                 #endif
+            }
+            if #available(iOS 16.0, *) {
+                EnsembleAppShortcutsProvider.updateAppShortcutParameters()
             }
         }
         

@@ -85,6 +85,18 @@ Siri playback now supports **track, album, artist, and playlist** phrases throug
 - `AppDelegate.swift` + `DependencyContainer.swift` - lifecycle routing + DI wiring
 - `LibraryRepository.swift` + `PlaylistRepository.swift` - precision search methods used by Siri matching
 
+### Siri App Intents Fallback for Album/Playlist (Feb 2026)
+Siri playback now also includes an App Intents fallback path for album/playlist phrases when SiriKit media-domain routing does not invoke Ensemble:
+
+- **App shortcut phrases:** explicit album/playlist phrases are registered via `AppShortcutsProvider`.
+- **Dynamic entity resolution:** shortcut entity queries read album/playlist candidates from the shared Siri media index (App Group JSON derived from cached library data).
+- **In-app execution reuse:** fallback intents execute playback through `SiriPlaybackCoordinator` using the same payload contract as SiriKit.
+- **Vocabulary refresh:** app launch now refreshes App Shortcuts parameter metadata after index availability checks so Siri phrase resolution stays current.
+
+**Key files:**
+- `Ensemble/App/EnsembleAppShortcuts.swift` - App Intents entities/queries/intents and shortcut phrases
+- `Ensemble/App/AppDelegate.swift` - startup App Shortcuts parameter refresh
+
 ### Account-Centric Source Management + Sign-In Redesign (Feb 2026)
 The Plex source flow now centers on accounts (not individual server rows), and sync controls live in account detail:
 

@@ -14,6 +14,7 @@
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001008 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001011 /* PlayMediaIntentHandler.swift */; };
 		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
@@ -61,6 +62,7 @@
 		E0001012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001013 /* Ensemble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ensemble.entitlements; sourceTree = "<group>"; };
 		E0001014 /* EnsembleSiriIntentsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EnsembleSiriIntentsExtension.entitlements; sourceTree = "<group>"; };
+		E0001015 /* EnsembleAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleAppShortcuts.swift; sourceTree = "<group>"; };
 		E0002000 /* EnsembleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleWatchApp.swift; sourceTree = "<group>"; };
 		E0002002 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		E0002004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 			children = (
 				E0001000 /* EnsembleApp.swift */,
 				E0001002 /* AppDelegate.swift */,
+				E0001015 /* EnsembleAppShortcuts.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -368,6 +371,7 @@
 			files = (
 				E0001001 /* EnsembleApp.swift in Sources */,
 				E0001003 /* AppDelegate.swift in Sources */,
+				E0001016 /* EnsembleAppShortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -20,6 +20,7 @@ ensemble/
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
 |   |   +-- AppDelegate.swift     # Audio session & background playback config
+|   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # App icons, colors, images
 |   +-- Info.plist

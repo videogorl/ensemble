@@ -131,6 +131,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - CoreData models (`CD*` in EnsemblePersistence) -- Persisted entities
   - Domain models (in EnsembleCore) -- UI-facing, protocol-conforming types
 - **In-app-first Siri execution** -- Siri extension resolves/disambiguates and returns `handleInApp`; playback always executes in main app process through `SiriPlaybackCoordinator`
+- **Dual Siri invocation surfaces** -- SiriKit Media Intents remains primary for media-domain routing, while app-level App Intents shortcuts provide album/playlist fallback phrase routing when SiriKit does not invoke the extension
 - **Multi-source architecture** -- Designed to support multiple Plex accounts and future services (Apple Music, Spotify)
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
@@ -255,6 +256,9 @@ Dynamic home screen powered by Plex's hub system:
   - Artist: queue artist tracks
   - Playlist: queue playlist tracks in saved order
 - `SiriMediaIndexStore` rebuilds the index after sync completion and account/source configuration changes.
+- App target registers `EnsembleAppShortcutsProvider` fallback shortcuts for album/playlist phrases (`PlayEnsembleAlbumIntent`, `PlayEnsemblePlaylistIntent`).
+- App shortcut entities resolve against the same shared Siri index so Siri vocabulary tracks cached library content without direct extension CoreData access.
+- `AppDelegate` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
 
 ## Subsystem: Library Visibility Profiles (Groundwork)
 
