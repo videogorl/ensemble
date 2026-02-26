@@ -7,6 +7,8 @@ import EnsembleCore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     private var coverFlowRotationSupportEnabled = false
+    private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
+    private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
 
     func application(
         _ application: UIApplication,
@@ -232,17 +234,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         guard let query = siriQueryText(from: intent), !query.isEmpty else {
             return nil
         }
+        let sanitizedQuery = normalizedSiriQuery(query)
 
         let kind = siriMediaKind(from: intent)
         #if DEBUG
-        AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(query)' kind=\(kind.rawValue)")
+        AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
         #endif
 
         return SiriPlaybackRequestPayload(
             kind: kind,
-            entityID: query,
+            entityID: sanitizedQuery,
             sourceCompositeKey: nil,
-            displayName: query
+            displayName: sanitizedQuery
         )
     }
 
@@ -301,6 +304,32 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
             return .track
         }
+    }
+
+    private func normalizedSiriQuery(_ value: String) -> String {
+        let normalized = value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
+            let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimTrailingConnectorWords(in: trimmed)
+        }
+
+        return normalized
+    }
+
+    private func trimTrailingConnectorWords(in value: String) -> String {
+        var tokens = value.split(separator: " ").map(String.init)
+        while let last = tokens.last, Self.siriTrailingConnectorWords.contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
     }
     
     func applicationDidEnterBackground(_ application: UIApplication) {
@@ -364,6 +393,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
 /// Handles INPlayMediaIntent when iOS routes it directly to the app (handleInApp path on iOS 18+)
 final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
+    private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
+    private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
@@ -377,13 +408,14 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             // Try fallback: extract from query
             if let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.artistName ?? intent.mediaSearch?.albumName,
                !query.isEmpty {
-                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", query)
+                let sanitizedQuery = normalizedSiriQuery(query)
+                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
                 let kind = mediaKindFrom(intent: intent)
                 let fallbackPayload = SiriPlaybackRequestPayload(
                     kind: kind,
-                    entityID: query,
+                    entityID: sanitizedQuery,
                     sourceCompositeKey: nil,
-                    displayName: query
+                    displayName: sanitizedQuery
                 )
                 executePlayback(payload: fallbackPayload, completion: completion)
                 return
@@ -434,6 +466,32 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if intent.mediaSearch?.albumName != nil { return .album }
             return .track
         }
+    }
+
+    private func normalizedSiriQuery(_ value: String) -> String {
+        let normalized = value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
+            let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimTrailingConnectorWords(in: trimmed)
+        }
+
+        return normalized
+    }
+
+    private func trimTrailingConnectorWords(in value: String) -> String {
+        var tokens = value.split(separator: " ").map(String.init)
+        while let last = tokens.last, Self.siriTrailingConnectorWords.contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
     }
 }
 #endif

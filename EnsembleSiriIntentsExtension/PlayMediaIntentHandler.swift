@@ -9,6 +9,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let payloadUserInfoKey = "siriPlaybackPayload"
     private static let currentPayloadSchemaVersion = 1
     private static let disambiguationThreshold = 0.1
+    private static let appNameSuffixes = [" ensemble music", " ensemble"]
+    private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private let logger = Logger(
         subsystem: "com.videogorl.ensemble.siri-intents",
         category: "PlayMediaIntentHandler"
@@ -31,16 +33,17 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             completion([.needsValue()])
             return
         }
+        let normalizedQuery = bestQueryVariant(from: query) ?? query
 
         let requestedMediaType = mediaType(from: intent)
         logger.info(
-            "resolveMediaItems: query=\(query, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
+            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
         )
 
         guard let index = loadIndex(), !index.items.isEmpty else {
             logger.debug("resolveMediaItems: index unavailable or empty; returning fallback media item")
             let fallback = makeFallbackMediaItem(
-                query: query,
+                query: normalizedQuery,
                 mediaType: requestedMediaType
             )
             completion([.success(with: fallback)])
@@ -48,14 +51,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         let ranked = rankCandidates(
-            for: query,
+            for: normalizedQuery,
             mediaType: requestedMediaType,
             index: index
         )
         guard let top = ranked.first else {
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
-                query: query,
+                query: normalizedQuery,
                 mediaType: requestedMediaType
             )
             completion([.success(with: fallback)])
@@ -92,13 +95,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             logger.debug("handle: using decoded payload identifier")
             payload = decodedPayload
         } else if let query = queryText(from: intent), !query.isEmpty {
-            logger.debug("handle: building fallback payload from query=\(query, privacy: .public)")
+            let fallbackQuery = bestQueryVariant(from: query) ?? query
+            logger.debug("handle: building fallback payload from query=\(fallbackQuery, privacy: .public)")
             payload = SiriPayloadIdentifier(
                 schemaVersion: Self.currentPayloadSchemaVersion,
                 kind: primaryKindFor(mediaType: requestedMediaType),
-                entityID: query,
+                entityID: fallbackQuery,
                 sourceCompositeKey: nil,
-                displayName: query
+                displayName: fallbackQuery
             )
         } else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
@@ -164,7 +168,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         mediaType: INMediaItemType,
         index: SiriMediaIndexSnapshot
     ) -> [RankedItem] {
-        let normalizedQuery = normalize(query)
+        let queryVariants = normalizedQueryVariants(for: query)
         let kinds = kindsFor(mediaType: mediaType)
 
         return index.items
@@ -175,7 +179,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     return nil
                 }
 
-                let score = scoreMatch(query: normalizedQuery, candidate: normalize(item.displayName))
+                let primaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.displayName))
+                let secondaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.secondaryText ?? "")) * 0.35
+                let score = max(primaryScore, secondaryScore)
                 guard score > 0 else { return nil }
                 return RankedItem(item: item, score: score)
             }
@@ -210,12 +216,30 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             }
     }
 
+    private func scoreMatch(queries: [String], candidate: String) -> Double {
+        queries.reduce(0) { best, query in
+            max(best, scoreMatch(query: query, candidate: candidate))
+        }
+    }
+
     private func scoreMatch(query: String, candidate: String) -> Double {
         guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if candidate == query { return 1.0 }         // exact normalized
-        if candidate.hasPrefix(query) { return 0.8 } // prefix
-        if candidate.contains(query) { return 0.55 } // contains
-        return 0
+        if candidate == query { return 1.0 } // exact normalized
+        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.84 } // prefix on either side
+        if candidate.contains(query) || query.contains(candidate) { return 0.7 } // containment on either side
+
+        var score = 0.0
+        let overlap = tokenOverlapScore(query: query, candidate: candidate)
+        if overlap >= 0.67 {
+            score = max(score, 0.45 + overlap * 0.35)
+        }
+
+        let fuzzySimilarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
+        if fuzzySimilarity >= 0.66 {
+            score = max(score, 0.35 + fuzzySimilarity * 0.4)
+        }
+
+        return score
     }
 
     private func kindsFor(mediaType: INMediaItemType) -> Set<String> {
@@ -391,6 +415,78 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private func normalizedQueryVariants(for raw: String) -> [String] {
+        let base = normalize(raw)
+        guard !base.isEmpty else { return [] }
+
+        var variants = Set<String>()
+        variants.insert(base)
+
+        for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
+            let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            variants.insert(trimTrailingConnectorWords(in: trimmed))
+        }
+
+        return variants
+            .filter { !$0.isEmpty }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count {
+                    return lhs.count < rhs.count
+                }
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+            }
+    }
+
+    private func bestQueryVariant(from raw: String) -> String? {
+        normalizedQueryVariants(for: raw).first
+    }
+
+    private func trimTrailingConnectorWords(in value: String) -> String {
+        var tokens = value.split(separator: " ").map(String.init)
+        while let last = tokens.last, Self.trailingConnectorWords.contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    /// Scores overlap based on shared query/candidate tokens.
+    private func tokenOverlapScore(query: String, candidate: String) -> Double {
+        let queryTokens = Set(query.split(separator: " ").map(String.init))
+        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
+        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
+
+        let overlap = queryTokens.intersection(candidateTokens).count
+        let referenceCount = max(queryTokens.count, candidateTokens.count)
+        return Double(overlap) / Double(referenceCount)
+    }
+
+    /// Uses edit-distance similarity so Siri transcript drift can still map to indexed entities.
+    private func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
+
+        var previous = Array(0...rhsChars.count)
+        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
+            var current = [lhsIndex + 1]
+            current.reserveCapacity(rhsChars.count + 1)
+
+            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
+                let insertion = current[rhsIndex] + 1
+                let deletion = previous[rhsIndex + 1] + 1
+                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
+                current.append(min(insertion, deletion, substitution))
+            }
+
+            previous = current
+        }
+
+        let distance = previous.last ?? max(lhsChars.count, rhsChars.count)
+        let normalizer = max(lhsChars.count, rhsChars.count)
+        return 1 - (Double(distance) / Double(normalizer))
     }
 }
 

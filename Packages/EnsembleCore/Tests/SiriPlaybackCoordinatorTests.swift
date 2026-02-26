@@ -157,6 +157,21 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
 
+    func testExecutePlayAlbumFallsBackToFuzzyDisplayNameMatch() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayAlbum(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-album-id",
+                sourceCompositeKey: fixture.librarySourceKey,
+                displayName: "Albom One"
+            )
+        )
+
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+    }
+
     func testExecutePlayArtistQueuesArtistTracks() async throws {
         let fixture = try await makeFixture()
 
@@ -210,6 +225,21 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
                 entityID: "unknown-playlist-id",
                 sourceCompositeKey: fixture.serverSourceKey,
                 displayName: "Playlist One"
+            )
+        )
+
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+        XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+    }
+
+    func testExecutePlayPlaylistStripsAppNameSuffixFromDisplayName() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-playlist-id",
+                sourceCompositeKey: fixture.serverSourceKey,
+                displayName: "Playlist One on Ensemble"
             )
         )
 
