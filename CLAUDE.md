@@ -75,14 +75,14 @@ Siri playback now supports **track, album, artist, and playlist** phrases throug
 - **Indexing path:** shared App Group JSON index includes track/album/artist/playlist candidates with ranking metadata.
 - **Precision search:** repositories now expose scoped title/name search methods for deterministic Siri matching.
 - **Routing + outcomes:** deterministic ranking (exact > prefix > contains), tie-breakers, and Siri-friendly failure mapping.
-- **HomePod compatibility path:** SiriKit media handoff remains compatible with iPhone-hosted playback/AirPlay routing.
+- **HomePod workaround:** For HomePod requests, iOS never calls `handle()` after `confirm()` returns `.ready`. As a workaround, `confirm()` writes the payload to App Group and posts a Darwin notification; the app listens for this notification and executes playback directly, bypassing the broken `handle()` flow.
 
 **Key files:**
 - `EnsembleSiriIntentsExtension/IntentHandler.swift` + `PlayMediaIntentHandler.swift` + `Info.plist` - Siri media extension entry and intent handling
 - `SiriIntentPayload.swift` + `SiriMediaIndex.swift` - versioned handoff payload + compact index models
 - `SiriMediaIndexStore.swift` - App Group index persistence/rebuild notification hooks
 - `SiriPlaybackCoordinator.swift` - in-app execution for track/album/artist/playlist intents
-- `AppDelegate.swift` + `DependencyContainer.swift` - lifecycle routing + DI wiring
+- `AppDelegate.swift` + `DependencyContainer.swift` - lifecycle routing + DI wiring + Darwin notification listener
 - `LibraryRepository.swift` + `PlaylistRepository.swift` - precision search methods used by Siri matching
 
 ### Siri App Intents Fallback for Album/Playlist (Feb 2026)

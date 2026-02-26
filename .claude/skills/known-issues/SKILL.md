@@ -38,6 +38,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved
 
+### HomePod Siri Media Intents handle() Never Called
+- **Resolved (February 26, 2026)**
+- **Issue:** For HomePod requests, iOS's SiriKit never calls `handle()` after `confirm()` returns `.ready`. This appears to be an iOS limitation affecting third-party media apps.
+- **Workaround:** Extension writes playback payload to App Group and posts a Darwin notification; app listens for the notification and executes playback directly, bypassing the broken `handle()` flow.
+- **Key files:** `PlayMediaIntentHandler.swift` (confirm + Darwin post), `AppDelegate.swift` (Darwin listener)
+
 ### Infrastructure
 - **Legacy CocoaPods Cleanup** -- Removed unused `ios/Pods/` directory
 
