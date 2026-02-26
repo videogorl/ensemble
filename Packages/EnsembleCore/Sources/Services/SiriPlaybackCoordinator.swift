@@ -174,7 +174,7 @@ public final class SiriPlaybackCoordinator {
         await playbackService.play(tracks: playableTracks, startingAt: 0)
     }
 
-    /// Resolves an artist and queues all playable tracks in deterministic order.
+    /// Resolves an artist and queues all playable tracks in shuffled order.
     public func executePlayArtist(request: SiriPlaybackRequest) async throws {
         let enabledSourceKeys = enabledLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else {
@@ -197,7 +197,7 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.artist)
         }
 
-        await playbackService.play(tracks: playableTracks, startingAt: 0)
+        await playbackService.shufflePlay(tracks: playableTracks)
     }
 
     /// Resolves a playlist and queues tracks using saved playlist ordering.
