@@ -14,18 +14,26 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         category: "PlayMediaIntentHandler"
     )
 
+    public override init() {
+        super.init()
+        os_log(.info, "SIRI_EXT: PlayMediaIntentHandler.init() called")
+    }
+
     public func resolveMediaItems(
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
+        os_log(.info, "SIRI_EXT: resolveMediaItems ENTRY")
+        logger.info("resolveMediaItems: ENTRY - received intent")
+
         guard let query = queryText(from: intent), !query.isEmpty else {
-            logger.debug("resolveMediaItems: missing query; requesting value from Siri")
+            logger.info("resolveMediaItems: missing query; requesting value from Siri")
             completion([.needsValue()])
             return
         }
 
         let requestedMediaType = mediaType(from: intent)
-        logger.debug(
+        logger.info(
             "resolveMediaItems: query=\(query, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
         )
 

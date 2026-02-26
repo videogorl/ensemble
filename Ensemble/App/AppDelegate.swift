@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import Intents
+import os
 import UIKit
 import EnsembleCore
 
@@ -23,6 +24,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure audio session for background playback
         configureAudioSession()
         configureSiriAuthorization()
+
+        // Load accounts synchronously before any Siri/playback code runs.
+        // This is critical for cold launches from Siri where the coordinator
+        // needs accounts loaded before RootView.task has a chance to run.
+        DependencyContainer.shared.accountManager.loadAccounts()
         
         // Start network monitoring immediately (non-blocking)
         // Network monitor will publish initial state asynchronously
@@ -146,50 +152,56 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         completionHandler()
     }
 
+    // MARK: - Intent Handling (iOS 18+ may route handleInApp through this)
+
+    func application(
+        _ application: UIApplication,
+        handlerFor intent: INIntent
+    ) -> Any? {
+        os_log(.info, "SIRI_APP: application(handlerFor:) called with intent type: %{public}@", String(describing: type(of: intent)))
+
+        if let playMediaIntent = intent as? INPlayMediaIntent {
+            os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for INPlayMediaIntent")
+            return InAppPlayMediaIntentHandler()
+        }
+
+        os_log(.info, "SIRI_APP: No handler for intent type, returning nil")
+        return nil
+    }
+
     func application(
         _ application: UIApplication,
         continue userActivity: NSUserActivity,
         restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
     ) -> Bool {
-        #if DEBUG
+        os_log(.info, "SIRI_APP: AppDelegate.continue(userActivity:) ENTRY - type=%{public}@", userActivity.activityType)
+
         let forwardedIntent: String
         if let intent = userActivity.interaction?.intent {
             forwardedIntent = String(describing: type(of: intent))
         } else {
             forwardedIntent = "nil"
         }
-        AppLogger.debug(
-            "📱 AppDelegate: continue userActivity type=\(userActivity.activityType) intent=\(forwardedIntent)"
-        )
-        #endif
+        os_log(.info, "SIRI_APP: activity type=%{public}@, intent=%{public}@", userActivity.activityType, forwardedIntent)
 
         guard let payload = siriPlaybackPayload(from: userActivity) else {
-            #if DEBUG
-            AppLogger.debug("📱 AppDelegate: Siri activity payload decode failed (no payload)")
-            #endif
+            os_log(.error, "SIRI_APP: Payload decode FAILED - returning false")
             return false
         }
 
+        os_log(.info, "SIRI_APP: Payload decoded - kind=%{public}@, entityID=%{public}@", payload.kind.rawValue, payload.entityID)
+
         Task { @MainActor in
             do {
+                os_log(.info, "SIRI_APP: Calling coordinator.execute()")
                 try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+                os_log(.info, "SIRI_APP: Coordinator execute SUCCESS")
             } catch {
-                #if DEBUG
                 if let siriError = error as? SiriPlaybackCoordinatorError {
-                    switch siriError {
-                    case .mediaNotFound:
-                        AppLogger.debug("📱 AppDelegate: Siri playback failed - media not found")
-                    case .noPlayableTracks:
-                        AppLogger.debug("📱 AppDelegate: Siri playback failed - no playable tracks")
-                    case .noEnabledSources:
-                        AppLogger.debug("📱 AppDelegate: Siri playback failed - no enabled sources")
-                    case .unsupportedPayloadVersion(let version):
-                        AppLogger.debug("📱 AppDelegate: Siri playback failed - unsupported payload version \(version)")
-                    }
+                    os_log(.error, "SIRI_APP: Coordinator error: %{public}@", siriError.localizedDescription)
                 } else {
-                    AppLogger.debug("📱 AppDelegate: Siri playback execution failed: \(error.localizedDescription)")
+                    os_log(.error, "SIRI_APP: Unexpected error: %{public}@", error.localizedDescription)
                 }
-                #endif
             }
         }
 
@@ -345,6 +357,83 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
 
         UIViewController.attemptRotationToDeviceOrientation()
+    }
+}
+
+// MARK: - In-App Intent Handler
+
+/// Handles INPlayMediaIntent when iOS routes it directly to the app (handleInApp path on iOS 18+)
+final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
+
+    func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
+
+        // Extract the payload from the intent's media items
+        guard let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+              let data = Data(base64Encoded: identifier),
+              let payload = try? SiriPlaybackActivityCodec.decode(from: data) else {
+            os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload from intent")
+
+            // Try fallback: extract from query
+            if let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.artistName ?? intent.mediaSearch?.albumName,
+               !query.isEmpty {
+                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", query)
+                let kind = mediaKindFrom(intent: intent)
+                let fallbackPayload = SiriPlaybackRequestPayload(
+                    kind: kind,
+                    entityID: query,
+                    sourceCompositeKey: nil,
+                    displayName: query
+                )
+                executePlayback(payload: fallbackPayload, completion: completion)
+                return
+            }
+
+            completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+            return
+        }
+
+        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - decoded payload kind=%{public}@", payload.kind.rawValue)
+        executePlayback(payload: payload, completion: completion)
+    }
+
+    private func executePlayback(payload: SiriPlaybackRequestPayload, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+        Task { @MainActor in
+            do {
+                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - executing playback")
+                try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - playback SUCCESS")
+                completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+            } catch {
+                os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - playback FAILED: %{public}@", error.localizedDescription)
+                if let siriError = error as? SiriPlaybackCoordinatorError {
+                    switch siriError {
+                    case .mediaNotFound:
+                        completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
+                    case .noPlayableTracks:
+                        completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
+                    case .noEnabledSources, .unsupportedPayloadVersion:
+                        completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+                    }
+                } else {
+                    completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+                }
+            }
+        }
+    }
+
+    private func mediaKindFrom(intent: INPlayMediaIntent) -> SiriMediaKind {
+        let mediaType = intent.mediaSearch?.mediaType ?? intent.mediaContainer?.type ?? .unknown
+        switch mediaType {
+        case .song: return .track
+        case .album: return .album
+        case .artist: return .artist
+        case .playlist: return .playlist
+        default:
+            if intent.mediaSearch?.artistName != nil { return .artist }
+            if intent.mediaSearch?.albumName != nil { return .album }
+            return .track
+        }
     }
 }
 #endif

@@ -47,10 +47,6 @@
 	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
 	<key>NSSiriUsageDescription</key>
 	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
-	<key>INIntentsSupported</key>
-	<array>
-		<string>INPlayMediaIntent</string>
-	</array>
 	<key>INSupportedMediaCategories</key>
 	<array>
 		<string>INMediaCategoryMusic</string>
