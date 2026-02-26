@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import Intents
 import UIKit
 import EnsembleCore
 
@@ -21,6 +22,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Configure audio session for background playback
         configureAudioSession()
+        configureSiriAuthorization()
         
         // Start network monitoring immediately (non-blocking)
         // Network monitor will publish initial state asynchronously
@@ -115,6 +117,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
         } catch {
             AppLogger.debug("Failed to configure audio session: \(error)")
+        }
+    }
+
+    private func configureSiriAuthorization() {
+        let status = INPreferences.siriAuthorizationStatus()
+        #if DEBUG
+        AppLogger.debug("📱 AppDelegate: Siri authorization status at launch: \(status.rawValue)")
+        #endif
+
+        guard status == .notDetermined else {
+            return
+        }
+
+        INPreferences.requestSiriAuthorization { newStatus in
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri authorization prompt result: \(newStatus.rawValue)")
+            #endif
         }
     }
 
