@@ -406,71 +406,106 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
 
-        // Extract the payload from the intent's media items
-        guard let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
-              let data = Data(base64Encoded: identifier),
-              let payload = try? SiriPlaybackActivityCodec.decode(from: data) else {
-            os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload from intent")
-
-            // Try fallback: extract from query
-            if let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.artistName ?? intent.mediaSearch?.albumName,
-               !query.isEmpty {
-                let sanitizedQuery = normalizedSiriQuery(query)
-                os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
-                let kind = mediaKindFrom(intent: intent)
-                let fallbackPayload = SiriPlaybackRequestPayload(
-                    kind: kind,
-                    entityID: sanitizedQuery,
-                    sourceCompositeKey: nil,
-                    displayName: sanitizedQuery
-                )
-                executePlayback(payload: fallbackPayload, completion: completion)
-                return
-            }
-
-            completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+        guard let payload = payload(from: intent) else {
+            os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload/query from intent")
+            completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
 
-        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - decoded payload kind=%{public}@", payload.kind.rawValue)
-        executePlayback(payload: payload, completion: completion)
+        os_log(
+            .info,
+            "SIRI_APP: InAppPlayMediaIntentHandler - accepted payload kind=%{public}@ entity=%{public}@",
+            payload.kind.rawValue,
+            payload.entityID
+        )
+
+        // Reply immediately so Siri/HomePod does not time out while playback setup performs network work.
+        completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+        executePlaybackAsync(payload: payload)
     }
 
-    private func executePlayback(payload: SiriPlaybackRequestPayload, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
+    private func executePlaybackAsync(payload: SiriPlaybackRequestPayload) {
         Task { @MainActor in
+            // Siri may cold-launch the app before normal UI startup has loaded account state.
+            DependencyContainer.shared.accountManager.loadAccounts()
+
             do {
                 os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - executing playback")
                 try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
                 os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - playback SUCCESS")
-                completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
             } catch {
                 os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - playback FAILED: %{public}@", error.localizedDescription)
-                if let siriError = error as? SiriPlaybackCoordinatorError {
-                    switch siriError {
-                    case .mediaNotFound:
-                        completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
-                    case .noPlayableTracks:
-                        completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
-                    case .noEnabledSources, .unsupportedPayloadVersion:
-                        completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
-                    }
-                } else {
-                    completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
-                }
             }
         }
     }
 
+    private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
+        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+           let data = Data(base64Encoded: identifier),
+           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            return payload
+        }
+
+        guard let query = queryText(from: intent), !query.isEmpty else {
+            return nil
+        }
+        let sanitizedQuery = normalizedSiriQuery(query)
+        guard !sanitizedQuery.isEmpty else {
+            return nil
+        }
+
+        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
+        let kind = mediaKindFrom(intent: intent)
+        return SiriPlaybackRequestPayload(
+            kind: kind,
+            entityID: sanitizedQuery,
+            sourceCompositeKey: nil,
+            displayName: sanitizedQuery
+        )
+    }
+
+    private func queryText(from intent: INPlayMediaIntent) -> String? {
+        if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
+            return explicit
+        }
+        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
+            return containerTitle
+        }
+        if let mediaSearch = intent.mediaSearch {
+            if let searched = mediaSearch.mediaName, !searched.isEmpty {
+                return searched
+            }
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+                return artistName
+            }
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+                return albumName
+            }
+            if let genreName = mediaSearch.genreNames?.first, !genreName.isEmpty {
+                return genreName
+            }
+            if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
+                return moodName
+            }
+        }
+        return nil
+    }
+
     private func mediaKindFrom(intent: INPlayMediaIntent) -> SiriMediaKind {
-        let mediaType = intent.mediaSearch?.mediaType ?? intent.mediaContainer?.type ?? .unknown
+        let mediaType = intent.mediaSearch?.mediaType
+            ?? intent.mediaContainer?.type
+            ?? intent.mediaItems?.first?.type
+            ?? .unknown
+
         switch mediaType {
         case .song: return .track
         case .album: return .album
         case .artist: return .artist
         case .playlist: return .playlist
         default:
-            if intent.mediaSearch?.artistName != nil { return .artist }
-            if intent.mediaSearch?.albumName != nil { return .album }
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty { return .artist }
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty { return .album }
+            if intent.mediaContainer?.type == .playlist { return .playlist }
             return .track
         }
     }

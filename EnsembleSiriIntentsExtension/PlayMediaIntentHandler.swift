@@ -147,6 +147,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         let activity = NSUserActivity(activityType: Self.activityType)
         activity.title = "Play in Ensemble"
         activity.userInfo = [Self.payloadUserInfoKey: payloadData]
+        // HomePod requests may need cross-device handoff semantics to wake the iPhone host app.
+        activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = false
         activity.isEligibleForPrediction = false
         logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
