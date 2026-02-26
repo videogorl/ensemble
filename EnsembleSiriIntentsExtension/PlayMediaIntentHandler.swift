@@ -101,7 +101,8 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         if let index = loadIndex(), !index.items.isEmpty {
             if let matchedItem = matchingItem(for: payload, in: index),
                requiresPlayableTracks(kind: payload.kind),
-               (matchedItem.trackCount ?? 0) <= 0 {
+               let trackCount = matchedItem.trackCount,
+               trackCount <= 0 {
                 logger.error("handle: matched container has no playable tracks")
                 completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
                 return
