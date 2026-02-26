@@ -11,6 +11,18 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let disambiguationThreshold = 0.1
     private static let appNameSuffixes = [" ensemble music", " ensemble"]
     private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
+    private static let leadingMediaTypePrefixes = [
+        "the playlist ",
+        "playlist ",
+        "the album ",
+        "album ",
+        "the artist ",
+        "artist ",
+        "the song ",
+        "song ",
+        "the track ",
+        "track "
+    ]
     private let logger = Logger(
         subsystem: "com.videogorl.ensemble.siri-intents",
         category: "PlayMediaIntentHandler"
@@ -27,6 +39,17 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     ) {
         os_log(.info, "SIRI_EXT: resolveMediaItems ENTRY")
         logger.info("resolveMediaItems: ENTRY - received intent")
+
+        // Siri may re-enter resolution after the user taps a disambiguation option.
+        // If we already have a valid payload identifier, keep it stable and avoid loops.
+        if let selected = intent.mediaItems?.first,
+           let identifier = selected.identifier,
+           let payload = decodePayloadIdentifier(identifier),
+           payload.schemaVersion == Self.currentPayloadSchemaVersion {
+            logger.debug("resolveMediaItems: using preselected media item to avoid re-disambiguation")
+            completion([.success(with: selected)])
+            return
+        }
 
         guard let query = queryText(from: intent), !query.isEmpty else {
             logger.info("resolveMediaItems: missing query; requesting value from Siri")
@@ -65,7 +88,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        if ranked.count > 1 {
+        let allowDisambiguation = requestedMediaType == .unknown
+        if allowDisambiguation && ranked.count > 1 {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
@@ -423,11 +447,17 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         var variants = Set<String>()
         variants.insert(base)
+        variants.insert(strippingLeadingMediaTypePrefix(from: base))
 
         for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
             let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             variants.insert(trimTrailingConnectorWords(in: trimmed))
+            variants.insert(
+                strippingLeadingMediaTypePrefix(
+                    from: trimTrailingConnectorWords(in: trimmed)
+                )
+            )
         }
 
         return variants
@@ -450,6 +480,16 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             tokens.removeLast()
         }
         return tokens.joined(separator: " ")
+    }
+
+    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
+        for prefix in Self.leadingMediaTypePrefixes where value.hasPrefix(prefix) {
+            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stripped.isEmpty {
+                return stripped
+            }
+        }
+        return value
     }
 
     /// Scores overlap based on shared query/candidate tokens.
