@@ -137,10 +137,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
+            // Use long-form route sharing so Siri/HomePod handoff can prefer
+            // remote playback routes instead of forcing local speaker output.
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowAirPlay, .allowBluetooth, .allowBluetoothA2DP]
+                policy: .longFormAudio,
+                options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
             )
         } catch {
             AppLogger.debug("Failed to configure audio session: \(error)")
@@ -461,8 +464,16 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         DependencyContainer.shared.accountManager.loadAccounts()
 
         do {
+            let routeBefore = AVAudioSession.sharedInstance().currentRoute.outputs
+                .map { "\($0.portType.rawValue):\($0.portName)" }
+                .joined(separator: ",")
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route BEFORE execute: %{public}@", origin, routeBefore)
             os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
+                .map { "\($0.portType.rawValue):\($0.portName)" }
+                .joined(separator: ",")
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route AFTER execute: %{public}@", origin, routeAfter)
             os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS", origin)
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {
@@ -477,9 +488,13 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
 private enum SiriPlaybackExecutionGate {
     private static var lastSignature: String?
     private static var lastExecutionDate: Date?
+    private static let lock = NSLock()
     private static let duplicateWindow: TimeInterval = 2.5
 
     static func shouldExecute(payload: SiriPlaybackRequestPayload) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
         let signature = [
             payload.kind.rawValue,
             payload.entityID,

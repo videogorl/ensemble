@@ -1043,10 +1043,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if !os(macOS)
         do {
             let session = AVAudioSession.sharedInstance()
+            // Keep playback eligible for system-managed long-form handoff
+            // routes (for example HomePod requests relayed via iPhone).
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowAirPlay, .allowBluetooth, .allowBluetoothA2DP]
+                policy: .longFormAudio,
+                options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
             )
         } catch {
             #if DEBUG
