@@ -134,16 +134,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        if let index = loadIndex(), !index.items.isEmpty {
-            if let matchedItem = matchingItem(for: payload, in: index),
-               requiresPlayableTracks(kind: payload.kind),
-               let trackCount = matchedItem.trackCount,
-               trackCount <= 0 {
-                logger.error("handle: matched container has no playable tracks")
-                completion(INPlayMediaIntentResponse(code: .failureNoUnplayedContent, userActivity: nil))
-                return
-            }
-        }
+        // Do not fail in the extension based on index trackCount metadata.
+        // Index data can be stale or partial, so playback viability must be
+        // validated in-app by SiriPlaybackCoordinator against live CoreData.
 
         guard let payloadData = try? JSONEncoder().encode(payload) else {
             logger.error("handle: failed to encode payload")
@@ -341,10 +334,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             $0.id == payload.entityID &&
             sourceMatches(requestSource: payload.sourceCompositeKey, candidateSource: $0.sourceCompositeKey)
         }
-    }
-
-    private func requiresPlayableTracks(kind: String) -> Bool {
-        kind == "album" || kind == "artist" || kind == "playlist"
     }
 
     private func sourceMatches(requestSource: String?, candidateSource: String?) -> Bool {
