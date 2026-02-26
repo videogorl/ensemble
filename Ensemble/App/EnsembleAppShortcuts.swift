@@ -89,9 +89,10 @@ private enum SiriIndexLookup {
             return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
         }
 
-        let results = Array(sorted.prefix(limit).map { $0.item })
+        let deduplicated = deduplicateEquivalentItems(sorted.map(\.item))
+        let results = Array(deduplicated.prefix(limit))
         #if DEBUG
-        SiriAppShortcutLogger.logger.debug(
+        SiriAppShortcutLogger.logger.info(
             "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .public)' normalized='\(query, privacy: .public)' matches=\(results.count, privacy: .public)"
         )
         #endif
@@ -164,6 +165,23 @@ private enum SiriIndexLookup {
         guard baseline > 0 else { return 0 }
         return 1.0 - (Double(distance) / Double(baseline))
     }
+
+    private static func deduplicateEquivalentItems(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
+        var seenKeys = Set<String>()
+        var results: [SiriMediaIndexItem] = []
+        results.reserveCapacity(items.count)
+
+        for item in items {
+            let displayKey = SiriPhraseSanitizer.normalized(item.displayName)
+            let secondaryKey = SiriPhraseSanitizer.normalized(item.secondaryText ?? "")
+            let canonicalKey = "\(displayKey)|\(secondaryKey)"
+            if seenKeys.insert(canonicalKey).inserted {
+                results.append(item)
+            }
+        }
+
+        return results
+    }
 }
 
 @available(iOS 16.0, *)
@@ -225,7 +243,7 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
             )
         }
         #if DEBUG
-        SiriAppShortcutLogger.logger.debug(
+        SiriAppShortcutLogger.logger.info(
             "SIRI_SHORTCUT: album entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
         )
         #endif
@@ -282,7 +300,7 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
             )
         }
         #if DEBUG
-        SiriAppShortcutLogger.logger.debug(
+        SiriAppShortcutLogger.logger.info(
             "SIRI_SHORTCUT: playlist entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
         )
         #endif
