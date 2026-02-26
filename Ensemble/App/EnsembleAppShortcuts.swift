@@ -64,6 +64,7 @@ private enum SiriPhraseSanitizer {
 private enum SiriIndexLookup {
     private static let appGroupIdentifier = "group.com.videogorl.ensemble"
     private static let filename = "siri-media-index.json"
+    private static let minimumMatchScore = 0.6
 
     static func fetchItems(kind: SiriMediaKind) -> [SiriMediaIndexItem] {
         guard let index = loadIndex() else { return [] }
@@ -77,7 +78,7 @@ private enum SiriIndexLookup {
         let scored: [(item: SiriMediaIndexItem, score: Double)] = fetchItems(kind: kind)
             .compactMap { item in
                 let score = matchScore(query: query, candidate: SiriPhraseSanitizer.normalized(item.displayName))
-                guard score > 0 else { return nil }
+                guard score >= minimumMatchScore else { return nil }
                 return (item: item, score: score)
             }
 
@@ -232,16 +233,9 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsembleAlbumEntity] {
-        SiriIndexLookup.fetchItems(kind: .album)
-            .prefix(20)
-            .map { item in
-                EnsembleAlbumEntity(
-                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
-                    ratingKey: item.id,
-                    title: item.displayName,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-            }
+        // Avoid broad fallback suggestions for albums because Siri may auto-pick
+        // an unrelated entry when speech capture is incomplete.
+        []
     }
 }
 
@@ -296,16 +290,8 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsemblePlaylistEntity] {
-        SiriIndexLookup.fetchItems(kind: .playlist)
-            .prefix(20)
-            .map { item in
-                EnsemblePlaylistEntity(
-                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
-                    ratingKey: item.id,
-                    title: item.displayName,
-                    sourceCompositeKey: item.sourceCompositeKey
-                )
-            }
+        // Keep playlist resolution strict for voice use; show no generic list on low confidence.
+        []
     }
 }
 
@@ -387,8 +373,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: PlayEnsembleAlbumIntent(),
             phrases: [
                 "Play album \(\.$album) on \(.applicationName)",
-                "In \(.applicationName), play album \(\.$album)",
-                "Ask \(.applicationName) to play album \(\.$album)"
+                "In \(.applicationName), play album \(\.$album)"
             ],
             shortTitle: "Play Album",
             systemImageName: "opticaldisc"
@@ -398,8 +383,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: PlayEnsemblePlaylistIntent(),
             phrases: [
                 "Play playlist \(\.$playlist) on \(.applicationName)",
-                "In \(.applicationName), play playlist \(\.$playlist)",
-                "Ask \(.applicationName) to play playlist \(\.$playlist)"
+                "In \(.applicationName), play playlist \(\.$playlist)"
             ],
             shortTitle: "Play Playlist",
             systemImageName: "music.note.list"
