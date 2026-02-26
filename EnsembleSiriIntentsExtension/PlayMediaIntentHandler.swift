@@ -109,8 +109,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         os_log(.info, "SIRI_EXT: confirm ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
         logger.debug("confirm: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
-        // HomePod requests often stop after confirm without invoking handle(intent:).
-        // Return continueInApp here so playback can still execute when handle is skipped.
+        // For HomePod requests, returning ready preserves the system's media routing
+        // flow. We still attach userActivity so the app has a playback payload if the
+        // system chooses to continue execution in-app.
         guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType),
               let activity = playbackUserActivity(for: payload) else {
             logger.debug("confirm: no payload available; returning ready")
@@ -119,9 +120,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        logger.debug("confirm: returning continueInApp for payload kind=\(payload.kind, privacy: .public)")
-        os_log(.info, "SIRI_EXT: confirm returning continueInApp kind=%{public}@", payload.kind)
-        completion(INPlayMediaIntentResponse(code: .continueInApp, userActivity: activity))
+        logger.debug("confirm: returning ready+activity for payload kind=\(payload.kind, privacy: .public)")
+        os_log(.info, "SIRI_EXT: confirm returning ready+activity kind=%{public}@", payload.kind)
+        completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
     }
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {

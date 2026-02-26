@@ -445,8 +445,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
-    guard SiriPlaybackExecutionGate.shouldExecute(payload: payload) else {
-        os_log(.info, "SIRI_APP: [origin=%{public}@] Skipping duplicate Siri payload", origin)
+    guard let executionSignature = SiriPlaybackExecutionGate.beginExecution(payload: payload) else {
+        os_log(
+            .info,
+            "SIRI_APP: [origin=%{public}@] Skipping duplicate Siri payload kind=%{public}@ entity=%{public}@",
+            origin,
+            payload.kind.rawValue,
+            payload.entityID
+        )
         return
     }
 
@@ -455,6 +461,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
 
     Task { @MainActor in
         defer {
+            SiriPlaybackExecutionGate.finishExecution(signature: executionSignature)
             if backgroundTaskID != .invalid {
                 application.endBackgroundTask(backgroundTaskID)
             }
@@ -464,8 +471,8 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         DependencyContainer.shared.accountManager.loadAccounts()
 
         do {
+            let hadExternalRouteBeforeExecute = await waitForPotentialExternalRoute(origin: origin)
             try? AVAudioSession.sharedInstance().setActive(true)
-            await waitForPotentialExternalRoute(origin: origin)
 
             let routeBefore = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
@@ -478,6 +485,24 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
                 .joined(separator: ",")
             os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route AFTER execute: %{public}@", origin, routeAfter)
             os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS", origin)
+
+            // If the request started locally, give HomePod/AirPlay one more chance
+            // to finalize route transfer after playback setup.
+            if !hadExternalRouteBeforeExecute {
+                let switchedAfterExecute = await waitForPotentialExternalRoute(
+                    origin: origin,
+                    phase: "postExecute",
+                    timeoutNanoseconds: 4_000_000_000
+                )
+                if switchedAfterExecute {
+                    os_log(
+                        .info,
+                        "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging resume",
+                        origin
+                    )
+                    DependencyContainer.shared.playbackService.resume()
+                }
+            }
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {
                 os_log(.error, "SIRI_APP: [origin=%{public}@] Coordinator error: %{public}@", origin, siriError.localizedDescription)
@@ -489,20 +514,25 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
 }
 
 @MainActor
-private func waitForPotentialExternalRoute(origin: String) async {
+@discardableResult
+private func waitForPotentialExternalRoute(
+    origin: String,
+    phase: String = "preExecute",
+    timeoutNanoseconds: UInt64 = 6_000_000_000
+) async -> Bool {
     let session = AVAudioSession.sharedInstance()
     let initialOutputs = session.currentRoute.outputs
     guard !hasExternalOutputRoute(initialOutputs) else {
-        return
+        return true
     }
 
     // HomePod requests can establish the AirPlay route shortly after Siri
-    // wakes the app. Give the route a brief chance to switch before playback.
-    let maxWaitNanoseconds: UInt64 = 2_500_000_000
+    // wakes the app. Poll briefly before and after playback setup to avoid
+    // racing local speaker playback when route transfer is still in flight.
     let stepNanoseconds: UInt64 = 250_000_000
     var waited: UInt64 = 0
 
-    while waited < maxWaitNanoseconds {
+    while waited < timeoutNanoseconds {
         try? await Task.sleep(nanoseconds: stepNanoseconds)
         waited += stepNanoseconds
 
@@ -511,15 +541,28 @@ private func waitForPotentialExternalRoute(origin: String) async {
             let route = outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Route switched to external: %{public}@", origin, route)
-            return
+            os_log(
+                .info,
+                "SIRI_APP: [origin=%{public}@][phase=%{public}@] Route switched to external: %{public}@",
+                origin,
+                phase,
+                route
+            )
+            return true
         }
     }
 
     let route = session.currentRoute.outputs
         .map { "\($0.portType.rawValue):\($0.portName)" }
         .joined(separator: ",")
-    os_log(.info, "SIRI_APP: [origin=%{public}@] Route remained local after wait: %{public}@", origin, route)
+    os_log(
+        .info,
+        "SIRI_APP: [origin=%{public}@][phase=%{public}@] Route remained local after wait: %{public}@",
+        origin,
+        phase,
+        route
+    )
+    return false
 }
 
 private func hasExternalOutputRoute(_ outputs: [AVAudioSessionPortDescription]) -> Bool {
@@ -529,32 +572,45 @@ private func hasExternalOutputRoute(_ outputs: [AVAudioSessionPortDescription]) 
 }
 
 private enum SiriPlaybackExecutionGate {
-    private static var lastSignature: String?
-    private static var lastExecutionDate: Date?
+    private static var lastExecutionDates: [String: Date] = [:]
+    private static var inFlightSignatures: Set<String> = []
     private static let lock = NSLock()
-    private static let duplicateWindow: TimeInterval = 2.5
+    private static let duplicateWindow: TimeInterval = 8
 
-    static func shouldExecute(payload: SiriPlaybackRequestPayload) -> Bool {
+    static func beginExecution(payload: SiriPlaybackRequestPayload) -> String? {
         lock.lock()
         defer { lock.unlock() }
 
         let signature = [
             payload.kind.rawValue,
-            payload.entityID,
-            payload.sourceCompositeKey ?? ""
+            payload.entityID
         ].joined(separator: "|")
 
         let now = Date()
-        if let lastSignature,
-           let lastExecutionDate,
-           lastSignature == signature,
-           now.timeIntervalSince(lastExecutionDate) <= duplicateWindow {
-            return false
+        pruneExpiredEntries(now: now)
+
+        if inFlightSignatures.contains(signature) {
+            return nil
         }
 
-        self.lastSignature = signature
-        self.lastExecutionDate = now
-        return true
+        if let lastExecutionDate = lastExecutionDates[signature],
+           now.timeIntervalSince(lastExecutionDate) <= duplicateWindow {
+            return nil
+        }
+
+        inFlightSignatures.insert(signature)
+        lastExecutionDates[signature] = now
+        return signature
+    }
+
+    static func finishExecution(signature: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        inFlightSignatures.remove(signature)
+    }
+
+    private static func pruneExpiredEntries(now: Date) {
+        lastExecutionDates = lastExecutionDates.filter { now.timeIntervalSince($0.value) <= duplicateWindow }
     }
 }
 
