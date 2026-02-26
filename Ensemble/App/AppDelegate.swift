@@ -86,6 +86,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
             if #available(iOS 16.0, *) {
                 EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+                #if DEBUG
+                AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
+                #endif
             }
         }
         
