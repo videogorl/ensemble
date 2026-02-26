@@ -108,6 +108,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
                 #endif
             }
+            
+            // Update Siri media user context with current library statistics
+            await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
         
         // Perform startup sync (non-blocking, runs in background)
@@ -548,6 +551,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             
             // Restart periodic sync timers
             DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+            
+            // Update Siri media user context in case library changed while backgrounded
+            await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
     }
 

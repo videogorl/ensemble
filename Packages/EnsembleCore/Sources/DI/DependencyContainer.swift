@@ -43,6 +43,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
+    public let siriMediaUserContextManager: SiriMediaUserContextManager
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -156,6 +157,13 @@ public final class DependencyContainer: @unchecked Sendable {
 
         siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef
+            )
+        }
+
+        siriMediaUserContextManager = MainActor.assumeIsolated {
+            SiriMediaUserContextManager(
                 libraryRepository: libraryRef,
                 playlistRepository: playlistRef
             )
