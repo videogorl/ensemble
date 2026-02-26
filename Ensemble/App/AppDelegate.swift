@@ -152,16 +152,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
     ) -> Bool {
         #if DEBUG
-        AppLogger.debug("📱 AppDelegate: continue userActivity type=\(userActivity.activityType)")
+        let forwardedIntent: String
+        if let intent = userActivity.interaction?.intent {
+            forwardedIntent = String(describing: type(of: intent))
+        } else {
+            forwardedIntent = "nil"
+        }
+        AppLogger.debug(
+            "📱 AppDelegate: continue userActivity type=\(userActivity.activityType) intent=\(forwardedIntent)"
+        )
         #endif
 
-        guard userActivity.activityType == SiriPlaybackActivityCodec.activityType else {
-            return false
-        }
-
-        guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+        guard let payload = siriPlaybackPayload(from: userActivity) else {
             #if DEBUG
-            AppLogger.debug("📱 AppDelegate: Siri activity payload decode failed")
+            AppLogger.debug("📱 AppDelegate: Siri activity payload decode failed (no payload)")
             #endif
             return false
         }
@@ -190,6 +194,95 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
 
         return true
+    }
+
+    /// Accepts both extension-supplied user activity payloads and direct Siri forwarded intents.
+    private func siriPlaybackPayload(from userActivity: NSUserActivity) -> SiriPlaybackRequestPayload? {
+        if let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) {
+            return payload
+        }
+
+        guard let playMediaIntent = userActivity.interaction?.intent as? INPlayMediaIntent else {
+            return nil
+        }
+
+        return payload(fromForwardedPlayMediaIntent: playMediaIntent)
+    }
+
+    private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
+        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+           let decoded = decodePayloadIdentifier(identifier),
+           decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
+            return decoded
+        }
+
+        guard let query = siriQueryText(from: intent), !query.isEmpty else {
+            return nil
+        }
+
+        return SiriPlaybackRequestPayload(
+            kind: siriMediaKind(from: intent),
+            entityID: query,
+            sourceCompositeKey: nil,
+            displayName: query
+        )
+    }
+
+    private func decodePayloadIdentifier(_ identifier: String) -> SiriPlaybackRequestPayload? {
+        guard let data = Data(base64Encoded: identifier) else {
+            return nil
+        }
+        return try? SiriPlaybackActivityCodec.decode(from: data)
+    }
+
+    private func siriQueryText(from intent: INPlayMediaIntent) -> String? {
+        if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
+            return explicit
+        }
+        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
+            return containerTitle
+        }
+        if let mediaSearch = intent.mediaSearch {
+            if let searched = mediaSearch.mediaName, !searched.isEmpty {
+                return searched
+            }
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+                return artistName
+            }
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+                return albumName
+            }
+        }
+        return nil
+    }
+
+    private func siriMediaKind(from intent: INPlayMediaIntent) -> SiriMediaKind {
+        let mediaType = intent.mediaSearch?.mediaType
+            ?? intent.mediaContainer?.type
+            ?? intent.mediaItems?.first?.type
+            ?? .unknown
+
+        switch mediaType {
+        case .song:
+            return .track
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        default:
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty {
+                return .artist
+            }
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty {
+                return .album
+            }
+            if intent.mediaContainer?.type == .playlist {
+                return .playlist
+            }
+            return .track
+        }
     }
     
     func applicationDidEnterBackground(_ application: UIApplication) {
