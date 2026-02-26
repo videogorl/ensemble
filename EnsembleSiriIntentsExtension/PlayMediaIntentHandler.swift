@@ -18,10 +18,12 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
+        let requestedMediaType = mediaType(from: intent)
+
         guard let index = loadIndex(), !index.items.isEmpty else {
             let fallback = makeFallbackMediaItem(
                 query: query,
-                mediaType: intent.mediaSearch?.mediaType ?? .unknown
+                mediaType: requestedMediaType
             )
             completion([.success(with: fallback)])
             return
@@ -29,11 +31,15 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         let ranked = rankCandidates(
             for: query,
-            mediaType: intent.mediaSearch?.mediaType ?? .unknown,
+            mediaType: requestedMediaType,
             index: index
         )
         guard let top = ranked.first else {
-            completion([.unsupported()])
+            let fallback = makeFallbackMediaItem(
+                query: query,
+                mediaType: requestedMediaType
+            )
+            completion([.success(with: fallback)])
             return
         }
 
@@ -54,14 +60,22 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        guard let mediaItem = intent.mediaItems?.first,
-              let identifier = mediaItem.identifier else {
-            completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
-            return
-        }
+        let requestedMediaType = mediaType(from: intent)
 
-        guard let payload = decodePayloadIdentifier(identifier),
-              payload.schemaVersion == Self.currentPayloadSchemaVersion else {
+        let payload: SiriPayloadIdentifier
+        if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
+           let decodedPayload = decodePayloadIdentifier(identifier),
+           decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
+            payload = decodedPayload
+        } else if let query = queryText(from: intent), !query.isEmpty {
+            payload = SiriPayloadIdentifier(
+                schemaVersion: Self.currentPayloadSchemaVersion,
+                kind: primaryKindFor(mediaType: requestedMediaType),
+                entityID: query,
+                sourceCompositeKey: nil,
+                displayName: query
+            )
+        } else {
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
         }
@@ -91,6 +105,9 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func queryText(from intent: INPlayMediaIntent) -> String? {
         if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
             return explicit
+        }
+        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
+            return containerTitle
         }
         if let searched = intent.mediaSearch?.mediaName, !searched.isEmpty {
             return searched
@@ -260,6 +277,20 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         default:
             return "track"
         }
+    }
+
+    private func mediaType(from intent: INPlayMediaIntent) -> INMediaItemType {
+        let searchedType = intent.mediaSearch?.mediaType ?? .unknown
+        if searchedType != .unknown {
+            return searchedType
+        }
+
+        let containerType = intent.mediaContainer?.type ?? .unknown
+        if containerType != .unknown {
+            return containerType
+        }
+
+        return intent.mediaItems?.first?.type ?? .unknown
     }
 
     private func loadIndex() -> SiriMediaIndexSnapshot? {
