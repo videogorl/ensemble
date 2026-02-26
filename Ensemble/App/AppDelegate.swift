@@ -385,6 +385,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 private func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
+    guard SiriPlaybackExecutionGate.shouldExecute(payload: payload) else {
+        os_log(.info, "SIRI_APP: [origin=%{public}@] Skipping duplicate Siri payload", origin)
+        return
+    }
+
     let application = UIApplication.shared
     let backgroundTaskID = application.beginBackgroundTask(withName: "SiriPlayback.\(origin)")
 
@@ -409,6 +414,32 @@ private func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload
                 os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
             }
         }
+    }
+}
+
+private enum SiriPlaybackExecutionGate {
+    private static var lastSignature: String?
+    private static var lastExecutionDate: Date?
+    private static let duplicateWindow: TimeInterval = 2.5
+
+    static func shouldExecute(payload: SiriPlaybackRequestPayload) -> Bool {
+        let signature = [
+            payload.kind.rawValue,
+            payload.entityID,
+            payload.sourceCompositeKey ?? ""
+        ].joined(separator: "|")
+
+        let now = Date()
+        if let lastSignature,
+           let lastExecutionDate,
+           lastSignature == signature,
+           now.timeIntervalSince(lastExecutionDate) <= duplicateWindow {
+            return false
+        }
+
+        self.lastSignature = signature
+        self.lastExecutionDate = now
+        return true
     }
 }
 

@@ -104,31 +104,28 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        logger.debug("confirm: returning ready")
-        completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
+        let requestedMediaType = mediaType(from: intent)
+        logger.debug("confirm: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
+
+        // HomePod flows may stop after confirm without invoking handle(intent:).
+        // Return a continueInApp response with payload activity so the app can
+        // execute playback even if handle is skipped by Siri.
+        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType),
+              let activity = playbackUserActivity(for: payload) else {
+            logger.debug("confirm: no payload available; returning ready")
+            completion(INPlayMediaIntentResponse(code: .ready, userActivity: nil))
+            return
+        }
+
+        logger.debug("confirm: returning continueInApp for payload kind=\(payload.kind, privacy: .public)")
+        completion(INPlayMediaIntentResponse(code: .continueInApp, userActivity: activity))
     }
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = mediaType(from: intent)
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
-        let payload: SiriPayloadIdentifier
-        if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
-           let decodedPayload = decodePayloadIdentifier(identifier),
-           decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
-            logger.debug("handle: using decoded payload identifier")
-            payload = decodedPayload
-        } else if let query = queryText(from: intent), !query.isEmpty {
-            let fallbackQuery = bestQueryVariant(from: query) ?? query
-            logger.debug("handle: building fallback payload from query=\(fallbackQuery, privacy: .public)")
-            payload = SiriPayloadIdentifier(
-                schemaVersion: Self.currentPayloadSchemaVersion,
-                kind: primaryKindFor(mediaType: requestedMediaType),
-                entityID: fallbackQuery,
-                sourceCompositeKey: nil,
-                displayName: fallbackQuery
-            )
-        } else {
+        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
@@ -138,10 +135,44 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // Index data can be stale or partial, so playback viability must be
         // validated in-app by SiriPlaybackCoordinator against live CoreData.
 
-        guard let payloadData = try? JSONEncoder().encode(payload) else {
-            logger.error("handle: failed to encode payload")
+        guard let activity = playbackUserActivity(for: payload) else {
+            logger.error("handle: failed to construct playback user activity")
             completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
             return
+        }
+
+        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
+        completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
+    }
+
+    private func payloadIdentifier(
+        from intent: INPlayMediaIntent,
+        mediaType: INMediaItemType
+    ) -> SiriPayloadIdentifier? {
+        if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
+           let decodedPayload = decodePayloadIdentifier(identifier),
+           decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
+            logger.debug("payloadIdentifier: using decoded payload identifier")
+            return decodedPayload
+        }
+
+        guard let query = queryText(from: intent), !query.isEmpty else {
+            return nil
+        }
+        let fallbackQuery = bestQueryVariant(from: query) ?? query
+        logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
+        return SiriPayloadIdentifier(
+            schemaVersion: Self.currentPayloadSchemaVersion,
+            kind: primaryKindFor(mediaType: mediaType),
+            entityID: fallbackQuery,
+            sourceCompositeKey: nil,
+            displayName: fallbackQuery
+        )
+    }
+
+    private func playbackUserActivity(for payload: SiriPayloadIdentifier) -> NSUserActivity? {
+        guard let payloadData = try? JSONEncoder().encode(payload) else {
+            return nil
         }
 
         let activity = NSUserActivity(activityType: Self.activityType)
@@ -151,8 +182,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = false
         activity.isEligibleForPrediction = false
-        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
-        completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
+        return activity
     }
 
     private func queryText(from intent: INPlayMediaIntent) -> String? {
