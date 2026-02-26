@@ -234,9 +234,10 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType) -> INMediaItem {
+        let fallbackKind = primaryKindFor(mediaType: mediaType)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
-            kind: primaryKindFor(mediaType: mediaType),
+            kind: fallbackKind,
             entityID: query,
             sourceCompositeKey: nil,
             displayName: query
@@ -252,7 +253,7 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         return INMediaItem(
             identifier: identifier,
             title: query,
-            type: mediaType,
+            type: mediaType == .unknown ? mediaTypeFor(kind: fallbackKind) : mediaType,
             artwork: nil
         )
     }
@@ -325,7 +326,22 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return containerType
         }
 
-        return intent.mediaItems?.first?.type ?? .unknown
+        let firstMediaItemType = intent.mediaItems?.first?.type ?? .unknown
+        if firstMediaItemType != .unknown {
+            return firstMediaItemType
+        }
+
+        if let mediaSearch = intent.mediaSearch {
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+                return .artist
+            }
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+                return .album
+            }
+        }
+
+        // Default unknown requests to songs so Siri always receives a concrete type.
+        return .song
     }
 
     private func loadIndex() -> SiriMediaIndexSnapshot? {
