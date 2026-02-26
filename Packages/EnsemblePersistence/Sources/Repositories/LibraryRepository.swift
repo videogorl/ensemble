@@ -44,6 +44,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
+    func fetchSiriEligibleTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
     func fetchFavoriteTracks() async throws -> [CDTrack]
@@ -76,6 +77,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func searchTracks(query: String) async throws -> [CDTrack]
     func searchArtists(query: String) async throws -> [CDArtist]
     func searchAlbums(query: String) async throws -> [CDAlbum]
+    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack]
+    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist]
+    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum]
 
     // Source management
     func fetchMusicSources() async throws -> [CDMusicSource]
@@ -389,6 +393,29 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         }
     }
 
+    public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
+                request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "lastPlayed", ascending: false),
+                    NSSortDescriptor(key: "playCount", ascending: false),
+                    NSSortDescriptor(key: "rating", ascending: false)
+                ]
+                request.fetchLimit = 2000
+                do {
+                    let tracks = try context.fetch(request)
+                    continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
@@ -661,6 +688,27 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         }
     }
 
+    public func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "title",
+                    query: title,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "title")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func searchArtists(query: String) async throws -> [CDArtist] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
@@ -671,6 +719,27 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let artists = try context.fetch(request)
                     continuation.resume(returning: artists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDArtist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "name",
+                    query: name,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "name")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -693,6 +762,64 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 }
             }
         }
+    }
+
+    public func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDAlbum] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDAlbum.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "title",
+                    query: title,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "title")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func scopedNameSearchPredicate(
+        fieldName: String,
+        query: String,
+        sourceCompositeKeys: Set<String>?
+    ) -> NSPredicate {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base: NSPredicate
+        if trimmed.isEmpty {
+            base = NSPredicate(value: false)
+        } else {
+            base = NSCompoundPredicate(orPredicateWithSubpredicates: [
+                NSPredicate(format: "%K ==[cd] %@", fieldName, trimmed),
+                NSPredicate(format: "%K BEGINSWITH[cd] %@", fieldName, trimmed),
+                NSPredicate(format: "%K CONTAINS[cd] %@", fieldName, trimmed)
+            ])
+        }
+
+        guard let sourceCompositeKeys, !sourceCompositeKeys.isEmpty else {
+            return base
+        }
+
+        let scoped = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])
+    }
+
+    private static func precisionSortDescriptors(primaryName: String) -> [NSSortDescriptor] {
+        [
+            NSSortDescriptor(
+                key: primaryName,
+                ascending: true,
+                selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+            ),
+            NSSortDescriptor(key: "updatedAt", ascending: false)
+        ]
     }
 
     // MARK: - Music Source

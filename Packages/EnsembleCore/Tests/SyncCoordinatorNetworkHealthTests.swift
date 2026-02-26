@@ -31,6 +31,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
         func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
         func fetchTracks() async throws -> [CDTrack] { [] }
+        func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
@@ -41,6 +42,9 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func searchTracks(query: String) async throws -> [CDTrack] { [] }
         func searchArtists(query: String) async throws -> [CDArtist] { [] }
         func searchAlbums(query: String) async throws -> [CDAlbum] { [] }
+        func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack] { [] }
+        func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist] { [] }
+        func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum] { [] }
         func fetchMusicSources() async throws -> [CDMusicSource] { [] }
         func upsertMusicSource(compositeKey: String, type: String, accountId: String, serverId: String, libraryId: String, displayName: String?, accountName: String?) async throws -> CDMusicSource { throw MockError.unimplemented }
         func updateMusicSourceSyncTimestamp(compositeKey: String) async throws {}
@@ -58,6 +62,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
         func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
         func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
+        func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
         func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
         func deletePlaylist(ratingKey: String) async throws {}

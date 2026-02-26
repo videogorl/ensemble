@@ -255,6 +255,7 @@ public final class SyncCoordinator: ObservableObject {
                     syncStatus: .lastSynced(Date()),
                     connectionState: resolvedConnectionState
                 )
+                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
             } catch {
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .error(syncErrorMessage(for: error)),
@@ -356,6 +357,7 @@ public final class SyncCoordinator: ObservableObject {
                 syncStatus: .lastSynced(Date()),
                 connectionState: resolvedConnectionState
             )
+            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
         } catch {
             sourceStatuses[source] = MusicSourceStatus(
                 syncStatus: .error(syncErrorMessage(for: error)),
@@ -460,6 +462,7 @@ public final class SyncCoordinator: ObservableObject {
                         syncStatus: .lastSynced(Date()),
                         connectionState: resolvedConnectionState
                     )
+                    SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
                 } catch {
                     sourceStatuses[sourceId] = MusicSourceStatus(
                         syncStatus: .error(syncErrorMessage(for: error)),
@@ -519,6 +522,7 @@ public final class SyncCoordinator: ObservableObject {
                     syncStatus: .lastSynced(Date()),
                     connectionState: resolvedConnectionState
                 )
+                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
             } catch {
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .error(syncErrorMessage(for: error)),
@@ -590,6 +594,7 @@ public final class SyncCoordinator: ObservableObject {
                 syncStatus: .lastSynced(Date()),
                 connectionState: resolvedConnectionState
             )
+            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
         } catch {
             sourceStatuses[source] = MusicSourceStatus(
                 syncStatus: .error(syncErrorMessage(for: error)),
