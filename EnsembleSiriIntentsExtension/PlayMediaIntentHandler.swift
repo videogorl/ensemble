@@ -160,9 +160,14 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         let kinds = kindsFor(mediaType: mediaType)
 
         return index.items
-            .filter { kinds.contains($0.kind) }
             .compactMap { item in
-                let score = scoreMatch(query: normalizedQuery, candidate: item.normalizedDisplayName)
+                // If specific kind requested, filter for it.
+                // If unknown, allow searching across all kinds.
+                if mediaType != .unknown && !kinds.contains(item.kind) {
+                    return nil
+                }
+
+                let score = scoreMatch(query: normalizedQuery, candidate: normalize(item.displayName))
                 guard score > 0 else { return nil }
                 return RankedItem(item: item, score: score)
             }
@@ -170,6 +175,16 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 if lhs.score != rhs.score {
                     return lhs.score > rhs.score
                 }
+                
+                // Tie-breaker: prefer the kind that matches the requested media type
+                if mediaType != .unknown {
+                    let lhsMatchesKind = kinds.contains(lhs.item.kind)
+                    let rhsMatchesKind = kinds.contains(rhs.item.kind)
+                    if lhsMatchesKind != rhsMatchesKind {
+                        return lhsMatchesKind
+                    }
+                }
+
                 if lhs.item.lastPlayed != rhs.item.lastPlayed {
                     return (lhs.item.lastPlayed ?? .distantPast) > (rhs.item.lastPlayed ?? .distantPast)
                 }
@@ -341,8 +356,9 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             }
         }
 
-        // Default unknown requests to songs so Siri always receives a concrete type.
-        return .song
+        // Return unknown if no specific type can be determined.
+        // This allows rankCandidates to search across all kinds.
+        return .unknown
     }
 
     private func loadIndex() -> SiriMediaIndexSnapshot? {
@@ -393,7 +409,6 @@ private struct SiriMediaIndexItemSnapshot: Decodable {
     let kind: String
     let id: String
     let displayName: String
-    let normalizedDisplayName: String
     let sourceCompositeKey: String?
     let secondaryText: String?
     let lastPlayed: Date?

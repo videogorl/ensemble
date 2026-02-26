@@ -77,7 +77,7 @@ public final class SiriMediaIndexStore {
         do {
             let artists = try await libraryRepository.fetchArtists()
             let albums = try await libraryRepository.fetchAlbums()
-            let tracks = try await libraryRepository.fetchTracks()
+            let tracks = try await libraryRepository.fetchSiriEligibleTracks()
             let playlists = try await playlistRepository.fetchPlaylists()
 
             var items: [SiriMediaIndexItem] = []
@@ -89,7 +89,6 @@ public final class SiriMediaIndexStore {
                         kind: .artist,
                         id: artist.ratingKey,
                         displayName: artist.name,
-                        normalizedDisplayName: Self.normalize(artist.name),
                         sourceCompositeKey: artist.sourceCompositeKey,
                         secondaryText: nil,
                         lastPlayed: nil,
@@ -105,7 +104,6 @@ public final class SiriMediaIndexStore {
                         kind: .album,
                         id: album.ratingKey,
                         displayName: album.title,
-                        normalizedDisplayName: Self.normalize(album.title),
                         sourceCompositeKey: album.sourceCompositeKey,
                         secondaryText: album.artistName,
                         lastPlayed: nil,
@@ -121,7 +119,6 @@ public final class SiriMediaIndexStore {
                         kind: .track,
                         id: track.ratingKey,
                         displayName: track.title,
-                        normalizedDisplayName: Self.normalize(track.title),
                         sourceCompositeKey: track.sourceCompositeKey,
                         secondaryText: track.artistName ?? track.albumName,
                         lastPlayed: track.lastPlayed,
@@ -137,7 +134,6 @@ public final class SiriMediaIndexStore {
                         kind: .playlist,
                         id: playlist.ratingKey,
                         displayName: playlist.title,
-                        normalizedDisplayName: Self.normalize(playlist.title),
                         sourceCompositeKey: playlist.sourceCompositeKey,
                         secondaryText: nil,
                         lastPlayed: playlist.lastPlayed,

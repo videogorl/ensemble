@@ -44,6 +44,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
+    func fetchSiriEligibleTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
     func fetchFavoriteTracks() async throws -> [CDTrack]
@@ -382,6 +383,29 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 request.sortDescriptors = [
                     NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
                 ]
+                do {
+                    let tracks = try context.fetch(request)
+                    continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
+                request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "lastPlayed", ascending: false),
+                    NSSortDescriptor(key: "playCount", ascending: false),
+                    NSSortDescriptor(key: "rating", ascending: false)
+                ]
+                request.fetchLimit = 2000
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)

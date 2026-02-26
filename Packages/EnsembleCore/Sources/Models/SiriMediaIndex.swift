@@ -24,7 +24,6 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let kind: SiriMediaKind
     public let id: String
     public let displayName: String
-    public let normalizedDisplayName: String
     public let sourceCompositeKey: String?
     public let secondaryText: String?
     public let lastPlayed: Date?
@@ -35,7 +34,6 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         kind: SiriMediaKind,
         id: String,
         displayName: String,
-        normalizedDisplayName: String,
         sourceCompositeKey: String? = nil,
         secondaryText: String? = nil,
         lastPlayed: Date? = nil,
@@ -45,7 +43,6 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.kind = kind
         self.id = id
         self.displayName = displayName
-        self.normalizedDisplayName = normalizedDisplayName
         self.sourceCompositeKey = sourceCompositeKey
         self.secondaryText = secondaryText
         self.lastPlayed = lastPlayed
