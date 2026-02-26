@@ -2403,17 +2403,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return AVPlayerItem(url: url)
         }
 
-        // Check network connectivity before attempting to stream
-        let isConnected = await MainActor.run(body: { networkMonitor.isConnected })
+        // Avoid failing fast on cold Siri launches where NWPathMonitor may still be
+        // in `.unknown`/not-yet-updated state. The stream URL request path below is
+        // authoritative and will surface real connectivity failures.
+        let networkState = await MainActor.run(body: { networkMonitor.networkState })
+        let isConnected = networkState.isConnected
         #if DEBUG
-        EnsembleLogger.debug("   Network connected: \(isConnected)")
+        EnsembleLogger.debug("   Network state: \(networkState.description), connected: \(isConnected)")
         #endif
 
-        guard isConnected else {
+        if !isConnected {
             #if DEBUG
-            EnsembleLogger.debug("   ❌ No network connection - cannot stream")
+            EnsembleLogger.debug("   ⚠️ Network monitor reports not connected; attempting optimistic stream setup")
             #endif
-            throw PlaybackError.offline
         }
 
         // Ensure the server connection is ready before attempting to get stream URL
