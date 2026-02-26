@@ -112,9 +112,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Perform startup sync (non-blocking, runs in background)
         Task.detached(priority: .utility) {
-            // Wait a bit longer to ensure the app is fully initialized
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            // Wait longer to ensure any Siri playback has a chance to start first.
+            // Resource contention during background launch is a common cause of
+            // audio session interruptions.
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
             
+            // If Siri playback was recently triggered, wait even longer.
+            // Using a simple file-based check as a global flag since some functions are top-level.
+            let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.videogorl.ensemble")
+            let pendingFile = appGroup?.appendingPathComponent("siri-pending-playback.json")
+            let hasPendingSiri = pendingFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            
+            if hasPendingSiri {
+                AppLogger.debug("📱 AppDelegate: Pending Siri playback detected, deferring startup sync further...")
+                try? await Task.sleep(nanoseconds: 10_000_000_000) // Another 10s
+            }
+
             AppLogger.debug("📱 AppDelegate: Starting startup sync...")
             let syncCoordinator = await MainActor.run {
                 DependencyContainer.shared.syncCoordinator
@@ -143,13 +156,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            // Use long-form route sharing so Siri/HomePod handoff can prefer
-            // remote playback routes instead of forcing local speaker output.
+            // Use default routing to allow both local speaker and external routes.
+            // The .allowAirPlay option enables HomePod/AirPlay without requiring
+            // .longFormAudio policy (which deprioritizes local speaker playback).
             try session.setCategory(
                 .playback,
                 mode: .default,
-                policy: .longFormAudio,
-                options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
+                options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
             )
         } catch {
             AppLogger.debug("Failed to configure audio session: \(error)")
@@ -606,6 +619,10 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         // Siri can launch us without the normal UI lifecycle warmup.
         DependencyContainer.shared.accountManager.loadAccounts()
 
+        // Give the system a moment to settle after wake-up before we start
+        // demanding audio session priority and network resources.
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+
         do {
             let hadExternalRouteBeforeExecute = await waitForPotentialExternalRoute(origin: origin)
             try? AVAudioSession.sharedInstance().setActive(true)
@@ -629,14 +646,16 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
                 let switchedAfterExecute = await waitForPotentialExternalRoute(
                     origin: origin,
                     phase: "postExecute",
-                    timeoutNanoseconds: 4_000_000_000
+                    timeoutNanoseconds: 6_000_000_000
                 )
                 if switchedAfterExecute {
                     os_log(
                         .info,
-                        "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging resume",
+                        "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging resume in 500ms",
                         origin
                     )
+                    // Wait a tiny bit more for the hardware/buffer to settle
+                    try? await Task.sleep(nanoseconds: 500_000_000)
                     DependencyContainer.shared.playbackService.resume()
                 }
             }

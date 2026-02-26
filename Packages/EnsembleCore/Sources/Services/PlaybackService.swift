@@ -650,8 +650,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var isInterrupted = false
+    private var isRouteChangeInProgress = false
+    private var lastRouteChangeAt: Date?
     private var lastUnexpectedPauseAt: Date?
+    private var lastSuccessfulPlayAt: Date?
+    private var unexpectedPauseCount = 0
     private var audioSessionInterruptionObserver: Any?
+    private var audioSessionRouteChangeObserver: Any?
     private var pendingSeekRequestID: UInt64?
     private var pendingSeekTargetTime: TimeInterval?
     private var pendingSeekTrackID: String?
@@ -1047,13 +1052,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if !os(macOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            // Keep playback eligible for system-managed long-form handoff
-            // routes (for example HomePod requests relayed via iPhone).
+            // Use default routing to allow both local speaker and external routes.
+            // The .allowAirPlay option enables HomePod/AirPlay without requiring
+            // .longFormAudio policy (which deprioritizes local speaker playback).
             try session.setCategory(
                 .playback,
                 mode: .default,
-                policy: .longFormAudio,
-                options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
+                options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
             )
 
             audioSessionInterruptionObserver = NotificationCenter.default.addObserver(
@@ -1063,6 +1068,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             ) { [weak self] notification in
                 Task { @MainActor in
                     self?.handleAudioSessionInterruption(notification)
+                }
+            }
+
+            audioSessionRouteChangeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor in
+                    self?.handleAudioSessionRouteChange(notification)
                 }
             }
         } catch {
@@ -1112,6 +1127,51 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         @unknown default:
             break
+        }
+    }
+
+    @MainActor
+    private func handleAudioSessionRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+
+        let now = Date()
+        lastRouteChangeAt = now
+        isRouteChangeInProgress = true
+
+        #if DEBUG
+        EnsembleLogger.debug("🎧 Audio route change detected: \(reason.rawValue)")
+        #endif
+
+        switch reason {
+        case .newDeviceAvailable:
+            #if DEBUG
+            EnsembleLogger.debug("🎧 New audio device available (e.g. AirPlay/HomePod connected)")
+            #endif
+            // Give the system a bit of time to settle the new route
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s
+                if self.lastRouteChangeAt == now {
+                    self.isRouteChangeInProgress = false
+                    #if DEBUG
+                    EnsembleLogger.debug("🎧 Route handover settle window finished")
+                    #endif
+                    if self.playbackState == .buffering {
+                        self.resume()
+                    }
+                }
+            }
+        case .oldDeviceUnavailable:
+            #if DEBUG
+            EnsembleLogger.debug("🎧 Audio device unavailable (e.g. disconnected)")
+            #endif
+            isRouteChangeInProgress = false
+            // Default system behavior is to pause; we should stay paused if the user disconnected.
+        default:
+            isRouteChangeInProgress = false
         }
     }
 
@@ -1430,7 +1490,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func resume() {
-        guard playbackState == .paused else { return }
+        guard playbackState == .paused || playbackState == .buffering else { return }
+        
+        #if !os(macOS)
+        // Ensure session is active before resuming, especially critical for background handovers.
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+
         player?.play()
         playbackState = .playing
         updateNowPlayingInfo()
@@ -2771,7 +2837,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if !os(macOS)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         #endif
 
         // Cache the player item (with LRU eviction) instead of clearing all
@@ -2787,12 +2853,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupObservers(for: item)
         updateBufferedProgress()
         
-        // CRITICAL: If the audio session is currently interrupted, do NOT attempt to play yet.
-        // We set the state to buffering so that the interruption-end handler will 
-        // resume playback once Siri/system is done.
-        if isInterrupted {
+        // Reset pause tracking for the new track
+        unexpectedPauseCount = 0
+        lastUnexpectedPauseAt = nil
+
+        // CRITICAL: If the audio session is currently interrupted or a route change
+        // is in progress, do NOT attempt to play yet. We set the state to buffering
+        // so that the interruption-end or route-change-settle handler will 
+        // resume playback once the system is ready.
+        if isInterrupted || isRouteChangeInProgress {
             #if DEBUG
-            EnsembleLogger.debug("🎵 Session interrupted; deferring playback start")
+            EnsembleLogger.debug("🎵 Session busy (interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)); deferring playback start")
             #endif
             playbackState = .buffering
             return
@@ -2881,16 +2952,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             #endif
                             self.playbackState = .playing
                             self.adaptiveBufferingState.conservativeWaitCycles = 0
+                            
+                            let now = Date()
+                            // Only reset loop detection if we've been playing for a bit
+                            if let lastPlay = self.lastSuccessfulPlayAt, now.timeIntervalSince(lastPlay) > 2.0 {
+                                self.unexpectedPauseCount = 0
+                            }
+                            self.lastSuccessfulPlayAt = now
                         }
 
                     case .paused:
                         // Player is paused (but not stopped)
                         
-                        // If we are currently interrupted, ignore this pause event.
-                        // The system is managing the pause during interruption.
-                        if self.isInterrupted {
+                        // If we are currently interrupted or a route change is in progress, 
+                        // ignore this pause event. The system is managing the pause.
+                        if self.isInterrupted || self.isRouteChangeInProgress {
                             #if DEBUG
-                            EnsembleLogger.debug("ℹ️ Ignoring AVPlayer pause during interruption")
+                            EnsembleLogger.debug("ℹ️ Ignoring AVPlayer pause: interrupted=\(self.isInterrupted), routeChange=\(self.isRouteChangeInProgress)")
                             #endif
                             return
                         }
@@ -2904,22 +2982,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             pendingSeekTargetTime: self.pendingSeekTargetTime
                         ) {
                             let now = Date()
-                            let isLooping = self.lastUnexpectedPauseAt.map { now.timeIntervalSince($0) < Self.minUnexpectedPauseInterval } ?? false
+                            let isRapidPause = self.lastUnexpectedPauseAt.map { now.timeIntervalSince($0) < Self.minUnexpectedPauseInterval } ?? false
                             self.lastUnexpectedPauseAt = now
+                            
+                            if isRapidPause {
+                                self.unexpectedPauseCount += 1
+                            } else {
+                                self.unexpectedPauseCount = 1
+                            }
 
-                            if isLooping {
+                            if self.unexpectedPauseCount > 3 {
                                 #if DEBUG
-                                EnsembleLogger.debug("🛑 Detected unexpected pause loop - falling back to buffering")
+                                EnsembleLogger.debug("🛑 Detected unexpected pause loop (\(self.unexpectedPauseCount)) - backing off")
                                 #endif
                                 self.playbackState = .buffering
-                                self.setupStallRecovery(recordStallEvent: true)
+                                // Use a longer back-off when looping
+                                self.scheduleStallRecovery(timeout: 5.0)
                                 return
                             }
 
                             #if DEBUG
-                            EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly")
+                            EnsembleLogger.debug("⚠️ AVPlayer paused unexpectedly (count=\(self.unexpectedPauseCount))")
                             #endif
-                            if recoveryAction.resumeImmediately {
+                            
+                            // If we've seen multiple pauses, don't resume immediately.
+                            // Set to buffering and let stall recovery handle it with a delay.
+                            if self.unexpectedPauseCount > 1 {
+                                self.playbackState = .buffering
+                                self.setupStallRecovery(recordStallEvent: true)
+                            } else if recoveryAction.resumeImmediately {
                                 self.resumePlayerFromBuffering(forceImmediate: true, reason: "unexpected-pause")
                             } else {
                                 self.playbackState = .buffering
@@ -3079,12 +3170,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func resumePlayerFromBuffering(forceImmediate: Bool, reason: String) {
         guard let player else { return }
 
-        // CRITICAL: If the audio session is currently interrupted, do NOT attempt to resume.
-        // Doing so while Siri is talking or another app has the session will cause AVPlayer 
-        // to immediately pause, leading to an infinite "unexpected-pause" loop.
-        if isInterrupted {
+        // CRITICAL: If the audio session is currently interrupted or a route change is in progress,
+        // do NOT attempt to resume. Doing so will cause AVPlayer to immediately pause,
+        // leading to an infinite "unexpected-pause" loop.
+        if isInterrupted || isRouteChangeInProgress {
             #if DEBUG
-            EnsembleLogger.debug("ℹ️ Skipping resumePlayerFromBuffering during interruption (\(reason))")
+            EnsembleLogger.debug("ℹ️ Skipping resumePlayerFromBuffering: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress) (\(reason))")
             #endif
             return
         }
@@ -3100,6 +3191,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         playbackState = .playing
         adaptiveBufferingState.conservativeWaitCycles = 0
+        // We assume success here; timeControlStatus will update if it fails.
         #if DEBUG
         EnsembleLogger.debug("▶️ Resuming playback (\(reason)) immediate=\(forceImmediate)")
         #endif
@@ -3541,6 +3633,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             audioSessionInterruptionObserver = nil
         }
 
+        if let observer = audioSessionRouteChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            audioSessionRouteChangeObserver = nil
+        }
+
         statusObservation?.invalidate()
         statusObservation = nil
 
@@ -3888,7 +3985,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if !os(macOS)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         #endif
 
         // Cache the player item (with LRU eviction) instead of clearing all
