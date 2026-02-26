@@ -10,6 +10,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private var coverFlowRotationSupportEnabled = false
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
+    private static let siriLeadingMediaTypePrefixes = [
+        "the playlist ",
+        "playlist ",
+        "the album ",
+        "album ",
+        "the artist ",
+        "artist ",
+        "the song ",
+        "song ",
+        "the track ",
+        "track "
+    ]
 
     func application(
         _ application: UIApplication,
@@ -297,6 +309,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             if intent.mediaContainer?.type == .playlist {
                 return .playlist
             }
+            if let inferred = inferredSiriMediaKind(from: siriQueryText(from: intent)) {
+                return inferred
+            }
             return .track
         }
     }
@@ -313,10 +328,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
             let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimTrailingConnectorWords(in: trimmed)
+            return strippingLeadingMediaTypePrefix(
+                from: trimTrailingConnectorWords(in: trimmed)
+            )
         }
 
-        return normalized
+        return strippingLeadingMediaTypePrefix(
+            from: trimTrailingConnectorWords(in: normalized)
+        )
     }
 
     private func trimTrailingConnectorWords(in value: String) -> String {
@@ -325,6 +344,44 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             tokens.removeLast()
         }
         return tokens.joined(separator: " ")
+    }
+
+    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
+        for prefix in Self.siriLeadingMediaTypePrefixes where value.hasPrefix(prefix) {
+            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stripped.isEmpty {
+                return stripped
+            }
+        }
+        return value
+    }
+
+    private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
+        guard let query else { return nil }
+        let normalized = query
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
+            return .playlist
+        }
+        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
+            return .album
+        }
+        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
+            return .artist
+        }
+        if normalized.hasPrefix("the song ")
+            || normalized.hasPrefix("song ")
+            || normalized.hasPrefix("the track ")
+            || normalized.hasPrefix("track ") {
+            return .track
+        }
+        return nil
     }
     
     func applicationDidEnterBackground(_ application: UIApplication) {
@@ -384,7 +441,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
-private func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
+func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
     guard SiriPlaybackExecutionGate.shouldExecute(payload: payload) else {
         os_log(.info, "SIRI_APP: [origin=%{public}@] Skipping duplicate Siri payload", origin)
         return
@@ -449,6 +506,18 @@ private enum SiriPlaybackExecutionGate {
 final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
+    private static let siriLeadingMediaTypePrefixes = [
+        "the playlist ",
+        "playlist ",
+        "the album ",
+        "album ",
+        "the artist ",
+        "artist ",
+        "the song ",
+        "song ",
+        "the track ",
+        "track "
+    ]
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
@@ -491,7 +560,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
-        let kind = mediaKindFrom(intent: intent)
+        let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
         return SiriPlaybackRequestPayload(
             kind: kind,
             entityID: sanitizedQuery,
@@ -527,7 +596,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         return nil
     }
 
-    private func mediaKindFrom(intent: INPlayMediaIntent) -> SiriMediaKind {
+    private func mediaKindFrom(intent: INPlayMediaIntent, fallbackQuery: String?) -> SiriMediaKind {
         let mediaType = intent.mediaSearch?.mediaType
             ?? intent.mediaContainer?.type
             ?? intent.mediaItems?.first?.type
@@ -542,6 +611,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty { return .artist }
             if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty { return .album }
             if intent.mediaContainer?.type == .playlist { return .playlist }
+            if let inferred = inferredSiriMediaKind(from: fallbackQuery) { return inferred }
             return .track
         }
     }
@@ -558,10 +628,14 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         for suffix in Self.siriAppNameSuffixes where normalized.hasSuffix(suffix) {
             let trimmed = normalized.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimTrailingConnectorWords(in: trimmed)
+            return strippingLeadingMediaTypePrefix(
+                from: trimTrailingConnectorWords(in: trimmed)
+            )
         }
 
-        return normalized
+        return strippingLeadingMediaTypePrefix(
+            from: trimTrailingConnectorWords(in: normalized)
+        )
     }
 
     private func trimTrailingConnectorWords(in value: String) -> String {
@@ -570,6 +644,44 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             tokens.removeLast()
         }
         return tokens.joined(separator: " ")
+    }
+
+    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
+        for prefix in Self.siriLeadingMediaTypePrefixes where value.hasPrefix(prefix) {
+            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stripped.isEmpty {
+                return stripped
+            }
+        }
+        return value
+    }
+
+    private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
+        guard let query else { return nil }
+        let normalized = query
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
+            return .playlist
+        }
+        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
+            return .album
+        }
+        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
+            return .artist
+        }
+        if normalized.hasPrefix("the song ")
+            || normalized.hasPrefix("song ")
+            || normalized.hasPrefix("the track ")
+            || normalized.hasPrefix("track ") {
+            return .track
+        }
+        return nil
     }
 }
 #endif

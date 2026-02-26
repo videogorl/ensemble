@@ -40,6 +40,18 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 public final class SiriPlaybackCoordinator {
     private static let appNameSuffixes = [" ensemble music", " ensemble"]
     private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
+    private static let leadingMediaTypePrefixes = [
+        "the playlist ",
+        "playlist ",
+        "the album ",
+        "album ",
+        "the artist ",
+        "artist ",
+        "the song ",
+        "song ",
+        "the track ",
+        "track "
+    ]
 
     private let accountManager: AccountManager
     private let libraryRepository: LibraryRepositoryProtocol
@@ -562,11 +574,15 @@ public final class SiriPlaybackCoordinator {
 
         var variants = Set<String>()
         variants.insert(base)
+        variants.insert(strippingLeadingMediaTypePrefix(from: base))
+        variants.insert(trimTrailingConnectorWords(in: base))
+        variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: base)))
 
         for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
             let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             variants.insert(trimTrailingConnectorWords(in: trimmed))
+            variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: trimmed)))
         }
 
         return variants
@@ -589,6 +605,16 @@ public final class SiriPlaybackCoordinator {
             tokens.removeLast()
         }
         return tokens.joined(separator: " ")
+    }
+
+    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
+        for prefix in Self.leadingMediaTypePrefixes where value.hasPrefix(prefix) {
+            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stripped.isEmpty {
+                return stripped
+            }
+        }
+        return value
     }
 
     private func matchScore(queries: [String], candidate: String) -> Double {

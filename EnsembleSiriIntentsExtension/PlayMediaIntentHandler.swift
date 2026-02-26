@@ -9,6 +9,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private static let payloadUserInfoKey = "siriPlaybackPayload"
     private static let currentPayloadSchemaVersion = 1
     private static let disambiguationThreshold = 0.1
+    private static let payloadResolutionThreshold = 0.66
     private static let appNameSuffixes = [" ensemble music", " ensemble"]
     private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private static let leadingMediaTypePrefixes = [
@@ -58,7 +59,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
         let normalizedQuery = bestQueryVariant(from: query) ?? query
 
-        let requestedMediaType = mediaType(from: intent)
+        let requestedMediaType = resolvedMediaType(from: intent, query: query)
         logger.info(
             "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
         )
@@ -104,7 +105,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        let requestedMediaType = mediaType(from: intent)
+        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
         logger.debug("confirm: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
         // HomePod flows may stop after confirm without invoking handle(intent:).
@@ -122,7 +123,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        let requestedMediaType = mediaType(from: intent)
+        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
 
         guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
@@ -160,10 +161,28 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return nil
         }
         let fallbackQuery = bestQueryVariant(from: query) ?? query
+
+        if let index = loadIndex(),
+           let top = rankCandidates(
+                for: fallbackQuery,
+                mediaType: mediaType,
+                index: index
+           ).first,
+           top.score >= Self.payloadResolutionThreshold {
+            logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
+            return SiriPayloadIdentifier(
+                schemaVersion: Self.currentPayloadSchemaVersion,
+                kind: top.item.kind,
+                entityID: top.item.id,
+                sourceCompositeKey: top.item.sourceCompositeKey,
+                displayName: top.item.displayName
+            )
+        }
+
         logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
         return SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
-            kind: primaryKindFor(mediaType: mediaType),
+            kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
             entityID: fallbackQuery,
             sourceCompositeKey: nil,
             displayName: fallbackQuery
@@ -331,7 +350,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType) -> INMediaItem {
-        let fallbackKind = primaryKindFor(mediaType: mediaType)
+        let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: fallbackKind,
@@ -393,7 +412,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
     }
 
-    private func primaryKindFor(mediaType: INMediaItemType) -> String {
+    private func primaryKindFor(mediaType: INMediaItemType, query: String? = nil) -> String {
         switch mediaType {
         case .song:
             return "track"
@@ -404,6 +423,20 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         case .playlist:
             return "playlist"
         default:
+            if let query {
+                switch inferMediaType(from: query) {
+                case .album:
+                    return "album"
+                case .artist:
+                    return "artist"
+                case .playlist:
+                    return "playlist"
+                case .song:
+                    return "track"
+                default:
+                    break
+                }
+            }
             return "track"
         }
     }
@@ -438,6 +471,34 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         return .unknown
     }
 
+    private func resolvedMediaType(from intent: INPlayMediaIntent, query: String) -> INMediaItemType {
+        let explicitType = mediaType(from: intent)
+        if explicitType != .unknown {
+            return explicitType
+        }
+        return inferMediaType(from: query)
+    }
+
+    private func inferMediaType(from query: String) -> INMediaItemType {
+        let normalized = normalize(query)
+        if normalized.hasPrefix("the playlist ") || normalized.hasPrefix("playlist ") {
+            return .playlist
+        }
+        if normalized.hasPrefix("the album ") || normalized.hasPrefix("album ") {
+            return .album
+        }
+        if normalized.hasPrefix("the artist ") || normalized.hasPrefix("artist ") {
+            return .artist
+        }
+        if normalized.hasPrefix("the song ")
+            || normalized.hasPrefix("song ")
+            || normalized.hasPrefix("the track ")
+            || normalized.hasPrefix("track ") {
+            return .song
+        }
+        return .unknown
+    }
+
     private func loadIndex() -> SiriMediaIndexSnapshot? {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
@@ -469,6 +530,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         var variants = Set<String>()
         variants.insert(base)
         variants.insert(strippingLeadingMediaTypePrefix(from: base))
+        let trimmedBase = trimTrailingConnectorWords(in: base)
+        variants.insert(trimmedBase)
+        variants.insert(strippingLeadingMediaTypePrefix(from: trimmedBase))
 
         for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
             let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)

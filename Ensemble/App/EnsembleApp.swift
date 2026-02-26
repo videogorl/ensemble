@@ -101,11 +101,24 @@ struct EnsembleApp: App {
 
     private func handleSiriPlaybackActivity(_ userActivity: NSUserActivity) {
         os_log(.info, "SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=%{public}@", userActivity.activityType)
-        Task { @MainActor in
-            os_log(.info, "SIRI_APP: EnsembleApp calling coordinator.handle()")
-            let handled = await DependencyContainer.shared.siriPlaybackCoordinator.handle(userActivity: userActivity)
-            os_log(.info, "SIRI_APP: EnsembleApp coordinator.handle() returned %{public}@", handled ? "true" : "false")
+        guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+            os_log(.error, "SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
+            return
         }
+
+        os_log(
+            .info,
+            "SIRI_APP: EnsembleApp forwarding payload kind=%{public}@ entity=%{public}@",
+            payload.kind.rawValue,
+            payload.entityID
+        )
+        #if os(iOS)
+        executeSiriPlaybackInBackground(payload: payload, origin: "swiftUIContinue")
+        #else
+        Task { @MainActor in
+            try? await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+        }
+        #endif
     }
 }
 
