@@ -2,7 +2,7 @@
 set -eu
 
 # Writes CFBundleVersion for the current built product Info.plist.
-# Format: YYYYMMDD-HHMM-<shortCommit>-<dailyCount>
+# Format: YYYYMMDD.HHMM.<shortCommit>.<dailyCount>
 #
 # When both the app and Siri extension are built in one invocation, the
 # extension allocates the daily counter and the app reuses the same value
@@ -40,7 +40,7 @@ allocate_build_number() {
   count=$((count + 1))
   printf "%s\n" "$count" > "$COUNTER_FILE"
 
-  BUILD_NUMBER="${DAY}-${HHMM}-${COMMIT}-${count}"
+  BUILD_NUMBER="${DAY}.${HHMM}.${COMMIT}.${count}"
   printf "%s|%s|%s\n" "$DAY" "$COMMIT" "$BUILD_NUMBER" > "$CURRENT_FILE"
 }
 
