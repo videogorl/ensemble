@@ -144,6 +144,18 @@ public final class ServerHealthChecker: ObservableObject {
         await checkServer(accountId: accountId, serverId: serverId, forceRefresh: false)
     }
 
+    /// Invalidate cached connection health data.
+    /// Call this on network interface switches to force full endpoint re-probing.
+    /// Without this, stale "preferred" endpoints from the previous network context
+    /// may be reused even when better local endpoints are now available.
+    public func invalidateConnectionHealth() async {
+        recentChecks.removeAll()
+        await failoverManager.resetHealthTracking()
+        #if DEBUG
+        EnsembleLogger.debug("🔄 ServerHealthChecker: Invalidated connection health caches for network transition")
+        #endif
+    }
+
     func checkServer(
         accountId: String,
         serverId: String,

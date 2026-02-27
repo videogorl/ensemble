@@ -1652,6 +1652,11 @@ public final class SyncCoordinator: ObservableObject {
 
         switch transition {
         case .reconnect:
+            // Invalidate connection health caches on reconnect.
+            // Stale endpoints from before the network went down may no longer work
+            // (e.g. if IP addresses changed or TLS state is corrupted).
+            await serverHealthChecker.invalidateConnectionHealth()
+
             // Immediately invalidate artwork URL cache on reconnect.
             // This prevents stale artwork requests that use old endpoint URLs while
             // health checks are still running.
@@ -1661,6 +1666,13 @@ public final class SyncCoordinator: ObservableObject {
             await onConnectionsRefreshed?()
             scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
         case .interfaceSwitch(let from, let to):
+            // Invalidate connection health caches on interface switch.
+            // Without this, stale "preferred" endpoints from the previous network context
+            // (e.g. remote endpoints cached while on cellular) may be reused even when
+            // better local endpoints are now available (after switching to WiFi).
+            // This forces a full re-probe of all endpoints.
+            await serverHealthChecker.invalidateConnectionHealth()
+
             // Immediately invalidate artwork URL cache on interface switch.
             // This prevents stale artwork requests that use old endpoint URLs while
             // health checks are still running. The cache will be invalidated again

@@ -2978,13 +2978,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("❌ Player failed: \(errorDescription)")
                     #endif
 
-                    // Check if this is a TLS error - if so, the current endpoint may be bad
-                    // and we should force a connection refresh before retrying
-                    let isTLSError = errorDescription.lowercased().contains("tls") ||
-                                     errorDescription.lowercased().contains("secure connection")
-                    if isTLSError {
+                    // Check if this is a connection-related error - if so, the current endpoint
+                    // may be bad and we should force a connection refresh before retrying.
+                    // "resource unavailable" often masks underlying TLS errors (like -1200)
+                    // that occur after network interface switches with stale connections.
+                    let errorLower = errorDescription.lowercased()
+                    let isConnectionError = errorLower.contains("tls") ||
+                                            errorLower.contains("secure connection") ||
+                                            errorLower.contains("resource unavailable") ||
+                                            errorLower.contains("connection was lost")
+                    if isConnectionError {
                         #if DEBUG
-                        EnsembleLogger.debug("🔒 TLS error detected - forcing connection refresh")
+                        EnsembleLogger.debug("🔒 Connection error detected - forcing connection refresh")
                         #endif
                         Task { @MainActor [weak self] in
                             await self?.handleTLSPlaybackFailure()
