@@ -3034,6 +3034,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             )
                             self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
                         } else if self.playbackState == .loading {
+                            #if DEBUG
+                            EnsembleLogger.debug("⏳ AVPlayer waiting to play (initial buffering)")
+                            #endif
+                            // Transition to buffering so recovery handler can act if this takes too long
+                            self.playbackState = .buffering
                             // Initial startup waits are expected and should not escalate adaptive buffering.
                             self.setupStallRecovery(recordStallEvent: false)
                         }
