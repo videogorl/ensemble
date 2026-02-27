@@ -1,0 +1,266 @@
+---
+name: testing
+description: "Load before writing tests or after implementing a major feature. Test locations, what to test, mock patterns, async test patterns, commands to run tests, and the rule to run tests before committing."
+---
+
+# Ensemble Testing Guide
+
+## When to Write Tests
+
+**Required:**
+- New services (business logic, sync, playback, repositories)
+- New sync flows or incremental sync logic
+- CoreData model changes (save/fetch/delete round-trips)
+- Playlist mutation logic
+- Any complex domain model logic (filtering, sorting, mapping)
+
+**Not required:**
+- Simple ViewModels that only pass data through
+- Pure UI / SwiftUI views
+- Trivial one-liners
+
+**When adding a major architectural feature:** write at least one test per public method on any new service or repository before committing. This ensures future refactors don't silently break the feature.
+
+---
+
+## Run Tests Before Committing
+
+**Always run the affected package's tests before committing after a non-trivial change:**
+
+```bash
+# Test the package you modified
+swift test --package-path Packages/EnsembleAPI
+swift test --package-path Packages/EnsembleCore
+swift test --package-path Packages/EnsemblePersistence
+swift test --package-path Packages/EnsembleUI
+
+# Run all tests via Xcode (slower but comprehensive)
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+```
+
+If tests fail, fix them before committing. Do not commit a broken test suite.
+
+---
+
+## Test File Locations
+
+Each package has a `Tests/` folder beside `Sources/`:
+
+```
+Packages/EnsembleAPI/Tests/PlexAPIClientTests.swift
+Packages/EnsembleCore/Tests/PlaybackServiceTests.swift
+Packages/EnsemblePersistence/Tests/LibraryRepositoryTests.swift
+Packages/EnsembleUI/Tests/EnsembleUITests.swift
+```
+
+Add new test files to the appropriate `Tests/` folder. One file per major class/service is fine; group related tests in the same file using `// MARK:` sections.
+
+---
+
+## Basic Test Structure
+
+```swift
+import XCTest
+@testable import EnsembleCore  // use @testable to access internal types
+
+final class MyServiceTests: XCTestCase {
+
+    // MARK: - My Feature
+
+    func testSomethingHappens() throws {
+        // Arrange
+        let sut = MyService()
+
+        // Act
+        let result = sut.doSomething()
+
+        // Assert
+        XCTAssertEqual(result, expectedValue)
+    }
+
+    func testAsyncOperation() async throws {
+        let sut = MyService()
+        let result = try await sut.fetchSomething()
+        XCTAssertFalse(result.isEmpty)
+    }
+}
+```
+
+---
+
+## Mocking Dependencies (Protocol-Based)
+
+Services use protocol-based dependencies — inject a mock in tests instead of the real implementation:
+
+```swift
+// Define a mock conforming to the protocol
+private final class MockKeychain: KeychainServiceProtocol, @unchecked Sendable {
+    private var storage: [String: String] = [:]
+
+    func save(_ value: String, forKey key: String) throws {
+        storage[key] = value
+    }
+    func get(_ key: String) throws -> String? {
+        storage[key]
+    }
+    func delete(_ key: String) throws {
+        storage.removeValue(forKey: key)
+    }
+}
+
+// Inject it
+func testClientUsesInjectedKeychain() async throws {
+    let keychain = MockKeychain()
+    let client = PlexAPIClient(
+        connection: PlexServerConnection(
+            url: "https://example.com",
+            token: "token123",
+            identifier: "server",
+            name: "Server"
+        ),
+        keychain: keychain
+    )
+    // ... test behavior
+}
+```
+
+The same pattern applies to any protocol in the codebase:
+- `KeychainServiceProtocol` → mock for API tests
+- `LibraryRepositoryProtocol` → mock for ViewModel/service tests
+- `PlaylistRepositoryProtocol` → mock for playlist mutation tests
+- `HubRepositoryProtocol` → mock for HomeViewModel / hub tests
+
+When testing non-protocol concrete services (for example `SyncCoordinator` or `HomeViewModel`), prefer internal test seams (`...ForTesting` closures/helpers) over production-facing API changes.
+
+---
+
+## Testing CoreData (In-Memory Store)
+
+Use an in-memory `CoreDataStack` to avoid touching the real database:
+
+```swift
+func testSaveAndFetchTrack() async throws {
+    // Use an in-memory store — fast, isolated, no cleanup needed
+    let stack = CoreDataStack(inMemory: true)
+    let repo = LibraryRepository(context: stack.viewContext)
+
+    // Save
+    try await repo.saveTrack(makeFakeTrack())
+
+    // Fetch
+    let tracks = try await repo.fetchTracks(sourceIdentifier: "test-source")
+    XCTAssertEqual(tracks.count, 1)
+    XCTAssertEqual(tracks.first?.title, "Test Track")
+}
+```
+
+Never use `CoreDataStack.shared` in tests — it writes to the real app database.
+
+---
+
+## Testing JSON Decoding (API Models)
+
+Plex API model decoding is high-value to test because the server response shape can change:
+
+```swift
+func testPlexTrackDecoding() throws {
+    let json = """
+    {
+        "ratingKey": "42",
+        "title": "My Song",
+        "parentTitle": "My Album",
+        "grandparentTitle": "My Artist",
+        "duration": 240000
+    }
+    """
+    let track = try JSONDecoder().decode(PlexTrack.self, from: json.data(using: .utf8)!)
+    XCTAssertEqual(track.ratingKey, "42")
+    XCTAssertEqual(track.durationSeconds, 240.0)
+}
+```
+
+Test for nil-safety: Plex often omits optional fields. Verify missing fields decode to `nil` rather than crashing:
+
+```swift
+func testPlexTrackDecodesWithMissingOptionals() throws {
+    let json = """{ "ratingKey": "1", "title": "Minimal" }"""
+    let track = try JSONDecoder().decode(PlexTrack.self, from: json.data(using: .utf8)!)
+    XCTAssertNil(track.parentTitle)
+    XCTAssertNil(track.duration)
+}
+```
+
+---
+
+## Testing Domain Model Logic
+
+Domain model transformations (mapping, filtering, sorting) are pure functions — easy to test, high value:
+
+```swift
+func testFilterOptionsMatchesByGenre() {
+    var filter = FilterOptions()
+    filter.selectedGenreIds = ["rock"]
+
+    let rockTrack = Track(id: "1", title: "Rock Song", genreIds: ["rock"])
+    let jazzTrack = Track(id: "2", title: "Jazz Song", genreIds: ["jazz"])
+
+    XCTAssertTrue(filter.matches(rockTrack))
+    XCTAssertFalse(filter.matches(jazzTrack))
+}
+```
+
+---
+
+## What's Already Tested
+
+| File | What it covers |
+|------|---------------|
+| `PlexAPIClientTests.swift` | `PlexTrack`/`PlexDevice` JSON decoding, DELETE request building |
+| `ConnectionFailoverManagerTests.swift` | Local-first ordering, relay-last fallback, preferred fast path, fallback probing, connection health counters |
+| `PlexResourcesSpecTests.swift` | Resources endpoint query/header contract (`includeHttps`, `includeRelay`, `includeIPv6`, Plex headers) |
+| `PlexAPIClientFailoverPolicyTests.swift` | Failover triggers on transport failures only (not HTTP semantic/decoding failures) |
+| `PlexAuthTokenLifecycleTests.swift` | JWT metadata parsing and expired-token detection |
+| `PlaybackServiceTests.swift` | `Track.formattedDuration`, `RepeatMode` cycling |
+| `NetworkMonitorTests.swift` | monitor restart/idempotency behavior and debounced state publishing |
+| `SyncCoordinatorNetworkHealthTests.swift` | reconnect/interface-switch triggers, cooldown/staleness gating, offline handling |
+| `ServerHealthCheckerClassificationTests.swift` | failure taxonomy classification (`localOnlyReachable`, `tlsPolicyBlocked`, etc.) |
+| `SettingsManagerConnectionPolicyTests.swift` | persisted insecure-policy default + round-trip persistence |
+| `AccountManagerAuthPolicyTests.swift` | auth migration cutover and expired-account pruning |
+| `HomeViewModelRefreshPolicyTests.swift` | scroll-time refresh deferral, coalescing, idle flush, manual-refresh bypass |
+| `LibraryVisibilityProfileTests.swift` | visibility profile persistence + source-level filtering seams (without changing sync enablement) |
+| `LibraryRepositoryTests.swift` | `CoreDataStack` initialization (minimal — expand as needed) |
+
+When adding tests, check this list first to avoid duplicating coverage.
+
+---
+
+## What Needs More Coverage (Priority Areas)
+
+These are under-tested and worth expanding as features grow:
+
+- `SyncCoordinator` — incremental sync logic, timestamp filtering
+- `PlaylistRepository` — CRUD round-trips, smart playlist read-only guard
+- `FilterOptions` — matching and sorting logic
+- `ModelMappers` — `CD*` ↔ domain model conversions
+- `PlexMusicSourceSyncProvider` — incremental sync since-timestamp logic
+
+---
+
+## Spec-Parity Network Test Pattern
+
+When touching endpoint discovery/routing/auth lifecycle:
+
+1. Add an API-level contract test for request composition (query parameters + required Plex headers).
+2. Add failover-policy tests that separate transport errors from HTTP semantic failures.
+3. Add endpoint-ordering tests that validate local/direct preference and relay-last fallback.
+4. Add Core-level tests for failure classification and user-facing policy state persistence.
+5. Add auth lifecycle tests for migration and token expiry enforcement.
+
+Run both:
+
+```bash
+swift test --package-path Packages/EnsembleAPI
+swift test --package-path Packages/EnsembleCore
+```

@@ -3,12 +3,21 @@ import SwiftUI
 
 struct PlaylistDetailLoader: View {
     let playlistId: String
+    let playlistSourceKey: String?
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
     @State private var isLoading = true
     @State private var error: Error?
+    @State private var hasStartedLoading = false
+    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
+
+    init(playlistId: String, playlistSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
+        self.playlistId = playlistId
+        self.playlistSourceKey = playlistSourceKey
+        self.nowPlayingVM = nowPlayingVM
+    }
     
     var body: some View {
         Group {
@@ -38,14 +47,25 @@ struct PlaylistDetailLoader: View {
                     .foregroundColor(.secondary)
             }
         }
-        .task {
-            await loadPlaylist()
+        .onAppear {
+            guard !hasStartedLoading else { return }
+            hasStartedLoading = true
+            loadTask = Task {
+                await loadPlaylist()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
+    @MainActor
     private func loadPlaylist() async {
         do {
-            if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(ratingKey: playlistId) {
+            if let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                ratingKey: playlistId,
+                sourceCompositeKey: playlistSourceKey
+            ) {
                 self.playlist = Playlist(from: cdPlaylist)
             }
             self.isLoading = false

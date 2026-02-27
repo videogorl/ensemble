@@ -1,0 +1,37 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Internal/Extensions.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Extensions.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Extensions.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Extensions.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Extensions.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Extensions.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Internal/Graphics.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Graphics.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Graphics.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Graphics.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Graphics.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/Graphics.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Internal/ImagePublisher.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImagePublisher.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImagePublisher.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImagePublisher.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImagePublisher.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImagePublisher.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Internal/ImageRequestKeys.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImageRequestKeys.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImageRequestKeys.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImageRequestKeys.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImageRequestKeys.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/ImageRequestKeys.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Internal/LinkedList.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/LinkedList.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/LinkedList.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/LinkedList.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/LinkedList.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug-iphonesimulator/Nuke.build/Objects-normal/arm64/LinkedList.swiftdeps"
+  }
+}

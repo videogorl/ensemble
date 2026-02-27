@@ -1,0 +1,69 @@
+{
+  "" : {
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI-primary.dia",
+    "emit-module-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI-primary-emit-module.dia",
+    "pch" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI-primary.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/Auth/KeychainService.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/KeychainService~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/Auth/PlexAuthService.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAuthService~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/Client/ConnectionFailoverManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/ConnectionFailoverManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexAPIClient~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/EnsembleAPI.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/EnsembleAPI~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleAPI/Sources/Models/PlexModels.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.dia",
+    "index-unit-output-path" : "/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleAPI.build/Debug/EnsembleAPI.build/Objects-normal/arm64/PlexModels~partial.swiftmodule"
+  }
+}

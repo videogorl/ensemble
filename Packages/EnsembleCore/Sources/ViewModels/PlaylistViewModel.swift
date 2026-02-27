@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 public final class PlaylistViewModel: ObservableObject {
+    private static let optimisticCreatePrefix = "creating:"
+
     @Published public private(set) var playlists: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
@@ -15,22 +17,40 @@ public final class PlaylistViewModel: ObservableObject {
     @Published public var filterOptions: FilterOptions
 
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var optimisticCreatingPlaylists: [Playlist] = []
+    private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
 
     public init(
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlistRepository = playlistRepository
+        self.syncCoordinator = syncCoordinator
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
-        
+
         // Load sort option from filters
         if let savedSort = PlaylistSortOption(rawValue: savedFilters.sortBy) {
             self.playlistSortOption = savedSort
         }
-        
+
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Auto-reload when sync completes
+        syncCoordinator.$isSyncing
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] syncing in
+                if !syncing {
+                    Task { @MainActor in
+                        await self?.loadPlaylists()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -41,17 +61,82 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func loadPlaylists() async {
-        isLoading = true
-        error = nil
+        await reloadPlaylists(showLoading: true)
+    }
 
-        do {
-            let cached = try await playlistRepository.fetchPlaylists()
-            playlists = cached.map { Playlist(from: $0) }
-        } catch {
-            self.error = error.localizedDescription
+    /// Sync playlists from server, then reload from cache
+    public func refreshFromServer() async {
+        // Check if offline
+        if syncCoordinator.isOffline {
+            #if DEBUG
+            EnsembleLogger.debug("📴 Offline - loading playlists from cache only")
+            #endif
+            await loadPlaylists()
+            return
         }
 
-        isLoading = false
+        error = nil
+
+        // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
+        #endif
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncPlaylistsOnly()
+                continuation.resume()
+            }
+        }
+        #if DEBUG
+        EnsembleLogger.debug("✅ Playlist sync complete")
+        #endif
+
+        // Reload from updated cache
+        await loadPlaylists()
+    }
+
+    public func deletePlaylist(_ playlist: Playlist) async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            error = "Playlist name cannot be empty."
+            return false
+        }
+
+        addOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
+
+        do {
+            _ = try await syncCoordinator.createPlaylist(
+                title: trimmed,
+                tracks: [],
+                serverSourceKey: serverSourceKey
+            )
+            Task { [weak self] in
+                await self?.awaitCreatedPlaylistMaterialization(
+                    title: trimmed,
+                    serverSourceKey: serverSourceKey
+                )
+            }
+            return true
+        } catch {
+            removeOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
+            await reloadPlaylists(showLoading: false)
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func isPlaylistPendingCreation(_ playlist: Playlist) -> Bool {
+        Self.isOptimisticCreatingPlaylistID(playlist.id)
     }
     
     public var sortedPlaylists: [Playlist] {
@@ -93,6 +178,155 @@ public final class PlaylistViewModel: ObservableObject {
         
         return filtered
     }
+
+    private func reloadPlaylists(showLoading: Bool) async {
+        if showLoading {
+            isLoading = true
+        }
+        error = nil
+
+        do {
+            let serverPlaylists = try await fetchCachedPlaylists()
+            optimisticCreatingPlaylists.removeAll { optimistic in
+                serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
+            }
+            let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
+            playlists = mergeWithOptimisticCreatingPlaylists(renamedApplied)
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        if showLoading {
+            isLoading = false
+        }
+    }
+
+    private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {
+        for _ in 0..<20 {
+            await reloadPlaylists(showLoading: false)
+            let hasPending = optimisticCreatingPlaylists.contains(where: {
+                normalizedTitle($0.title) == normalizedTitle(title) &&
+                $0.sourceCompositeKey == serverSourceKey
+            })
+            if !hasPending {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+    }
+
+    private func addOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
+        let placeholder = Playlist(
+            id: "\(Self.optimisticCreatePrefix)\(UUID().uuidString)",
+            key: "/playlists/pending",
+            title: title,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            dateAdded: Date(),
+            dateModified: Date(),
+            sourceCompositeKey: serverSourceKey
+        )
+        optimisticCreatingPlaylists.removeAll(where: { matchesPlaylistIdentity($0, placeholder) })
+        optimisticCreatingPlaylists.append(placeholder)
+        playlists = mergeWithOptimisticCreatingPlaylists(playlists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) })
+    }
+
+    private func removeOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
+        optimisticCreatingPlaylists.removeAll {
+            normalizedTitle($0.title) == normalizedTitle(title) &&
+            $0.sourceCompositeKey == serverSourceKey
+        }
+    }
+
+    private func mergeWithOptimisticCreatingPlaylists(_ serverPlaylists: [Playlist]) -> [Playlist] {
+        let unresolvedOptimistic = optimisticCreatingPlaylists.filter { optimistic in
+            !serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
+        }
+        return serverPlaylists + unresolvedOptimistic
+    }
+
+    private func applyOptimisticRenames(to playlists: [Playlist]) -> [Playlist] {
+        playlists.map { playlist in
+            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByID[playlist.id] else {
+                return playlist
+            }
+            return Playlist(
+                id: playlist.id,
+                key: playlist.key,
+                title: optimisticTitle,
+                summary: playlist.summary,
+                isSmart: playlist.isSmart,
+                trackCount: playlist.trackCount,
+                duration: playlist.duration,
+                compositePath: playlist.compositePath,
+                dateAdded: playlist.dateAdded,
+                dateModified: playlist.dateModified,
+                lastPlayed: playlist.lastPlayed,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            )
+        }
+    }
+
+    public func applyOptimisticRename(for playlist: Playlist, newTitle: String) {
+        applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+    }
+
+    public func applyOptimisticRename(forPlaylistID playlistID: String, newTitle: String) {
+        optimisticRenamedPlaylistTitlesByID[playlistID] = newTitle
+        playlists = applyOptimisticRenames(to: playlists)
+    }
+
+    public func clearOptimisticRename(for playlistID: String) {
+        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlistID)
+    }
+
+    public func awaitRenamedPlaylistMaterialization(for playlistID: String, expectedTitle: String) async {
+        let normalizedExpectedTitle = normalizedTitle(expectedTitle)
+
+        for _ in 0..<20 {
+            do {
+                let serverPlaylists = try await fetchCachedPlaylists()
+                let hasMaterializedTitle = serverPlaylists.contains {
+                    $0.id == playlistID && normalizedTitle($0.title) == normalizedExpectedTitle
+                }
+
+                if hasMaterializedTitle {
+                    clearOptimisticRename(for: playlistID)
+                    playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+                    return
+                }
+
+                playlists = mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+            } catch {
+                self.error = error.localizedDescription
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+
+        clearOptimisticRename(for: playlistID)
+        await reloadPlaylists(showLoading: false)
+    }
+
+    private static func isOptimisticCreatingPlaylistID(_ id: String) -> Bool {
+        id.hasPrefix(optimisticCreatePrefix)
+    }
+
+    private func matchesPlaylistIdentity(_ lhs: Playlist, _ rhs: Playlist) -> Bool {
+        normalizedTitle(lhs.title) == normalizedTitle(rhs.title) &&
+        lhs.sourceCompositeKey == rhs.sourceCompositeKey
+    }
+
+    private func normalizedTitle(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func fetchCachedPlaylists() async throws -> [Playlist] {
+        let cached = try await playlistRepository.fetchPlaylists()
+        return cached.map { Playlist(from: $0) }
+    }
 }
 
 // MARK: - Playlist Detail ViewModel
@@ -107,16 +341,20 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
+    private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var shouldSkipNextLoadAfterLocalEdit = false
 
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
-        libraryRepository: LibraryRepositoryProtocol
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator
     ) {
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
+        self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
         
         // Save filter options when they change
@@ -131,42 +369,25 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func loadTracks() async {
+        if shouldSkipNextLoadAfterLocalEdit {
+            shouldSkipNextLoadAfterLocalEdit = false
+            return
+        }
+
         isLoading = true
         error = nil
 
         do {
-            var allTracks: [Track] = []
-            var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
-            
-            // Fetch all playlists from the repository
-            let allPlaylists = try await playlistRepository.fetchPlaylists()
-            
-            // Find all playlists with the same title as our current playlist (across all libraries)
-            let matchingPlaylists = allPlaylists.filter { $0.title == playlist.title }
-            
-            // Load tracks from each matching playlist
-            for playlist in matchingPlaylists {
-                do {
-                    let cachedPlaylist = try await playlistRepository.fetchPlaylist(ratingKey: playlist.ratingKey)
-                    if let cachedPlaylist = cachedPlaylist {
-                        let cachedTracks = cachedPlaylist.tracksArray
-                        for cdTrack in cachedTracks {
-                            let track = Track(from: cdTrack)
-                            
-                            // Dedup by ratingKey - keep first occurrence
-                            if trackMap[track.id] == nil {
-                                trackMap[track.id] = track
-                                allTracks.append(track)
-                            }
-                        }
-                    }
-                } catch {
-                    // Continue to next playlist if this one fails
-                    continue
-                }
+            if let cachedPlaylist = try await playlistRepository.fetchPlaylist(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            ) {
+                // Refresh playlist metadata from cache so title/count stays current after edits.
+                playlist = Playlist(from: cachedPlaylist)
+                tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+            } else {
+                tracks = []
             }
-            
-            tracks = allTracks
         } catch {
             self.error = error.localizedDescription
         }
@@ -213,5 +434,87 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
         
         return filtered
+    }
+
+    @discardableResult
+    public func renamePlaylist(to newTitle: String) async -> Bool {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            error = "Playlist name cannot be empty."
+            return false
+        }
+
+        let previousPlaylist = playlist
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: trimmed,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: playlist.trackCount,
+            duration: playlist.duration,
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        error = nil
+
+        do {
+            try await syncCoordinator.renamePlaylist(playlist, to: trimmed)
+            await loadTracks()
+            return true
+        } catch {
+            playlist = previousPlaylist
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func deletePlaylist() async -> Bool {
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func applyEditedTracksLocally(_ editedTracks: [Track]) {
+        shouldSkipNextLoadAfterLocalEdit = true
+        tracks = editedTracks
+        playlist = Playlist(
+            id: playlist.id,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            isSmart: playlist.isSmart,
+            trackCount: editedTracks.count,
+            duration: editedTracks.reduce(0) { $0 + $1.duration },
+            compositePath: playlist.compositePath,
+            dateAdded: playlist.dateAdded,
+            dateModified: Date(),
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+    }
+
+    public func saveEditedTracks(_ editedTracks: [Track]) async {
+        // Apply immediately so playlist detail reflects edits before network roundtrip.
+        applyEditedTracksLocally(editedTracks)
+
+        do {
+            try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            Task {
+                // Refresh from cache once post-mutation sync catches up.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.shouldSkipNextLoadAfterLocalEdit = false
+                await self.loadTracks()
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }

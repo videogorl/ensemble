@@ -1,6 +1,6 @@
 ---
 name: project-structure
-description: "Ensemble file trees: where every file lives across all packages, app targets, and the project root. Use when finding files or understanding where things belong."
+description: "Load when locating files, deciding where a new file belongs, or verifying what already exists. Full file trees for all packages and targets."
 ---
 
 # Ensemble Project Structure
@@ -13,14 +13,24 @@ ensemble/
 +-- Ensemble.xcodeproj             # Xcode project file
 +-- CLAUDE.md                      # Agent instructions
 +-- README.md                      # User-facing documentation
++-- scripts/
+|   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
 |   |   +-- EnsembleApp.swift     # App entry point
 |   |   +-- AppDelegate.swift     # Audio session & background playback config
+|   |   +-- EnsembleAppShortcuts.swift # App Intents fallback entities/phrases for Siri album/playlist playback
 |   +-- Resources/
 |   |   +-- Assets.xcassets       # App icons, colors, images
 |   +-- Info.plist
+|   +-- Ensemble.entitlements     # App entitlements (Siri + shared App Group)
+|
++-- EnsembleSiriIntentsExtension/  # SiriKit Media Intents extension target
+|   +-- IntentHandler.swift        # Extension entry point for intent handlers
+|   +-- PlayMediaIntentHandler.swift # INPlayMediaIntentHandling implementation
+|   +-- Info.plist                 # Intents extension configuration
+|   +-- EnsembleSiriIntentsExtension.entitlements # Extension entitlements (Siri + shared App Group)
 |
 +-- EnsembleWatch/                 # watchOS app target
 |   +-- App/
@@ -45,15 +55,22 @@ Sources/
 +-- Auth/
 |   +-- KeychainService.swift          # Secure token storage wrapper
 |   +-- PlexAuthService.swift          # PIN-based OAuth flow (actor)
+|   +-- PlexAuthTokenMetadata.swift    # JWT metadata parsing/helpers (iat/exp)
 +-- Client/
+|   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
++-- EnsembleLogger.swift               # Package logger categories
 +-- EnsembleAPI.swift                   # Public exports
 
 Tests/
 +-- PlexAPIClientTests.swift
++-- ConnectionFailoverManagerTests.swift
++-- PlexResourcesSpecTests.swift
++-- PlexAPIClientFailoverPolicyTests.swift
++-- PlexAuthTokenLifecycleTests.swift
 ```
 
 ## EnsemblePersistence (Data Layer)
@@ -62,6 +79,7 @@ Tests/
 Sources/
 +-- CoreData/
 |   +-- Ensemble.xcdatamodeld          # CoreData schema
+|   +-- Compiled/SwiftPMEnsemble.momd # Precompiled model copy used by SwiftPM tests
 |   +-- CoreDataStack.swift            # Singleton stack with background contexts
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
@@ -70,6 +88,7 @@ Sources/
 +-- Repositories/
 |   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
 |   +-- PlaylistRepository.swift       # CRUD for playlists
++-- EnsembleLogger.swift               # Package logger categories
 +-- EnsemblePersistence.swift          # Public exports
 
 Tests/
@@ -87,8 +106,13 @@ Sources/
 |   +-- ModelMappers.swift             # CD* <-> Domain model conversions
 |   +-- MusicSource.swift              # Multi-account source identification
 |   +-- PlexAccountConfig.swift        # Account/server/library configuration
+|   +-- SiriIntentPayload.swift        # Siri extension->app payload codec + schema
+|   +-- SiriMediaIndex.swift           # Siri media index model used by extension lookup
+|   +-- LibraryVisibilityProfile.swift # Source visibility profile model (non-sync filtering)
+|   +-- ConnectionPolicy.swift         # Core-level aliases/UI labels for API connection policy types
 |   +-- FilterOptions.swift            # Filter/sort configuration with persistence
 |   +-- NetworkModels.swift            # Network state & connectivity models
+|   +-- PinnedItem.swift               # Pinned content model (albums, artists, playlists)
 +-- Services/
 |   +-- AccountManager.swift           # Multi-account configuration (MainActor)
 |   +-- SyncCoordinator.swift          # Multi-source sync orchestration (MainActor)
@@ -103,6 +127,16 @@ Sources/
 |   +-- SettingsManager.swift          # App settings (accent colors, customizable tabs)
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
+|   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
+|   +-- MoodRepository.swift           # Mood data persistence (CDMood)
+|   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
+|   +-- SiriMediaIndexStore.swift      # Shared App Group Siri index persistence/rebuild hooks
+|   +-- SiriPlaybackCoordinator.swift  # In-app Siri play intent execution (track/album/artist/playlist)
+|   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
+|   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
+|   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
+|   +-- RadioProvider.swift            # Protocol for radio/station providers
++-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
 |   +-- AlbumDetailViewModel.swift
@@ -111,14 +145,25 @@ Sources/
 |   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
+|   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
+|   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
-|   +-- SyncPanelViewModel.swift
 +-- EnsembleCore.swift                 # Public exports
 
 Tests/
 +-- PlaybackServiceTests.swift
++-- NetworkMonitorTests.swift
++-- SyncCoordinatorNetworkHealthTests.swift
++-- HomeViewModelRefreshPolicyTests.swift
++-- ServerHealthCheckerClassificationTests.swift
++-- SettingsManagerConnectionPolicyTests.swift
++-- AccountManagerAuthPolicyTests.swift
++-- SearchSectionOrderingTests.swift   # Deterministic search section tie-break ordering
++-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
++-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
++-- SiriPlaybackCoordinatorTests.swift # In-app Siri playback execution coverage
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -149,10 +194,14 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
+|   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
+|   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
+|   +-- TrackSwipeContainer.swift     # iOS/iPadOS swipe gesture container for track row actions
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
@@ -165,14 +214,17 @@ Sources/
 |   +-- HomeView.swift                # Hub-based home screen (Recently Added, etc.)
 |   +-- MainTabView.swift             # iPhone tab bar
 |   +-- MediaDetailView.swift         # Artist/Album/Playlist detail (adaptive, protocol-based)
+|   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
 |   +-- PlaylistsView.swift           # Playlist grid
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
+|   +-- TrackSwipeActionsSettingsView.swift # Settings UI for configuring track swipe action slots
 |   +-- SongsView.swift               # All songs list
-|   +-- SyncPanelView.swift           # Library sync status & controls
+|   +-- MusicSourceAccountDetailView.swift # Source account detail (library toggles + sync status/actions)
++-- EnsembleLogger.swift              # Package logger categories
 +-- EnsembleUI.swift                  # Public exports
 
 Tests/

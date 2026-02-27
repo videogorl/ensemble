@@ -2,7 +2,7 @@
   "fill-specializations" : [
     {
       "value" : {
-        "solid" : "display-p3:0.87843,0.98039,1.00000,1.00000"
+        "solid" : "display-p3:0.35442,0.61701,1.00000,1.00000"
       }
     },
     {
@@ -19,6 +19,10 @@
         {
           "appearance" : "dark",
           "value" : "normal"
+        },
+        {
+          "appearance" : "tinted",
+          "value" : "lighten"
         }
       ],
       "blur-material" : 0.5,
@@ -55,6 +59,7 @@
           }
         }
       ],
+      "lighting" : "individual",
       "opacity" : 1,
       "position-specializations" : [
         {
@@ -106,6 +111,10 @@
         {
           "appearance" : "dark",
           "value" : "plus-lighter"
+        },
+        {
+          "appearance" : "tinted",
+          "value" : "lighten"
         }
       ],
       "blur-material" : 0.5,
@@ -198,6 +207,10 @@
         {
           "appearance" : "dark",
           "value" : "plus-lighter"
+        },
+        {
+          "appearance" : "tinted",
+          "value" : "lighten"
         }
       ],
       "blur-material" : 0.5,

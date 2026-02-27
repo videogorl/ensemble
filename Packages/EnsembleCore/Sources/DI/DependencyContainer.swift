@@ -16,6 +16,7 @@ public final class DependencyContainer: @unchecked Sendable {
     // MARK: - Multi-Source
 
     public let accountManager: AccountManager
+    public let accountDiscoveryService: PlexAccountDiscoveryService
     public let syncCoordinator: SyncCoordinator
 
     // MARK: - Repositories
@@ -38,6 +39,11 @@ public final class DependencyContainer: @unchecked Sendable {
     public let navigationCoordinator: NavigationCoordinator
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
+    public let toastCenter: ToastCenter
+    public let libraryVisibilityStore: LibraryVisibilityStore
+    public let siriMediaIndexStore: SiriMediaIndexStore
+    public let siriPlaybackCoordinator: SiriPlaybackCoordinator
+    public let siriMediaUserContextManager: SiriMediaUserContextManager
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -69,6 +75,7 @@ public final class DependencyContainer: @unchecked Sendable {
             AccountManager(keychain: keychainRef)
         }
         accountManager = am
+        accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
 
         // Network monitoring (must be created before SyncCoordinator)
         let nm = MainActor.assumeIsolated {
@@ -95,8 +102,22 @@ public final class DependencyContainer: @unchecked Sendable {
 
         // Services using sync coordinator
         // Note: artworkLoader must be created before playbackService since it's a dependency
-        artworkLoader = ArtworkLoader(syncCoordinator: syncCoordinator)
-        playbackService = PlaybackService(syncCoordinator: syncCoordinator, networkMonitor: nm, artworkLoader: artworkLoader)
+        let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
+        artworkLoader = artworkLoaderRef
+        let playbackServiceRef = PlaybackService(
+            syncCoordinator: syncCoordinator,
+            networkMonitor: nm,
+            artworkLoader: artworkLoaderRef
+        )
+        playbackService = playbackServiceRef
+        siriPlaybackCoordinator = MainActor.assumeIsolated {
+            SiriPlaybackCoordinator(
+                accountManager: am,
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef,
+                playbackService: playbackServiceRef
+            )
+        }
 
         // Settings manager
         settingsManager = MainActor.assumeIsolated {
@@ -125,6 +146,28 @@ public final class DependencyContainer: @unchecked Sendable {
         pinManager = MainActor.assumeIsolated {
             PinManager()
         }
+
+        toastCenter = MainActor.assumeIsolated {
+            ToastCenter()
+        }
+
+        libraryVisibilityStore = MainActor.assumeIsolated {
+            LibraryVisibilityStore()
+        }
+
+        siriMediaIndexStore = MainActor.assumeIsolated {
+            SiriMediaIndexStore(
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef
+            )
+        }
+
+        siriMediaUserContextManager = MainActor.assumeIsolated {
+            SiriMediaUserContextManager(
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef
+            )
+        }
     }
 
     // MARK: - View Model Factories
@@ -134,7 +177,8 @@ public final class DependencyContainer: @unchecked Sendable {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -144,7 +188,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playbackService: playbackService,
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
-            navigationCoordinator: navigationCoordinator
+            navigationCoordinator: navigationCoordinator,
+            toastCenter: toastCenter
         )
     }
 
@@ -169,7 +214,8 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makePlaylistViewModel() -> PlaylistViewModel {
         PlaylistViewModel(
-            playlistRepository: playlistRepository
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 
@@ -178,7 +224,8 @@ public final class DependencyContainer: @unchecked Sendable {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: libraryRepository
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator
         )
     }
 
@@ -189,7 +236,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playlistRepository: playlistRepository,
             hubRepository: hubRepository,
             moodRepository: moodRepository,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 
@@ -202,17 +250,19 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makeAddPlexAccountViewModel() -> AddPlexAccountViewModel {
         AddPlexAccountViewModel(
             authService: authService,
+            accountDiscoveryService: accountDiscoveryService,
             accountManager: accountManager,
-            syncCoordinator: syncCoordinator,
-            keychain: keychain
+            syncCoordinator: syncCoordinator
         )
     }
 
     @MainActor
-    public func makeSyncPanelViewModel() -> SyncPanelViewModel {
-        SyncPanelViewModel(
-            syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+    public func makeMusicSourceAccountDetailViewModel(accountId: String) -> MusicSourceAccountDetailViewModel {
+        MusicSourceAccountDetailViewModel(
+            accountId: accountId,
+            accountManager: accountManager,
+            accountDiscoveryService: accountDiscoveryService,
+            syncCoordinator: syncCoordinator
         )
     }
     
@@ -236,7 +286,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             hubRepository: hubRepository,
-            hubOrderManager: hubOrderManager
+            hubOrderManager: hubOrderManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 }

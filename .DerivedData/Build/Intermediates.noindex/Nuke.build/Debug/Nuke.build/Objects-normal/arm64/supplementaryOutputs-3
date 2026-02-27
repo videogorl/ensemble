@@ -1,0 +1,37 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Encoding/ImageEncoders+Default.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+Default.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+Default.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+Default.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+Default.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+Default.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Encoding/ImageEncoders+ImageIO.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+ImageIO.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+ImageIO.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+ImageIO.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+ImageIO.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders+ImageIO.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Encoding/ImageEncoders.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoders.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/Encoding/ImageEncoding.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoding.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoding.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoding.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoding.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageEncoding.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/.SourcePackages/checkouts/Nuke/Sources/Nuke/ImageContainer.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageContainer.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageContainer.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageContainer.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageContainer.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/Nuke.build/Debug/Nuke.build/Objects-normal/arm64/ImageContainer.swiftdeps"
+  }
+}

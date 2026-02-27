@@ -10,9 +10,20 @@ import AppKit
 /// View showing favorited/loved tracks (rated 4+ stars)
 /// Offline-first hub that displays tracks from CoreData across all servers and libraries
 public struct FavoritesView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var viewModel: FavoritesViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @State private var showFilterSheet = false
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -38,6 +49,7 @@ public struct FavoritesView: View {
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.tracks.isEmpty {
                     Button {
@@ -57,11 +69,57 @@ public struct FavoritesView: View {
                     }
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !viewModel.tracks.isEmpty {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            if viewModel.filterOptions.hasActiveFilters {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
             )
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
+        }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
     }
     
@@ -74,19 +132,71 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            VStack(spacing: 8) {
-                Text("Rate tracks 4 or 5 stars to add them here")
+            if !accountManager.hasAnySources {
+                Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                
-                Text("\(viewModel.tracks.count) total tracks • Showing favorites from all libraries")
-                    .font(.caption)
-                    .foregroundColor(.secondary.opacity(0.8))
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if syncCoordinator.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                VStack(spacing: 8) {
+                    Text("Rate tracks 4 or 5 stars to add them here")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("\(viewModel.tracks.count) total tracks • Showing favorites from all libraries")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var hasEnabledLibraries: Bool {
+        accountManager.plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
     }
     
     private var trackListView: some View {
@@ -154,14 +264,31 @@ public struct FavoritesView: View {
                 // Track list
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(
+                        TrackSwipeContainer(
                             track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            nowPlayingVM: nowPlayingVM,
                             onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) }
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                         ) {
-                            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                            TrackRow(
+                                track: track,
+                                showArtwork: true,
+                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                onPlayNext: { nowPlayingVM.playNext(track) },
+                                onPlayLast: { nowPlayingVM.playLast(track) },
+                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                onToggleFavorite: {
+                                    Task {
+                                        await nowPlayingVM.toggleTrackFavorite(track)
+                                    }
+                                },
+                                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                                recentPlaylistTitle: recentPlaylistTitle(for: track)
+                            ) {
+                                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                            }
                         }
                         .id(track.id)
                         .padding(.horizontal)
@@ -175,8 +302,38 @@ public struct FavoritesView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
+        .miniPlayerBottomSpacing(140)
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
         }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 }

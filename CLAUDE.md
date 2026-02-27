@@ -2,13 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Detailed reference material is in `.claude/skills/` and loads on-demand:
-- `architecture` -- Package structure, key types, patterns, subsystems (artwork, waveform, hubs, filtering, network, playback tracking)
-- `ui-conventions` -- Navigation, visual design, loading states, iOS 15 compat, DetailLoader pattern
-- `project-structure` -- Full file trees for all packages and targets
-- `code-style` -- Comment guidelines, naming, performance targets, testing policy
-- `known-issues` -- Critical bugs, feature gaps, tech debt
-- `common-tasks` -- Recipes for adding ViewModels, views, entities, hubs, music sources
+## Skills (MUST load before starting work)
+
+Detailed reference material lives in `.claude/skills/`. **Always load the relevant skill(s) before beginning any non-trivial task** — these files contain project-specific rules that override general Swift/SwiftUI defaults.
+
+| Skill | Load when… |
+|-------|-----------|
+| `architecture` | Designing a feature, adding a service, understanding data flow, anything touching multiple packages |
+| `ui-conventions` | Building or modifying any SwiftUI view, navigation, loading states, iOS 15 compat |
+| `project-structure` | Locating a file, deciding where a new file belongs, understanding what exists |
+| `code-style` | Writing any Swift code — contains mandatory rules (e.g. `#if DEBUG` for all prints, edge case handling) |
+| `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
+| `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
+| `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
+
+**When in doubt, load all seven.** They are small and the cost of reading them is far lower than making a wrong decision.
 
 
 ## Workflow (MUST follow for every task)
@@ -16,6 +24,11 @@ Detailed reference material is in `.claude/skills/` and loads on-demand:
 **Commit discipline:**
 - Git commit after each logical "step" when implementing a plan
 - Always commit before waiting for the user to test (so changes can be rolled back if context is lost or something breaks)
+
+**Testing discipline:**
+- After implementing a non-trivial feature or refactor, run `swift test --package-path Packages/<affected-package>` before committing
+- If tests fail, fix them before committing — never commit a broken test suite
+- For major architectural changes, write tests for new services/repositories first (see `testing` skill)
 
 
 ## Troubleshooting
@@ -47,15 +60,177 @@ You have access to the Gemini CLI (`gemini -p`) which leverages Google Gemini's 
 
 Ensemble is a universal Plex Music Player built with SwiftUI, targeting iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It streams music from Plex servers using PIN-based OAuth authentication. It is very important features work on iOS 15, and are memory and speed optimized for devices with 2GB or less of RAM.
 
-Right now, this app is not released to the public, and isn't in beta. As a result, we don't need to account for edge cases as we're developing the CoreData model.
+Right now, this app is in beta testing. We should account for edge cases as we're developing the CoreData model. We have a little bit of leeway with regards to asking our testers to reset their app if needed.
 
 The goal of this app is to provide a beautiful, information-dense, and customizable native experience for the Plex server.
+
+
+## Recent Major Changes
+
+### Siri Media Intents v1.1 (In-App-First) (Feb 2026)
+Siri playback now supports **track, album, artist, and playlist** phrases through SiriKit Media Intents with in-app execution:
+
+- **Thin extension:** `INPlayMediaIntentHandling` resolves/ranks candidates and uses Siri disambiguation when confidence is low.
+- **In-app execution:** extension returns `handleInApp`; the app decodes a versioned payload and executes playback via a dedicated coordinator.
+- **Indexing path:** shared App Group JSON index includes track/album/artist/playlist candidates with ranking metadata.
+- **Precision search:** repositories now expose scoped title/name search methods for deterministic Siri matching.
+- **Routing + outcomes:** deterministic ranking (exact > prefix > contains), tie-breakers, and Siri-friendly failure mapping.
+- **HomePod workaround:** For HomePod requests, iOS never calls `handle()` after `confirm()` returns `.ready`. As a workaround, `confirm()` writes the payload to App Group and posts a Darwin notification; the app listens for this notification and executes playback directly, bypassing the broken `handle()` flow.
+
+**Key files:**
+- `EnsembleSiriIntentsExtension/IntentHandler.swift` + `PlayMediaIntentHandler.swift` + `Info.plist` - Siri media extension entry and intent handling
+- `SiriIntentPayload.swift` + `SiriMediaIndex.swift` - versioned handoff payload + compact index models
+- `SiriMediaIndexStore.swift` - App Group index persistence/rebuild notification hooks
+- `SiriPlaybackCoordinator.swift` - in-app execution for track/album/artist/playlist intents
+- `AppDelegate.swift` + `DependencyContainer.swift` - lifecycle routing + DI wiring + Darwin notification listener
+- `LibraryRepository.swift` + `PlaylistRepository.swift` - precision search methods used by Siri matching
+
+### Siri App Intents Fallback for Album/Playlist (Feb 2026)
+Siri playback now also includes an App Intents fallback path for album/playlist phrases when SiriKit media-domain routing does not invoke Ensemble:
+
+- **App shortcut phrases:** explicit album/playlist phrases are registered via `AppShortcutsProvider`.
+- **Dynamic entity resolution:** shortcut entity queries read album/playlist candidates from the shared Siri media index (App Group JSON derived from cached library data).
+- **In-app execution reuse:** fallback intents execute playback through `SiriPlaybackCoordinator` using the same payload contract as SiriKit.
+- **Vocabulary refresh:** app launch now refreshes App Shortcuts parameter metadata after index availability checks so Siri phrase resolution stays current.
+
+**Key files:**
+- `Ensemble/App/EnsembleAppShortcuts.swift` - App Intents entities/queries/intents and shortcut phrases
+- `Ensemble/App/AppDelegate.swift` - startup App Shortcuts parameter refresh
+
+### Account-Centric Source Management + Sign-In Redesign (Feb 2026)
+The Plex source flow now centers on accounts (not individual server rows), and sync controls live in account detail:
+
+- **Add-account flow:** PIN can be copied on tap; discovery returns account identity plus all available servers/libraries in one checklist.
+- **Music Sources settings:** list now shows account-level sources (`Plex` + account identifier subtitle), and navigation opens account detail.
+- **Account detail:** shows server-grouped libraries (checked + unchecked), per-library sync/connection status, and a single “sync enabled libraries” action.
+- **Reconciliation behavior:** newly discovered libraries default unchecked; removed libraries are auto-disabled and purged.
+- **Purge semantics:** unchecking a library purges only that library’s cache; if the last enabled library for a server is removed/disabled, server-level playlists are purged.
+- **Navigation cleanup:** legacy standalone Sync Panel routes were removed from tab/more/sidebar flows.
+- **Visibility groundwork:** `LibraryVisibilityProfile` + `LibraryVisibilityStore` are in place, and `LibraryViewModel`/`SearchViewModel`/`HomeViewModel` now support source-level visibility filtering (without changing sync enablement).
+
+**Key files:**
+- `AddPlexAccountViewModel.swift` + `AddPlexAccountView.swift` - account discovery, grouped selection, PIN copy UX
+- `SettingsView.swift` + `MusicSourceAccountDetailView.swift` + `MusicSourceAccountDetailViewModel.swift` - account-level source list and detail flow
+- `AccountManager.swift` + `SyncCoordinator.swift` + `PlaylistRepository.swift` - reconciliation, selective purge, server playlist cleanup
+- `MainTabView.swift` + `MoreView.swift` - Sync Panel entry-point removal
+- `LibraryVisibilityProfile.swift` + `LibraryVisibilityStore.swift` - visibility profile foundation
+- `LibraryViewModel.swift` + `SearchViewModel.swift` + `HomeViewModel.swift` - visibility filter seams
+
+### Sync System Overhaul (Feb 2026)
+The sync system now supports **incremental sync** using Plex API timestamp filters (`addedAt>=`, `updatedAt>=`):
+
+- **Pull-to-refresh:** Library views perform incremental sync (fast), HomeView refreshes hubs only
+- **Startup sync:** Full sync if >24h old, incremental if >1h old, skip if fresh (<1h)
+- **Background refresh (iOS):** `BGAppRefreshTask` refreshes hubs every ~15min (system-controlled)
+- **Routine updates:** Incremental library sync every 1h, hubs every 10min while app is active
+- **Offline-first:** All syncs respect offline state, fall back to CoreData cache
+
+**Key files:**
+- `SyncCoordinator.swift` - `syncAllIncremental()`, `performStartupSync()`, periodic timers
+- `PlexMusicSourceSyncProvider.swift` - `syncLibraryIncremental(since:)`
+- `PlexAPIClient.swift` - Filtered fetch methods (e.g., `getArtists(sectionKey:addedAfter:)`)
+- `BackgroundSyncScheduler.swift` - iOS background refresh scheduling
+
+### Playlist Mutations Rollout (Feb 2026)
+Playlist management now supports server-backed mutations with local cache refresh:
+
+- **Now Playing:** add current track to playlist, save current queue snapshot
+- **Playlist Detail:** rename and edit playlist track ordering/removals
+- **Album Detail:** add full filtered album track list to playlist from the pin menu
+- **Consistency:** all successful playlist mutations trigger server refresh + CoreData update
+- **Smart playlists:** treated as read-only for mutation operations
+
+**Key files:**
+- `PlexAPIClient.swift` - Create/rename/add/remove/move playlist mutation endpoints
+- `SyncCoordinator.swift` - Playlist mutation orchestration + post-mutation playlist refresh
+- `NowPlayingViewModel.swift` - Queue snapshot logic and shared playlist action methods
+- `PlaylistViewModel.swift` - Playlist detail rename/edit mutation hooks
+- `PlaylistActionSheets.swift` - Shared add/create playlist UI sheets
+
+### Gesture Actions v1 (Feb 2026)
+Library and search surfaces now support configurable swipe actions for track rows plus long-press menus for album/artist/playlist items:
+
+- **Track swipe actions (iOS/iPadOS):** shared 2 leading + 2 trailing layout with customizable slot assignment
+- **Action catalog:** `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle (Loved on/off)
+- **Full swipe:** executes slot 1 on each edge
+- **Long-press menus:** album/artist/playlist menus on cards/rows; playlist menus respect smart-playlist mutation guards
+- **Settings:** Playback section includes `Track Swipe Actions` customization with reset to defaults
+
+**Key files:**
+- `SettingsManager.swift` - `TrackSwipeAction`/`TrackSwipeLayout` model + persisted/sanitized slot configuration
+- `TrackSwipeContainer.swift` - Shared SwiftUI swipe layer for track rows
+- `MediaTrackList.swift` - UIKit leading/trailing swipe actions aligned to shared layout
+- `TrackSwipeActionsSettingsView.swift` - Slot customization UI in Settings
+- `NowPlayingViewModel.swift` - Per-track favorite mutation methods used by swipe/context actions
+
+### Network Health + Hub Refresh Hardening (Feb 2026)
+Network transition handling now coalesces health checks, repairs stale endpoint usage after interface handoff, and avoids Home feed jumps while users scroll:
+
+- **Network monitor lifecycle safety:** `NetworkMonitor` recreates `NWPathMonitor` instances on restart so background/foreground cycles continue publishing connectivity changes.
+- **Transition-aware health orchestration:** `SyncCoordinator` classifies reconnect/interface-switch transitions, applies 30s cooldown + 60s foreground staleness guards, and coalesces concurrent refreshes into a single run.
+- **Scoped health checks:** only servers with enabled libraries are checked during sync health refresh runs.
+- **Probe fan-out reduction:** `ConnectionFailoverManager` tries a recent healthy URL first, then falls back to parallel probing if needed.
+- **Home scrolling stability:** `HomeViewModel` defers auto-refresh and hub snapshot application while users are interacting, then applies once idle.
+- **Lifecycle routing:** foreground health refresh now flows through `SyncCoordinator.handleAppWillEnterForeground()` so app lifecycle and monitor transitions share one policy path.
+
+**Key files:**
+- `NetworkMonitor.swift` - restart-safe monitor lifecycle and debounce testing seams
+- `SyncCoordinator.swift` - transition classification, cooldown/staleness policy, coalesced refresh path
+- `ServerHealthChecker.swift` - per-server TTL cache, forced refresh support, cancellation fixes
+- `ConnectionFailoverManager.swift` - preferred recent connection fast-path
+- `HomeViewModel.swift` - deferred auto-refresh + idle apply policy
+- `HomeView.swift` - visibility and scroll interaction callbacks
+
+### Plex Connectivity Spec Parity Cutover (Feb 2026)
+Plex endpoint discovery/routing/auth now follows a stricter spec-parity path to avoid stale routing and generic "server unavailable" failures:
+
+- **Discovery parity:** resource discovery requests now include IPv6 candidates and shared Plex headers.
+- **Policy-driven endpoint ordering:** connection selection now prefers local/direct endpoints before remote and relay, with secure-first behavior and configurable insecure fallback policy.
+- **Failover discipline:** endpoint failover now triggers on transport/connectivity failures only (not arbitrary HTTP semantic errors).
+- **Structured refresh outcomes:** server connection refresh returns typed outcomes instead of swallowing failures, and call sites now react explicitly.
+- **Failure taxonomy:** server checks classify failures (local-only reachable, remote access unavailable, relay unavailable, TLS policy blocked, offline) for clearer user-facing messages.
+- **Auth lifecycle cutover:** account token metadata stores JWT `iat`/`exp`; a migration version bump forces re-login and expired tokens are rejected on load/foreground.
+
+**Key files:**
+- `PlexAPIClient.swift` - resources request contract, transport-only failover policy, structured refresh
+- `PlexConnectionPolicy.swift` - endpoint descriptors, selection policy, connection refresh result types
+- `ConnectionFailoverManager.swift` - policy-aware probing and probe failure classification
+- `PlexAuthService.swift` + `PlexAuthTokenMetadata.swift` - auth token metadata parsing and lifecycle helpers
+- `AccountManager.swift` - auth migration cutover and expiry enforcement
+- `ServerHealthChecker.swift` - classified health failure reasons
+
+### Adaptive Playback Stability (Feb 2026)
+Playback buffering now uses an internal adaptive profile tuned by network conditions and recent stall history to reduce skip/seek buffering loops:
+
+- **Adaptive profile defaults:** Wi-Fi/wired uses low-latency buffering with deeper prefetch (`prefetchDepth=2`), while cellular/other uses anti-stall waits with deeper forward buffering (`prefetchDepth=1`).
+- **Stall escalation:** repeated stalls in a short window temporarily switch playback into a conservative recovery profile.
+- **Windowed prefetch:** upcoming queue prefetch is depth-based instead of single-item, and queue rebuild paths refill using the active profile depth.
+- **Seek stability:** pending seek progress gate now stays active longer while buffering to prevent scrubber/audio drift during unbuffered seeks.
+- **Recovery throttling:** stall retries use profile-based timeout and a retry cooldown to avoid rapid reload thrash on weak links.
+
+**Key files:**
+- `PlaybackService.swift` - adaptive buffering profile, stall escalation/cooldown logic, windowed prefetch, seek-progress gating
+- `PlaybackServiceTests.swift` - adaptive profile/escalation and seek-gate helper coverage
+
 
 This project is connected to Xcode's MCP server: please use it to inform you of how best to operate.
 
 Please comment code so that it's understandable. Don't over comment, just comment on what each "piece" does. Do not use emojis (except in debugging).
 
-As you make big architectural changes, please update this document, the skills files, and the README.md as necessary.
+As you make changes, keep the following documents in sync:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
+
+When in doubt: if a future agent session wouldn't know about it by reading the skills, document it.
 
 Please don't remove existing functionality (unless directed) when re-architecting parts of the code. I've had to re-implement multiple things that I had asked for and that were removed.
 

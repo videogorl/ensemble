@@ -3,12 +3,80 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+/// Strategy for performing a sync operation
+public enum SyncStrategy {
+    /// Sync only items added/updated since last sync (fast)
+    case incremental
+    /// Sync all items from server (slow, comprehensive)
+    case full
+    /// Sync only hub data (Recently Added, etc.) - very fast
+    case hubsOnly
+}
+
+public struct PlaylistMutationResult: Sendable {
+    public let addedCount: Int
+    public let skippedCount: Int
+
+    public init(addedCount: Int, skippedCount: Int) {
+        self.addedCount = addedCount
+        self.skippedCount = skippedCount
+    }
+}
+
+public enum PlaylistMutationError: LocalizedError, Equatable {
+    case invalidSource
+    case playlistNotFound
+    case smartPlaylistReadOnly
+    case emptySelection
+    case duplicateName
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidSource:
+            return "Could not determine a valid Plex server for this action."
+        case .playlistNotFound:
+            return "Playlist not found."
+        case .smartPlaylistReadOnly:
+            return "Smart playlists are read-only."
+        case .emptySelection:
+            return "No compatible tracks were selected."
+        case .duplicateName:
+            return "A playlist with that name already exists on this server."
+        }
+    }
+}
+
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
+    private enum NetworkTransition {
+        case reconnect
+        case interfaceSwitch(from: NetworkType, to: NetworkType)
+        case disconnect
+        case none
+    }
+
+    private enum HealthRefreshReason: Equatable {
+        case networkReconnect
+        case interfaceSwitch(from: NetworkType, to: NetworkType)
+        case appForeground
+
+        var description: String {
+            switch self {
+            case .networkReconnect:
+                return "network_reconnect"
+            case .interfaceSwitch(let from, let to):
+                return "interface_switch(\(from.description)->\(to.description))"
+            case .appForeground:
+                return "app_foreground"
+            }
+        }
+    }
+
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
+    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
 
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
@@ -19,7 +87,26 @@ public final class SyncCoordinator: ObservableObject {
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
-    private var lastHealthCheckTime: Date?
+    private var lastObservedNetworkState: NetworkState?
+    private var lastHealthRefreshAt: Date?
+    private var activeHealthRefreshTask: Task<Void, Never>?
+    private let healthRefreshCooldown: TimeInterval = 30
+    private let foregroundHealthStalenessThreshold: TimeInterval = 60
+    
+    // Periodic sync timers
+    private var incrementalSyncTimer: Timer?
+    private var lastIncrementalSyncTime: Date?
+    private let incrementalSyncInterval: TimeInterval = 60 * 60  // 1 hour
+    private static let lastPlaylistIdKey = "NowPlaying.LastPlaylist.ID"
+    private static let lastPlaylistTitleKey = "NowPlaying.LastPlaylist.Title"
+    private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
+    private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
+    private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
+    internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
+    internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
+    internal var nowProviderForTesting: () -> Date = { Date() }
+    internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
+    internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
     public init(
         accountManager: AccountManager,
@@ -35,6 +122,8 @@ public final class SyncCoordinator: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
+        self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
+        self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
         // Observe network state changes
         setupNetworkMonitoring()
@@ -158,25 +247,70 @@ public final class SyncCoordinator: ObservableObject {
                     )
                 }
                 
+                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                    for: sourceId,
+                    fallback: currentConnectionState
+                )
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .lastSynced(Date()),
-                    connectionState: currentConnectionState
+                    connectionState: resolvedConnectionState
                 )
+                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
             } catch {
                 sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .error(error.localizedDescription),
+                    syncStatus: .error(syncErrorMessage(for: error)),
                     connectionState: currentConnectionState
                 )
             }
         }
     }
 
-    /// Sync a single source
+    /// Sync a single source.
     public func sync(source: MusicSourceIdentifier) async {
+        await syncSingleSource(source, publishGlobalSyncState: true)
+    }
+
+    /// Sync a scoped set of sources while publishing one global sync lifecycle.
+    public func sync(sources: [MusicSourceIdentifier]) async {
+        var uniqueSources: [MusicSourceIdentifier] = []
+        var seenCompositeKeys = Set<String>()
+        for source in sources where seenCompositeKeys.insert(source.compositeKey).inserted {
+            uniqueSources.append(source)
+        }
+        guard !uniqueSources.isEmpty else { return }
+
+        let shouldPublishGlobalSyncState = !isSyncing
+        if shouldPublishGlobalSyncState {
+            isSyncing = true
+        }
+        defer {
+            if shouldPublishGlobalSyncState {
+                isSyncing = false
+            }
+        }
+
+        for source in uniqueSources {
+            await syncSingleSource(source, publishGlobalSyncState: false)
+        }
+    }
+
+    private func syncSingleSource(
+        _ source: MusicSourceIdentifier,
+        publishGlobalSyncState: Bool
+    ) async {
         guard let provider = syncProviders[source.compositeKey] else { return }
 
+        let shouldPublishGlobalSyncState = publishGlobalSyncState && !isSyncing
+        if shouldPublishGlobalSyncState {
+            isSyncing = true
+        }
+        defer {
+            if shouldPublishGlobalSyncState {
+                isSyncing = false
+            }
+        }
+
         let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
-        
         sourceStatuses[source] = MusicSourceStatus(
             syncStatus: .syncing(progress: 0),
             connectionState: currentConnectionState
@@ -198,7 +332,7 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
             // Sync playlists for this server
             try await provider.syncPlaylists(
                 to: playlistRepository,
@@ -214,23 +348,602 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
+            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                for: source,
+                fallback: currentConnectionState
+            )
             sourceStatuses[source] = MusicSourceStatus(
                 syncStatus: .lastSynced(Date()),
-                connectionState: currentConnectionState
+                connectionState: resolvedConnectionState
             )
+            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
         } catch {
             sourceStatuses[source] = MusicSourceStatus(
-                syncStatus: .error(error.localizedDescription),
+                syncStatus: .error(syncErrorMessage(for: error)),
                 connectionState: currentConnectionState
             )
+        }
+    }
+
+    private func connectionStateAfterSuccessfulSync(
+        for source: MusicSourceIdentifier,
+        fallback: ServerConnectionState
+    ) async -> ServerConnectionState {
+        var resolvedURL: String?
+
+        if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {
+            let currentURL = await apiClient.getCurrentServerURL().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentURL.isEmpty {
+                resolvedURL = currentURL
+            }
+        }
+
+        if resolvedURL == nil,
+           let account = accountManager.plexAccounts.first(where: { $0.id == source.accountId }),
+           let server = account.servers.first(where: { $0.id == source.serverId }) {
+            let fallbackURL = server.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallbackURL.isEmpty {
+                resolvedURL = fallbackURL
+            }
+        }
+
+        guard let resolvedURL else {
+            return fallback
+        }
+
+        if case .degraded = fallback {
+            return .degraded(url: resolvedURL)
+        }
+
+        return .connected(url: resolvedURL)
+    }
+
+    private func syncErrorMessage(for error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, message.caseInsensitiveCompare("unknown") != .orderedSame else {
+            return "Sync failed. Please try again."
+        }
+        return message
+    }
+    
+    /// Sync all enabled sources incrementally (only fetch changes since last sync)
+    public func syncAllIncremental() async {
+        guard !isSyncing else {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ syncAllIncremental: Already syncing, skipping")
+            #endif
+            return
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        #if DEBUG
+        EnsembleLogger.debug("🔄 syncAllIncremental: Starting...")
+        #endif
+        
+        // Track which servers have had their playlists synced
+        var syncedServerKeys = Set<String>()
+        
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+            
+            // Get last sync timestamp
+            guard let lastSyncDate = await loadLastSyncDate(for: sourceId) else {
+                // No previous sync - fall back to full sync
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ No previous sync found for \(sourceId.compositeKey), performing full sync")
+                #endif
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: 0),
+                    connectionState: currentConnectionState
+                )
+                
+                do {
+                    try await provider.syncLibrary(
+                        to: libraryRepository,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor in
+                                guard let self = self else { return }
+                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                                self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                    syncStatus: .syncing(progress: progress * 0.9),
+                                    connectionState: connState
+                                )
+                            }
+                        }
+                    )
+                    
+                    let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                        for: sourceId,
+                        fallback: currentConnectionState
+                    )
+                    sourceStatuses[sourceId] = MusicSourceStatus(
+                        syncStatus: .lastSynced(Date()),
+                        connectionState: resolvedConnectionState
+                    )
+                    SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
+                } catch {
+                    sourceStatuses[sourceId] = MusicSourceStatus(
+                        syncStatus: .error(syncErrorMessage(for: error)),
+                        connectionState: currentConnectionState
+                    )
+                }
+                continue
+            }
+            
+            sourceStatuses[sourceId] = MusicSourceStatus(
+                syncStatus: .syncing(progress: 0),
+                connectionState: currentConnectionState
+            )
+            
+            do {
+                // Incremental sync library content
+                let timestamp = lastSyncDate.timeIntervalSince1970
+                try await provider.syncLibraryIncremental(
+                    since: timestamp,
+                    to: libraryRepository,
+                    progressHandler: { [weak self] progress in
+                        Task { @MainActor in
+                            guard let self = self else { return }
+                            let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                            self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                syncStatus: .syncing(progress: progress * 0.9),
+                                connectionState: connState
+                            )
+                        }
+                    }
+                )
+                
+                // Sync playlists once per server (playlists are typically fast)
+                let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+                if !syncedServerKeys.contains(serverKey) {
+                    syncedServerKeys.insert(serverKey)
+                    try await provider.syncPlaylists(
+                        to: playlistRepository,
+                        progressHandler: { [weak self] progress in
+                            Task { @MainActor in
+                                guard let self = self else { return }
+                                let connState = self.sourceStatuses[sourceId]?.connectionState ?? .unknown
+                                self.sourceStatuses[sourceId] = MusicSourceStatus(
+                                    syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
+                                    connectionState: connState
+                                )
+                            }
+                        }
+                    )
+                }
+                
+                let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                    for: sourceId,
+                    fallback: currentConnectionState
+                )
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .lastSynced(Date()),
+                    connectionState: resolvedConnectionState
+                )
+                SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
+            } catch {
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .error(syncErrorMessage(for: error)),
+                    connectionState: currentConnectionState
+                )
+            }
+        }
+    }
+    
+    /// Sync a single source incrementally (only fetch changes since last sync)
+    public func syncIncremental(source: MusicSourceIdentifier) async {
+        guard let provider = syncProviders[source.compositeKey] else { return }
+        
+        let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
+        
+        // Get last sync timestamp
+        guard let lastSyncDate = await loadLastSyncDate(for: source) else {
+            // No previous sync - fall back to full sync
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ No previous sync found for \(source.compositeKey), performing full sync")
+            #endif
+            await sync(source: source)
+            return
+        }
+        
+        sourceStatuses[source] = MusicSourceStatus(
+            syncStatus: .syncing(progress: 0),
+            connectionState: currentConnectionState
+        )
+        
+        do {
+            // Incremental sync library content
+            let timestamp = lastSyncDate.timeIntervalSince1970
+            try await provider.syncLibraryIncremental(
+                since: timestamp,
+                to: libraryRepository,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: progress * 0.9),
+                            connectionState: connState
+                        )
+                    }
+                }
+            )
+            
+            // Sync playlists for this server
+            try await provider.syncPlaylists(
+                to: playlistRepository,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        let connState = self.sourceStatuses[source]?.connectionState ?? .unknown
+                        self.sourceStatuses[source] = MusicSourceStatus(
+                            syncStatus: .syncing(progress: 0.9 + (progress * 0.1)),
+                            connectionState: connState
+                        )
+                    }
+                }
+            )
+            
+            let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
+                for: source,
+                fallback: currentConnectionState
+            )
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .lastSynced(Date()),
+                connectionState: resolvedConnectionState
+            )
+            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
+        } catch {
+            sourceStatuses[source] = MusicSourceStatus(
+                syncStatus: .error(syncErrorMessage(for: error)),
+                connectionState: currentConnectionState
+            )
+        }
+    }
+
+    /// Sync only playlists incrementally (fast, no library sync)
+    public func syncPlaylistsOnly() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
+        // Track which servers have been synced (playlists are server-level, not library-level)
+        var syncedServerKeys = Set<String>()
+
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+
+            // Only sync once per server
+            guard !syncedServerKeys.contains(serverKey) else { continue }
+            syncedServerKeys.insert(serverKey)
+
+            do {
+                // Use incremental sync (falls back to full if never synced)
+                try await provider.syncPlaylistsIncremental(
+                    to: playlistRepository,
+                    progressHandler: { _ in }
+                )
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Playlist Mutations
+
+    /// Fetch playlists from local cache, optionally scoped to a specific server-level source key.
+    public func fetchPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
+        let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceKey)
+        return playlists.map { Playlist(from: $0) }
+    }
+
+    /// Create a new playlist and immediately refresh local cache for that server.
+    public func createPlaylist(
+        title: String,
+        tracks: [Track],
+        serverSourceKey: String
+    ) async throws -> PlaylistMutationResult {
+        guard let server = parseServerSourceKey(serverSourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: serverSourceKey)
+        if existingPlaylists.contains(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw PlaylistMutationError.duplicateName
+        }
+
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
+        guard tracks.isEmpty || !filteredTrackIds.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
+
+        guard let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        do {
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: filteredTrackIds,
+                serverIdentifier: server.serverId
+            )
+        } catch let error as PlexAPIError {
+            guard tracks.isEmpty,
+                  case .httpError(statusCode: 400) = error,
+                  let seedTrackID = await seedTrackIDForServer(
+                    serverSourceKey: serverSourceKey,
+                    parsedServer: server,
+                    apiClient: apiClient
+                  ) else {
+                throw error
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
+            #endif
+            try await apiClient.createPlaylist(
+                title: trimmed,
+                trackRatingKeys: [seedTrackID],
+                serverIdentifier: server.serverId
+            )
+
+            if let createdPlaylist = try? await apiClient.getPlaylists()
+                .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                try? await apiClient.clearPlaylistItems(playlistId: createdPlaylist.ratingKey)
+            }
+        }
+
+        if let createdRemotePlaylist = try? await apiClient.getPlaylists()
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            let isEmptyCreate = tracks.isEmpty
+            _ = try? await playlistRepository.upsertPlaylist(
+                ratingKey: createdRemotePlaylist.ratingKey,
+                key: createdRemotePlaylist.key,
+                title: createdRemotePlaylist.title,
+                summary: createdRemotePlaylist.summary,
+                compositePath: createdRemotePlaylist.composite,
+                isSmart: createdRemotePlaylist.smart ?? false,
+                duration: isEmptyCreate ? 0 : createdRemotePlaylist.duration,
+                trackCount: isEmptyCreate ? 0 : createdRemotePlaylist.leafCount,
+                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sourceCompositeKey: serverSourceKey
+            )
+            if isEmptyCreate {
+                try? await playlistRepository.setPlaylistTracks([], forPlaylist: createdRemotePlaylist.ratingKey, sourceCompositeKey: serverSourceKey)
+            }
+
+            persistLastPlaylistTarget(
+                from: Playlist(
+                    id: createdRemotePlaylist.ratingKey,
+                    key: createdRemotePlaylist.key,
+                    title: createdRemotePlaylist.title,
+                    summary: createdRemotePlaylist.summary,
+                    isSmart: createdRemotePlaylist.smart ?? false,
+                    trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
+                    duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
+                    compositePath: createdRemotePlaylist.composite,
+                    dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    sourceCompositeKey: serverSourceKey
+                )
+            )
+        } else if let createdPlaylist = try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
+            .first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            persistLastPlaylistTarget(from: createdPlaylist)
+        }
+
+        // Kick off cache refresh asynchronously so UI can return immediately.
+        Task { [weak self] in
+            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
+
+        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
+        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
+    }
+
+    /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
+    public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: tracks, serverSourceKey: serverSourceKey)
+        guard !filteredTrackIds.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
+
+        try await apiClient.addItemsToPlaylist(
+            playlistId: playlist.id,
+            trackRatingKeys: filteredTrackIds,
+            serverIdentifier: server.serverId
+        )
+
+        // Keep the mutation path responsive; refresh cache in background.
+        Task { [weak self] in
+            await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
+
+        persistLastPlaylistTarget(from: playlist)
+        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
+        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
+    }
+
+    /// Rename a playlist and refresh server playlists.
+    public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: serverSourceKey)
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if existingPlaylists.contains(where: { $0.id != playlist.id && $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw PlaylistMutationError.duplicateName
+        }
+
+        try await apiClient.renamePlaylist(playlistId: playlist.id, newTitle: trimmed)
+        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+    }
+
+    /// Delete a playlist and refresh server playlists.
+    public func deletePlaylist(_ playlist: Playlist) async throws {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        if let playlistDeleteHandlerForTesting {
+            try await playlistDeleteHandlerForTesting(apiClient, playlist.id)
+        } else {
+            try await apiClient.deletePlaylist(playlistId: playlist.id)
+        }
+
+        clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
+
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+        } else {
+            await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+        }
+    }
+
+    /// Replace playlist contents in the provided order and refresh local cache.
+    public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+        guard !playlist.isSmart else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        guard let serverSourceKey = playlist.sourceCompositeKey,
+              let server = parseServerSourceKey(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        let filteredTrackIds = await filteredTrackIDsForServer(tracks: orderedTracks, serverSourceKey: serverSourceKey)
+        try await apiClient.clearPlaylistItems(playlistId: playlist.id)
+        if !filteredTrackIds.isEmpty {
+            try await apiClient.addItemsToPlaylist(
+                playlistId: playlist.id,
+                trackRatingKeys: filteredTrackIds,
+                serverIdentifier: server.serverId
+            )
+        }
+
+        await refreshServerPlaylists(serverSourceKey: serverSourceKey)
+    }
+
+    /// Save queue snapshot tracks to a playlist.
+    public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
+        try await addTracksToPlaylist(tracks, playlist: playlist)
+    }
+
+    /// Perform appropriate sync on app startup based on staleness
+    /// - If last full sync > 24 hours: full sync
+    /// - If last sync > 1 hour: incremental sync
+    /// - Otherwise: skip (data is fresh enough)
+    public func performStartupSync() async {
+        #if DEBUG
+        EnsembleLogger.debug("🚀 Performing startup sync...")
+        #endif
+        
+        // Don't sync if offline
+        guard !isOffline else {
+            #if DEBUG
+            EnsembleLogger.debug("📴 Offline - skipping startup sync")
+            #endif
+            return
+        }
+        
+        // Don't sync if already syncing
+        guard !isSyncing else {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ Sync already in progress - skipping startup sync")
+            #endif
+            return
+        }
+        
+        // Check if we have any sources configured
+        guard !syncProviders.isEmpty else {
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ No sync providers configured - skipping startup sync")
+            #endif
+            return
+        }
+        
+        // Determine if we need to sync
+        var needsFullSync = false
+        var needsIncrementalSync = false
+        
+        for (_, provider) in syncProviders {
+            let sourceId = provider.sourceIdentifier
+            
+            if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
+                let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
+                
+                if hoursSinceSync > 24 {
+                    #if DEBUG
+                    EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs full sync")
+                    #endif
+                    needsFullSync = true
+                    break
+                } else if hoursSinceSync > 1 {
+                    #if DEBUG
+                    EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs incremental sync")
+                    #endif
+                    needsIncrementalSync = true
+                }
+            } else {
+                #if DEBUG
+                EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) has never been synced - needs full sync")
+                #endif
+                needsFullSync = true
+                break
+            }
+        }
+        
+        // Perform appropriate sync
+        if needsFullSync {
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Starting full sync on startup...")
+            #endif
+            await syncAll()
+        } else if needsIncrementalSync {
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Starting incremental sync on startup...")
+            #endif
+            await syncAllIncremental()
+        } else {
+            #if DEBUG
+            EnsembleLogger.debug("✅ Library is fresh - skipping startup sync")
+            #endif
         }
     }
 
     /// Ensure the server connection is ready for a given track
     /// This ensures we have a working connection URL before attempting playback
     public func ensureServerConnection(for track: Track) async throws {
-        guard let sourceKey = track.sourceCompositeKey else {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
         
@@ -245,6 +958,10 @@ public final class SyncCoordinator: ObservableObject {
         
         // Check if we already have a connected state
         let currentState = serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
+
+        #if DEBUG
+        EnsembleLogger.debug("🎵 ensureServerConnection[v2]: current state for \(accountId):\(serverId) = \(currentState.description)")
+        #endif
         
         // If already connected or degraded, we're good
         if case .connected = currentState {
@@ -255,32 +972,114 @@ public final class SyncCoordinator: ObservableObject {
         }
         
         // Need to check server health
-        print("🔍 Checking server connection before playback...")
-        let newState = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+        #if DEBUG
+        EnsembleLogger.debug("🔍 Checking server connection before playback")
+        #endif
+        let newState = await serverHealthChecker.checkServer(
+            accountId: accountId,
+            serverId: serverId,
+            forceRefresh: false
+        )
         
         // Update the API client with the working URL
         switch newState {
         case .connected(let url), .degraded(let url):
             if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
                 await apiClient.updateCurrentServerURL(url)
-                print("✅ Server connection ready for playback: \(url)")
+                #if DEBUG
+                EnsembleLogger.debug("✅ Server connection ready for playback: \(url)")
+                #endif
             }
         case .offline:
-            print("❌ Server is offline, cannot play track")
-            throw PlexAPIError.noServerSelected
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Server health check reported offline for playback; attempting optimistic failover refresh")
+            #endif
+            if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
+                let refreshResult = try? await apiClient.refreshConnection()
+                #if DEBUG
+                let refreshedURL = await apiClient.getCurrentServerURL()
+                EnsembleLogger.debug(
+                    "⚠️ ensureServerConnection[v2]: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
+                )
+                if let refreshResult {
+                    EnsembleLogger.debug(
+                        "⚠️ ensureServerConnection[v2]: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
+                    )
+                }
+                #endif
+            }
+            // Do not fail fast on health-check offline. Stream URL retrieval/playback
+            // performs its own network path and can still succeed on slower paths.
+            return
         case .connecting, .unknown:
-            print("⚠️ Server state uncertain, attempting playback anyway")
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Server state uncertain, attempting playback anyway")
+            #endif
+        }
+    }
+
+    private func hostForDebugURL(_ urlString: String) -> String {
+        URL(string: urlString)?.host ?? "invalid"
+    }
+
+    public func serverFailureMessage(for track: Track) async -> String? {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            return nil
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            return nil
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        return serverHealthChecker.getServerFailureReason(accountId: accountId, serverId: serverId)?.userMessage
+    }
+
+    /// Proactively refreshes Plex server connections across configured accounts.
+    /// Playback retry paths use this to recover from transient connection failures.
+    public func refreshConnection() async throws {
+        var refreshedAnyConnection = false
+        var lastError: Error?
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                    continue
+                }
+                do {
+                    let result = try await apiClient.refreshConnection()
+                    refreshedAnyConnection = true
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "🔄 SyncCoordinator: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
+                    )
+                    #endif
+                } catch {
+                    lastError = error
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ SyncCoordinator: Failed to refresh \(server.name): \(error.localizedDescription)")
+                    #endif
+                }
+            }
+        }
+
+        guard refreshedAnyConnection else {
+            throw lastError ?? PlexAPIError.noServerSelected
         }
     }
     
     /// Get the stream URL for a track, routing to the correct provider
     public func getStreamURL(for track: Track) async throws -> URL {
-        print("🔍 Getting stream URL for track: \(track.title)")
-        print("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
-        print("🔍 Track streamKey: \(track.streamKey ?? "nil")")
-        print("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
-        
-        if let sourceKey = track.sourceCompositeKey,
+        #if DEBUG
+        EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title)")
+        EnsembleLogger.debug("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
+        EnsembleLogger.debug("🔍 Track streamKey: \(track.streamKey ?? "nil")")
+        EnsembleLogger.debug("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
+        #endif
+
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
            let provider = syncProviders[sourceKey] {
             // Parse the composite key to extract serverId
             let components = sourceKey.split(separator: ":")
@@ -292,9 +1091,13 @@ public final class SyncCoordinator: ObservableObject {
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
                    let server = account.servers.first(where: { $0.id == serverId }) {
-                    print("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
+                    #if DEBUG
+                    EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
+                    #endif
                 } else {
-                    print("🔍 Using provider for sourceKey: \(sourceKey)")
+                    #if DEBUG
+                    EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
+                    #endif
                 }
             }
             return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
@@ -302,11 +1105,15 @@ public final class SyncCoordinator: ObservableObject {
 
         // Fallback: try any available provider
         if let provider = syncProviders.values.first {
-            print("⚠️ Using fallback provider")
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Using fallback provider")
+            #endif
             return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
         }
 
-        print("❌ No providers available")
+        #if DEBUG
+        EnsembleLogger.debug("❌ No providers available")
+        #endif
         throw PlexAPIError.noServerSelected
     }
 
@@ -359,7 +1166,9 @@ public final class SyncCoordinator: ObservableObject {
             )
         } catch {
             // Timeline reporting is non-critical, just log the error
-            print("⚠️ Failed to report timeline: \(error.localizedDescription)")
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Failed to report timeline: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -376,7 +1185,9 @@ public final class SyncCoordinator: ObservableObject {
             try await provider.scrobble(ratingKey: track.id)
         } catch {
             // Scrobbling is non-critical, just log the error
-            print("⚠️ Failed to scrobble track: \(error.localizedDescription)")
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Failed to scrobble track: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -410,7 +1221,9 @@ public final class SyncCoordinator: ObservableObject {
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
         do {
-            print("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
+            #if DEBUG
+            EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
+            #endif
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             
             // Remove from status tracking
@@ -419,9 +1232,28 @@ public final class SyncCoordinator: ObservableObject {
             // Clear API client cache for this source
             accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
             
-            print("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
+            #if DEBUG
+            EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
+            #endif
         } catch {
-            print("❌ Failed to cleanup source \(sourceId.compositeKey): \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cleanup source \(sourceId.compositeKey): \(error)")
+            #endif
+        }
+    }
+
+    /// Delete server-scoped playlists when no enabled libraries remain on that server.
+    public func cleanupServerPlaylists(accountId: String, serverId: String) async {
+        let serverSourceKey = "plex:\(accountId):\(serverId)"
+        do {
+            try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
+            clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
+            let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+            UserDefaults.standard.removeObject(forKey: timestampKey)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
+            #endif
         }
     }
     
@@ -434,7 +1266,9 @@ public final class SyncCoordinator: ObservableObject {
             let allAlbums = try await libraryRepository.fetchAlbums()
             let sourceAlbums = allAlbums.filter { $0.sourceCompositeKey == sourceId.compositeKey }
             
-            print("📸 Pre-caching artwork for \(sourceAlbums.count) albums from source \(sourceId.compositeKey)")
+            #if DEBUG
+            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourceAlbums.count) albums from source \(sourceId.compositeKey)")
+            #endif
             
             var cachedCount = 0
             for (index, album) in sourceAlbums.enumerated() {
@@ -468,86 +1302,502 @@ public final class SyncCoordinator: ObservableObject {
                     cachedCount += 1
                 } catch {
                     // Continue with next album on error
-                    print("Failed to cache artwork for album \(album.title): \(error)")
+                    #if DEBUG
+                    EnsembleLogger.debug("Failed to cache artwork for album \(album.title): \(error)")
+                    #endif
                 }
             }
             
-            print("✅ Cached \(cachedCount) album artworks")
+            #if DEBUG
+            EnsembleLogger.debug("✅ Cached \(cachedCount) album artworks")
+            #endif
         } catch {
-            print("❌ Failed to cache artwork: \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cache artwork: \(error)")
+            #endif
         }
+    }
+
+    private struct ParsedServerSource {
+        let accountId: String
+        let serverId: String
+    }
+
+    /// Convert a library-level source key (`plex:account:server:library`) into server-level key (`plex:account:server`).
+    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
+        guard let sourceCompositeKey else { return nil }
+        let components = sourceCompositeKey.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return "\(components[0]):\(components[1]):\(components[2])"
+    }
+
+    private func parseServerSourceKey(_ key: String) -> ParsedServerSource? {
+        let components = key.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return ParsedServerSource(accountId: String(components[1]), serverId: String(components[2]))
+    }
+
+    /// Keep only tracks that belong to target server, then dedupe by track id preserving order.
+    /// Uses local lookup when the in-memory track source key is temporarily missing.
+    private func filteredTrackIDsForServer(tracks: [Track], serverSourceKey targetServerSourceKey: String) async -> [String] {
+        var seen = Set<String>()
+        var ids: [String] = []
+
+        for track in tracks {
+            if let trackServerSource = await resolvedServerSourceKey(for: track) {
+                guard trackServerSource == targetServerSourceKey else { continue }
+            } else {
+                // If source is unknown and app only has one server, allow it through.
+                guard hasSingleServerMatching(targetServerSourceKey) else { continue }
+            }
+            guard !seen.contains(track.id) else { continue }
+            seen.insert(track.id)
+            ids.append(track.id)
+        }
+
+        return ids
+    }
+
+    private func resolvedServerSourceKey(for track: Track) async -> String? {
+        if let parsed = serverSourceKey(from: track.sourceCompositeKey) {
+            return parsed
+        }
+
+        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+           let parsed = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+            return parsed
+        }
+
+        return nil
+    }
+
+    private func resolvedTrackSourceCompositeKey(for track: Track) async -> String? {
+        if let source = track.sourceCompositeKey {
+            return source
+        }
+
+        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
+           let source = cachedTrack.sourceCompositeKey {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
+            #endif
+            return source
+        }
+
+        // Last resort: single-provider assumption when app is connected to one library source.
+        if syncProviders.count == 1, let onlyKey = syncProviders.keys.first {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Resolved missing track source via single-provider fallback: \(track.id) -> \(onlyKey)")
+            #endif
+            return onlyKey
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ Could not resolve source key for track: \(track.id)")
+        #endif
+        return nil
+    }
+
+    private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
+        let uniqueServerSources = Set(
+            syncProviders.keys.compactMap { key in
+                self.serverSourceKey(from: key)
+            }
+        )
+        return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
+    }
+
+    private func seedTrackIDForServer(
+        serverSourceKey: String,
+        parsedServer: ParsedServerSource,
+        apiClient: PlexAPIClient
+    ) async -> String? {
+        // Fast path: try local cache first.
+        if let allTracks = try? await libraryRepository.fetchTracks(),
+           let cachedTrackID = allTracks.first(where: { track in
+            guard let trackSourceCompositeKey = track.sourceCompositeKey,
+                  let trackServerSourceKey = self.serverSourceKey(from: trackSourceCompositeKey) else {
+                return false
+            }
+            return trackServerSourceKey == serverSourceKey
+           })?.ratingKey {
+            return cachedTrackID
+        }
+
+        // Fallback: query Plex for a lightweight inventory and use any one track ID.
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == parsedServer.accountId }),
+              let server = account.servers.first(where: { $0.id == parsedServer.serverId }) else {
+            return nil
+        }
+
+        for library in server.libraries where library.isEnabled {
+            if let seedFromInventory = try? await apiClient.getTrackInventory(sectionKey: library.key).first?.ratingKey {
+                return seedFromInventory
+            }
+        }
+
+        return nil
+    }
+
+    /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
+    private func refreshServerPlaylists(serverSourceKey: String) async {
+        guard let parsed = parseServerSourceKey(serverSourceKey) else { return }
+        for (_, provider) in syncProviders where
+            provider.sourceIdentifier.accountId == parsed.accountId &&
+            provider.sourceIdentifier.serverId == parsed.serverId {
+            do {
+                try await provider.syncPlaylistsIncremental(to: playlistRepository, progressHandler: { _ in })
+            } catch {
+                // Fall back to full sync if incremental fails for any reason.
+                do {
+                    try await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ Failed to refresh playlists for \(serverSourceKey): \(error.localizedDescription)")
+                    #endif
+                }
+            }
+            return
+        }
+    }
+
+    private func persistLastPlaylistTarget(from playlist: Playlist) {
+        let target = LastPlaylistTarget(
+            id: playlist.id,
+            title: playlist.title,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        if let serverSourceKey = playlist.sourceCompositeKey {
+            lastPlaylistTargetsByServer[serverSourceKey] = target
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
+        Self.saveLastPlaylistTarget(target)
+        lastPlaylistTarget = target
+    }
+
+    private func clearLastPlaylistTargetIfNeeded(deletedPlaylist: Playlist) {
+        guard let deletedSourceKey = deletedPlaylist.sourceCompositeKey else { return }
+
+        lastPlaylistTargetsByServer = lastPlaylistTargetsByServer.filter { sourceKey, target in
+            !(sourceKey == deletedSourceKey && target.id == deletedPlaylist.id)
+        }
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.id == deletedPlaylist.id,
+           lastPlaylistTarget.sourceCompositeKey == deletedSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
+    private func clearLastPlaylistTargets(forServerSourceKey serverSourceKey: String) {
+        lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+        Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+
+        if let lastPlaylistTarget,
+           lastPlaylistTarget.sourceCompositeKey == serverSourceKey {
+            self.lastPlaylistTarget = nil
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
+    public func lastPlaylistTarget(forServerSourceKey serverSourceKey: String?) -> LastPlaylistTarget? {
+        guard let serverSourceKey else { return lastPlaylistTarget }
+        if let target = lastPlaylistTargetsByServer[serverSourceKey] {
+            return target
+        }
+        if let lastPlaylistTarget, lastPlaylistTarget.sourceCompositeKey == serverSourceKey {
+            return lastPlaylistTarget
+        }
+        return nil
+    }
+
+    internal func setLastPlaylistTargetForTesting(_ target: LastPlaylistTarget?, serverSourceKey: String?) {
+        if let serverSourceKey {
+            if let target {
+                lastPlaylistTargetsByServer[serverSourceKey] = target
+            } else {
+                lastPlaylistTargetsByServer.removeValue(forKey: serverSourceKey)
+            }
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
+
+        lastPlaylistTarget = target
+        let defaults = UserDefaults.standard
+        if let target {
+            defaults.set(target.id, forKey: Self.lastPlaylistIdKey)
+            defaults.set(target.title, forKey: Self.lastPlaylistTitleKey)
+            defaults.set(target.sourceCompositeKey, forKey: Self.lastPlaylistSourceKey)
+        } else {
+            defaults.removeObject(forKey: Self.lastPlaylistIdKey)
+            defaults.removeObject(forKey: Self.lastPlaylistTitleKey)
+            defaults.removeObject(forKey: Self.lastPlaylistSourceKey)
+        }
+    }
+
+    private static func saveLastPlaylistTarget(_ target: LastPlaylistTarget) {
+        let defaults = UserDefaults.standard
+        defaults.set(target.id, forKey: lastPlaylistIdKey)
+        defaults.set(target.title, forKey: lastPlaylistTitleKey)
+        defaults.set(target.sourceCompositeKey, forKey: lastPlaylistSourceKey)
+    }
+
+    private static func loadLastPlaylistTarget() -> LastPlaylistTarget? {
+        let defaults = UserDefaults.standard
+        guard
+            let id = defaults.string(forKey: lastPlaylistIdKey),
+            let title = defaults.string(forKey: lastPlaylistTitleKey)
+        else {
+            return nil
+        }
+        return LastPlaylistTarget(
+            id: id,
+            title: title,
+            sourceCompositeKey: defaults.string(forKey: lastPlaylistSourceKey)
+        )
+    }
+
+    private static func saveLastPlaylistTargetsByServer(_ targets: [String: LastPlaylistTarget]) {
+        let defaults = UserDefaults.standard
+        guard let data = try? JSONEncoder().encode(targets) else { return }
+        defaults.set(data, forKey: lastPlaylistTargetsByServerKey)
+    }
+
+    private static func loadLastPlaylistTargetsByServer() -> [String: LastPlaylistTarget] {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: lastPlaylistTargetsByServerKey),
+              let decoded = try? JSONDecoder().decode([String: LastPlaylistTarget].self, from: data) else {
+            return [:]
+        }
+        return decoded
     }
     
     // MARK: - Network Monitoring
     
     /// Set up observation of network state changes
     private func setupNetworkMonitoring() {
+        lastObservedNetworkState = networkMonitor.networkState
+
         networkMonitor.$networkState
+            .dropFirst()
             .sink { [weak self] state in
-                print("🌐 SyncCoordinator.sink: Received network state \(state.description)")
-                // Don't await - let the handler run asynchronously
                 Task { @MainActor [weak self] in
-                    print("🌐 SyncCoordinator.sink: Task spawned, calling handleNetworkChange")
-                    self?.handleNetworkChange(state)
-                    print("🌐 SyncCoordinator.sink: handleNetworkChange returned")
+                    await self?.handleObservedNetworkState(state)
                 }
             }
             .store(in: &cancellables)
     }
-    
-    /// Handle network state changes
-    private func handleNetworkChange(_ state: NetworkState) {
-        print("🌐 SyncCoordinator: Network state changed to \(state.description)")
 
-        switch state {
+    /// Foreground hook used by app lifecycle to coalesce network health updates.
+    public func handleAppWillEnterForeground() async {
+        if accountManager.enforceAuthTokenPolicy() {
+            refreshProviders()
+        }
+
+        let currentState = networkMonitor.networkState
+
+        #if DEBUG
+        EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
+        #endif
+
+        switch currentState {
         case .online:
             isOffline = false
-            
-            // Throttle health checks - don't run if one is already in progress
-            // or if we checked within the last 5 seconds
-            if isCheckingHealth {
-                print("🌐 SyncCoordinator: Health check already in progress, skipping")
-                return
-            }
-            
-            if let lastCheck = lastHealthCheckTime,
-               Date().timeIntervalSince(lastCheck) < 5.0 {
-                print("🌐 SyncCoordinator: Health check too recent (\(Date().timeIntervalSince(lastCheck))s ago), skipping")
-                return
-            }
-            
-            isCheckingHealth = true
-            lastHealthCheckTime = Date()
-            
-            // Check server health when coming back online (non-blocking)
-            // Run in background to avoid blocking UI
-            Task.detached(priority: .userInitiated) { [weak self] in
-                guard let self = self else { return }
-                await self.serverHealthChecker.checkAllServers()
-                
-                // Update states on main actor after checks complete
-                await MainActor.run {
-                    self.updateSourceConnectionStates()
-                    self.isCheckingHealth = false
-                }
-                
-                // Update API clients with new connection URLs
-                await self.refreshAPIClientConnections()
-            }
-
+            scheduleHealthRefresh(reason: .appForeground, forceServerRefresh: false)
         case .offline, .limited:
             isOffline = true
             updateSourceConnectionStates()
-
         case .unknown:
-            // Don't trigger health checks for unknown state
             break
         }
     }
 
+    private func handleObservedNetworkState(_ state: NetworkState) async {
+        let previous = lastObservedNetworkState
+        lastObservedNetworkState = state
+
+        let transition = classifyNetworkTransition(from: previous, to: state)
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "🌐 SyncCoordinator: Network transition \(previous?.description ?? "nil") -> \(state.description)"
+        )
+        if case .interfaceSwitch(let from, let to) = transition {
+            EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
+        }
+        #endif
+
+        switch state {
+        case .online:
+            isOffline = false
+        case .offline, .limited:
+            isOffline = true
+            updateSourceConnectionStates()
+        case .unknown:
+            break
+        }
+
+        switch transition {
+        case .reconnect:
+            scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
+        case .interfaceSwitch(let from, let to):
+            scheduleHealthRefresh(reason: .interfaceSwitch(from: from, to: to), forceServerRefresh: true)
+        case .disconnect, .none:
+            break
+        }
+    }
+
+    private func classifyNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransition {
+        let previousType = networkType(from: previous)
+        let currentType = networkType(from: current)
+        let previousConnected = previous?.isConnected ?? false
+        let currentConnected = current.isConnected
+
+        if !previousConnected && currentConnected {
+            return .reconnect
+        }
+
+        if previousConnected && !currentConnected {
+            return .disconnect
+        }
+
+        if let previousType, let currentType, previousType != currentType {
+            return .interfaceSwitch(from: previousType, to: currentType)
+        }
+
+        return .none
+    }
+
+    private func networkType(from state: NetworkState?) -> NetworkType? {
+        guard let state, case .online(let type) = state else {
+            return nil
+        }
+        return type
+    }
+
+    private func scheduleHealthRefresh(reason: HealthRefreshReason, forceServerRefresh: Bool) {
+        if activeHealthRefreshTask != nil {
+            #if DEBUG
+            EnsembleLogger.debug("🌐 SyncCoordinator: Coalescing health refresh request (\(reason.description))")
+            #endif
+            return
+        }
+
+        let now = nowProviderForTesting()
+
+        if reason == .appForeground,
+           let lastRefresh = lastHealthRefreshAt,
+           now.timeIntervalSince(lastRefresh) < foregroundHealthStalenessThreshold {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Skipping foreground health refresh (last run \(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
+            )
+            #endif
+            return
+        }
+
+        if let lastRefresh = lastHealthRefreshAt,
+           now.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Skipping health refresh due to cooldown (\(String(format: "%.1f", now.timeIntervalSince(lastRefresh)))s ago)"
+            )
+            #endif
+            return
+        }
+
+        let eligibleServerKeys = enabledServerKeysForHealthChecks()
+        guard !eligibleServerKeys.isEmpty else {
+            #if DEBUG
+            EnsembleLogger.debug("🌐 SyncCoordinator: No enabled-library servers eligible for health checks")
+            #endif
+            return
+        }
+
+        isCheckingHealth = true
+        let startedAt = nowProviderForTesting()
+
+        activeHealthRefreshTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            defer {
+                self.isCheckingHealth = false
+                self.lastHealthRefreshAt = self.nowProviderForTesting()
+                self.activeHealthRefreshTask = nil
+            }
+
+            let summary = await self.runHealthChecks(forceServerRefresh: forceServerRefresh, eligibleServerKeys: eligibleServerKeys)
+            self.updateSourceConnectionStates()
+            await self.runAPIClientConnectionRefresh()
+
+            #if DEBUG
+            let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
+            EnsembleLogger.debug(
+                "🌐 SyncCoordinator: Health refresh complete reason=\(reason.description), checked=\(summary.checkedCount), skipped=\(summary.skippedCount), duration=\(String(format: "%.2f", duration))s"
+            )
+            #endif
+        }
+    }
+
+    private func enabledServerKeysForHealthChecks() -> Set<String> {
+        var keys = Set<String>()
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers where server.libraries.contains(where: \.isEnabled) {
+                keys.insert("\(account.id):\(server.id)")
+            }
+        }
+
+        return keys
+    }
+
+    private func runHealthChecks(
+        forceServerRefresh: Bool,
+        eligibleServerKeys: Set<String>
+    ) async -> ServerHealthChecker.CheckSummary {
+        if let healthCheckRunnerForTesting {
+            return await healthCheckRunnerForTesting(forceServerRefresh, eligibleServerKeys)
+        }
+
+        return await serverHealthChecker.checkAllServers(
+            forceRefresh: forceServerRefresh,
+            eligibleServerKeys: eligibleServerKeys
+        )
+    }
+
+    private func runAPIClientConnectionRefresh() async {
+        if let refreshAPIClientConnectionsRunnerForTesting {
+            await refreshAPIClientConnectionsRunnerForTesting()
+            return
+        }
+
+        await refreshAPIClientConnections()
+    }
+
+    internal func handleObservedNetworkStateForTesting(_ state: NetworkState) async {
+        await handleObservedNetworkState(state)
+    }
+
+    internal func awaitHealthRefreshForTesting() async {
+        await activeHealthRefreshTask?.value
+    }
+
+    internal func setLastHealthRefreshForTesting(_ date: Date?) {
+        lastHealthRefreshAt = date
+    }
+
     /// Update all API clients with the latest working connection URLs from health checks
     public func refreshAPIClientConnections() async {
-        print("🔄 SyncCoordinator: Updating API client connections...")
+        #if DEBUG
+        EnsembleLogger.debug("🔄 SyncCoordinator: Updating API client connections...")
+        #endif
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -561,11 +1811,15 @@ public final class SyncCoordinator: ObservableObject {
                 if case .connected(let workingURL) = connectionState,
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(workingURL)
-                    print("✅ Updated API client for server \(server.name) to use: \(workingURL)")
+                    #if DEBUG
+                    EnsembleLogger.debug("✅ Updated API client for server \(server.name) to use: \(workingURL)")
+                    #endif
                 } else if case .degraded(let workingURL) = connectionState,
                           let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(workingURL)
-                    print("⚠️ Updated API client for server \(server.name) to use degraded connection: \(workingURL)")
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ Updated API client for server \(server.name) to use degraded connection: \(workingURL)")
+                    #endif
                 }
             }
         }
@@ -612,48 +1866,68 @@ public final class SyncCoordinator: ObservableObject {
     /// Returns nil if the source doesn't support radio or isn't configured
     /// - Parameter sourceKey: The music source composite key
     public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
-        print("🔄 SyncCoordinator.makeRadioProvider() called")
-        print("  - Source key: \(sourceKey)")
+        #if DEBUG
+        EnsembleLogger.debug("🔄 SyncCoordinator.makeRadioProvider() called")
+        EnsembleLogger.debug("  - Source key: \(sourceKey)")
+        #endif
         
         // Parse source key to extract identifiers
         // Format: sourceType:accountId:serverId:libraryId (e.g., "plex:account123:server456:library789")
         let components = sourceKey.split(separator: ":")
-        print("  - Key components: \(components)")
-        print("  - Component count: \(components.count)")
+        #if DEBUG
+        EnsembleLogger.debug("  - Key components: \(components)")
+        EnsembleLogger.debug("  - Component count: \(components.count)")
+        #endif
         
         guard components.count >= 4,
               let sourceType = MusicSourceType(rawValue: String(components[0])) else {
-            print("❌ Invalid source key format: \(sourceKey)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ Invalid source key format: \(sourceKey)")
+            #endif
             return nil
         }
-        print("  - Source type: \(sourceType)")
+        #if DEBUG
+        EnsembleLogger.debug("  - Source type: \(sourceType)")
+        #endif
 
         let accountId = String(components[1])
         let serverId = String(components[2])
         let libraryId = String(components[3])
-        print("  - Account ID: \(accountId)")
-        print("  - Server ID: \(serverId)")
-        print("  - Library ID: \(libraryId)")
+        #if DEBUG
+        EnsembleLogger.debug("  - Account ID: \(accountId)")
+        EnsembleLogger.debug("  - Server ID: \(serverId)")
+        EnsembleLogger.debug("  - Library ID: \(libraryId)")
+        #endif
 
         // Currently only Plex is supported
         guard sourceType == .plex else {
-            print("ℹ️ Radio not available for source type: \(sourceType)")
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ Radio not available for source type: \(sourceType)")
+            #endif
             return nil
         }
 
         // Get API client for this source
-        print("🔄 Creating API client...")
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Creating API client...")
+        #endif
         guard let apiClient = accountManager.makeAPIClient(
             accountId: accountId,
             serverId: serverId
         ) else {
-            print("❌ Could not create API client for source: \(sourceKey)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ Could not create API client for source: \(sourceKey)")
+            #endif
             return nil
         }
-        print("✅ API client created")
+        #if DEBUG
+        EnsembleLogger.debug("✅ API client created")
+        #endif
 
         // Create Plex radio provider
-        print("🔄 Creating PlexRadioProvider...")
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Creating PlexRadioProvider...")
+        #endif
         let radioProvider = PlexRadioProvider(
             sourceKey: sourceKey,
             apiClient: apiClient,
@@ -661,7 +1935,76 @@ public final class SyncCoordinator: ObservableObject {
             sectionKey: libraryId
         )
 
-        print("✅ Created PlexRadioProvider for source: \(sourceKey)")
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created PlexRadioProvider for source: \(sourceKey)")
+        #endif
         return radioProvider
+    }
+    
+    // MARK: - Periodic Sync During Active Use
+    
+    /// Start periodic incremental sync while app is active (every 1 hour)
+    public func startPeriodicSync() {
+        stopPeriodicSync()  // Stop any existing timer
+        
+        #if DEBUG
+        EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
+        #endif
+        incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: incrementalSyncInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.performPeriodicSync()
+            }
+        }
+    }
+    
+    /// Stop periodic sync
+    public func stopPeriodicSync() {
+        incrementalSyncTimer?.invalidate()
+        incrementalSyncTimer = nil
+        #if DEBUG
+        EnsembleLogger.debug("🛑 Stopped periodic sync timer")
+        #endif
+    }
+    
+    /// Perform periodic incremental sync (called by timer)
+    private func performPeriodicSync() async {
+        #if DEBUG
+        EnsembleLogger.debug("⏰ Periodic sync triggered")
+        #endif
+        
+        // Don't sync if offline
+        guard !isOffline else {
+            #if DEBUG
+            EnsembleLogger.debug("📴 Offline - skipping periodic sync")
+            #endif
+            return
+        }
+        
+        // Don't sync if already syncing
+        guard !isSyncing else {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ Sync already in progress - skipping periodic sync")
+            #endif
+            return
+        }
+        
+        // Check network connectivity - only sync when connected
+        #if os(iOS)
+        if !networkMonitor.isConnected {
+            #if DEBUG
+            EnsembleLogger.debug("📡 Not connected - skipping periodic sync")
+            #endif
+            return
+        }
+        #endif
+        
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Performing periodic incremental sync...")
+        #endif
+        await syncAllIncremental()
+        lastIncrementalSyncTime = Date()
+        #if DEBUG
+        EnsembleLogger.debug("✅ Periodic sync complete")
+        #endif
     }
 }

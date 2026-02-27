@@ -1,0 +1,4 @@
+module KeychainAccess {
+header "KeychainAccess-Swift.h"
+export *
+}

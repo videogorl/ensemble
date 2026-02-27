@@ -21,6 +21,7 @@ public struct RootView: View {
                 let deps = DependencyContainer.shared
                 deps.accountManager.loadAccounts()
                 deps.syncCoordinator.refreshProviders()
+                _ = await deps.siriMediaIndexStore.rebuildIndex()
             }
     }
 

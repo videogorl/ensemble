@@ -1,0 +1,23 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AddPlexAccountViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AddPlexAccountViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AddPlexAccountViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AddPlexAccountViewModel.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AddPlexAccountViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AddPlexAccountViewModel.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AlbumDetailViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AlbumDetailViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AlbumDetailViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AlbumDetailViewModel.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AlbumDetailViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/AlbumDetailViewModel.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/ArtistDetailViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ArtistDetailViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ArtistDetailViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ArtistDetailViewModel.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ArtistDetailViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/x86_64/ArtistDetailViewModel.swiftdeps"
+  }
+}

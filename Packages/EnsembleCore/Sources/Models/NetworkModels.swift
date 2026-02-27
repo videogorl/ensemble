@@ -144,6 +144,33 @@ public enum ServerConnectionState: Equatable, Sendable {
     }
 }
 
+/// More specific reason for why a server check concluded the server is unavailable.
+public enum ServerConnectionFailureReason: String, Equatable, Sendable {
+    case localOnlyReachable
+    case remoteAccessUnavailable
+    case relayUnavailable
+    case tlsPolicyBlocked
+    case offline
+    case unknown
+
+    public var userMessage: String {
+        switch self {
+        case .localOnlyReachable:
+            return "Server is only reachable on your local network."
+        case .remoteAccessUnavailable:
+            return "Remote access to this server appears unavailable."
+        case .relayUnavailable:
+            return "Relay fallback is unavailable."
+        case .tlsPolicyBlocked:
+            return "Secure connection failed. Check certificate and secure connection settings."
+        case .offline:
+            return "Server is currently offline."
+        case .unknown:
+            return "Server is unavailable."
+        }
+    }
+}
+
 // MARK: - Status Color
 
 /// Semantic color for status indicators

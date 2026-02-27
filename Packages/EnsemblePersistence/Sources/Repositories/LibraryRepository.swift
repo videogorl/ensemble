@@ -2,6 +2,9 @@ import CoreData
 import Foundation
 
 public protocol LibraryRepositoryProtocol: Sendable {
+    /// Refresh the context to ensure fresh data from the store
+    func refreshContext() async
+
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
@@ -41,6 +44,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
+    func fetchSiriEligibleTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
     func fetchFavoriteTracks() async throws -> [CDTrack]
@@ -73,6 +77,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func searchTracks(query: String) async throws -> [CDTrack]
     func searchArtists(query: String) async throws -> [CDArtist]
     func searchAlbums(query: String) async throws -> [CDAlbum]
+    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack]
+    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist]
+    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum]
 
     // Source management
     func fetchMusicSources() async throws -> [CDMusicSource]
@@ -90,8 +97,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func updateMusicSourceSyncTimestamp(compositeKey: String) async throws
 
     func deleteAllData(forSourceCompositeKey: String) async throws
-    
+
     func deleteAllLibraryData() async throws
+
+    // Orphan removal - delete items not in the provided set of valid ratingKeys
+    func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+    func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -99,6 +112,18 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+    }
+
+    // MARK: - Context Refresh
+
+    public func refreshContext() async {
+        await withCheckedContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                context.refreshAllObjects()
+                continuation.resume()
+            }
+        }
     }
 
     // MARK: - Artists
@@ -368,6 +393,29 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         }
     }
 
+    public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
+                request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "lastPlayed", ascending: false),
+                    NSSortDescriptor(key: "playCount", ascending: false),
+                    NSSortDescriptor(key: "rating", ascending: false)
+                ]
+                request.fetchLimit = 2000
+                do {
+                    let tracks = try context.fetch(request)
+                    continuation.resume(returning: tracks)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
@@ -480,7 +528,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
                     track.ratingKey = ratingKey
                     track.key = key
-                    track.title = title
+                    track.title = Self.normalizedTrackTitle(title, streamKey: streamKey)
                     track.artistName = artistName
                     track.albumName = albumName
                     track.trackNumber = Int32(trackNumber ?? 0)
@@ -509,6 +557,18 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                             albumRequest.predicate = NSPredicate(format: "ratingKey == %@", albumKey)
                         }
                         track.album = try context.fetch(albumRequest).first
+
+                        // If album metadata arrived without a usable title, backfill from track-level album name.
+                        if
+                            let album = track.album,
+                            let resolvedAlbumName = albumName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                            !resolvedAlbumName.isEmpty
+                        {
+                            let existingAlbumTitle = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if existingAlbumTitle.isEmpty || existingAlbumTitle == "Unknown Album" {
+                                album.title = resolvedAlbumName
+                            }
+                        }
                     }
 
                     if let sourceKey = sourceCompositeKey {
@@ -628,6 +688,27 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         }
     }
 
+    public func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDTrack] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "title",
+                    query: title,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "title")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func searchArtists(query: String) async throws -> [CDArtist] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
@@ -638,6 +719,27 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 do {
                     let artists = try context.fetch(request)
                     continuation.resume(returning: artists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDArtist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "name",
+                    query: name,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "name")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -660,6 +762,64 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 }
             }
         }
+    }
+
+    public func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>? = nil) async throws -> [CDAlbum] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDAlbum.fetchRequest()
+                request.predicate = Self.scopedNameSearchPredicate(
+                    fieldName: "title",
+                    query: title,
+                    sourceCompositeKeys: sourceCompositeKeys
+                )
+                request.sortDescriptors = Self.precisionSortDescriptors(primaryName: "title")
+
+                do {
+                    continuation.resume(returning: try context.fetch(request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func scopedNameSearchPredicate(
+        fieldName: String,
+        query: String,
+        sourceCompositeKeys: Set<String>?
+    ) -> NSPredicate {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let base: NSPredicate
+        if trimmed.isEmpty {
+            base = NSPredicate(value: false)
+        } else {
+            base = NSCompoundPredicate(orPredicateWithSubpredicates: [
+                NSPredicate(format: "%K ==[cd] %@", fieldName, trimmed),
+                NSPredicate(format: "%K BEGINSWITH[cd] %@", fieldName, trimmed),
+                NSPredicate(format: "%K CONTAINS[cd] %@", fieldName, trimmed)
+            ])
+        }
+
+        guard let sourceCompositeKeys, !sourceCompositeKeys.isEmpty else {
+            return base
+        }
+
+        let scoped = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])
+    }
+
+    private static func precisionSortDescriptors(primaryName: String) -> [NSSortDescriptor] {
+        [
+            NSSortDescriptor(
+                key: primaryName,
+                ascending: true,
+                selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+            ),
+            NSSortDescriptor(key: "updatedAt", ascending: false)
+        ]
     }
 
     // MARK: - Music Source
@@ -782,17 +942,162 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         for object in objects {
                             context.delete(object)
                         }
-                        print("🗑️ Deleted \(objects.count) \(entityName) objects")
+                        #if DEBUG
+                        EnsembleLogger.debug("🗑️ Deleted \(objects.count) \(entityName) objects")
+                        #endif
                     }
                     
                     try context.save()
-                    print("✅ All library data deleted successfully")
+                    #if DEBUG
+                    EnsembleLogger.debug("✅ All library data deleted successfully")
+                    #endif
                     continuation.resume()
                 } catch {
-                    print("❌ Failed to delete library data: \(error)")
+                    #if DEBUG
+                    EnsembleLogger.debug("❌ Failed to delete library data: \(error)")
+                    #endif
                     continuation.resume(throwing: error)
                 }
             }
         }
+    }
+
+    // MARK: - Orphan Removal
+
+    public func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localArtists = try context.fetch(request)
+
+                    var removedCount = 0
+                    for artist in localArtists {
+                        if !validRatingKeys.contains(artist.ratingKey) {
+                            context.delete(artist)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localAlbums = try context.fetch(request)
+
+                    var removedCount = 0
+                    for album in localAlbums {
+                        if !validRatingKeys.contains(album.ratingKey) {
+                            context.delete(album)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localTracks = try context.fetch(request)
+
+                    var removedCount = 0
+                    for track in localTracks {
+                        if !validRatingKeys.contains(track.ratingKey) {
+                            context.delete(track)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    let localGenres = try context.fetch(request)
+
+                    var removedCount = 0
+                    for genre in localGenres {
+                        if let ratingKey = genre.ratingKey, !validRatingKeys.contains(ratingKey) {
+                            context.delete(genre)
+                            removedCount += 1
+                        }
+                    }
+
+                    if removedCount > 0 {
+                        try context.save()
+                    }
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+}
+
+private extension LibraryRepository {
+    static func normalizedTrackTitle(_ title: String, streamKey: String?) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+
+        if let streamKey = streamKey?.trimmingCharacters(in: .whitespacesAndNewlines), !streamKey.isEmpty {
+            if
+                let components = URLComponents(string: streamKey),
+                let path = components.percentEncodedPath.removingPercentEncoding,
+                !path.isEmpty
+            {
+                let filename = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+                if !filename.isEmpty {
+                    return filename
+                }
+            }
+
+            let filename = URL(fileURLWithPath: streamKey).deletingPathExtension().lastPathComponent
+            if !filename.isEmpty {
+                return filename
+            }
+        }
+
+        return "Unknown Track"
     }
 }

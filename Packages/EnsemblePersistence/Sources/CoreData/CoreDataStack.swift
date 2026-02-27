@@ -2,7 +2,7 @@ import CoreData
 import Foundation
 
 public final class CoreDataStack: @unchecked Sendable {
-    public static let shared = CoreDataStack()
+    public static let shared = CoreDataStack(inMemory: false)
 
     public let persistentContainer: NSPersistentContainer
 
@@ -10,19 +10,20 @@ public final class CoreDataStack: @unchecked Sendable {
         persistentContainer.viewContext
     }
 
-    private init() {
-        // Load the model from the bundle
-        guard let modelURL = Bundle.module.url(forResource: "Ensemble", withExtension: "momd"),
-              let model = NSManagedObjectModel(contentsOf: modelURL) else {
-            fatalError("Failed to load CoreData model")
-        }
+    private init(inMemory: Bool) {
+        let model = Self.loadManagedObjectModel()
 
         persistentContainer = NSPersistentContainer(name: "Ensemble", managedObjectModel: model)
 
-        // Configure for lightweight migration
-        let description = persistentContainer.persistentStoreDescriptions.first
-        description?.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
-        description?.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+        // Configure the store description up-front for either on-disk or in-memory usage.
+        let description = persistentContainer.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
+        if inMemory {
+            description.type = NSInMemoryStoreType
+            description.url = URL(fileURLWithPath: "/dev/null")
+        }
+        description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+        description.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+        persistentContainer.persistentStoreDescriptions = [description]
 
         persistentContainer.loadPersistentStores { description, error in
             if let error = error {
@@ -32,12 +33,14 @@ public final class CoreDataStack: @unchecked Sendable {
 
         viewContext.automaticallyMergesChangesFromParent = true
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        // Ensure objects are always refetched from store (not cached)
+        // This fixes stale data after background sync operations
+        viewContext.stalenessInterval = 0
     }
 
     /// Create an in-memory stack for testing/previews
     public static func inMemory() -> CoreDataStack {
-        let stack = CoreDataStack()
-        return stack
+        CoreDataStack(inMemory: true)
     }
 
     public func newBackgroundContext() -> NSManagedObjectContext {
@@ -52,12 +55,62 @@ public final class CoreDataStack: @unchecked Sendable {
             do {
                 try context.save()
             } catch {
-                print("CoreData save error: \(error)")
+                #if DEBUG
+                EnsembleLogger.debug("CoreData save error: \(error)")
+                #endif
             }
         }
     }
 
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
         persistentContainer.performBackgroundTask(block)
+    }
+
+    /// Refresh all objects in the view context to ensure they reflect the latest store data.
+    /// Call this after background sync operations to ensure UI sees updated data.
+    public func refreshViewContext() {
+        viewContext.perform {
+            self.viewContext.refreshAllObjects()
+        }
+    }
+
+    /// Load the CoreData model from the module bundle with resilient fallbacks.
+    /// SwiftPM can expose either compiled `.momd` resources or nested resource paths depending on tooling.
+    private static func loadManagedObjectModel() -> NSManagedObjectModel {
+        let bundle = Bundle.module
+
+        let directCandidates: [URL?] = [
+            bundle.url(forResource: "Ensemble", withExtension: "momd"),
+            bundle.url(forResource: "Ensemble", withExtension: "mom"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "momd"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "mom"),
+            bundle.url(forResource: "Ensemble", withExtension: "momd", subdirectory: "Compiled"),
+            bundle.url(forResource: "Ensemble", withExtension: "mom", subdirectory: "Compiled"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "momd", subdirectory: "Compiled"),
+            bundle.url(forResource: "SwiftPMEnsemble", withExtension: "mom", subdirectory: "Compiled"),
+        ]
+
+        let resourceRootCandidates: [URL?] = [
+            bundle.resourceURL?.appendingPathComponent("Ensemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("Ensemble.mom"),
+            bundle.resourceURL?.appendingPathComponent("SwiftPMEnsemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("SwiftPMEnsemble.mom"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/Ensemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/Ensemble.mom"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/SwiftPMEnsemble.momd"),
+            bundle.resourceURL?.appendingPathComponent("Compiled/SwiftPMEnsemble.mom"),
+        ]
+
+        for candidate in (directCandidates + resourceRootCandidates).compactMap({ $0 }) {
+            if let model = NSManagedObjectModel(contentsOf: candidate) {
+                return model
+            }
+        }
+
+        if let mergedModel = NSManagedObjectModel.mergedModel(from: [bundle]) {
+            return mergedModel
+        }
+
+        fatalError("Failed to load CoreData model from Bundle.module (\(bundle.bundleURL.path))")
     }
 }

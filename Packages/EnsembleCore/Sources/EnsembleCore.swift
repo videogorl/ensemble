@@ -7,3 +7,12 @@
 // Re-export dependencies
 @_exported import EnsembleAPI
 @_exported import EnsemblePersistence
+
+#if os(iOS)
+/// Shared notifications for coordinating iOS-specific app orientation behavior.
+public enum AppOrientationNotifications {
+    public static let coverFlowRotationSupportChanged = Notification.Name(
+        "com.videogorl.ensemble.coverFlowRotationSupportChanged"
+    )
+}
+#endif

@@ -45,11 +45,11 @@ public struct FilterSheet: View {
                 // Year Range Section (for albums)
                 if showYearFilter {
                     Section {
-                        if filterOptions.yearRange != nil {
+                        if let yearRange = filterOptions.yearRange {
                             HStack {
                                 Text("Year Range")
                                 Spacer()
-                                Text("\(filterOptions.yearRange!.lowerBound) - \(filterOptions.yearRange!.upperBound)")
+                                Text("\(yearRange.lowerBound) - \(yearRange.upperBound)")
                                     .foregroundColor(.secondary)
                             }
                             

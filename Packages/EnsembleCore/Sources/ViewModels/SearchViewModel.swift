@@ -18,6 +18,16 @@ public enum SearchSection: String, CaseIterable {
         case .songs: return "Songs"
         }
     }
+
+    /// Stable tie-break order for sections with equal match counts.
+    public var sortPriority: Int {
+        switch self {
+        case .artists: return 0
+        case .albums: return 1
+        case .playlists: return 2
+        case .songs: return 3
+        }
+    }
 }
 
 @MainActor
@@ -54,6 +64,7 @@ public final class SearchViewModel: ObservableObject {
     private let hubRepository: HubRepositoryProtocol
     private let moodRepository: MoodRepositoryProtocol
     private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -61,19 +72,31 @@ public final class SearchViewModel: ObservableObject {
     private let exploreDebounceInterval: TimeInterval = 2.0
     private let recentSearchesKey = "ensemble_recent_searches"
     private var commitSearchTask: Task<Void, Never>?
+    private var hasLoadedExploreContent = false
+    private var unfilteredTrackResults: [Track] = []
+    private var unfilteredArtistResults: [Artist] = []
+    private var unfilteredAlbumResults: [Album] = []
+    private var unfilteredPlaylistResults: [Playlist] = []
+    private var unfilteredRecentlyPlayedAlbums: [Album] = []
+    private var unfilteredRecentlyPlayedArtists: [Artist] = []
+    private var unfilteredRecentlyAddedAlbums: [Album] = []
+    private var unfilteredRecommendedItems: [HubItem] = []
+    private var unfilteredMoods: [Mood] = []
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
         moodRepository: MoodRepositoryProtocol,
-        accountManager: AccountManager
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
         self.moodRepository = moodRepository
         self.accountManager = accountManager
+        self.visibilityStore = visibilityStore ?? .shared
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
@@ -102,8 +125,25 @@ public final class SearchViewModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in
                 Task { @MainActor in
-                    await self?.loadExploreContent()
+                    guard let self else { return }
+
+                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedQuery.isEmpty {
+                        await self.search(query: trimmedQuery)
+                    } else if self.hasLoadedExploreContent {
+                        await self.loadExploreContent()
+                    }
                 }
+            }
+            .store(in: &cancellables)
+
+        self.visibilityStore.$profiles
+            .combineLatest(self.visibilityStore.$activeProfileID)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.applyVisibilityToSearchResults()
+                self?.applyVisibilityToExploreContent()
             }
             .store(in: &cancellables)
     }
@@ -118,6 +158,10 @@ public final class SearchViewModel: ObservableObject {
         guard !trimmed.isEmpty else {
             isSearching = false
             searchError = nil
+            unfilteredTrackResults = []
+            unfilteredArtistResults = []
+            unfilteredAlbumResults = []
+            unfilteredPlaylistResults = []
             trackResults = []
             artistResults = []
             albumResults = []
@@ -143,13 +187,11 @@ public final class SearchViewModel: ObservableObject {
             
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
             
-            trackResults = tracks.map { Track(from: $0) }
-            artistResults = artists.map { Artist(from: $0) }
-            albumResults = albums.map { Album(from: $0) }
-            playlistResults = playlists.map { Playlist(from: $0) }
-            
-            // Determine intelligent section ordering based on match count
-            determineSearchSectionOrder()
+            unfilteredTrackResults = tracks.map { Track(from: $0) }
+            unfilteredArtistResults = artists.map { Artist(from: $0) }
+            unfilteredAlbumResults = albums.map { Album(from: $0) }
+            unfilteredPlaylistResults = playlists.map { Playlist(from: $0) }
+            applyVisibilityToSearchResults()
         } catch {
             if !Task.isCancelled {
                 self.searchError = error.localizedDescription
@@ -248,7 +290,7 @@ public final class SearchViewModel: ObservableObject {
 
             if lhs.count == rhs.count {
                 // Default order for non-artist sections: Albums, Playlists, Songs
-                return SearchSection.allCases.firstIndex(of: lhs.section)! < SearchSection.allCases.firstIndex(of: rhs.section)!
+                return lhs.section.sortPriority < rhs.section.sortPriority
             }
             return lhs.count > rhs.count
         }
@@ -257,8 +299,120 @@ public final class SearchViewModel: ObservableObject {
         orderedSections = sectionCounts.filter { $0.count > 0 }.map { $0.section }
     }
 
+    private func applyVisibilityToSearchResults() {
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        trackResults = Self.filterTracksForVisibility(
+            unfilteredTrackResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        artistResults = Self.filterArtistsForVisibility(
+            unfilteredArtistResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        albumResults = Self.filterAlbumsForVisibility(
+            unfilteredAlbumResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        playlistResults = Self.filterPlaylistsForVisibility(
+            unfilteredPlaylistResults,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        determineSearchSectionOrder()
+    }
+
+    private func applyVisibilityToExploreContent() {
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        recentlyPlayedAlbums = Self.filterAlbumsForVisibility(
+            unfilteredRecentlyPlayedAlbums,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recentlyPlayedArtists = Self.filterArtistsForVisibility(
+            unfilteredRecentlyPlayedArtists,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recentlyAddedAlbums = Self.filterAlbumsForVisibility(
+            unfilteredRecentlyAddedAlbums,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        recommendedItems = Self.filterHubItemsForVisibility(
+            unfilteredRecommendedItems,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+        allMoods = Self.filterMoodsForVisibility(
+            unfilteredMoods,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+        )
+    }
+
+    internal static func filterTracksForVisibility(
+        _ tracks: [Track],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Track] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return tracks }
+        return tracks.filter { track in
+            guard let sourceKey = track.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterArtistsForVisibility(
+        _ artists: [Artist],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Artist] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return artists }
+        return artists.filter { artist in
+            guard let sourceKey = artist.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterAlbumsForVisibility(
+        _ albums: [Album],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Album] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return albums }
+        return albums.filter { album in
+            guard let sourceKey = album.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterPlaylistsForVisibility(
+        _ playlists: [Playlist],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Playlist] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return playlists }
+        return playlists.filter { playlist in
+            guard let sourceKey = playlist.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
+    internal static func filterHubItemsForVisibility(
+        _ items: [HubItem],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [HubItem] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return items }
+        return items.filter { !hiddenSourceCompositeKeys.contains($0.sourceCompositeKey) }
+    }
+
+    internal static func filterMoodsForVisibility(
+        _ moods: [Mood],
+        hiddenSourceCompositeKeys: Set<String>
+    ) -> [Mood] {
+        guard !hiddenSourceCompositeKeys.isEmpty else { return moods }
+        return moods.filter { mood in
+            guard let sourceKey = mood.sourceCompositeKey else { return true }
+            return !hiddenSourceCompositeKeys.contains(sourceKey)
+        }
+    }
+
     public func clearSearch() {
         searchQuery = ""
+        unfilteredTrackResults = []
+        unfilteredArtistResults = []
+        unfilteredAlbumResults = []
+        unfilteredPlaylistResults = []
         trackResults = []
         artistResults = []
         albumResults = []
@@ -288,6 +442,8 @@ public final class SearchViewModel: ObservableObject {
     
     /// Load explore content with offline-first approach: load cached data, then fetch fresh
     public func loadExploreContent() async {
+        hasLoadedExploreContent = true
+
         // Check if we should debounce
         if let lastLoad = lastExploreLoadTime,
            Date().timeIntervalSince(lastLoad) < exploreDebounceInterval {
@@ -299,242 +455,188 @@ public final class SearchViewModel: ObservableObject {
         
         // Record load time for debouncing
         lastExploreLoadTime = Date()
-        
-        // Create a new load task
-        exploreTask = Task { @MainActor in
-            isLoadingExplore = false  // Show cached data immediately, don't block on loading state
-            exploreError = nil
+
+        exploreTask = Task { [weak self] in
+            guard let self else { return }
+            await self.loadExploreContentInternal()
         }
-        
-        // Load cached hubs in background (don't block MainActor)
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
+
+        await exploreTask?.value
+    }
+
+    private func loadExploreContentInternal() async {
+        isLoadingExplore = false  // Show cached data immediately, don't block on loading state
+        exploreError = nil
+
+        // Load cached hubs first for fast offline-first rendering.
+        do {
+            let cachedHubs = try await hubRepository.fetchHubs()
+            let results = extractContentFromHubs(cachedHubs)
+            unfilteredRecentlyPlayedAlbums = Array(results.albums.prefix(6))
+            unfilteredRecentlyPlayedArtists = Array(results.artists.prefix(6))
+            unfilteredRecentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
+            unfilteredRecommendedItems = Array(results.recommendedItems.prefix(6))
+            applyVisibilityToExploreContent()
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("ℹ️ No cached explore content available")
+            #endif
+        }
+
+        // Load cached moods immediately while fresh network fetch runs.
+        if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
+            unfilteredMoods = cachedMoods
+            applyVisibilityToExploreContent()
+        }
+
+        guard !Task.isCancelled else { return }
+
+        let fetchTasks = buildExploreFetchTasks()
+        guard !fetchTasks.isEmpty else { return }
+
+        // Fetch fresh hubs from all enabled libraries.
+        var freshHubs: [Hub] = []
+        var recentAlbums: [Album] = []
+        var recentArtists: [Artist] = []
+        var addedAlbums: [Album] = []
+        var recommendedHubItems: [HubItem] = []
+
+        for task in fetchTasks {
+            guard !Task.isCancelled else { return }
             do {
-                let cachedHubs = try await self.hubRepository.fetchHubs()
-                let results = self.extractContentFromHubs(cachedHubs)
-                
-                await MainActor.run { [weak self] in
-                    self?.recentlyPlayedAlbums = Array(results.albums.prefix(6))
-                    self?.recentlyPlayedArtists = Array(results.artists.prefix(6))
-                    self?.recentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
-                    self?.recommendedItems = Array(results.recommendedItems.prefix(6))
-                }
-            } catch {
-                print("ℹ️ No cached explore content available")
-            }
-        }
-        
-        // Fetch fresh data from Plex in separate background task
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
-            
-            // Capture API clients on main actor before entering detached task
-            let fetchTasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = await MainActor.run {
-                var tasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
-                for account in self.accountManager.plexAccounts {
-                    for server in account.servers {
-                        guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                            continue
-                        }
-                        
-                        let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                        
-                        for library in enabledLibraries {
-                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
-                            tasks.append((sourceKey, client, library.key))
-                        }
+                let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+
+                for plexHub in plexHubs {
+                    guard !Task.isCancelled else { return }
+                    let title = plexHub.title.lowercased()
+
+                    var metadata: [PlexHubMetadata] = []
+                    if let existing = plexHub.metadata, !existing.isEmpty {
+                        metadata = existing
+                    } else if let key = plexHub.key ?? plexHub.hubKey,
+                              let items = try? await task.client.getHubItems(hubKey: key) {
+                        metadata = items
                     }
-                }
-                return tasks
-            }
-            
-            // Fetch hubs from each source
-            var freshHubs: [Hub] = []
-            var recentAlbums: [Album] = []
-            var recentArtists: [Artist] = []
-            var addedAlbums: [Album] = []
-            var recommendedHubItems: [HubItem] = []
-            
-            for task in fetchTasks {
-                do {
-                    let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
-                    
-                    for plexHub in plexHubs {
-                        let title = plexHub.title.lowercased()
-                        
-                        // Extract metadata from hub
-                        var metadata: [PlexHubMetadata] = []
-                        if let existing = plexHub.metadata, !existing.isEmpty {
-                            metadata = existing
-                        } else if let key = plexHub.key ?? plexHub.hubKey {
-                            if let items = try? await task.client.getHubItems(hubKey: key) {
-                                metadata = items
-                            }
-                        }
-                        
-                        // Filter to music-only content
-                        let filteredMetadata = metadata.filter { item in
-                            let type = item.type?.lowercased() ?? ""
-                            return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                        }
-                        
-                        // Convert to HubItems and create Hub for caching
-                        let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
-                        freshHubs.append(Hub(
-                            id: plexHub.key ?? plexHub.hubKey ?? UUID().uuidString,
+
+                    let filteredMetadata = metadata.filter { item in
+                        let type = item.type?.lowercased() ?? ""
+                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
+                    }
+
+                    let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                    let hubId = "\(task.sourceKey):\(plexHub.id)"
+                    freshHubs.append(
+                        Hub(
+                            id: hubId,
                             title: plexHub.title,
                             type: plexHub.type ?? "mixed",
                             items: hubItems
-                        ))
-                        
-                        // Categorize hubs for UI display
-                        if title.contains("recently played") || title.contains("recent plays") {
-                            // Extract albums and artists from Recently Played
-                            for item in hubItems.prefix(12) {
-                                if let album = item.album {
-                                    recentAlbums.append(album)
-                                }
-                                if let artist = item.artist {
-                                    recentArtists.append(artist)
-                                }
+                        )
+                    )
+
+                    if title.contains("recently played") || title.contains("recent plays") {
+                        for item in hubItems.prefix(12) {
+                            if let album = item.album {
+                                recentAlbums.append(album)
                             }
-                        } else if title.contains("recently added") || title.contains("recent additions") {
-                            // Recently Added albums
-                            for item in hubItems.prefix(12) {
-                                if let album = item.album {
-                                    addedAlbums.append(album)
-                                }
-                            }
-                        } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
-                            // Recommended content
-                            for item in hubItems.prefix(12) {
-                                recommendedHubItems.append(item)
+                            if let artist = item.artist {
+                                recentArtists.append(artist)
                             }
                         }
-                    }
-                } catch {
-                    // Silently continue on error - will use cached data
-                    print("⚠️ Failed to fetch hubs: \(error)")
-                }
-            }
-            
-            // Save fresh hubs to cache for offline use
-            if !freshHubs.isEmpty {
-                do {
-                    try await self.hubRepository.saveHubs(freshHubs)
-                    print("✅ Cached \(freshHubs.count) hubs for offline use")
-                } catch {
-                    print("⚠️ Failed to cache hubs: \(error)")
-                }
-            }
-            
-            // Update UI on main actor with fresh data
-            let finalRecentAlbums = Array(recentAlbums.prefix(6))
-            let finalRecentArtists = Array(recentArtists.prefix(6))
-            let finalAddedAlbums = Array(addedAlbums.prefix(6))
-            let finalRecommendedItems = Array(recommendedHubItems.prefix(6))
-            
-            await MainActor.run { [weak self] in
-                self?.recentlyPlayedAlbums = finalRecentAlbums
-                self?.recentlyPlayedArtists = finalRecentArtists
-                self?.recentlyAddedAlbums = finalAddedAlbums
-                self?.recommendedItems = finalRecommendedItems
-            }
-        }
-        
-        // Load cached moods first, then fetch fresh from Plex servers
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
-            
-            // Load cached moods immediately
-            do {
-                let cachedMoods = try await self.moodRepository.fetchMoods()
-                if !cachedMoods.isEmpty {
-                    await MainActor.run { [weak self] in
-                        self?.allMoods = cachedMoods
+                    } else if title.contains("recently added") || title.contains("recent additions") {
+                        for item in hubItems.prefix(12) {
+                            if let album = item.album {
+                                addedAlbums.append(album)
+                            }
+                        }
+                    } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
+                        recommendedHubItems.append(contentsOf: hubItems.prefix(12))
                     }
                 }
             } catch {
-                // Ignore cache errors, will fetch fresh from Plex
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to fetch hubs: \(error)")
+                #endif
             }
-            
-            // Capture API clients and section keys on main actor
-            let fetchTasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = await MainActor.run {
-                var tasks: [(client: PlexAPIClient, sectionKey: String, sourceKey: String)] = []
-                for account in self.accountManager.plexAccounts {
-                    for server in account.servers {
-                        guard let client = self.accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                            continue
-                        }
-                        
-                        let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                        for library in enabledLibraries {
-                            let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
-                            tasks.append((client, library.key, sourceKey))
-                        }
-                    }
+        }
+
+        guard !Task.isCancelled else { return }
+
+        if !freshHubs.isEmpty {
+            do {
+                try await hubRepository.saveHubs(freshHubs)
+                #if DEBUG
+                EnsembleLogger.debug("✅ Cached \(freshHubs.count) hubs for offline use")
+                #endif
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to cache hubs: \(error)")
+                #endif
+            }
+        }
+
+        unfilteredRecentlyPlayedAlbums = Array(recentAlbums.prefix(6))
+        unfilteredRecentlyPlayedArtists = Array(recentArtists.prefix(6))
+        unfilteredRecentlyAddedAlbums = Array(addedAlbums.prefix(6))
+        unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
+        applyVisibilityToExploreContent()
+
+        // Fetch moods once per library and dedupe by key.
+        var moodsByKey: [String: Mood] = [:]
+        for task in fetchTasks {
+            guard !Task.isCancelled else { return }
+            do {
+                let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
+                for plexMood in plexMoods where moodsByKey[plexMood.key] == nil {
+                    moodsByKey[plexMood.key] = Mood(
+                        id: plexMood.id,
+                        key: plexMood.key,
+                        title: plexMood.title,
+                        sourceCompositeKey: task.sourceKey
+                    )
                 }
-                return tasks
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to fetch moods: \(error)")
+                #endif
             }
-            
-            // Fetch moods from all sources and merge results
-            var allFetchedMoods: [String: Mood] = [:]  // Key by mood key for deduplication
-            
-            for task in fetchTasks {
-                do {
-                    let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
-                    
-                    for plexMood in plexMoods {
-                        // Use mood key as unique identifier (same mood across different libraries)
-                        // Store first sourceKey that has this mood
-                        if allFetchedMoods[plexMood.key] == nil {
-                            let mood = Mood(id: plexMood.id, key: plexMood.key, title: plexMood.title, sourceCompositeKey: task.sourceKey)
-                            allFetchedMoods[plexMood.key] = mood
-                        }
-                    }
-                } catch {
-                    // Continue to next library
+        }
+
+        guard !Task.isCancelled else { return }
+
+        if !moodsByKey.isEmpty {
+            let moodsToPublish = moodsByKey.values.sorted {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+            do {
+                try await moodRepository.saveMoods(moodsToPublish)
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
+                #endif
+            }
+            unfilteredMoods = moodsToPublish
+            applyVisibilityToExploreContent()
+        }
+    }
+
+    private func buildExploreFetchTasks() -> [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] {
+        var tasks: [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] = []
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
                     continue
                 }
-            }
-            
-            if !allFetchedMoods.isEmpty {
-                // Filter out moods with fewer than 5 tracks across all libraries
-                var nonEmptyMoods: [Mood] = []
-                
-                for (_, mood) in allFetchedMoods {
-                    // Count total tracks across all libraries for this mood
-                    var totalTrackCount = 0
-                    
-                    for task in fetchTasks {
-                        do {
-                            let tracks = try await task.client.getTracksByMood(sectionKey: task.sectionKey, moodKey: mood.key)
-                            totalTrackCount += tracks.count
-                        } catch {
-                            // Continue to next library
-                            continue
-                        }
-                    }
-                    
-                    if totalTrackCount >= 10 {
-                        nonEmptyMoods.append(mood)
-                    }
-                }
-                
-                // Save fresh moods to cache
-                if !nonEmptyMoods.isEmpty {
-                    do {
-                        try await self.moodRepository.saveMoods(nonEmptyMoods)
-                    } catch {
-                        // Ignore cache save errors
-                    }
-                    
-                    await MainActor.run { [weak self] in
-                        self?.allMoods = nonEmptyMoods
-                    }
+
+                for library in server.libraries where library.isEnabled {
+                    let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
+                    tasks.append((sourceKey, client, library.key))
                 }
             }
         }
+
+        return tasks
     }
     
     /// Extract albums, artists, and items from Hub array

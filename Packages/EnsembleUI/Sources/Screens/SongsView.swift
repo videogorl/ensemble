@@ -9,10 +9,27 @@ import AppKit
 #endif
 
 public struct SongsView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
+
+    private var supportsCoverFlow: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -30,33 +47,33 @@ public struct SongsView: View {
     public var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
+            let isCoverFlowActive = supportsCoverFlow && isLandscape
             
             Group {
                 if libraryVM.isLoading && libraryVM.tracks.isEmpty {
                     loadingView
                 } else if libraryVM.tracks.isEmpty {
                     emptyView
-                } else if isLandscape {
-                    albumCoverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
+                } else if isCoverFlowActive {
+                    landscapeAlbumCoverFlowView
                 } else {
                     trackListView
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isLandscape)
+            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .navigationTitle(isLandscape ? "" : "Songs")
+            .navigationTitle(isCoverFlowActive ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {
-                await libraryVM.refresh()
+                await libraryVM.refreshFromServer()
             }
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -113,7 +130,7 @@ public struct SongsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.tracks.isEmpty && !isLandscape {
+                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -138,7 +155,41 @@ public struct SongsView: View {
                 filterOptions: $libraryVM.tracksFilterOptions
             )
         }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        }
+    }
+
+    private var landscapeAlbumCoverFlowView: some View {
+        #if os(iOS)
+        albumCoverFlowView
+            .navigationBarHidden(true)
+            .statusBar(hidden: true)
+        #else
+        albumCoverFlowView
+        #endif
     }
 
     private var loadingView: some View {
@@ -158,10 +209,56 @@ public struct SongsView: View {
             Text("No Songs")
                 .font(.title2)
 
-            Text("Tap the sync button to sync your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !libraryVM.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if libraryVM.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !libraryVM.hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("No songs found in enabled libraries")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(.horizontal)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var trackListView: some View {
@@ -176,9 +273,7 @@ public struct SongsView: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if libraryVM.trackSortOption == .title && !libraryVM.filteredTracks.isEmpty {
                     ScrollIndex(
@@ -191,6 +286,9 @@ public struct SongsView: View {
                     .frame(maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: .top)
                 }
+            }
+            .sheet(item: $playlistPickerPayload) { payload in
+                PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
             }
         }
     }
@@ -206,20 +304,79 @@ public struct SongsView: View {
     
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
         Section(header: sectionHeader(section.letter)) {
+            #if os(iOS)
+            let trackCount = section.tracks.count
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+            MediaTrackList(
+                tracks: section.tracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                onPlayNext: { track in
+                    nowPlayingVM.playNext(track)
+                },
+                onPlayLast: { track in
+                    nowPlayingVM.playLast(track)
+                },
+                onAddToPlaylist: { track in
+                    presentPlaylistPicker(with: [track])
+                },
+                onAddToRecentPlaylist: { track in
+                    addToRecentPlaylist(track)
+                },
+                onToggleFavorite: { track in
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
+                    }
+                },
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
+                canAddToRecentPlaylist: { track in
+                    recentPlaylistTitle(for: track) != nil
+                },
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, _ in
+                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                }
+            }
+            .frame(height: height)
+            .padding(.horizontal)
+            #else
             VStack(spacing: 0) {
                 ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(
+                    TrackSwipeContainer(
                         track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        nowPlayingVM: nowPlayingVM,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
-                        onTap: {
-                            if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                    ) {
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onToggleFavorite: {
+                                Task {
+                                    await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
+                            recentPlaylistTitle: recentPlaylistTitle(for: track),
+                            onTap: {
+                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                     .id(track.id)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -230,12 +387,54 @@ public struct SongsView: View {
                     }
                 }
             }
+            #endif
         }
         .id(section.letter)
     }
     
     private var unsortedTrackListContent: some View {
-        TrackListView(
+        #if os(iOS)
+        let trackCount = libraryVM.filteredTracks.count
+        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+        return MediaTrackList(
+            tracks: libraryVM.filteredTracks,
+            showArtwork: true,
+            showTrackNumbers: false,
+            groupByDisc: false,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+        ) { _, index in
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+        }
+        .frame(height: height)
+        .padding(.horizontal)
+        .padding(.vertical)
+        #else
+        return TrackListView(
             tracks: libraryVM.filteredTracks,
             showArtwork: true,
             showTrackNumbers: false,
@@ -245,11 +444,60 @@ public struct SongsView: View {
             },
             onPlayLast: { track in
                 nowPlayingVM.playLast(track)
-            }
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+            nowPlayingVM: nowPlayingVM
         ) { track, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.vertical)
+        #endif
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 
     private func sectionHeader(_ letter: String) -> some View {

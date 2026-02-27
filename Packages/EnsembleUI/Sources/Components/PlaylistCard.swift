@@ -18,7 +18,7 @@ public struct PlaylistCard: View {
                 Text(playlist.title)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .foregroundColor(.primary)
 
                 Text("\(playlist.trackCount) songs")
@@ -42,27 +42,51 @@ public struct PlaylistRow: View {
     let playlist: Playlist
     let nowPlayingVM: NowPlayingViewModel
     let onTap: (() -> Void)?
+    let isDisabled: Bool
+    let statusText: String?
 
-    public init(playlist: Playlist, nowPlayingVM: NowPlayingViewModel, onTap: (() -> Void)? = nil) {
+    public init(
+        playlist: Playlist,
+        nowPlayingVM: NowPlayingViewModel,
+        onTap: (() -> Void)? = nil,
+        isDisabled: Bool = false,
+        statusText: String? = nil
+    ) {
         self.playlist = playlist
         self.nowPlayingVM = nowPlayingVM
         self.onTap = onTap
+        self.isDisabled = isDisabled
+        self.statusText = statusText
     }
 
     public var body: some View {
         if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id)) {
+            if isDisabled {
                 playlistRowContent
+            } else {
+                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
+                    playlistRowContent
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         } else {
             // iOS 15 fallback
-            NavigationLink {
-                PlaylistDetailLoader(playlistId: playlist.id, nowPlayingVM: nowPlayingVM)
-            } label: {
-                playlistRowContent
+            Group {
+                if isDisabled {
+                    playlistRowContent
+                } else {
+                    NavigationLink {
+                        PlaylistDetailLoader(
+                            playlistId: playlist.id,
+                            playlistSourceKey: playlist.sourceCompositeKey,
+                            nowPlayingVM: nowPlayingVM
+                        )
+                    } label: {
+                        playlistRowContent
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
         }
     }
     
@@ -81,14 +105,20 @@ public struct PlaylistRow: View {
                         Image(systemName: "gearshape.fill")
                             .font(.caption2)
                     }
-                    Text("\(playlist.trackCount) songs")
+                    Text(statusText ?? "\(playlist.trackCount) songs")
                         .font(.caption)
                 }
                 .foregroundColor(.secondary)
             }
 
             Spacer()
+
+            if isDisabled {
+                ProgressView()
+                    .scaleEffect(0.8)
+            }
         }
         .contentShape(Rectangle())
+        .opacity(isDisabled ? 0.55 : 1.0)
     }
 }

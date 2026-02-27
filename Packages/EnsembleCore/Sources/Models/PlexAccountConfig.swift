@@ -1,17 +1,46 @@
+import EnsembleAPI
 import Foundation
 
 // MARK: - Plex Account Configuration (persisted as JSON in Keychain)
 
 public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
     public let id: String             // Plex user UUID or generated ID
-    public let username: String
+    public let email: String?
+    public let plexUsername: String?
+    public let displayTitle: String?
     public let authToken: String
+    public let authTokenMetadata: PlexAuthTokenMetadata?
     public let servers: [PlexServerConfig]
 
-    public init(id: String, username: String, authToken: String, servers: [PlexServerConfig]) {
+    /// Preferred account label for UI presentation.
+    public var accountIdentifier: String {
+        if let email = email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            return email
+        }
+        if let username = plexUsername?.trimmingCharacters(in: .whitespacesAndNewlines), !username.isEmpty {
+            return username
+        }
+        if let title = displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        return "Plex Account"
+    }
+
+    public init(
+        id: String,
+        email: String? = nil,
+        plexUsername: String? = nil,
+        displayTitle: String? = nil,
+        authToken: String,
+        authTokenMetadata: PlexAuthTokenMetadata? = nil,
+        servers: [PlexServerConfig]
+    ) {
         self.id = id
-        self.username = username
+        self.email = email
+        self.plexUsername = plexUsername
+        self.displayTitle = displayTitle
         self.authToken = authToken
+        self.authTokenMetadata = authTokenMetadata ?? PlexAuthService.tokenMetadata(from: authToken)
         self.servers = servers
     }
 }
@@ -78,53 +107,47 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         try container.encode(libraries, forKey: .libraries)
     }
     
-    /// Get the best connection based on Plex's recommended priority:
-    /// 1. HTTPS connections (local or plex.direct) - most secure and reliable
-    /// 2. HTTP local connections - fast but only works on LAN
-    /// 3. HTTP direct connections - works remotely but less secure
-    /// 4. Relay connections - slowest, last resort
+    /// Get the best connection using local-first secure routing.
     public var preferredConnection: PlexConnectionConfig {
-        // Filter out relay connections first, we'll use them as last resort
-        let nonRelayConnections = connections.filter { !($0.relay ?? false) }
-        let relayConnections = connections.filter { $0.relay ?? false }
-        
-        // Priority 1: HTTPS connections (both local and remote plex.direct)
-        // These include plex.direct URLs which work everywhere with valid SSL
-        if let httpsConnection = nonRelayConnections.first(where: { $0.protocol == "https" }) {
-            return httpsConnection
-        }
-        
-        // Priority 2: HTTP local connections (only good on LAN)
-        if let localConnection = nonRelayConnections.first(where: { $0.local && $0.protocol == "http" }) {
-            return localConnection
-        }
-        
-        // Priority 3: Any remaining non-relay connection (HTTP direct)
-        if let directConnection = nonRelayConnections.first {
-            return directConnection
-        }
-        
-        // Priority 4: Relay as last resort
-        if let relayConnection = relayConnections.first {
-            return relayConnection
-        }
-        
-        // Fallback to first connection or create one from URL
-        return connections.first ?? PlexConnectionConfig(uri: url, local: false)
+        orderedConnections.first ?? PlexConnectionConfig(uri: url, local: false)
     }
     
-    /// Get all connections ordered by preference (HTTPS first, then HTTP, then relay)
+    /// Get all connections ordered by preference:
+    /// local secure -> remote secure -> local insecure -> remote insecure -> relay.
     public var orderedConnections: [PlexConnectionConfig] {
-        let nonRelay = connections.filter { !($0.relay ?? false) }
-        let relay = connections.filter { $0.relay ?? false }
-        
-        // Separate by protocol
-        let https = nonRelay.filter { $0.protocol == "https" }
-        let httpLocal = nonRelay.filter { $0.protocol == "http" && $0.local }
-        let httpRemote = nonRelay.filter { $0.protocol == "http" && !$0.local }
-        
-        // Order: HTTPS (all) → HTTP local → HTTP remote → Relay
-        return https + httpLocal + httpRemote + relay
+        connections.enumerated().sorted { lhs, rhs in
+            let lClass = connectionClass(lhs.element)
+            let rClass = connectionClass(rhs.element)
+            if lClass == rClass {
+                return lhs.offset < rhs.offset
+            }
+            return lClass.rawValue < rClass.rawValue
+        }.map(\.element)
+    }
+
+    private enum ConnectionClass: Int {
+        case localSecure = 0
+        case remoteSecure = 1
+        case localInsecure = 2
+        case remoteInsecure = 3
+        case relay = 4
+    }
+
+    private func connectionClass(_ connection: PlexConnectionConfig) -> ConnectionClass {
+        if connection.relay ?? false {
+            return .relay
+        }
+        let isSecure = connection.protocol == "https" || connection.uri.lowercased().hasPrefix("https://")
+        if isSecure && connection.local {
+            return .localSecure
+        }
+        if isSecure && !connection.local {
+            return .remoteSecure
+        }
+        if !isSecure && connection.local {
+            return .localInsecure
+        }
+        return .remoteInsecure
     }
 }
 

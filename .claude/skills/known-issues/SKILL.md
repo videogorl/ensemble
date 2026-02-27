@@ -11,6 +11,7 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Location:** `EnsembleWatch/Views/WatchRootView.swift:5`
 - **Issue:** References `DependencyContainer.shared.makeAuthViewModel()` which does not exist
 - **Impact:** watchOS app won't compile
+- **Status (February 21, 2026):** Deferred by scope decision; not being fixed in current remediation pass
 - **Root Cause:** iOS uses `AddPlexAccountViewModel`, watchOS was designed with different auth flow
 - **Fix Options:**
   1. Create `AuthViewModel` in EnsembleCore and add factory method to DependencyContainer
@@ -29,13 +30,52 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - Not currently called during library sync
 - Would improve offline experience if wired up to `SyncCoordinator`
 
+### Library Visibility Profile Selector UI Not Shipped Yet
+- `LibraryVisibilityProfile` + `LibraryVisibilityStore` groundwork exists in `EnsembleCore`
+- `LibraryViewModel`, `SearchViewModel`, and `HomeViewModel` already support source-key visibility filtering seams
+- **Missing:** user-facing selector/editor UI to switch and manage profiles in Settings
+- **Current behavior:** filtering is foundation-only; sync-enable state remains unchanged
+
 ## Resolved
+
+### HomePod Siri Media Intents handle() Never Called
+- **Resolved (February 26, 2026)**
+- **Issue:** For HomePod requests, iOS's SiriKit never calls `handle()` after `confirm()` returns `.ready`. This appears to be an iOS limitation affecting third-party media apps.
+- **Workaround:** Extension writes playback payload to App Group and posts a Darwin notification; app listens for the notification and executes playback directly, bypassing the broken `handle()` flow.
+- **Key files:** `PlayMediaIntentHandler.swift` (confirm + Darwin post), `AppDelegate.swift` (Darwin listener)
 
 ### Infrastructure
 - **Legacy CocoaPods Cleanup** -- Removed unused `ios/Pods/` directory
 
 ### Documentation
 - **Documentation Fully Updated** -- CLAUDE.md and README.md reflect all implemented features
+
+### Persistence SwiftPM Test Crash
+- **Resolved (February 21, 2026)**
+- `CoreDataStack` now loads bundled models with resilient `.momd`/`.mom` fallback candidates.
+- `CoreDataStack.inMemory()` now uses a true in-memory store (`/dev/null`).
+- Persistence tests use in-memory stack instead of `.shared`.
+- SwiftPM model compilation workflow is documented and scripted (`scripts/compile_coredata_model.sh`).
+
+### Network Handoff Endpoint Staleness + Health Check Overactivity
+- **Resolved (February 21, 2026)**
+- `PlaybackService` now heals upcoming queue items on reconnect/interface-switch transitions.
+- `NetworkMonitor` lifecycle is restart-safe across background/foreground transitions.
+- `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
+- `HomeViewModel` defers hub refresh/apply while users are scrolling to prevent feed jumps.
+
+### Plex Endpoint Policy + Auth Lifecycle Parity
+- **Resolved (February 22, 2026)**
+- Discovery requests now include IPv6 resource candidates and common Plex headers.
+- Endpoint selection now follows local-first, relay-last policy with settings-driven insecure fallback rules.
+- Failover now triggers only for transport/connectivity failures, avoiding probe storms on HTTP semantic errors.
+- Server health now reports classified failure reasons instead of generic offline.
+- Auth cutover now enforces token metadata lifecycle and forced re-login migration.
+
+### Residual Risk: Forced Re-Login After Auth/Account Migrations
+- **Status:** Expected behavior
+- **Impact:** Existing beta users are signed out once when migration version bumps (auth lifecycle and account-schema cutovers).
+- **Mitigation:** Add release-note callout for one-time sign-in requirement.
 
 ## Future Enhancements (Waveform System)
 

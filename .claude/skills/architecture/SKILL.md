@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
 ---
 
 # Ensemble Architecture
@@ -26,10 +26,12 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Types:**
 - `PlexAuthService` (actor) -- PIN-based OAuth authentication
+- `PlexAuthTokenMetadata` -- Parsed auth token metadata (`iat`/`exp`) used for lifecycle enforcement
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
+- `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
 - `KeychainService` -- Token persistence using KeychainAccess library
 - `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
 
@@ -53,6 +55,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
 - `AccountManager` (@MainActor) -- Manages multiple Plex accounts, servers, and libraries
+- `PlexAccountDiscoveryService` -- Discovers account identity + normalized server/library inventory during add-account and reconciliation flows
 - `SyncCoordinator` (@MainActor) -- Orchestrates library syncing across all enabled sources; provides timeline reporting and scrobbling methods
 - `NavigationCoordinator` (@MainActor) -- Manages cross-view navigation state (artist/album deep links from NowPlayingView)
   - Maintains per-tab navigation paths (homePath, artistsPath, etc.)
@@ -70,16 +73,31 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `CacheManager` (@MainActor) -- Tracks cache sizes and provides cache clearing functionality
 - `NetworkMonitor` (@MainActor) -- Proactive network connectivity monitoring using NWPathMonitor with 1s debouncing
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
-- `SettingsManager` (@MainActor) -- Manages accent colors and customizable tab configuration
+- `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
+- `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for hub refresh ~every 15min (system-controlled)
+- `MoodRepository` -- Mood data persistence (CDMood)
+- `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
+- `ToastCenter` (@MainActor) -- App-wide toast notification coordination
+- `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
+- `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
+- `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
 - `PlexAccountConfig` -- Account/server/library hierarchy for configuration
+- `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
 - `NetworkState`, `NetworkType`, `ServerConnectionState`, `StatusColor` -- Network state management models
+- `PinnedItem` -- User-pinned content (albums, artists, playlists) with sort order
+- `Mood` -- Plex mood/vibe category (title and ratingKey)
+- `SiriPlaybackRequestPayload` / `SiriMediaKind` -- Versioned extension -> app handoff contract for Siri media intents
+- `SiriMediaIndex` / `SiriMediaIndexItem` -- Compact index records used by extension-side lookup/ranking
+
+**Key ViewModels:**
+- `PinnedViewModel` -- Fetches `PinnedItem` CoreData records and resolves them into full domain objects
 
 ### EnsembleUI (Presentation Layer)
 - **Location:** `Packages/EnsembleUI/`
@@ -96,6 +114,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` -- Async loading wrappers for detail views
 - `WaveformView` -- Audio waveform visualization with real Plex loudness data or fallback generation
 - `CoverFlowView` -- 3D carousel view with perspective rotation, scaling, and tap-to-zoom/flip interactions
+- `TrackSwipeContainer` -- Shared swipe-action wrapper for track rows on iOS/iPadOS
+- `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
+- `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
+- `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
 
 ## Key Architectural Patterns
 
@@ -108,6 +130,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - API models (`Plex*` in EnsembleAPI) -- Raw server responses
   - CoreData models (`CD*` in EnsemblePersistence) -- Persisted entities
   - Domain models (in EnsembleCore) -- UI-facing, protocol-conforming types
+- **In-app-first Siri execution** -- Siri extension resolves/disambiguates and returns `handleInApp`; playback always executes in main app process through `SiriPlaybackCoordinator`
+- **Dual Siri invocation surfaces** -- SiriKit Media Intents remains primary for media-domain routing, while app-level App Intents shortcuts provide album/playlist fallback phrase routing when SiriKit does not invoke the extension
 - **Multi-source architecture** -- Designed to support multiple Plex accounts and future services (Apple Music, Spotify)
   - `MusicSourceIdentifier` tracks source origin (accountId, serverId, libraryId)
   - `SyncCoordinator` orchestrates syncing across all enabled sources
@@ -170,9 +194,10 @@ Dynamic home screen powered by Plex's hub system:
 
 - `Hub` domain model -- Sections like Recently Added, Recently Played
 - `HubItem` -- Items within a hub (tracks, albums, artists, playlists)
-- `HomeViewModel` -- Loads hub data with 2s debouncing
+- `HomeViewModel` -- Loads hub data with 2s debouncing and defers auto-refresh/snapshot application while users are actively scrolling
 - `HomeView` -- Horizontally-scrolling sections with navigation
   - `HubSection` / `HubItemCard` inline structs
+  - Reports view visibility + scroll interaction to `HomeViewModel` so deferred refreshes are applied when idle
   - Artwork: 140x140pt, circular for artists (radius 70), rounded for albums (radius 8)
 
 **Hub Persistence:**
@@ -208,16 +233,61 @@ Dynamic home screen powered by Plex's hub system:
 
 **FilterSheet UI:** Search bar, sort picker, genre/artist multi-select chips, year range slider, downloaded-only toggle
 
+## Subsystem: Account-Centric Source Management
+
+- Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
+- `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
+- `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
+- Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
+- Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
+- Legacy standalone Sync Panel routes were removed from `MainTabView`/`MoreView`/sidebar flows.
+
+## Subsystem: Siri Media Intents (In-App-First)
+
+- Siri extension target (`EnsembleSiriIntentsExtension`) implements `INPlayMediaIntentHandling` for query resolution/disambiguation only.
+- Extension reads `SiriMediaIndex` from the shared App Group container and ranks candidates deterministically:
+  - Match quality: exact normalized > prefix > contains
+  - Tie-breaks: last played > play count > track count > deterministic name/id
+- Extension returns `.handleInApp` with serialized `SiriPlaybackRequestPayload` in `NSUserActivity.userInfo`.
+- `AppDelegate.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
+- `SiriPlaybackCoordinator` resolves media against enabled sources and executes:
+  - Track: direct playback from resolved track
+  - Album: queue album tracks from first track
+  - Artist: queue artist tracks
+  - Playlist: queue playlist tracks in saved order
+- `SiriMediaIndexStore` rebuilds the index after sync completion and account/source configuration changes.
+- App target registers `EnsembleAppShortcutsProvider` fallback shortcuts for album/playlist phrases (`PlayEnsembleAlbumIntent`, `PlayEnsemblePlaylistIntent`).
+- App shortcut entities resolve against the same shared Siri index so Siri vocabulary tracks cached library content without direct extension CoreData access.
+- `AppDelegate` calls `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` at launch so App Intents metadata stays aligned with current index contents.
+
+## Subsystem: Library Visibility Profiles (Groundwork)
+
+- `LibraryVisibilityProfile` stores hidden `sourceCompositeKey` values independent of sync enablement.
+- `LibraryVisibilityStore` persists profiles + active profile in `UserDefaults`.
+- `LibraryViewModel`, `SearchViewModel`, and `HomeViewModel` apply visibility filtering seams to published collections without toggling `PlexLibraryConfig.isEnabled`.
+- Selector/editor UI for switching profiles is intentionally deferred; groundwork is backend/viewmodel only.
+
 ## Subsystem: Network Resilience
 
 - **NetworkMonitor** -- `NWPathMonitor` with 1s debouncing, states: `.online`/`.offline`/`.limited`/`.unknown`
-- **ServerHealthChecker** -- Concurrent health checks, tests Local -> Direct -> Relay
-- **ConnectionFailoverManager** -- Automatic failover between server URLs
+  - Lifecycle-safe restart behavior: `stopMonitoring()` cancels/releases the current monitor and `startMonitoring()` creates a new monitor instance.
+- **SyncCoordinator** -- Transition-aware health orchestration for reconnects and interface switches
+  - Coalesces concurrent health refresh requests.
+  - Applies 30s cooldown and 60s app-foreground staleness threshold.
+  - Limits checks to servers with at least one enabled library.
+- **Plex endpoint policy layer** -- `PlexEndpointDescriptor` + `ConnectionSelectionPolicy` classify endpoints by locality/protocol/relay and order local-first with relay-last fallback.
+- **Settings-driven insecure policy** -- `AllowInsecureConnectionsPolicy` is persisted in `SettingsManager` and applied when filtering endpoint candidates.
+- **ConnectionFailoverManager** -- Policy-aware failover with preferred recent healthy endpoint fast-path and probe failure classification.
+- **PlexAPIClient failover policy** -- Alternate endpoint probing is transport-only (no failover for HTTP semantic failures) and `refreshConnection()` returns a structured `ConnectionRefreshResult`.
+- **ServerHealthChecker** -- Concurrent checks with per-server TTL caching (120s), forced refresh support, and failure taxonomy (`localOnlyReachable`, `remoteAccessUnavailable`, `relayUnavailable`, `tlsPolicyBlocked`, `offline`).
+- **Resources discovery parity** -- resources requests include HTTPS/relay/IPv6 parameters plus common Plex client headers.
+- **Auth lifecycle enforcement** -- `AccountManager` enforces auth migration cutover and token expiry checks on load/foreground.
 
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
+- Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
-- Proactive server health checks on foreground transition
+- macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
 
 ## Subsystem: Customizable UI Settings
 
@@ -225,6 +295,8 @@ Dynamic home screen powered by Plex's hub system:
 - `AppAccentColor` enum: `.purple` (default), `.blue`, `.pink`, `.red`, `.orange`, `.yellow`, `.green`
 - `TabItem` enum: 10 tabs, users can enable/disable via Settings
 - Default enabled: Home, Artists, Playlists, Search
+- `TrackSwipeAction` enum + `TrackSwipeLayout` model define 2 leading and 2 trailing swipe slots
+- Layout is persisted in `@AppStorage` and sanitized to prevent duplicate action assignment
 
 ## Subsystem: Favorites
 
@@ -240,6 +312,52 @@ Dynamic home screen powered by Plex's hub system:
 
 - **EnsembleWatch** (`Ensemble/EnsembleWatch/`) -- watchOS
   - `WatchRootView.swift` -- Consolidated views (auth, library, now playing)
+
+## Subsystem: Playlist Mutations
+
+Server-backed playlist mutations with automatic local cache refresh:
+
+- `SyncCoordinator` orchestrates all mutations: `createPlaylist()`, `addTracksToPlaylist()`, `removeTrackFromPlaylist()`, `movePlaylistItem()`, `renamePlaylist()`
+- Smart playlists are read-only; all mutations throw `PlaylistMutationError.smartPlaylistReadOnly`
+- All successful mutations trigger server refresh + CoreData update for the affected source
+- UI entry points: `PlaylistActionSheets.swift` (shared add/create sheet), `NowPlayingViewModel` (queue snapshot, add current track), `PlaylistViewModel` (rename, reorder, remove), `MediaTrackList` (per-track add)
+
+## Subsystem: Gesture Actions
+
+iOS/iPadOS gesture system for track swipe actions and long-press media actions:
+
+- Track swipe actions are layout-driven from `SettingsManager.trackSwipeLayout` and shared across Songs/Favorites/Mood/Search/detail track lists
+- SwiftUI track surfaces use `TrackSwipeContainer`; UIKit-backed detail lists use `MediaTrackList` `UIContextualAction` APIs
+- `NowPlayingViewModel` exposes `setTrackFavorite(_:for:)` and `toggleTrackFavorite(_:)` for non-current track favorite mutations
+- Album/artist/playlist cards and search rows expose `contextMenu` actions aligned with detail-view capabilities
+
+## Subsystem: Pinned Content
+
+User-pinnable items (albums, artists, playlists) persisted across sessions:
+
+- `PinnedItem` domain model records item type, ratingKey, sourceIdentifier, and sort order
+- `PinnedViewModel` fetches `CDPinnedItem` records from CoreData and resolves them into full domain objects
+- Persisted in CoreData via `CDPinnedItem` entity
+
+## Subsystem: Mood-Based Browsing
+
+Plex mood/vibe categories for discovery:
+
+- `Mood` domain model -- title and ratingKey from Plex API
+- `MoodRepository` -- CoreData persistence via `CDMood` entity
+- `MoodTracksView` (`EnsembleUI`) -- displays tracks for a selected mood
+
+## Subsystem: Incremental Sync
+
+Two sync modes to balance freshness and speed:
+
+- **Full sync:** `SyncCoordinator.syncAll()` -- fetches entire library from Plex
+- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items
+- **Startup:** full sync if last sync >24h ago; incremental if >1h; skip if <1h
+- **Periodic (foreground):** incremental library sync every 1h, hub refresh every 10min
+- **Background (iOS):** `BackgroundSyncScheduler` registers `BGAppRefreshTask`; system triggers hub refresh approximately every 15min
+- **Pull-to-refresh:** library views call incremental sync; `HomeView` refreshes hubs only
+- **Key filtered fetch methods** in `PlexAPIClient`: `getArtists(sectionKey:addedAfter:)`, `getAlbums(sectionKey:addedAfter:)`, `getTracks(sectionKey:addedAfter:)`
 
 ## Multi-Source Architecture
 

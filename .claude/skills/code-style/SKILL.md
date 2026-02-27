@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: "Ensemble coding standards: comment guidelines, naming conventions, development guidelines, memory/performance targets, testing policy"
+description: "Load before writing any Swift code. Contains mandatory rules that override defaults: structured Logger usage (no print), edge case handling required (active beta), memory targets, MVVM pattern, and debug logging conventions."
 ---
 
 # Ensemble Code Style & Development Guidelines
@@ -15,10 +15,22 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 
 ## Change Documentation
 
-- **Update CLAUDE.md:** When making architectural changes, update with new patterns and conventions
-- **Update README.md:** Keep user-facing documentation in sync with implemented features
 - **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
 - **Code comments:** Leave comments in code so future developers (including AI assistants) understand the design
+
+Keep the following documents in sync when making changes:
+
+| What changed | What to update |
+|---|---|
+| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New file added anywhere | `project-structure` skill |
+| New recipe, pattern, or call convention | `common-tasks` skill |
+| New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
+| New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
+| New known bug, limitation, or tech debt | `known-issues` skill |
+| Feature shipped or roadmap item completed | `README.md` |
+| New test patterns or changes to what needs testing | `testing` skill |
+| Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
 ## Code Style
 
@@ -26,6 +38,17 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 - Use Xcode's MCP server to inform best practices
 - Don't over-comment -- focus on complex logic and architectural decisions
 - Do not use emojis (except in debugging)
+
+## Debug Logging
+
+Use structured `os.Logger` logging, not `print()`.
+
+Rules:
+- Use package/app logger helpers (`AppLogger` / `EnsembleLogger`) with category-specific logger instances.
+- Use log levels intentionally: `.debug` for verbose traces, `.info` for key state transitions, `.error` for recoverable failures, `.fault` for critical failures.
+- Keep verbose diagnostic logging debug-only when it could be noisy.
+- Treat logs as production data: use privacy-safe interpolation and avoid leaking secrets/tokens.
+- `print(` is disallowed in production codepaths. Keep repository-wide `print(` count at zero for Swift sources.
 
 ## Preserve Existing Functionality
 
@@ -57,8 +80,8 @@ description: "Ensemble coding standards: comment guidelines, naming conventions,
 - Unit tests for business logic (services, repositories)
 - Integration tests for sync flows
 - Not required for simple ViewModels or UI-only code
-- Not accounting for edge cases during early development (pre-beta)
-- App is not released to the public and isn't in beta -- no need for edge case handling in CoreData model
+- App is in active beta testing — account for edge cases in CoreData model
+- Validate inputs before saving to CoreData; handle nil/missing fields defensively
 
 ## MVVM Pattern
 

@@ -144,9 +144,11 @@ public struct MiniPlayer: View {
 
                 // Progress bar at the bottom
                 GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: geometry.size.width * viewModel.progress)
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(width: geometry.size.width * viewModel.progress)
+                    }
                 }
                 .frame(height: 3)
             } else {
@@ -170,6 +172,9 @@ public struct MiniPlayer: View {
                 .padding(.vertical, 12)
             }
         }
+        // Keep mini-player layout tightly bound to rendered content height.
+        // This avoids oversized touch regions when artwork background is active.
+        .fixedSize(horizontal: false, vertical: true)
         .clipped()
         .background(
             ZStack {
@@ -188,6 +193,8 @@ public struct MiniPlayer: View {
                     )
                     .animation(.easeInOut(duration: 0.8), value: artworkImage)
                     .clipped()
+                    // Background blur is visual-only and should never own touch events.
+                    .allowsHitTesting(false)
                 }
                 
                 RoundedRectangle(cornerRadius: 20)
@@ -240,7 +247,9 @@ public struct MiniPlayer: View {
         let trackID = track.id
         currentLoadTrackID = trackID
         
-        print("🎨 MiniPlayer: Loading artwork for \(track.title)")
+        #if DEBUG
+        EnsembleLogger.debug("🎨 MiniPlayer: Loading artwork for \(track.title)")
+        #endif
         
         Task {
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
@@ -251,12 +260,16 @@ public struct MiniPlayer: View {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 200
             ) {
-                print("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
+                #if DEBUG
+                EnsembleLogger.debug("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
+                #endif
                 let request = ImageRequest(url: artworkURL)
                 
                 // Try synchronous cache lookup first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    print("🎨 MiniPlayer: Using cached image for \(track.title)")
+                    #if DEBUG
+                    EnsembleLogger.debug("🎨 MiniPlayer: Using cached image for \(track.title)")
+                    #endif
                     await MainActor.run {
                         if self.currentLoadTrackID == trackID {
                             self.artworkImage = cachedImage.image
@@ -266,9 +279,13 @@ public struct MiniPlayer: View {
                 }
                 
                 // Load asynchronously if not cached
-                print("🎨 MiniPlayer: Loading from network for \(track.title)")
+                #if DEBUG
+                EnsembleLogger.debug("🎨 MiniPlayer: Loading from network for \(track.title)")
+                #endif
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                    print("🎨 MiniPlayer: Loaded image for \(track.title)")
+                    #if DEBUG
+                    EnsembleLogger.debug("🎨 MiniPlayer: Loaded image for \(track.title)")
+                    #endif
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
@@ -280,10 +297,14 @@ public struct MiniPlayer: View {
                         }
                     }
                 } else {
-                    print("🎨 MiniPlayer: Failed to load image for \(track.title)")
+                    #if DEBUG
+                    EnsembleLogger.debug("🎨 MiniPlayer: Failed to load image for \(track.title)")
+                    #endif
                 }
             } else {
-                print("🎨 MiniPlayer: No artwork URL for \(track.title)")
+                #if DEBUG
+                EnsembleLogger.debug("🎨 MiniPlayer: No artwork URL for \(track.title)")
+                #endif
             }
         }
     }

@@ -8,7 +8,7 @@ public final class NavigationCoordinator: ObservableObject {
     public enum Destination: Hashable {
         case artist(id: String)
         case album(id: String)
-        case playlist(id: String)
+        case playlist(id: String, sourceKey: String?)
         case moodTracks(mood: Mood)
         case view(TabItem) // For pushing library views from the More menu
     }
@@ -102,7 +102,7 @@ public final class NavigationCoordinator: ObservableObject {
         case "album":
             destination = .album(id: id)
         case "playlist":
-            destination = .playlist(id: id)
+            destination = .playlist(id: id, sourceKey: nil)
         default:
             return false
         }

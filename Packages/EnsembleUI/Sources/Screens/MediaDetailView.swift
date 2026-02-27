@@ -32,9 +32,31 @@ public struct MediaHeaderData {
     }
 }
 
+public struct PlaylistDetailMenuActions {
+    let canRename: Bool
+    let canEdit: Bool
+    let canDelete: Bool
+    let onRename: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onPlayNext: () -> Void
+    let onPlayLast: () -> Void
+}
+
+public struct AlbumDetailMenuActions {
+    let onPlayNext: () -> Void
+    let onPlayLast: () -> Void
+}
+
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @ObservedObject var viewModel: ViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
 
@@ -45,10 +67,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let playlistMenuActions: PlaylistDetailMenuActions?
+    let albumMenuActions: AlbumDetailMenuActions?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
@@ -61,7 +87,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         showFilter: Bool = true,
-        mediaType: PinnedItemType? = nil
+        mediaType: PinnedItemType? = nil,
+        playlistMenuActions: PlaylistDetailMenuActions? = nil,
+        albumMenuActions: AlbumDetailMenuActions? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -72,52 +100,79 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.playlistMenuActions = playlistMenuActions
+        self.albumMenuActions = albumMenuActions
     }
 
     public var body: some View {
-        Group {
-            if showFilter {
-                baseContent
-                    .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button {
-                                showFilterSheet = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
+        contentWithOptionalFilter
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if shouldShowStandaloneFilterButton {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
 
-                                    // Badge indicator when filters are active
-                                    if viewModel.filterOptions.hasActiveFilters {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 2, y: -2)
-                                    }
-                                }
+                            if viewModel.filterOptions.hasActiveFilters {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
                             }
                         }
                     }
-                    .sheet(isPresented: $showFilterSheet) {
-                        FilterSheet(
-                            filterOptions: $viewModel.filterOptions
-                        )
-                    }
-            } else {
-                baseContent
+                }
             }
-        }
-        .toolbar {
+            #else
+            ToolbarItem(placement: .automatic) {
+                if shouldShowStandaloneFilterButton {
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+
+                            if viewModel.filterOptions.hasActiveFilters {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
             // Pin/Unpin menu button
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if let mediaType = mediaType,
                    let ratingKey = headerData.ratingKey {
                     pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
                 }
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if let mediaType = mediaType,
+                   let ratingKey = headerData.ratingKey {
+                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                }
+            }
+            #endif
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
+        .miniPlayerBottomSpacing(140)
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(
+                nowPlayingVM: nowPlayingVM,
+                tracks: payload.tracks,
+                title: payload.title
+            )
+        }
+        .task(id: quickTargetRefreshKey) {
+            lastPlaylistQuickTarget = await nowPlayingVM.resolveLastPlaylistTarget(for: viewModel.filteredTracks)
         }
         .task {
             await viewModel.loadTracks()
@@ -127,10 +182,46 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    @ViewBuilder
+    private var contentWithOptionalFilter: some View {
+        if showFilter {
+            baseContent
+                .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
+                .sheet(isPresented: $showFilterSheet) {
+                    FilterSheet(filterOptions: $viewModel.filterOptions)
+                }
+        } else {
+            baseContent
+        }
+    }
+
+    private var shouldShowStandaloneFilterButton: Bool {
+        showFilter && (mediaType == nil || headerData.ratingKey == nil)
+    }
+
+    private var quickTargetRefreshKey: String {
+        let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
+        let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
+        return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
+    }
+
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
         let isPinned = pinManager.isPinned(id: ratingKey)
         return Menu {
+            if showFilter {
+                Button {
+                    showFilterSheet = true
+                } label: {
+                    Label(
+                        "Filters",
+                        systemImage: viewModel.filterOptions.hasActiveFilters
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
+                    )
+                }
+            }
+
             Button {
                 if isPinned {
                     pinManager.unpin(id: ratingKey)
@@ -149,9 +240,103 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Pin", systemImage: "pin.fill")
                 }
             }
+
+            if viewModel is AlbumDetailViewModel {
+                if let lastPlaylistQuickTarget {
+                    if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
+                        Button {
+                            Task {
+                                _ = try? await nowPlayingVM.addTracks(viewModel.filteredTracks, to: lastPlaylistQuickTarget)
+                            }
+                        } label: {
+                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+                }
+
+                Button {
+                    presentPlaylistPicker(with: viewModel.filteredTracks)
+                } label: {
+                    Label("Add to Playlist…", systemImage: "text.badge.plus")
+                }
+                .disabled(viewModel.filteredTracks.isEmpty)
+
+                if let albumMenuActions {
+                    Divider()
+
+                    Button {
+                        albumMenuActions.onPlayNext()
+                    } label: {
+                        Label("Play Next", systemImage: "text.insert")
+                    }
+
+                    Button {
+                        albumMenuActions.onPlayLast()
+                    } label: {
+                        Label("Play Last", systemImage: "text.append")
+                    }
+                }
+            }
+
+            if let playlistMenuActions {
+                Button {
+                    playlistMenuActions.onPlayNext()
+                } label: {
+                    Label("Play Next", systemImage: "text.insert")
+                }
+
+                Button {
+                    playlistMenuActions.onPlayLast()
+                } label: {
+                    Label("Play Last", systemImage: "text.append")
+                }
+
+                Divider()
+
+                Button {
+                    playlistMenuActions.onRename()
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .disabled(!playlistMenuActions.canRename)
+
+                Button {
+                    playlistMenuActions.onEdit()
+                } label: {
+                    Label("Edit Playlist", systemImage: "slider.horizontal.3")
+                }
+                .disabled(!playlistMenuActions.canEdit)
+
+                Button(role: .destructive) {
+                    playlistMenuActions.onDelete()
+                } label: {
+                    Label("Delete Playlist", systemImage: "trash")
+                }
+                .disabled(!playlistMenuActions.canDelete)
+            }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track], title: String = "Add Album to Playlist") {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again after the album finishes loading.",
+                    dedupeKey: "album-playlist-picker-empty"
+                )
+            )
+            return
+        }
+
+        playlistPickerPayload = PlaylistPickerPayload(
+            tracks: tracks,
+            title: title
+        )
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes
@@ -392,7 +577,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             },
             onPlayLast: { track in
                 nowPlayingVM.playLast(track)
-            }
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track], title: "Add to Playlist")
+            },
+            onAddToRecentPlaylist: { track in
+                guard let lastPlaylistQuickTarget,
+                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
+                Task {
+                    _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
+                }
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                guard let lastPlaylistQuickTarget else { return false }
+                return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
+            },
+            recentPlaylistTitle: lastPlaylistQuickTarget?.title
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
@@ -406,7 +614,28 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     showArtwork: showArtwork,
                     isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                     onPlayNext: { nowPlayingVM.playNext(track) },
-                    onPlayLast: { nowPlayingVM.playLast(track) }
+                    onPlayLast: { nowPlayingVM.playLast(track) },
+                    onAddToPlaylist: {
+                        presentPlaylistPicker(with: [track], title: "Add to Playlist")
+                    },
+                    onAddToRecentPlaylist: {
+                        guard let lastPlaylistQuickTarget,
+                              nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
+                        Task {
+                            _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
+                        }
+                    },
+                    onToggleFavorite: {
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    isFavorited: nowPlayingVM.isTrackFavorited(track),
+                    recentPlaylistTitle: {
+                        guard let lastPlaylistQuickTarget,
+                              nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
+                        return lastPlaylistQuickTarget.title
+                    }()
                 ) {
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }

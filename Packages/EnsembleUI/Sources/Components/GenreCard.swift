@@ -72,7 +72,7 @@ public struct GenreGrid: View {
     let onGenreTap: ((Genre) -> Void)?
 
     private let columns = [
-        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16)
+        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
     ]
 
     public init(genres: [Genre], onGenreTap: ((Genre) -> Void)? = nil) {

@@ -78,39 +78,49 @@ public struct PlexDevice: Codable, Sendable, Identifiable {
         provides.contains("server")
     }
 
-    /// Get the best connection based on Plex's recommended priority:
-    /// 1. HTTPS connections (local or plex.direct) - most secure and reliable
-    /// 2. HTTP local connections - fast but only works on LAN
-    /// 3. HTTP direct connections - works remotely but less secure
-    /// 4. Relay connections - slowest, last resort
+    /// Get the best connection using policy-driven Plex endpoint ordering.
     public var bestConnection: PlexConnection? {
-        // Filter out relay connections first, we'll use them as last resort
-        let nonRelayConnections = connections.filter { !($0.relay ?? false) }
-        let relayConnections = connections.filter { $0.relay ?? false }
-        
-        // Priority 1: HTTPS connections (both local and remote)
-        // These include plex.direct URLs which work everywhere with valid SSL
-        if let httpsConnection = nonRelayConnections.first(where: { $0.protocol == "https" }) {
-            return httpsConnection
+        bestConnection(
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+    }
+
+    public func bestConnection(
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy
+    ) -> PlexConnection? {
+        orderedConnections(
+            selectionPolicy: selectionPolicy,
+            allowInsecure: allowInsecure
+        ).first
+    }
+
+    public func orderedConnections(
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy
+    ) -> [PlexConnection] {
+        let indexed = connections.enumerated().map { index, connection in
+            (
+                index: index,
+                descriptor: PlexEndpointDescriptor(
+                    url: connection.uri,
+                    local: connection.local,
+                    relay: connection.relay ?? false,
+                    secure: connection.protocol == "https"
+                )
+            )
         }
-        
-        // Priority 2: HTTP local connections (only good on LAN)
-        if let localConnection = nonRelayConnections.first(where: { $0.local && $0.protocol == "http" }) {
-            return localConnection
+        let ordering = PlexEndpointPolicy.orderedCandidates(
+            from: indexed.map(\.descriptor),
+            selectionPolicy: selectionPolicy,
+            allowInsecure: allowInsecure
+        )
+        let indexByURL = Dictionary(uniqueKeysWithValues: indexed.map { ($0.descriptor.url, $0.index) })
+        return ordering.candidates.compactMap { descriptor in
+            guard let index = indexByURL[descriptor.url], index < connections.count else { return nil }
+            return connections[index]
         }
-        
-        // Priority 3: Any remaining non-relay connection (HTTP direct)
-        if let directConnection = nonRelayConnections.first {
-            return directConnection
-        }
-        
-        // Priority 4: Relay as last resort
-        if let relayConnection = relayConnections.first {
-            return relayConnection
-        }
-        
-        // Fallback to any connection
-        return connections.first
     }
 }
 
@@ -184,6 +194,14 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Lightweight Inventory Item (for orphan detection)
+
+/// Minimal model for fetching just ratingKeys (used for orphan removal)
+/// Using includeFields=ratingKey reduces response size significantly
+public struct PlexInventoryItem: Codable, Sendable {
+    public let ratingKey: String
+}
+
 // MARK: - Artist
 
 public struct PlexArtist: Codable, Sendable, Identifiable {
@@ -217,8 +235,50 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let updatedAt: Int?
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
+    public let media: [PlexMedia]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+        case key
+        case parentRatingKey
+        case title
+        case parentTitle
+        case summary
+        case thumb
+        case art
+        case year
+        case originallyAvailableAt
+        case addedAt
+        case updatedAt
+        case leafCount
+        case viewedLeafCount
+        case media = "Media"
+    }
 
     public var id: String { ratingKey }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        ratingKey = try container.decode(String.self, forKey: .ratingKey)
+        key = try container.decode(String.self, forKey: .key)
+        parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
+
+        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        art = try container.decodeIfPresent(String.self, forKey: .art)
+        year = try container.decodeIfPresent(Int.self, forKey: .year)
+        originallyAvailableAt = try container.decodeIfPresent(String.self, forKey: .originallyAvailableAt)
+        addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
+        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
+        viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
+    }
 }
 
 // MARK: - Track
@@ -226,6 +286,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
 public struct PlexTrack: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
+    public let playlistItemID: String?
     public let parentRatingKey: String?  // Album
     public let grandparentRatingKey: String?  // Artist
     public let title: String
@@ -250,6 +311,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case key
+        case playlistItemID
         case parentRatingKey
         case grandparentRatingKey
         case title
@@ -282,6 +344,94 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public var streamURL: String? {
         guard let part = media?.first?.part?.first else { return nil }
         return part.key
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        ratingKey = try container.decode(String.self, forKey: .ratingKey)
+        key = try container.decode(String.self, forKey: .key)
+        parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
+        grandparentRatingKey = try container.decodeIfPresent(String.self, forKey: .grandparentRatingKey)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        title = PlexTitleFallback.trackTitle(from: decodedTitle, media: media)
+        let decodedParentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        parentTitle = PlexTitleFallback.albumTitle(from: decodedParentTitle, media: media)
+        grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        index = try container.decodeIfPresent(Int.self, forKey: .index)
+        parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration)
+        thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        art = try container.decodeIfPresent(String.self, forKey: .art)
+        parentThumb = try container.decodeIfPresent(String.self, forKey: .parentThumb)
+        grandparentThumb = try container.decodeIfPresent(String.self, forKey: .grandparentThumb)
+        addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
+        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        viewCount = try container.decodeIfPresent(Int.self, forKey: .viewCount)
+        lastViewedAt = try container.decodeIfPresent(Int.self, forKey: .lastViewedAt)
+        userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
+        loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
+
+        if let playlistItemString = try? container.decodeIfPresent(String.self, forKey: .playlistItemID) {
+            playlistItemID = playlistItemString
+        } else if let playlistItemInt = try? container.decodeIfPresent(Int.self, forKey: .playlistItemID) {
+            playlistItemID = String(playlistItemInt)
+        } else {
+            playlistItemID = nil
+        }
+    }
+}
+
+private enum PlexTitleFallback {
+    static func trackTitle(from title: String?, media: [PlexMedia]?) -> String {
+        normalized(title)
+            ?? fileStem(from: media)
+            ?? "Unknown Track"
+    }
+
+    static func albumTitle(from title: String?, media: [PlexMedia]?) -> String {
+        normalized(title)
+            ?? parentDirectoryName(from: media)
+            ?? fileStem(from: media)
+            ?? "Unknown Album"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func fileStem(from media: [PlexMedia]?) -> String? {
+        guard
+            let filePath = media?.first?.part?.first?.file,
+            !filePath.isEmpty
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: filePath).deletingPathExtension().lastPathComponent.nonEmptyTitle
+    }
+
+    private static func parentDirectoryName(from media: [PlexMedia]?) -> String? {
+        guard
+            let filePath = media?.first?.part?.first?.file,
+            !filePath.isEmpty
+        else {
+            return nil
+        }
+
+        let directoryPath = URL(fileURLWithPath: filePath).deletingLastPathComponent().path
+        return URL(fileURLWithPath: directoryPath).lastPathComponent.nonEmptyTitle
+    }
+}
+
+private extension String {
+    var nonEmptyTitle: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

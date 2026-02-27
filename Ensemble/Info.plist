@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.videogorl.ensemble.refresh</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -10,17 +14,6 @@
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>ensemble</string>
-			</array>
-			<key>CFBundleURLName</key>
-			<string>com.videogorl.ensemble</string>
-		</dict>
-	</array>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -28,7 +21,18 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>0.3.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.videogorl.ensemble</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ensemble</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -41,6 +45,31 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.videogorl.ensemble.siri.playmedia</string>
+	</array>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Ensemble</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>ahn-sahm-bul</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Ensemble Music</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>ahn-sahm-bul myoo-zik</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Ensemble Player</string>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -1,0 +1,389 @@
+{
+  "" : {
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore-primary.dia",
+    "emit-module-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore-primary-emit-module.dia",
+    "pch" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore-primary.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/DI/DependencyContainer.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DependencyContainer~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/EnsembleCore.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/EnsembleCore~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/DomainModels.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DomainModels~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/FilterOptions.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FilterOptions~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/ModelMappers.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ModelMappers~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/MusicSource.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSource~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/NetworkModels.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkModels~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/PinnedItem.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedItem~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Models/PlexAccountConfig.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexAccountConfig~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/AccountManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AccountManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtworkLoader~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/CacheManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/CacheManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/HubOrderManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubOrderManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/HubRepository.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HubRepository~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/MoodRepository.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MoodRepository~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/MusicSourceSyncProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/MusicSourceSyncProvider~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/NavigationCoordinator.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NavigationCoordinator~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/NetworkMonitor.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NetworkMonitor~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlaybackService.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaybackService~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexMusicSourceSyncProvider~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/PlexRadioProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlexRadioProvider~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/QueueManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/QueueManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/RadioProvider.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/RadioProvider~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/ServerHealthChecker.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ServerHealthChecker~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SettingsManager.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SettingsManager~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncCoordinator~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AddPlexAccountViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AddPlexAccountViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/AlbumDetailViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/AlbumDetailViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/ArtistDetailViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/ArtistDetailViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/DownloadsViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/DownloadsViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/FavoritesViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/FavoritesViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/HomeViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/HomeViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/LibraryViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/LibraryViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/NowPlayingViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/PinnedViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PinnedViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/PlaylistViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/PlaylistViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/SearchViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SearchViewModel~partial.swiftmodule"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleCore/Sources/ViewModels/SyncPanelViewModel.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.dia",
+    "index-unit-output-path" : "/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.o",
+    "llvm-bc" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.bc",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel.swiftdeps",
+    "swiftmodule" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleCore.build/Debug/EnsembleCore.build/Objects-normal/arm64/SyncPanelViewModel~partial.swiftmodule"
+  }
+}

@@ -6,6 +6,8 @@ public struct AlbumsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -21,36 +23,44 @@ public struct AlbumsView: View {
         return Array(Set(artists))
     }
 
+    private var supportsCoverFlow: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
     public var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
+            let isCoverFlowActive = supportsCoverFlow && isLandscape
             
             Group {
                 if libraryVM.isLoading && libraryVM.albums.isEmpty {
                     loadingView
                 } else if libraryVM.albums.isEmpty {
                     emptyView
-                } else if isLandscape {
-                    coverFlowView
-                        .navigationBarHidden(true)
-                        .statusBar(hidden: true)
+                } else if isCoverFlowActive {
+                    landscapeCoverFlowView
                 } else {
                     albumGridView
                 }
             }
-            .hideTabBarIfAvailable(isHidden: isLandscape)
+            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isLandscape)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .navigationTitle(isLandscape ? "" : "Albums")
+            .navigationTitle(isCoverFlowActive ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
-                await libraryVM.refresh()
+                await libraryVM.refreshFromServer()
             }
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty && !isLandscape {
+                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -89,7 +99,7 @@ public struct AlbumsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.albums.isEmpty && !isLandscape {
+                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -117,7 +127,41 @@ public struct AlbumsView: View {
                     showArtistFilter: true
                 )
             }
+            .sheet(isPresented: $showingAddSourceFlow) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
+            .sheet(isPresented: $showingManageSources) {
+                NavigationView {
+                    SettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingManageSources = false
+                                }
+                            }
+                        }
+                }
+                #if os(iOS)
+                .navigationViewStyle(.stack)
+                #endif
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
         }
+    }
+
+    private var landscapeCoverFlowView: some View {
+        #if os(iOS)
+        coverFlowView
+            .navigationBarHidden(true)
+            .statusBar(hidden: true)
+        #else
+        coverFlowView
+        #endif
     }
 
     private var loadingView: some View {
@@ -137,10 +181,56 @@ public struct AlbumsView: View {
             Text("No Albums")
                 .font(.title2)
 
-            Text("Tap the sync button to sync your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !libraryVM.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if libraryVM.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !libraryVM.hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("No albums found in enabled libraries")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(.horizontal)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private struct AlbumSection: Identifiable {
@@ -192,9 +282,7 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(
@@ -270,7 +358,15 @@ public struct AlbumDetailView: View {
             showTrackNumbers: true,
             groupByDisc: true,
             showFilter: false,
-            mediaType: .album
+            mediaType: .album,
+            albumMenuActions: AlbumDetailMenuActions(
+                onPlayNext: {
+                    nowPlayingVM.playNext(viewModel.filteredTracks)
+                },
+                onPlayLast: {
+                    nowPlayingVM.playLast(viewModel.filteredTracks)
+                }
+            )
         )
     }
     

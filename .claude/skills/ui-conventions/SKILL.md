@@ -1,6 +1,6 @@
 ---
 name: ui-conventions
-description: "Ensemble UI/UX conventions: navigation behavior, tab management, visual design specs, loading/error states, performance optimization, iOS 15 compatibility, DetailLoader pattern"
+description: "Load before building or modifying any SwiftUI view. Ensemble UI/UX conventions: navigation behavior, tab management, visual design specs, loading/error states, performance optimization, iOS 15 compatibility, DetailLoader pattern."
 ---
 
 # Ensemble UI/UX Conventions
@@ -22,10 +22,17 @@ These are core design decisions that must be maintained throughout the app.
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
 
+### Music Sources Navigation
+- **Account-centric source list:** Settings → Music Sources lists accounts/sources, not individual server rows.
+- **Account row content:** title is source type (currently `Plex`), subtitle is account identifier (email-first fallback chain).
+- **Detail destination:** tapping an account opens `MusicSourceAccountDetailView` with server headings and library checklists.
+- **Sync controls location:** per-library status and manual sync actions live in account detail; do not add standalone Sync Panel entry points.
+
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
+- **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
@@ -68,10 +75,59 @@ if #available(iOS 16.0, macOS 13.0, *) {
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 
+### CoverFlow + Rotation Policy
+- CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
+- iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
+- iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
+
+### Button Labels
+
+- **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:
+
+```swift
+Button("Add to Playlist…") { showingPlaylistSheet = true }
+Button("Rename…") { showingRenameSheet = true }
+Button("Create Playlist…") { showingCreateSheet = true }
+```
+
+- Buttons that perform an immediate action (play, delete, save) do **not** get an ellipsis:
+
+```swift
+Button("Play") { play() }
+Button("Remove", role: .destructive) { remove() }
+```
+
+Use the actual ellipsis character `…` (U+2026), not three dots `...`.
+
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
 - Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
+
+### Toast Presentation
+- iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
+- Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it
+- Global toast window must stay above mini player and modal sheets for consistent feedback visibility
+
+### Add-Account Plex Flow
+- PIN code in `AddPlexAccountView` should support copy-on-tap with toast confirmation.
+- Server/library selection UI should be grouped by server heading with library checkboxes.
+- Keep server cards full width even when no music libraries are found to avoid narrow/uneven layout.
+
+### Gesture Actions (iOS/iPadOS)
+- Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)
+- Slot 1 on each edge is full-swipe enabled; slot 2 is reveal-only
+- Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
+- Keep primary tap behavior unchanged (tap still plays/navigates as before)
+- Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
+- macOS keeps existing interaction model (no custom swipe gesture layer in v1)
+
+### Long-Press Menus
+- Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
+- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
+- Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
+- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
+- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
 ## Visual Design
 

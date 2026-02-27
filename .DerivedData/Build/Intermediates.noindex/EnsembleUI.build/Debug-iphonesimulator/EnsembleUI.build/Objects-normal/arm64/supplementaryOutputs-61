@@ -1,0 +1,30 @@
+{
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/QueueTableView.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/QueueTableView.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/QueueTableView.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/QueueTableView.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/QueueTableView.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/QueueTableView.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/ScrollIndex.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/ScrollIndex.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/ScrollIndex.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/ScrollIndex.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/ScrollIndex.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/ScrollIndex.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/TrackRow.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/TrackRow.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/TrackRow.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/TrackRow.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/TrackRow.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/TrackRow.swiftdeps"
+  },
+  "/Users/felicity/.codex/worktrees/a635/ensemble/Packages/EnsembleUI/Sources/Components/View+Extensions.swift" : {
+    "const-values" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/View+Extensions.swiftconstvalues",
+    "dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/View+Extensions.d",
+    "diagnostics" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/View+Extensions.dia",
+    "object" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/View+Extensions.o",
+    "swift-dependencies" : "/Users/felicity/.codex/worktrees/a635/ensemble/.DerivedData/Build/Intermediates.noindex/EnsembleUI.build/Debug-iphonesimulator/EnsembleUI.build/Objects-normal/arm64/View+Extensions.swiftdeps"
+  }
+}

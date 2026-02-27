@@ -6,6 +6,8 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
+    @State private var showingAddSourceFlow = false
+    @State private var showingManageSources = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -28,7 +30,7 @@ public struct ArtistsView: View {
         .navigationTitle("Artists")
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
-            await libraryVM.refresh()
+            await libraryVM.refreshFromServer()
         }
         .toolbar {
             #if os(iOS)
@@ -97,6 +99,30 @@ public struct ArtistsView: View {
                 filterOptions: $libraryVM.artistsFilterOptions
             )
         }
+        .sheet(isPresented: $showingAddSourceFlow) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingManageSources) {
+            NavigationView {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingManageSources = false
+                            }
+                        }
+                    }
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
+        }
     }
 
     private var loadingView: some View {
@@ -116,10 +142,56 @@ public struct ArtistsView: View {
             Text("No Artists")
                 .font(.title2)
 
-            Text("Tap the sync button to sync your library")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            if !libraryVM.hasAnySources {
+                Text("No music sources connected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingAddSourceFlow = true
+                } label: {
+                    Label("Add Source", systemImage: "plus.circle.fill")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else if libraryVM.isSyncing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Sync in progress…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if !libraryVM.hasEnabledLibraries {
+                Text("No libraries enabled")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showingManageSources = true
+                } label: {
+                    Label("Manage Sources", systemImage: "slider.horizontal.3")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("No artists found in enabled libraries")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(.horizontal)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private struct ArtistSection: Identifiable {
@@ -159,9 +231,7 @@ public struct ArtistsView: View {
                         .padding(.vertical)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: 140)
-                }
+                .miniPlayerBottomSpacing(140)
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
@@ -191,6 +261,12 @@ public struct ArtistsView: View {
 // MARK: - Artist Detail View
 
 public struct ArtistDetailView: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+
     @StateObject private var viewModel: ArtistDetailViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
 
@@ -198,6 +274,7 @@ public struct ArtistDetailView: View {
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     public init(
         artist: Artist,
@@ -253,17 +330,24 @@ public struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 artistPinMenuButton
             }
+            #else
+            ToolbarItem(placement: .automatic) {
+                artistPinMenuButton
+            }
+            #endif
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 140)
-        }
+        .miniPlayerBottomSpacing(140)
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
             await loadArtworkImage()
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
 
@@ -385,7 +469,7 @@ public struct ArtistDetailView: View {
                 .padding()
             }
         }
-        .frame(height: UIScreen.main.bounds.width) // 1:1 square aspect ratio
+        .aspectRatio(1, contentMode: .fit)
     }
 
     // MARK: - Action Buttons
@@ -538,14 +622,31 @@ public struct ArtistDetailView: View {
             // Track list
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(
+                    TrackSwipeContainer(
                         track: track,
-                        showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        nowPlayingVM: nowPlayingVM,
                         onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) }
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
                     ) {
-                        nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+                        TrackRow(
+                            track: track,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onToggleFavorite: {
+                                Task {
+                                    await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
+                            recentPlaylistTitle: recentPlaylistTitle(for: track)
+                        ) {
+                            nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+                        }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -557,5 +658,37 @@ public struct ArtistDetailView: View {
                 }
             }
         }
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add to Playlist")
+    }
+
+    private func addToRecentPlaylist(_ track: Track) {
+        guard recentPlaylistTitle(for: track) != nil else { return }
+        Task {
+            guard let playlist = await nowPlayingVM.resolveLastPlaylistTarget(for: [track]) else { return }
+            _ = try? await nowPlayingVM.addTracks([track], to: playlist)
+        }
+    }
+
+    private func recentPlaylistTitle(for track: Track) -> String? {
+        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        let playlist = Playlist(
+            id: target.id,
+            key: "/playlists/\(target.id)",
+            title: target.title,
+            summary: nil,
+            isSmart: false,
+            trackCount: 0,
+            duration: 0,
+            compositePath: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
+        return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
     }
 }

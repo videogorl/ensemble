@@ -45,12 +45,16 @@ public final class ArtistDetailViewModel: ObservableObject {
             if !cachedAlbums.isEmpty {
                 albums = cachedAlbums.map { Album(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
-                print("👨‍🎤 ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
+                #if DEBUG
+                EnsembleLogger.debug("👨‍🎤 ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
+                #endif
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
                 albums = apiAlbums
             }
         } catch {
-            print("❌ ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
+            #endif
             self.error = error.localizedDescription
         }
 
@@ -63,12 +67,16 @@ public final class ArtistDetailViewModel: ObservableObject {
             if !cachedTracks.isEmpty {
                 tracks = cachedTracks.map { Track(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
-                print("👨‍🎤 ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                #if DEBUG
+                EnsembleLogger.debug("👨‍🎤 ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+                #endif
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
                 tracks = apiTracks
             }
         } catch {
-            print("❌ ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
+            #if DEBUG
+            EnsembleLogger.debug("❌ ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
+            #endif
             self.error = error.localizedDescription
         }
     }

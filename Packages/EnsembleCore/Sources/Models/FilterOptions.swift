@@ -100,25 +100,3 @@ public final class FilterPersistence {
         viewTypes.forEach { clear(for: $0) }
     }
 }
-
-// MARK: - Codable conformance for ClosedRange
-
-extension ClosedRange: Codable where Bound: Codable {
-    enum CodingKeys: String, CodingKey {
-        case lowerBound
-        case upperBound
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let lower = try container.decode(Bound.self, forKey: .lowerBound)
-        let upper = try container.decode(Bound.self, forKey: .upperBound)
-        self = lower...upper
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(lowerBound, forKey: .lowerBound)
-        try container.encode(upperBound, forKey: .upperBound)
-    }
-}

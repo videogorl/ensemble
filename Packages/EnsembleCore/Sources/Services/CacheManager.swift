@@ -68,7 +68,9 @@ public final class CacheManager: ObservableObject {
                 itemCount: itemCount
             )
         } catch {
-            print("Failed to get library metadata size: \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("Failed to get library metadata size: \(error)")
+            #endif
         }
         
         // Album artwork cache
@@ -79,7 +81,9 @@ public final class CacheManager: ObservableObject {
                 size: artworkSize
             )
         } catch {
-            print("Failed to get artwork cache size: \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("Failed to get artwork cache size: \(error)")
+            #endif
         }
         
         // Downloaded tracks
@@ -92,7 +96,9 @@ public final class CacheManager: ObservableObject {
                 itemCount: downloads.count
             )
         } catch {
-            print("Failed to get download size: \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("Failed to get download size: \(error)")
+            #endif
         }
         
         // Nuke image cache (estimate)
@@ -103,7 +109,9 @@ public final class CacheManager: ObservableObject {
                 size: nukeSize
             )
         } catch {
-            print("Failed to get Nuke cache size: \(error)")
+            #if DEBUG
+            EnsembleLogger.debug("Failed to get Nuke cache size: \(error)")
+            #endif
         }
         
         cacheInfos = infos

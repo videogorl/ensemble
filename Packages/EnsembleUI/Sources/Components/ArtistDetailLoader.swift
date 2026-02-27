@@ -7,6 +7,8 @@ struct ArtistDetailLoader: View {
     @State private var artist: Artist?
     @State private var isLoading = true
     @State private var error: Error?
+    @State private var hasStartedLoading = false
+    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
     
@@ -38,11 +40,19 @@ struct ArtistDetailLoader: View {
                     .foregroundColor(.secondary)
             }
         }
-        .task {
-            await loadArtist()
+        .onAppear {
+            guard !hasStartedLoading else { return }
+            hasStartedLoading = true
+            loadTask = Task {
+                await loadArtist()
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
+    @MainActor
     private func loadArtist() async {
         do {
             if let cdArtist = try await deps.libraryRepository.fetchArtist(ratingKey: artistId) {

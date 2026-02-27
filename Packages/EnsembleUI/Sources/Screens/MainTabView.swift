@@ -10,14 +10,12 @@ struct TabViewFactory {
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
         searchVM: SearchViewModel,
-        onSyncTap: @escaping () -> Void,
         isMoreRoot: Bool = false
     ) -> some View {
         if isMoreRoot {
             MoreView(
                 libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                onSyncTap: onSyncTap
+                nowPlayingVM: nowPlayingVM
             )
         } else {
             switch tab {
@@ -61,7 +59,6 @@ public struct MainTabView: View {
     #endif
 
     @State private var showingNowPlaying = false
-    @State private var showingSyncPanel = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
     
@@ -85,87 +82,109 @@ public struct MainTabView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                // Connection status banner at top
-                if !isImmersiveMode {
-                    ConnectionStatusBanner(networkState: networkMonitor.networkState)
+        GeometryReader { geometry in
+            // Keep mini-player spacing aligned with the active tab bar style.
+            // iOS 18 floating tab bars already sit above the home indicator, so
+            // adding safe-area bottom again pushes mini-player too high.
+            let miniPlayerBottomLift: CGFloat = {
+                if #available(iOS 18.0, *) {
+                    return 56
+                } else {
+                    return 56 + geometry.safeAreaInsets.bottom
                 }
-                
-                // Main content layer (TabView)
-                tabBarVisibility(
-                    TabView(selection: tabBinding) {
-                    // Dynamic Tabs
-                    ForEach(barTabs) { tab in
-                        tabRootView(for: tab)
-                            .tag(tab)
-                            .tabItem {
-                                Label(tab.displayTitle, systemImage: tab.systemImage)
-                            }
-                    }
+            }()
 
-                    // Always show More as the 5th tab
-                    tabRootView(for: .settings, isMoreRoot: true)
-                        .tag(TabItem.settings)
-                        .tabItem {
-                            Label("More", systemImage: "ellipsis")
+            let rootView = ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    // Connection status banner at top
+                    if !isImmersiveMode {
+                        ConnectionStatusBanner(networkState: networkMonitor.networkState)
+                    }
+                    
+                    // Main content layer (TabView)
+                    tabBarVisibility(
+                        TabView(selection: tabBinding) {
+                        // Dynamic Tabs
+                        ForEach(barTabs) { tab in
+                            tabRootView(for: tab)
+                                .tag(tab)
+                                .tabItem {
+                                    Label(tab.displayTitle, systemImage: tab.systemImage)
+                                }
                         }
-                },
-                    isHidden: isImmersiveMode
-                )
-                // Use the new native floating style if available (iOS 18+)
-                .tabViewStyle(sidebarAdaptableIfAvailable())
-                .onAppear {
-                    // Sync visible tabs to NavigationCoordinator for fallback logic
-                    navigationCoordinator.visibleTabs = barTabs
 
-                    if !didSetInitialTab {
-                        navigationCoordinator.selectedTab = barTabs.first ?? .home
-                        didSetInitialTab = true
+                        // Always show More as the 5th tab
+                        tabRootView(for: .settings, isMoreRoot: true)
+                            .tag(TabItem.settings)
+                            .tabItem {
+                                Label("More", systemImage: "ellipsis")
+                            }
+                    },
+                        isHidden: isImmersiveMode
+                    )
+                    // Use the new native floating style if available (iOS 18+)
+                    .tabViewStyle(sidebarAdaptableIfAvailable())
+                    .onAppear {
+                        // Sync visible tabs to NavigationCoordinator for fallback logic
+                        navigationCoordinator.visibleTabs = barTabs
+
+                        if !didSetInitialTab {
+                            navigationCoordinator.selectedTab = barTabs.first ?? .home
+                            didSetInitialTab = true
+                        }
+                    }
+                    .onChange(of: settingsManager.enabledTabs) { _ in
+                        // Keep visibleTabs in sync when user changes tab settings
+                        navigationCoordinator.visibleTabs = barTabs
                     }
                 }
-                .onChange(of: settingsManager.enabledTabs) { _ in
-                    // Keep visibleTabs in sync when user changes tab settings
-                    navigationCoordinator.visibleTabs = barTabs
-                }
-            }
 
-            // Persistent MiniPlayer (Floating above native TabBar)
-            if nowPlayingVM.currentTrack != nil && !isKeyboardVisible && !isImmersiveMode {
-                MiniPlayer(viewModel: nowPlayingVM) {
-                    showingNowPlaying = true
+                // Persistent MiniPlayer (Floating above native TabBar)
+                if !isKeyboardVisible && !isImmersiveMode {
+                    MiniPlayer(viewModel: nowPlayingVM) {
+                        showingNowPlaying = true
+                    }
+                    // Position above native tab bar and keep touch frame aligned to visuals.
+                    .alignmentGuide(.bottom) { dimensions in
+                        dimensions[.bottom] + miniPlayerBottomLift
+                    }
+                    .zIndex(2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .padding(.bottom, 56) // Offset to sit above native TabBar on iPhone
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
             }
-        }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
-        }
-        .sheet(isPresented: $showingSyncPanel) {
-            SyncPanelView()
-        }
-        .task {
-            await libraryVM.refresh()
-        }
-        .onChange(of: showingNowPlaying) { isShowing in
-            // Handle pending navigation when NowPlaying dismisses
-            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                // The coordinator already determined the correct tab (current or fallback)
-                navigationCoordinator.selectedTab = pending.tab
-                
-                // Push onto the target tab stack
-                navigationCoordinator.push(pending.destination, in: pending.tab)
-                navigationCoordinator.pendingNavigation = nil
+            .task {
+                await libraryVM.refresh()
             }
-        }
-        .onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
-            if isImmersiveMode != isHidden {
-                isImmersiveMode = isHidden
-                #if os(iOS)
-                UITabBar.appearance().isHidden = isHidden
-                #endif
+            .onChange(of: showingNowPlaying) { isShowing in
+                // Handle pending navigation when NowPlaying dismisses
+                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                    // The coordinator already determined the correct tab (current or fallback)
+                    navigationCoordinator.selectedTab = pending.tab
+                    
+                    // Push onto the target tab stack
+                    navigationCoordinator.push(pending.destination, in: pending.tab)
+                    navigationCoordinator.pendingNavigation = nil
+                }
             }
+            
+            let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
+
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
+                    NowPlayingView(viewModel: nowPlayingVM)
+                }
+            } else {
+                chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
+                    NowPlayingView(viewModel: nowPlayingVM)
+                }
+            }
+            #else
+            chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
+                NowPlayingView(viewModel: nowPlayingVM)
+            }
+            #endif
         }
     }
 
@@ -179,6 +198,32 @@ public struct MainTabView: View {
         }
         #else
         content
+        #endif
+    }
+
+    @ViewBuilder
+    private func applyChromeVisibilityObservation<Content: View>(to content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+                // Avoid iOS 15/16 transition re-entrancy while Now Playing is presenting.
+                guard !showingNowPlaying else { return }
+
+                if isImmersiveMode != isHidden {
+                    isImmersiveMode = isHidden
+                }
+            }
+        } else {
+            // iOS 15 fallback: skip preference observation to avoid recursive
+            // HostPreferences updates that can crash during modal presentation.
+            content
+        }
+        #else
+        content.onPreferenceChange(ChromeVisibilityPreferenceKey.self) { isHidden in
+            if isImmersiveMode != isHidden {
+                isImmersiveMode = isHidden
+            }
+        }
         #endif
     }
     
@@ -220,14 +265,13 @@ public struct MainTabView: View {
         if #available(iOS 16.0, macOS 13.0, *) {
             NavigationStack(path: pathBinding(for: tab)) {
                 TabViewFactory.view(
-                    for: tab,
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    searchVM: searchVM,
-                    onSyncTap: { showingSyncPanel = true },
-                    isMoreRoot: isMoreRoot
-                )
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                for: tab,
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                searchVM: searchVM,
+                isMoreRoot: isMoreRoot
+            )
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     destinationView(for: destination)
                 }
             }
@@ -235,14 +279,13 @@ public struct MainTabView: View {
             NavigationView {
                 // iOS 15 Fallback: Support nested navigation by passing the remaining path
                 TabViewFactory.view(
-                    for: tab,
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM,
-                    searchVM: searchVM,
-                    onSyncTap: { showingSyncPanel = true },
-                    isMoreRoot: isMoreRoot
-                )
-                .background(
+                for: tab,
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                searchVM: searchVM,
+                isMoreRoot: isMoreRoot
+            )
+            .background(
                     NestedNavigationLink(
                         path: pathForTab(tab),
                         tab: tab,
@@ -287,8 +330,8 @@ public struct MainTabView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -296,8 +339,7 @@ public struct MainTabView: View {
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                onSyncTap: { showingSyncPanel = true }
+                searchVM: searchVM
             )
         }
     }
@@ -347,7 +389,6 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSection? = .home
     @State private var showingNowPlaying = false
-    @State private var showingSyncPanel = false
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -406,12 +447,6 @@ public struct SidebarView: View {
 
                         Label("Settings", systemImage: "gear")
                             .tag(SidebarSection.settings)
-                        
-                        Button {
-                            showingSyncPanel = true
-                        } label: {
-                            Label("Library Sync", systemImage: "arrow.triangle.2.circlepath")
-                        }
                     }
                 }
                 .listStyle(.sidebar)
@@ -425,12 +460,10 @@ public struct SidebarView: View {
                 showingNowPlaying = true
             }
             .zIndex(2)
+
         }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView(viewModel: nowPlayingVM)
-        }
-        .sheet(isPresented: $showingSyncPanel) {
-            SyncPanelView()
         }
         .task {
             await libraryVM.refresh()
@@ -453,58 +486,58 @@ public struct SidebarView: View {
             switch selection {
             case .home:
                 NavigationStack(path: $navigationCoordinator.homePath) {
-                    TabViewFactory.view(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .songs:
                 NavigationStack {
-                    TabViewFactory.view(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .artists:
                 NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    TabViewFactory.view(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .albums:
                 NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    TabViewFactory.view(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .genres:
                 NavigationStack {
-                    TabViewFactory.view(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .playlists:
                 NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    TabViewFactory.view(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .favorites:
                 NavigationStack {
-                    TabViewFactory.view(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .search:
                 NavigationStack(path: $navigationCoordinator.searchPath) {
-                    TabViewFactory.view(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .downloads:
                 NavigationStack {
-                    TabViewFactory.view(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .settings:
                 NavigationStack {
-                    TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, onSyncTap: { showingSyncPanel = true })
+                    TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
@@ -515,7 +548,7 @@ public struct SidebarView: View {
                     case .artist:
                         ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
                     case .playlist:
-                        PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+                        PlaylistDetailLoader(playlistId: id, playlistSourceKey: nil, nowPlayingVM: nowPlayingVM)
                     }
                 }
             case .none:
@@ -523,9 +556,7 @@ public struct SidebarView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 64)
-        }
+        .miniPlayerBottomSpacing(64)
     }
     
     @ViewBuilder
@@ -535,8 +566,8 @@ public struct SidebarView: View {
             ArtistDetailLoader(artistId: id, nowPlayingVM: nowPlayingVM)
         case .album(let id):
             AlbumDetailLoader(albumId: id, nowPlayingVM: nowPlayingVM)
-        case .playlist(let id):
-            PlaylistDetailLoader(playlistId: id, nowPlayingVM: nowPlayingVM)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
@@ -544,8 +575,7 @@ public struct SidebarView: View {
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                onSyncTap: { showingSyncPanel = true }
+                searchVM: searchVM
             )
         }
     }
