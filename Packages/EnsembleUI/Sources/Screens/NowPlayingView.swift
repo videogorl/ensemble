@@ -772,6 +772,15 @@ public struct NowPlayingView: View {
                         }
                     }
                 }
+            } else {
+                // No artwork URL available - clear previous artwork
+                await MainActor.run {
+                    if self.currentLoadTrackID == trackID {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            self.artworkImage = nil
+                        }
+                    }
+                }
             }
         }
     }

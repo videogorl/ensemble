@@ -2411,6 +2411,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.currentTrack = track
                 self.currentTime = 0
                 self.bufferedProgress = 0
+                self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
                 self.updateNowPlayingInfo()
             }
 
@@ -2428,6 +2429,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.currentTrack = track
             self.currentTime = 0
             self.bufferedProgress = 0
+            self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
             self.updateNowPlayingInfo()
         }
 

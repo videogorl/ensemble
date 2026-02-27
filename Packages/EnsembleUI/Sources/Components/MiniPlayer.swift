@@ -302,9 +302,17 @@ public struct MiniPlayer: View {
                     #endif
                 }
             } else {
+                // No artwork URL available - clear previous artwork
                 #if DEBUG
-                EnsembleLogger.debug("🎨 MiniPlayer: No artwork URL for \(track.title)")
+                EnsembleLogger.debug("🎨 MiniPlayer: No artwork URL for \(track.title) - clearing previous artwork")
                 #endif
+                await MainActor.run {
+                    if self.currentLoadTrackID == trackID {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            self.artworkImage = nil
+                        }
+                    }
+                }
             }
         }
     }
