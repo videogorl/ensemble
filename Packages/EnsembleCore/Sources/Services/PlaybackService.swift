@@ -821,6 +821,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     Task { @MainActor in
                         self.currentQueueIndex = index
                         self.currentTrack = newTrack
+                        self.currentTime = 0
+                        self.bufferedProgress = 0
+                        self.waveformHeights = []  // Clear old waveform immediately
 
                         // Reset timeline tracking for new track
                         self.lastTimelineReportTime = 0
@@ -3677,12 +3680,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 currentTrack = queue[currentQueueIndex].track
                 currentTime = 0
                 bufferedProgress = 0
+                waveformHeights = []  // Clear old waveform immediately
                 playbackState = .stopped
                 updateNowPlayingInfo()
                 await updatePlayerQueueAfterReorder()
             }
         } else {
             currentTrack = queue[currentQueueIndex].track
+            currentTime = 0
+            waveformHeights = []  // Clear old waveform immediately
             await updatePlayerQueueAfterReorder()
         }
 
@@ -4126,12 +4132,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         originalQueue = items
         currentQueueIndex = index
         currentTrack = items[index].track
+        currentTime = 0
+        waveformHeights = []  // Clear old waveform immediately
 
         // Load the player item but don't start playback
         let track = items[index].track
         generateWaveform(for: track.id)
         playbackState = .loading
-        currentTime = 0
         
         do {
             let item = try await createPlayerItem(for: track)

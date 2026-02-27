@@ -76,13 +76,14 @@ public struct NowPlayingView: View {
             .navigationBarHidden(true)
             #endif
             .onChange(of: viewModel.currentTrack) { newTrack in
+                // Clear old artwork immediately to prevent stale display during loading
+                currentLoadTrackID = nil
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    artworkImage = nil
+                }
+                
                 if let track = newTrack {
                     loadArtworkImage(for: track)
-                } else {
-                    currentLoadTrackID = nil
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        artworkImage = nil
-                    }
                 }
             }
             .onAppear {

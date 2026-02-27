@@ -230,10 +230,11 @@ public struct MiniPlayer: View {
         .padding(.bottom, 8)
         .offset(y: verticalOffset)
         .onChange(of: viewModel.currentTrack) { newTrack in
+            // Clear old artwork immediately to prevent stale display during loading
+            artworkImage = nil
+            
             if let track = newTrack {
                 loadArtworkImage(for: track)
-            } else {
-                artworkImage = nil
             }
         }
         .onAppear {
