@@ -19,6 +19,7 @@ public struct NowPlayingView: View {
     
     @State private var artworkImage: UIImage?
     @State private var currentLoadTrackID: String?
+    @State private var artworkLoadTask: Task<Void, Never>?
     
     // Long-press seek state
     @State private var seekTimer: Timer?
@@ -76,7 +77,9 @@ public struct NowPlayingView: View {
             .navigationBarHidden(true)
             #endif
             .onChange(of: viewModel.currentTrack) { newTrack in
-                // Clear old artwork immediately to prevent stale display during loading
+                // Cancel any pending artwork load and clear old artwork immediately
+                artworkLoadTask?.cancel()
+                artworkLoadTask = nil
                 currentLoadTrackID = nil
                 withAnimation(.easeInOut(duration: 0.3)) {
                     artworkImage = nil
@@ -737,7 +740,10 @@ public struct NowPlayingView: View {
         let trackID = track.id
         currentLoadTrackID = trackID
         
-        Task {
+        artworkLoadTask = Task {
+            // Check if cancelled early
+            guard !Task.isCancelled else { return }
+            
             // Get artwork URL
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
@@ -747,11 +753,15 @@ public struct NowPlayingView: View {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 600 // Use slightly larger size for background
             ) {
+                guard !Task.isCancelled else { return }
+                
                 // Check Nuke cache first for instant display
                 let request = ImageRequest(url: artworkURL)
                 
                 // Try synchronous cache lookup first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
                     await MainActor.run {
                         if self.currentLoadTrackID == trackID {
                             self.artworkImage = cachedImage.image
@@ -762,6 +772,8 @@ public struct NowPlayingView: View {
                 
                 // Load asynchronously if not cached
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
                     await MainActor.run {
                         // Only update if this is still the current track
                         if self.currentLoadTrackID == trackID {
@@ -775,6 +787,8 @@ public struct NowPlayingView: View {
                 }
             } else {
                 // No artwork URL available - clear previous artwork
+                guard !Task.isCancelled else { return }
+                
                 await MainActor.run {
                     if self.currentLoadTrackID == trackID {
                         withAnimation(.easeInOut(duration: 0.3)) {

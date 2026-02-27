@@ -12,6 +12,7 @@ public struct MiniPlayer: View {
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
     @State private var currentLoadTrackID: String?
+    @State private var artworkLoadTask: Task<Void, Never>?
 
     public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -230,7 +231,10 @@ public struct MiniPlayer: View {
         .padding(.bottom, 8)
         .offset(y: verticalOffset)
         .onChange(of: viewModel.currentTrack) { newTrack in
-            // Clear old artwork immediately to prevent stale display during loading
+            // Cancel any pending artwork load and clear old artwork immediately
+            artworkLoadTask?.cancel()
+            artworkLoadTask = nil
+            currentLoadTrackID = nil
             artworkImage = nil
             
             if let track = newTrack {
@@ -252,7 +256,10 @@ public struct MiniPlayer: View {
         EnsembleLogger.debug("🎨 MiniPlayer: Loading artwork for \(track.title)")
         #endif
         
-        Task {
+        artworkLoadTask = Task {
+            // Check if cancelled early
+            guard !Task.isCancelled else { return }
+            
             if let artworkURL = await deps.artworkLoader.artworkURLAsync(
                 for: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
@@ -261,6 +268,8 @@ public struct MiniPlayer: View {
                 fallbackRatingKey: track.fallbackRatingKey,
                 size: 200
             ) {
+                guard !Task.isCancelled else { return }
+                
                 #if DEBUG
                 EnsembleLogger.debug("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
                 #endif
@@ -268,6 +277,8 @@ public struct MiniPlayer: View {
                 
                 // Try synchronous cache lookup first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
                     #if DEBUG
                     EnsembleLogger.debug("🎨 MiniPlayer: Using cached image for \(track.title)")
                     #endif
@@ -284,6 +295,8 @@ public struct MiniPlayer: View {
                 EnsembleLogger.debug("🎨 MiniPlayer: Loading from network for \(track.title)")
                 #endif
                 if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
                     #if DEBUG
                     EnsembleLogger.debug("🎨 MiniPlayer: Loaded image for \(track.title)")
                     #endif
@@ -304,6 +317,8 @@ public struct MiniPlayer: View {
                 }
             } else {
                 // No artwork URL available - clear previous artwork
+                guard !Task.isCancelled else { return }
+                
                 #if DEBUG
                 EnsembleLogger.debug("🎨 MiniPlayer: No artwork URL for \(track.title) - clearing previous artwork")
                 #endif
