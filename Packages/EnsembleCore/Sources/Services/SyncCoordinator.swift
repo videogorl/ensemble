@@ -1709,7 +1709,17 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        if let lastRefresh = lastHealthRefreshAt,
+        // Interface switches (e.g., cellular<->wifi) bypass cooldown to ensure
+        // connections are refreshed immediately after network handoff.
+        let bypassCooldown: Bool
+        if case .interfaceSwitch = reason {
+            bypassCooldown = true
+        } else {
+            bypassCooldown = false
+        }
+
+        if !bypassCooldown,
+           let lastRefresh = lastHealthRefreshAt,
            now.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
             #if DEBUG
             EnsembleLogger.debug(
