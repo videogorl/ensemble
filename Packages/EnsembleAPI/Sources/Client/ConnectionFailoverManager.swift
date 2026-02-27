@@ -9,6 +9,10 @@ public actor ConnectionFailoverManager {
     private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
+
+    // TLS failure cooldown tracking - deprioritize endpoints with persistent TLS errors
+    private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
+    private let tlsCooldownDuration: TimeInterval = 300     // 5 minutes
     
     public init(timeout: TimeInterval = 5.0) {
         self.timeout = timeout
@@ -93,8 +97,11 @@ public actor ConnectionFailoverManager {
         // Filter by network reachability first to skip unreachable endpoint classes
         let reachableEndpoints = filterByNetworkReachability(endpoints, context: networkContext)
 
+        // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
+        let activeCandidates = filterByTLSCooldown(reachableEndpoints)
+
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: reachableEndpoints,
+            from: activeCandidates,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
@@ -193,6 +200,7 @@ public actor ConnectionFailoverManager {
     public func resetHealthTracking() {
         connectionHealth.removeAll()
         lastProbeResultsByURL.removeAll()
+        tlsFailureCooldowns.removeAll()
     }
     
     // MARK: - Private Methods
@@ -218,6 +226,32 @@ public actor ConnectionFailoverManager {
             // On local network or unknown: keep all candidates
             return endpoints
         }
+    }
+
+    /// Check if a URL is in TLS cooldown (had recent TLS failures)
+    private func isInTLSCooldown(_ url: String) -> Bool {
+        guard let expiry = tlsFailureCooldowns[url] else { return false }
+        return Date() < expiry
+    }
+
+    /// Record a TLS failure for a URL (places it in cooldown)
+    private func recordTLSFailure(_ url: String) {
+        tlsFailureCooldowns[url] = Date().addingTimeInterval(tlsCooldownDuration)
+        #if DEBUG
+        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint \(url) in TLS cooldown for \(Int(tlsCooldownDuration))s")
+        #endif
+    }
+
+    /// Filter out endpoints that are in TLS cooldown
+    private func filterByTLSCooldown(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        let filtered = endpoints.filter { !isInTLSCooldown($0.url) }
+        #if DEBUG
+        let skipped = endpoints.count - filtered.count
+        if skipped > 0 {
+            EnsembleLogger.debug("🔒 ConnectionFailover: Skipping \(skipped) endpoint(s) in TLS cooldown")
+        }
+        #endif
+        return filtered
     }
 
     private func updateConnectionHealth(url: String, success: Bool) {
@@ -362,6 +396,11 @@ public actor ConnectionFailoverManager {
             // Cancellation is expected in hedged probes and should not poison health scoring.
             if category != .cancelled {
                 updateConnectionHealth(url: url, success: false)
+            }
+
+            // Record TLS failures for cooldown tracking
+            if category == .tls {
+                recordTLSFailure(url)
             }
 
             #if DEBUG
