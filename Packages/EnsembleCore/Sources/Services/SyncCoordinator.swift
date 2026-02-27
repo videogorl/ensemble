@@ -77,6 +77,8 @@ public final class SyncCoordinator: ObservableObject {
     @Published public private(set) var isSyncing = false
     @Published public private(set) var isOffline = false
     @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
+    /// Published when health checks complete so dependent services can react.
+    @Published public private(set) var lastHealthCheckCompletion: Date?
 
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
@@ -1733,7 +1735,9 @@ public final class SyncCoordinator: ObservableObject {
 
             defer {
                 self.isCheckingHealth = false
-                self.lastHealthRefreshAt = self.nowProviderForTesting()
+                let completionTime = self.nowProviderForTesting()
+                self.lastHealthRefreshAt = completionTime
+                self.lastHealthCheckCompletion = completionTime
                 self.activeHealthRefreshTask = nil
             }
 

@@ -647,6 +647,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
+    private var healthCheckCompletionObservation: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var isInterrupted = false
@@ -761,6 +762,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupRemoteCommands()
         setupPlayer()
         setupNetworkObservation()
+        setupHealthCheckObservation()
         setupAccountSourcesObservation()
     }
 
@@ -3517,6 +3519,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    /// Subscribe to health check completions from SyncCoordinator.
+    /// When health checks complete, connection URLs may have changed - rebuild queue with fresh URLs.
+    private func setupHealthCheckObservation() {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.healthCheckCompletionObservation = self.syncCoordinator.$lastHealthCheckCompletion
+                .compactMap { $0 }  // Ignore nil values
+                .dropFirst()        // Ignore initial value
+                .sink { [weak self] _ in
+                    Task { @MainActor in
+                        await self?.handleHealthCheckCompletion()
+                    }
+                }
+        }
+    }
+
+    /// Called when SyncCoordinator completes health checks.
+    /// Refreshes queue with potentially updated connection URLs.
+    @MainActor
+    private func handleHealthCheckCompletion() async {
+        // Only rebuild if we're actively playing/buffering streaming content
+        guard !queue.isEmpty,
+              currentTrack?.localFilePath == nil,
+              playbackState == .playing || playbackState == .buffering || playbackState == .paused else {
+            return
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🏥 PlaybackService: Health check complete - refreshing queue URLs")
+        #endif
+
+        await rebuildUpcomingQueueForNetworkTransition()
+    }
+
     /// Keep queue/current playback aligned with currently enabled sources.
     private func setupAccountSourcesObservation() {
         Task { @MainActor [weak self] in
@@ -3628,18 +3664,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         #endif
 
-        if decision.shouldRefreshConnection {
-            do {
-                #if DEBUG
-                EnsembleLogger.debug("🔄 Refreshing server connection for network transition")
-                #endif
-                try await syncCoordinator.refreshConnection()
-            } catch {
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ Failed to refresh server connection during transition: \(error.localizedDescription)")
-                #endif
-            }
-        }
+        // Note: Connection refresh is handled by SyncCoordinator's health checks which
+        // also observe network transitions. This avoids duplicate refresh calls.
+        // The queue rebuild below will use fresh URLs after health checks complete.
 
         if decision.shouldAutoHealQueue {
             await rebuildUpcomingQueueForNetworkTransition()
