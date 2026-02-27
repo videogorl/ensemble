@@ -1654,6 +1654,17 @@ public final class SyncCoordinator: ObservableObject {
         case .reconnect:
             scheduleHealthRefresh(reason: .networkReconnect, forceServerRefresh: true)
         case .interfaceSwitch(let from, let to):
+            // Immediately invalidate artwork URL cache on interface switch.
+            // This prevents stale artwork requests that use old endpoint URLs while
+            // health checks are still running. The cache will be invalidated again
+            // after health checks complete, but this early invalidation is critical
+            // for any artwork requests that happen before health checks finish.
+            #if DEBUG
+            EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for interface switch")
+            #endif
+            Task {
+                await onConnectionsRefreshed?()
+            }
             scheduleHealthRefresh(reason: .interfaceSwitch(from: from, to: to), forceServerRefresh: true)
         case .disconnect, .none:
             break
