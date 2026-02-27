@@ -105,6 +105,10 @@ public final class SyncCoordinator: ObservableObject {
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
+
+    /// Closure called when API client connections are refreshed (e.g., after network change).
+    /// Used by ArtworkLoader to invalidate stale URL cache entries.
+    public var onConnectionsRefreshed: (() async -> Void)?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -1823,8 +1827,11 @@ public final class SyncCoordinator: ObservableObject {
                 }
             }
         }
+
+        // Notify listeners (e.g., ArtworkLoader) to invalidate stale cached URLs
+        await onConnectionsRefreshed?()
     }
-    
+
     /// Update source statuses with current connection states from health checker
     private func updateSourceConnectionStates() {
         for account in accountManager.plexAccounts {

@@ -104,6 +104,7 @@ public final class DependencyContainer: @unchecked Sendable {
         // Note: artworkLoader must be created before playbackService since it's a dependency
         let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
         artworkLoader = artworkLoaderRef
+
         let playbackServiceRef = PlaybackService(
             syncCoordinator: syncCoordinator,
             networkMonitor: nm,
@@ -167,6 +168,15 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: libraryRef,
                 playlistRepository: playlistRef
             )
+        }
+
+        // Wire up artwork cache invalidation when server connections change.
+        // Must be done after all properties are initialized.
+        let syncRef = syncCoordinator
+        MainActor.assumeIsolated {
+            syncRef.onConnectionsRefreshed = { [weak artworkLoaderRef] in
+                await artworkLoaderRef?.invalidateURLCache()
+            }
         }
     }
 

@@ -8,6 +8,7 @@ public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
+    func invalidateURLCache() async
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
@@ -22,9 +23,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             let url: URL
             let expiresAt: Date
         }
-        
+
         private var cache: [String: Entry] = [:]
-        
+
         func get(_ key: String) -> URL? {
             guard let entry = cache[key] else { return nil }
             if entry.expiresAt <= Date() {
@@ -33,9 +34,14 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
             return entry.url
         }
-        
+
         func set(_ key: String, url: URL, ttl: TimeInterval) {
             cache[key] = Entry(url: url, expiresAt: Date().addingTimeInterval(ttl))
+        }
+
+        /// Clear all cached URL entries (used when server connection changes)
+        func clearAll() {
+            cache.removeAll()
         }
     }
     
@@ -78,6 +84,15 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         #endif
         
         ImagePipeline.shared = ImagePipeline(configuration: config)
+    }
+
+    /// Invalidate all cached artwork URLs.
+    /// Called when server connection changes to clear stale URLs pointing to unreachable endpoints.
+    public func invalidateURLCache() async {
+        await urlCache.clearAll()
+        #if DEBUG
+        EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
+        #endif
     }
 
     public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
