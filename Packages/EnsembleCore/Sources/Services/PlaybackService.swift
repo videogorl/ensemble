@@ -190,8 +190,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
 
         static let cellularOrOther = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: true,
-            preferredForwardBufferDuration: 18,
+            waitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: 6,
             prefetchDepth: 1,
             stallRecoveryTimeout: 12,
             label: "cellular/other"
