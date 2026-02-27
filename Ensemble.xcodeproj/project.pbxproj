@@ -360,7 +360,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "BUILD_NUMBER=$(TZ=America/Los_Angeles date +\"%Y%m%d.%H%M\")\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
+			shellScript = "BUILD_NUMBER=$(TZ=America/Los_Angeles date +\"%Y%m%d.%H%M\")\nAPP_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"$APP_PLIST\"\n\n# Keep embedded Siri extension build number aligned with the host app.\nEXT_PLIST=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}/PlugIns/EnsembleSiriIntentsExtension.appex/Info.plist\"\nif [ -f \"$EXT_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"$EXT_PLIST\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
