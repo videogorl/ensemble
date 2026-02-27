@@ -107,12 +107,15 @@ public actor ConnectionFailoverManager {
         )
         var candidates = ordering.candidates
 
+        // Compute adaptive timeout based on network context
+        let adaptiveTimeout = probeTimeout(for: networkContext)
+
         if let preferred = preferredRecentHealthyEndpoint(from: candidates) {
             #if DEBUG
             EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint first: \(preferred.url)")
             #endif
 
-            let probe = await probeConnection(endpoint: preferred, token: token)
+            let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: adaptiveTimeout)
             if probe.success {
                 #if DEBUG
                 EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(preferred.url)")
@@ -143,7 +146,7 @@ public actor ConnectionFailoverManager {
         let probes = await withTaskGroup(of: ConnectionProbeResult.self) { group in
             for endpoint in candidates {
                 group.addTask {
-                    await self.probeConnection(endpoint: endpoint, token: token)
+                    await self.probeConnection(endpoint: endpoint, token: token, probeTimeout: adaptiveTimeout)
                 }
             }
 
@@ -228,6 +231,17 @@ public actor ConnectionFailoverManager {
         }
     }
 
+    /// Compute probe timeout based on network context.
+    /// Uses shorter timeout on cellular to reduce worst-case probe time.
+    private func probeTimeout(for context: NetworkReachabilityContext) -> TimeInterval {
+        switch context {
+        case .remoteNetwork:
+            return 4.0  // Shorter timeout on cellular
+        case .localNetwork, .unknown:
+            return timeout  // Use default timeout on local network
+        }
+    }
+
     /// Check if a URL is in TLS cooldown (had recent TLS failures)
     private func isInTLSCooldown(_ url: String) -> Bool {
         guard let expiry = tlsFailureCooldowns[url] else { return false }
@@ -286,7 +300,11 @@ public actor ConnectionFailoverManager {
         }.first?.endpoint
     }
 
-    private func probeConnection(endpoint: PlexEndpointDescriptor, token: String) async -> ConnectionProbeResult {
+    private func probeConnection(
+        endpoint: PlexEndpointDescriptor,
+        token: String,
+        probeTimeout: TimeInterval? = nil
+    ) async -> ConnectionProbeResult {
         let url = endpoint.url
         guard URL(string: url) != nil else {
             #if DEBUG
@@ -323,7 +341,7 @@ public actor ConnectionFailoverManager {
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
-        request.timeoutInterval = timeout
+        request.timeoutInterval = probeTimeout ?? timeout
 
         #if DEBUG
         EnsembleLogger.debug("🔄 ConnectionTest[\(url)]: Testing...")
