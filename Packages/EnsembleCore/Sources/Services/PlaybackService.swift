@@ -2556,7 +2556,47 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime)
     }
-    
+
+    /// Handle playback failure due to TLS errors.
+    /// Forces a connection refresh to find a working endpoint, rebuilds queue, and retries.
+    @MainActor
+    private func handleTLSPlaybackFailure() async {
+        guard let track = currentTrack else {
+            playbackState = .failed("TLS connection error")
+            return
+        }
+
+        // If playing local file, TLS shouldn't apply
+        guard track.localFilePath == nil else {
+            playbackState = .failed("TLS connection error")
+            return
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🔒 Handling TLS playback failure - refreshing connection and rebuilding queue")
+        #endif
+
+        // Force a connection refresh to find a working endpoint
+        do {
+            try await syncCoordinator.refreshConnection()
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
+            #endif
+            playbackState = .failed("TLS connection error - no working server found")
+            return
+        }
+
+        // Rebuild upcoming queue items with fresh URLs
+        await rebuildUpcomingQueueForNetworkTransition()
+
+        // Retry the current track with fresh connection
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
+        #endif
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil)
+    }
+
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
         #if DEBUG
         EnsembleLogger.debug("📦 Creating player item for: \(track.title)")
@@ -2933,10 +2973,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Just update the now playing info
                     self?.updateNowPlayingInfo()
                 case .failed:
+                    let errorDescription = item.error?.localizedDescription ?? "Unknown error"
                     #if DEBUG
-                    EnsembleLogger.debug("❌ Player failed: \(item.error?.localizedDescription ?? "Unknown error")")
+                    EnsembleLogger.debug("❌ Player failed: \(errorDescription)")
                     #endif
-                    self?.playbackState = .failed(item.error?.localizedDescription ?? "Unknown error")
+
+                    // Check if this is a TLS error - if so, the current endpoint may be bad
+                    // and we should force a connection refresh before retrying
+                    let isTLSError = errorDescription.lowercased().contains("tls") ||
+                                     errorDescription.lowercased().contains("secure connection")
+                    if isTLSError {
+                        #if DEBUG
+                        EnsembleLogger.debug("🔒 TLS error detected - forcing connection refresh")
+                        #endif
+                        Task { @MainActor [weak self] in
+                            await self?.handleTLSPlaybackFailure()
+                        }
+                    } else {
+                        self?.playbackState = .failed(errorDescription)
+                    }
                 default:
                     break
                 }
