@@ -77,6 +77,10 @@ public struct ArtworkView: View {
         .frame(maxWidth: size.cgSize.width, maxHeight: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .id(loadID)  // Force view recreation only when artwork actually changes
+        .onChange(of: loadID) { _ in
+            // Clear artwork URL immediately when track changes to prevent stale display
+            artworkURL = nil
+        }
         .task(id: loadID) {
             await loadArtworkURL()
         }
@@ -90,6 +94,8 @@ public struct ArtworkView: View {
             #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
+            // Clear artwork URL when no path is available
+            artworkURL = nil
             return
         }
         
@@ -106,7 +112,7 @@ public struct ArtworkView: View {
             size: size.rawValue
         )
         
-        // Only update if URL actually changed
+        // Update artwork URL (even if nil, to clear previous artwork)
         if url != artworkURL {
             #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
