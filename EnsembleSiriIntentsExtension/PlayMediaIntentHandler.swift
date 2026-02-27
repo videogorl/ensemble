@@ -189,43 +189,61 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         from intent: INPlayMediaIntent,
         mediaType: INMediaItemType
     ) -> SiriPayloadIdentifier? {
-        if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+
+        if let identifier = rawIdentifier,
            let decodedPayload = decodePayloadIdentifier(identifier),
            decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
             logger.debug("payloadIdentifier: using decoded payload identifier")
             return decodedPayload
         }
 
-        guard let query = queryText(from: intent), !query.isEmpty else {
-            return nil
-        }
-        let fallbackQuery = bestQueryVariant(from: query) ?? query
+        if let query = queryText(from: intent), !query.isEmpty {
+            let fallbackQuery = bestQueryVariant(from: query) ?? query
 
-        if let index = loadIndex(),
-           let top = rankCandidates(
-                for: fallbackQuery,
-                mediaType: mediaType,
-                index: index
-           ).first,
-           top.score >= Self.payloadResolutionThreshold {
-            logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
+            if let index = loadIndex(),
+               let top = rankCandidates(
+                    for: fallbackQuery,
+                    mediaType: mediaType,
+                    index: index
+               ).first,
+               top.score >= Self.payloadResolutionThreshold {
+                logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
+                return SiriPayloadIdentifier(
+                    schemaVersion: Self.currentPayloadSchemaVersion,
+                    kind: top.item.kind,
+                    entityID: top.item.id,
+                    sourceCompositeKey: top.item.sourceCompositeKey,
+                    displayName: top.item.displayName
+                )
+            }
+
+            logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
             return SiriPayloadIdentifier(
                 schemaVersion: Self.currentPayloadSchemaVersion,
-                kind: top.item.kind,
-                entityID: top.item.id,
-                sourceCompositeKey: top.item.sourceCompositeKey,
-                displayName: top.item.displayName
+                kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
+                entityID: fallbackQuery,
+                sourceCompositeKey: nil,
+                displayName: fallbackQuery
             )
         }
 
-        logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
-        return SiriPayloadIdentifier(
-            schemaVersion: Self.currentPayloadSchemaVersion,
-            kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
-            entityID: fallbackQuery,
-            sourceCompositeKey: nil,
-            displayName: fallbackQuery
-        )
+        if let rawIdentifier {
+            logger.debug("payloadIdentifier: falling back to raw media identifier")
+            let fallbackKind = primaryKindFor(mediaType: mediaType)
+            let fallbackDisplayName = intent.mediaItems?.first?.title
+                ?? intent.mediaContainer?.title
+                ?? rawIdentifier
+            return SiriPayloadIdentifier(
+                schemaVersion: Self.currentPayloadSchemaVersion,
+                kind: fallbackKind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: fallbackDisplayName
+            )
+        }
+
+        return nil
     }
 
     private func playbackUserActivity(for payload: SiriPayloadIdentifier) -> NSUserActivity? {
@@ -416,6 +434,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPayloadIdentifier? {
         guard let data = Data(base64Encoded: identifier) else { return nil }
         return try? JSONDecoder().decode(SiriPayloadIdentifier.self, from: data)
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func matchingItem(for payload: SiriPayloadIdentifier, in index: SiriMediaIndexSnapshot) -> SiriMediaIndexItemSnapshot? {
