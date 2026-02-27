@@ -29,12 +29,13 @@ public final class ServerHealthChecker: ObservableObject {
     private let unavailableCacheTTL: TimeInterval
     private let resourceRefreshCooldown: TimeInterval
     private let nowProvider: () -> Date
+    private let networkContextProvider: () -> NetworkReachabilityContext
 
     private var recentChecks: [String: CachedCheckEntry] = [:]
     private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
     private var lastResourceRefreshAt: [String: Date] = [:]
 
-    public init(accountManager: AccountManager) {
+    public init(accountManager: AccountManager, networkMonitor: NetworkMonitor) {
         self.accountManager = accountManager
         // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
         self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
@@ -42,6 +43,7 @@ public final class ServerHealthChecker: ObservableObject {
         self.unavailableCacheTTL = 10
         self.resourceRefreshCooldown = 60
         self.nowProvider = { Date() }
+        self.networkContextProvider = { Self.mapNetworkStateToContext(networkMonitor.networkState) }
     }
 
     internal init(
@@ -50,7 +52,8 @@ public final class ServerHealthChecker: ObservableObject {
         cacheTTL: TimeInterval = 120,
         unavailableCacheTTL: TimeInterval = 10,
         resourceRefreshCooldown: TimeInterval = 60,
-        nowProvider: @escaping () -> Date = { Date() }
+        nowProvider: @escaping () -> Date = { Date() },
+        networkContextProvider: @escaping () -> NetworkReachabilityContext = { .unknown }
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
@@ -58,6 +61,22 @@ public final class ServerHealthChecker: ObservableObject {
         self.unavailableCacheTTL = unavailableCacheTTL
         self.resourceRefreshCooldown = resourceRefreshCooldown
         self.nowProvider = nowProvider
+        self.networkContextProvider = networkContextProvider
+    }
+
+    /// Map NetworkState to NetworkReachabilityContext for endpoint filtering
+    private static func mapNetworkStateToContext(_ state: NetworkState) -> NetworkReachabilityContext {
+        switch state {
+        case .online(let type):
+            switch type {
+            case .wifi, .wired:
+                return .localNetwork
+            case .cellular, .other:
+                return .remoteNetwork
+            }
+        case .offline, .limited, .unknown:
+            return .unknown
+        }
     }
 
     // MARK: - Public Methods
@@ -270,11 +289,13 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         // Try to find the best policy-compliant endpoint.
+        let networkContext = networkContextProvider()
         let selection = await failoverManager.findBestConnection(
             endpoints: endpoints,
             token: server.token,
             selectionPolicy: .plexSpecBalanced,
-            allowInsecure: allowInsecurePolicy
+            allowInsecure: allowInsecurePolicy,
+            networkContext: networkContext
         )
         if let workingEndpoint = selection.selected {
             #if DEBUG
@@ -312,7 +333,8 @@ public final class ServerHealthChecker: ObservableObject {
                     endpoints: refreshedEndpoints,
                     token: refreshedServer.token,
                     selectionPolicy: .plexSpecBalanced,
-                    allowInsecure: allowInsecurePolicy
+                    allowInsecure: allowInsecurePolicy,
+                    networkContext: networkContext
                 )
                 if let refreshedWorkingEndpoint = refreshedSelection.selected {
                     #if DEBUG

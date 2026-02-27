@@ -108,13 +108,14 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             )
         }
 
+        let networkMonitor = NetworkMonitor()
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository(),
             artworkDownloadManager: MockArtworkDownloadManager(),
-            networkMonitor: NetworkMonitor(),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: "plex:account-1:server-1")
         return coordinator

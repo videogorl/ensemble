@@ -532,17 +532,18 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.network.monitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
-            networkMonitor: NetworkMonitor(
-                debounceNanoseconds: 1_000,
-                monitorQueue: DispatchQueue(label: "test.network.monitor"),
-                monitorFactory: { SystemNetworkPathMonitor() }
-            ),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         let discoveryService = MockDiscoveryService()
 

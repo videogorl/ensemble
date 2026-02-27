@@ -111,7 +111,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             monitorQueue: DispatchQueue(label: "test.network.monitor"),
             monitorFactory: { SystemNetworkPathMonitor() }
         )
-        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager)
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),

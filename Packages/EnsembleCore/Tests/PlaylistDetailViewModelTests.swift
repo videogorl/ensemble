@@ -106,13 +106,14 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             )
         )
 
+        let networkMonitor = NetworkMonitor()
         return SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository(),
             artworkDownloadManager: MockArtworkDownloadManager(),
-            networkMonitor: NetworkMonitor(),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
     }
 

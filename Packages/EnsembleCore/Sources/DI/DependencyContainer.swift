@@ -85,7 +85,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
         // Server health checking (must be created before SyncCoordinator)
         let shc = MainActor.assumeIsolated {
-            ServerHealthChecker(accountManager: am)
+            ServerHealthChecker(accountManager: am, networkMonitor: nm)
         }
         serverHealthChecker = shc
 

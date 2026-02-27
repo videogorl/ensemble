@@ -29,17 +29,18 @@ final class AddPlexAccountViewModelTests: XCTestCase {
 
     private func makeViewModel(accountManager: AccountManager) -> AddPlexAccountViewModel {
         let stack = CoreDataStack.inMemory()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.network.monitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: LibraryRepository(coreDataStack: stack),
             playlistRepository: PlaylistRepository(coreDataStack: stack),
             artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
-            networkMonitor: NetworkMonitor(
-                debounceNanoseconds: 1_000,
-                monitorQueue: DispatchQueue(label: "test.network.monitor"),
-                monitorFactory: { SystemNetworkPathMonitor() }
-            ),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         let viewModel = AddPlexAccountViewModel(
             authService: PlexAuthService(keychain: TestKeychain()),

@@ -192,13 +192,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         let playlistRepository = MockPlaylistRepository()
         let accountManager = AccountManager(keychain: TestKeychain())
         let playbackService = MockPlaybackService()
+        let networkMonitor = NetworkMonitor()
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             artworkDownloadManager: MockArtworkDownloadManager(),
-            networkMonitor: NetworkMonitor(),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
 
         return (NowPlayingViewModel(

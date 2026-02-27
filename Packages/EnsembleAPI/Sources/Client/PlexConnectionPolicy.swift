@@ -196,3 +196,16 @@ public struct ConnectionRefreshResult: Sendable, Equatable {
         self.reusedPreferredPath = reusedPreferredPath
     }
 }
+
+// MARK: - Network Reachability Context
+
+/// Simplified network context for endpoint filtering decisions.
+/// Used by ConnectionFailoverManager to skip unreachable endpoint classes.
+public enum NetworkReachabilityContext: Sendable, Equatable {
+    /// On a local network (WiFi or Ethernet) - all endpoints are potentially reachable
+    case localNetwork
+    /// On a remote network (cellular or other) - local endpoints are likely unreachable
+    case remoteNetwork
+    /// Network type unknown - probe all endpoints
+    case unknown
+}

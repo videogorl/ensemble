@@ -68,11 +68,18 @@ public actor ConnectionFailoverManager {
     }
 
     /// Policy-aware endpoint probing used by API client and server health checks.
+    /// - Parameters:
+    ///   - endpoints: All available endpoints for the server
+    ///   - token: Auth token for probing
+    ///   - selectionPolicy: Policy for ordering candidates
+    ///   - allowInsecure: Policy for insecure connections
+    ///   - networkContext: Current network reachability context for filtering unreachable endpoints
     public func findBestConnection(
         endpoints: [PlexEndpointDescriptor],
         token: String,
         selectionPolicy: ConnectionSelectionPolicy,
-        allowInsecure: AllowInsecureConnectionsPolicy
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext = .unknown
     ) async -> ConnectionSelectionResult {
         guard !endpoints.isEmpty else {
             return ConnectionSelectionResult(
@@ -83,8 +90,11 @@ public actor ConnectionFailoverManager {
             )
         }
 
+        // Filter by network reachability first to skip unreachable endpoint classes
+        let reachableEndpoints = filterByNetworkReachability(endpoints, context: networkContext)
+
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: endpoints,
+            from: reachableEndpoints,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
@@ -186,7 +196,30 @@ public actor ConnectionFailoverManager {
     }
     
     // MARK: - Private Methods
-    
+
+    /// Filter endpoints by network reachability context.
+    /// On cellular/remote networks, local endpoints (private IPs) are unreachable.
+    private func filterByNetworkReachability(
+        _ endpoints: [PlexEndpointDescriptor],
+        context: NetworkReachabilityContext
+    ) -> [PlexEndpointDescriptor] {
+        switch context {
+        case .remoteNetwork:
+            // On cellular: skip local endpoints (they'll timeout anyway)
+            let filtered = endpoints.filter { !$0.local }
+            #if DEBUG
+            let skipped = endpoints.count - filtered.count
+            if skipped > 0 {
+                EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skipped) local endpoint(s) on remote network")
+            }
+            #endif
+            return filtered
+        case .localNetwork, .unknown:
+            // On local network or unknown: keep all candidates
+            return endpoints
+        }
+    }
+
     private func updateConnectionHealth(url: String, success: Bool) {
         if var health = connectionHealth[url] {
             health.recordAttempt(success: success)
