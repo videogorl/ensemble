@@ -175,8 +175,8 @@ public final class ServerHealthChecker: ObservableObject {
             #endif
         }
 
-        // Create a task for this check
-        let checkTask = Task<ServerCheckResult, Never> { @MainActor in
+        // Create a task for this check (off MainActor to avoid blocking during background playback)
+        let checkTask = Task<ServerCheckResult, Never> {
             var serverForCheck = server
             if forceRefresh,
                let refreshedServer = await refreshServerConnectionsFromResources(
@@ -188,13 +188,19 @@ public final class ServerHealthChecker: ObservableObject {
                 serverForCheck = refreshedServer
             }
 
+            // Perform the actual network check off MainActor to avoid blocking
             let state = await performServerCheck(accountId: accountId, serverId: serverId, server: serverForCheck)
-            serverStates[serverKey] = state
-            recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
-            if state.isAvailable {
-                serverFailureReasons.removeValue(forKey: serverKey)
+            
+            // Update state on MainActor since serverStates is @Published
+            await MainActor.run {
+                serverStates[serverKey] = state
+                recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+                if state.isAvailable {
+                    serverFailureReasons.removeValue(forKey: serverKey)
+                }
+                ongoingServerChecks.removeValue(forKey: serverKey)
             }
-            ongoingServerChecks.removeValue(forKey: serverKey)
+            
             return ServerCheckResult(state: state, usedCachedResult: false)
         }
 
@@ -276,7 +282,9 @@ public final class ServerHealthChecker: ObservableObject {
                 "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
             )
             #endif
-            serverFailureReasons.removeValue(forKey: serverKey)
+            await MainActor.run {
+                serverFailureReasons.removeValue(forKey: serverKey)
+            }
             return .connected(url: workingEndpoint.url)
         } else {
             // Connection metadata can become stale (for example after WAN IP changes).
@@ -312,7 +320,9 @@ public final class ServerHealthChecker: ObservableObject {
                         "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
                     #endif
-                    serverFailureReasons.removeValue(forKey: serverKey)
+                    await MainActor.run {
+                        serverFailureReasons.removeValue(forKey: serverKey)
+                    }
                     return .connected(url: refreshedWorkingEndpoint.url)
                 }
             }
