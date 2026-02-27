@@ -190,8 +190,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
 
         static let cellularOrOther = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: true,
-            preferredForwardBufferDuration: 18,
+            waitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: 6,
             prefetchDepth: 1,
             stallRecoveryTimeout: 12,
             label: "cellular/other"
@@ -2384,8 +2384,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
+        // Reset adaptive buffering state for fresh playback attempts
         if forcingFreshItem {
             removeCachedPlayerItem(for: track.id)
+            // Reset wait cycles so new item gets full patience window
+            adaptiveBufferingState.conservativeWaitCycles = 0
         }
 
         // Check if we have a cached player item that's ready to play
@@ -2439,28 +2442,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Generate waveform asynchronously (doesn't affect state)
         generateWaveform(for: track.id)
 
-        do {
-            let item = try await createPlayerItem(for: track)
-            await loadAndPlay(item: item, track: track)
-            if let recoverySeekTime, recoverySeekTime > 0 {
-                await MainActor.run {
-                    self.seekCurrentItemForRecovery(to: recoverySeekTime)
-                }
-                #if DEBUG
-                EnsembleLogger.debug("   ↩️ Recovered playback position at \(recoverySeekTime)s")
-                #endif
-            }
+        // Retry loop for network errors (e.g., timeout after airplane mode toggle)
+        var lastError: Error?
+        let maxRetries = 2
 
-            // Prefetch next for gapless
-            Task { await prefetchNextItem() }
-        } catch {
-            #if DEBUG
-            EnsembleLogger.debug("❌ Failed to prepare track: \(error)")
-            #endif
-            loadingStateTask?.cancel()
-            await MainActor.run {
-                self.playbackState = .failed(error.localizedDescription)
+        for attempt in 0..<maxRetries {
+            do {
+                if attempt > 0 {
+                    #if DEBUG
+                    EnsembleLogger.debug("🔄 Retrying createPlayerItem (attempt \(attempt + 1)/\(maxRetries))")
+                    #endif
+                    // Brief pause before retry to let network stabilize
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+                }
+
+                let item = try await createPlayerItem(for: track)
+                await loadAndPlay(item: item, track: track)
+                if let recoverySeekTime, recoverySeekTime > 0 {
+                    await MainActor.run {
+                        self.seekCurrentItemForRecovery(to: recoverySeekTime)
+                    }
+                    #if DEBUG
+                    EnsembleLogger.debug("   ↩️ Recovered playback position at \(recoverySeekTime)s")
+                    #endif
+                }
+
+                // Prefetch next for gapless
+                Task { await prefetchNextItem() }
+                return // Success - exit the retry loop
+            } catch {
+                lastError = error
+                #if DEBUG
+                EnsembleLogger.debug("❌ Failed to prepare track (attempt \(attempt + 1)): \(error)")
+                #endif
+
+                // Only retry on network/timeout errors
+                let nsError = error as NSError
+                let isRetryable = nsError.domain == NSURLErrorDomain &&
+                    (nsError.code == NSURLErrorTimedOut ||
+                     nsError.code == NSURLErrorNetworkConnectionLost ||
+                     nsError.code == NSURLErrorNotConnectedToInternet ||
+                     nsError.code == NSURLErrorCannotConnectToHost)
+
+                if !isRetryable {
+                    break // Don't retry non-network errors
+                }
             }
+        }
+
+        // All retries exhausted
+        #if DEBUG
+        EnsembleLogger.debug("❌ All retries exhausted for track preparation")
+        #endif
+        loadingStateTask?.cancel()
+        let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
+        await MainActor.run {
+            self.playbackState = .failed(errorMessage)
         }
         #if DEBUG
         EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
@@ -3034,6 +3071,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             )
                             self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
                         } else if self.playbackState == .loading {
+                            #if DEBUG
+                            EnsembleLogger.debug("⏳ AVPlayer waiting to play (initial buffering)")
+                            #endif
+                            // Transition to buffering so recovery handler can act if this takes too long
+                            self.playbackState = .buffering
                             // Initial startup waits are expected and should not escalate adaptive buffering.
                             self.setupStallRecovery(recordStallEvent: false)
                         }
@@ -3339,6 +3381,60 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("❌ No network connection - waiting for network")
             #endif
             playbackState = .failed("No internet connection")
+            return
+        }
+
+        // Log buffer state for diagnostics
+        let item = player?.currentItem
+        let loadedRanges = item?.loadedTimeRanges ?? []
+        let totalBuffered = loadedRanges.reduce(0.0) { $0 + $1.timeRangeValue.duration.seconds }
+        let isLikelyToKeepUp = item?.isPlaybackLikelyToKeepUp ?? false
+        let isBufferEmpty = item?.isPlaybackBufferEmpty ?? true
+        #if DEBUG
+        EnsembleLogger.debug("🎚️ Stall timeout diagnostics: buffered=\(String(format: "%.1f", totalBuffered))s, likelyToKeepUp=\(isLikelyToKeepUp), bufferEmpty=\(isBufferEmpty)")
+        #endif
+
+        // On cellular/remote connections, avoid creating new player items too quickly.
+        // Each new item requires a new TCP connection which resets slow start progress.
+        // Instead, let AVPlayer continue buffering and extend the timeout.
+        let networkState = networkMonitor.networkState
+        let isRemoteConnection: Bool
+        switch networkState {
+        case .online(.cellular), .online(.other):
+            isRemoteConnection = true
+        default:
+            isRemoteConnection = false
+        }
+
+        if isRemoteConnection && !isConservativeModeActive(now: now) {
+            // Track how many times we've waited without creating a new item
+            adaptiveBufferingState.conservativeWaitCycles += 1
+            let waitCycles = adaptiveBufferingState.conservativeWaitCycles
+
+            #if DEBUG
+            EnsembleLogger.debug("🎚️ Remote connection stall - waitCycle=\(waitCycles), allowing continued buffering")
+            #endif
+
+            // If buffer has made ANY progress, keep waiting (up to 4 cycles = ~48 seconds on cellular)
+            if totalBuffered > 0 && waitCycles < 4 {
+                player?.play()
+                scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+                return
+            }
+
+            // After 4 wait cycles with no playback, or if no progress at all after 2 cycles, try a new item
+            if waitCycles >= 4 || (totalBuffered == 0 && waitCycles >= 2) {
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Remote connection: extended wait exhausted - creating fresh player item")
+                #endif
+                adaptiveBufferingState.conservativeWaitCycles = 0
+                adaptiveBufferingState.lastRecoveryAttemptAt = now
+                await retryCurrentTrack(forceConnectionRefresh: false, reason: "stall-timeout-remote-exhausted")
+                return
+            }
+
+            player?.play()
+            scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
             return
         }
 

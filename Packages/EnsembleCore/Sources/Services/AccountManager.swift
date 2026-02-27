@@ -60,10 +60,11 @@ public final class AccountManager: ObservableObject {
 
     public func updatePlexAccount(_ account: PlexAccountConfig) {
         if let index = plexAccounts.firstIndex(where: { $0.id == account.id }) {
-            // Clear cached API clients for this account's servers
-            account.servers.forEach { server in
-                clearAPIClientCache(accountId: account.id, serverId: server.id)
-            }
+            // NOTE: We intentionally do NOT clear the API client cache here.
+            // Clearing the cache invalidates existing references held by providers,
+            // causing them to use stale URLs when building stream requests.
+            // The cached API client's currentServerURL is updated separately by
+            // SyncCoordinator.refreshAPIClientConnections() after health checks.
             plexAccounts[index] = account
             saveAccounts()
         }
