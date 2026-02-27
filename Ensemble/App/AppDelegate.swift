@@ -377,29 +377,45 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+
+        if let identifier = rawIdentifier,
            let decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
             return decoded
         }
 
-        // Fallback to query if identifier is missing or failed to decode
-        guard let query = siriQueryText(from: intent), !query.isEmpty else {
-            return nil
+        // Fallback to query if identifier is missing or failed to decode.
+        if let query = siriQueryText(from: intent), !query.isEmpty {
+            let sanitizedQuery = normalizedSiriQuery(query)
+
+            let kind = siriMediaKind(from: intent)
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
+            #endif
+
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: sanitizedQuery,
+                sourceCompositeKey: nil,
+                displayName: sanitizedQuery
+            )
         }
-        let sanitizedQuery = normalizedSiriQuery(query)
 
-        let kind = siriMediaKind(from: intent)
-        #if DEBUG
-        AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
-        #endif
+        if let rawIdentifier {
+            let kind = siriMediaKind(from: intent)
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri fallback payload using raw identifier kind=\(kind.rawValue)")
+            #endif
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier
+            )
+        }
 
-        return SiriPlaybackRequestPayload(
-            kind: kind,
-            entityID: sanitizedQuery,
-            sourceCompositeKey: nil,
-            displayName: sanitizedQuery
-        )
+        return nil
     }
 
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPlaybackRequestPayload? {
@@ -407,6 +423,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             return nil
         }
         return try? SiriPlaybackActivityCodec.decode(from: data)
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func siriQueryText(from intent: INPlayMediaIntent) -> String? {
@@ -821,28 +844,49 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+
+        if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
            let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
             return payload
         }
 
-        guard let query = queryText(from: intent), !query.isEmpty else {
-            return nil
-        }
-        let sanitizedQuery = normalizedSiriQuery(query)
-        guard !sanitizedQuery.isEmpty else {
-            return nil
+        if let query = queryText(from: intent), !query.isEmpty {
+            let sanitizedQuery = normalizedSiriQuery(query)
+            guard !sanitizedQuery.isEmpty else {
+                return nil
+            }
+
+            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
+            let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: sanitizedQuery,
+                sourceCompositeKey: nil,
+                displayName: sanitizedQuery
+            )
         }
 
-        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
-        let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
-        return SiriPlaybackRequestPayload(
-            kind: kind,
-            entityID: sanitizedQuery,
-            sourceCompositeKey: nil,
-            displayName: sanitizedQuery
-        )
+        if let rawIdentifier {
+            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using raw identifier fallback")
+            let kind = mediaKindFrom(intent: intent, fallbackQuery: nil)
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier
+            )
+        }
+
+        return nil
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func queryText(from intent: INPlayMediaIntent) -> String? {
