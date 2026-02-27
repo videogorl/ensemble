@@ -15,6 +15,7 @@ ensemble/
 +-- README.md                      # User-facing documentation
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
+|   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/

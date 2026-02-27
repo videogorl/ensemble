@@ -263,6 +263,7 @@
 				E0010003 /* Frameworks */,
 				E0210003 /* Sources */,
 				E0220003 /* Resources */,
+				E0230002 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -360,7 +361,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Intentionally no-op: mutating built Info.plists here can invalidate\n# embedded extension signatures and break on-device installs.\n:";
+			shellScript = "bash \"${SRCROOT}/scripts/update_build_number.sh\"";
+		};
+		E0230002 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"${SRCROOT}/scripts/update_build_number.sh\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -667,6 +682,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleSiriIntentsExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -695,6 +711,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleSiriIntentsExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
