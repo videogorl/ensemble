@@ -128,6 +128,13 @@ public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol 
     }
 }
 
+// Used internally to fan-out concurrent user+resources discovery without async let,
+// which causes Swift runtime crashes in protocol witness cleanup on certain OS versions.
+private enum DiscoveryInitialResult: Sendable {
+    case user(PlexUser)
+    case devices([PlexDevice])
+}
+
 /// Discovers account identity, servers, and music libraries for Plex account setup and management.
 public final class PlexAccountDiscoveryService: @unchecked Sendable {
     private let client: any PlexAccountDiscoveryClientProtocol
@@ -158,11 +165,26 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
     }
 
     public func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult {
-        async let userTask = client.getUserInfo(token: authToken)
-        async let resourcesTask = client.getResources(token: authToken)
+        // Fetch user info and Plex resources concurrently. We use withThrowingTaskGroup
+        // instead of `async let` because `async let` in a protocol witness thunk can cause
+        // a Swift runtime abort during async-let cleanup when one task throws or the parent
+        // task is cancelled (repro: asyncLet_finish_after_task_completion crash on iOS 26 beta).
+        let (user, devices) = try await withThrowingTaskGroup(of: DiscoveryInitialResult.self) { group in
+            group.addTask { .user(try await self.client.getUserInfo(token: authToken)) }
+            group.addTask { .devices(try await self.client.getResources(token: authToken)) }
 
-        let user = try await userTask
-        let devices = try await resourcesTask
+            var user: PlexUser?
+            var devices: [PlexDevice]?
+            for try await result in group {
+                switch result {
+                case .user(let u): user = u
+                case .devices(let d): devices = d
+                }
+            }
+            guard let user, let devices else { throw CancellationError() }
+            return (user, devices)
+        }
+
         let allowInsecurePolicy = allowInsecurePolicyProvider()
 
         var discoveredServers: [PlexServerConfig] = []
