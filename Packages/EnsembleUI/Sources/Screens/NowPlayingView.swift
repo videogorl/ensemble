@@ -17,9 +17,7 @@ public struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     
-    @State private var artworkImage: UIImage?
-    @State private var currentLoadTrackID: String?
-    @State private var artworkLoadTask: Task<Void, Never>?
+    private let dismissAction: (() -> Void)?
     
     // Long-press seek state
     @State private var seekTimer: Timer?
@@ -39,60 +37,100 @@ public struct NowPlayingView: View {
     @State private var lastScrubRate: Double = 1.0
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    
+    // Interactive dismissal state
+    @State private var dragOffset: CGFloat = 0
+    
+    private let namespace: Namespace.ID?
+    private let animationID: String?
 
-    public init(viewModel: NowPlayingViewModel) {
+    public init(
+        viewModel: NowPlayingViewModel,
+        namespace: Namespace.ID? = nil,
+        animationID: String? = nil,
+        dismissAction: (() -> Void)? = nil
+    ) {
         self.viewModel = viewModel
+        self.namespace = namespace
+        self.animationID = animationID
+        self.dismissAction = dismissAction
     }
 
     public var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                // Background gradient (vibrant colors from artwork)
-                backgroundGradientView
-
-                // Content with scrollable queue
+            VStack(spacing: 0) {
+                // Top handle area
+                dismissHandle(safeAreaTop: geometry.safeAreaInsets.top)
+                
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // Now Playing content (full screen height)
+                        // Now Playing content
                         if let track = viewModel.currentTrack {
                             nowPlayingContent(track: track, geometry: geometry)
-                                .frame(height: geometry.size.height)
+                                .frame(minHeight: geometry.size.height - (geometry.safeAreaInsets.top + 60) - 60) // Reduced further to show queue
                         } else {
                             nowPlayingEmptyContent(geometry: geometry)
-                                .frame(height: geometry.size.height)
+                                .frame(minHeight: geometry.size.height - (geometry.safeAreaInsets.top + 60) - 60)
                         }
 
                         // Queue section
                         queueSection(geometry: geometry)
                     }
+                    .padding(.bottom, geometry.safeAreaInsets.bottom + 20) // Ensure bottom content is accessible
                 }
-                .frame(width: geometry.size.width)
-
-                // Error overlay (when playback fails)
-                if case .failed(let errorMessage) = viewModel.playbackState {
-                    errorOverlayView(errorMessage: errorMessage)
-                }
+                // Mask to fade out content at the top edge (around the pill)
+                .mask(
+                    VStack(spacing: 0) {
+                        LinearGradient(
+                            gradient: Gradient(stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 1.0)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 20) // Shorter, tighter fade
+                        
+                        Rectangle().fill(Color.black)
+                    }
+                )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                ZStack {
+                    Color(UIColor.systemBackground)
+                    backgroundGradientView
+                }
+            )
+            #if canImport(UIKit)
+            .cornerRadius(44, corners: [.topLeft, .topRight])
+            #else
+            .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+            #endif
+            .offset(y: dragOffset)
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        if value.translation.height > 0 {
+                            dragOffset = value.translation.height
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.height > 150 || value.velocity.height > 800 {
+                            handleDismiss()
+                        } else {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+            .ignoresSafeArea(edges: .bottom)
             #if os(iOS)
             .navigationBarHidden(true)
             #endif
-            .onChange(of: viewModel.currentTrack) { newTrack in
-                // Cancel any pending artwork load and clear old artwork immediately
-                artworkLoadTask?.cancel()
-                artworkLoadTask = nil
-                currentLoadTrackID = nil
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    artworkImage = nil
-                }
-                
-                if let track = newTrack {
-                    loadArtworkImage(for: track)
-                }
-            }
             .onAppear {
-                if let track = viewModel.currentTrack {
-                    loadArtworkImage(for: track)
-                }
+                Task { @MainActor in await refreshLastPlaylistQuickTarget() }
             }
             .sheet(item: $playlistPickerPayload) { payload in
                 PlaylistPickerSheet(
@@ -105,66 +143,68 @@ public struct NowPlayingView: View {
                 await refreshLastPlaylistQuickTarget()
             }
             .onChange(of: viewModel.currentTrack?.id) { _ in
-                Task { await refreshLastPlaylistQuickTarget() }
+                Task { @MainActor in await refreshLastPlaylistQuickTarget() }
             }
             .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
-                Task { await refreshLastPlaylistQuickTarget() }
+                Task { @MainActor in await refreshLastPlaylistQuickTarget() }
             }
-
         }
     }
 
-    // Fixed background gradient
-    private var backgroundGradientView: some View {
-        // Animation ensures a smooth cross-fade between artwork backgrounds.
-        // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
-        BlurredArtworkBackground(image: artworkImage)
-            .animation(.easeInOut(duration: 0.8), value: artworkImage)
+    private func handleDismiss() {
+        if let dismissAction = dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
     }
 
-    // Now Playing content with new layout
+    private var backgroundGradientView: some View {
+        BlurredArtworkBackground(image: viewModel.artworkImage)
+            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+            .allowsHitTesting(false)
+    }
+
     private func nowPlayingContent(track: Track, geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Dismiss handle
-            dismissHandle
-            
-            // Artwork with generous padding above and below
+            // Artwork
             let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
+            
             ArtworkView(track: track, size: .medium, cornerRadius: 12)
                 .frame(width: artworkSize, height: artworkSize)
                 .clipped()
                 .contrast(1.1)
                 .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
-                .padding(.top, 40)
-                .padding(.bottom, 60)
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.matchedGeometryEffect(id: id, in: ns)
+                }
+                .padding(.top, 20)
+                .padding(.bottom, 40)
             
             // Playback slider
             progressView(track: track)
                 .padding(.horizontal, 40)
             
-            // Track metadata (below slider, clickable)
+            // Track metadata
             trackMetadataView(track: track)
                 .padding(.horizontal, 32)
                 .padding(.top, 16)
             
             // Main playback controls
             controlsView
-                .padding(.top, 32)
+                .padding(.top, 24)
 
-            // Push secondary controls to bottom with spacer
             Spacer()
             
-            // Secondary controls at bottom (shuffle, repeat, heart, airplay)
+            // Secondary controls
+            // Increased bottom padding to lift controls and show queue peek
             secondaryControlsView
-                .padding(.bottom, 20)
+                .padding(.bottom, 60)
         }
     }
 
-    // Empty-state version of the Now Playing layout
     private func nowPlayingEmptyContent(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            dismissHandle
-
             let artworkSize = min(geometry.size.width * 0.75, geometry.size.height * 0.35)
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.white.opacity(0.08))
@@ -203,30 +243,123 @@ public struct NowPlayingView: View {
             secondaryControlsView
                 .opacity(0.5)
                 .allowsHitTesting(false)
-                .padding(.bottom, 20)
+                .padding(.bottom, 60)
         }
     }
     
-    // Dismiss handle
-    private var dismissHandle: some View {
-        HStack {
+    private func dismissHandle(safeAreaTop: CGFloat) -> some View {
+        // Ensure explicit safe area spacing
+        let topPadding = max(safeAreaTop, 44) // Minimum 44pt to clear island if safeArea is 0/ignored
+        
+        return HStack {
             Spacer()
             Capsule()
                 .fill(Color.white.opacity(0.5))
                 .frame(width: 36, height: 5)
-                .padding(.vertical, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
             Spacer()
         }
-        .contentShape(Rectangle())
+        .padding(.top, topPadding)
+        .frame(height: topPadding + 60) // Increase total height for larger grab area
+        .contentShape(Rectangle()) // Ensure entire frame is hittable
         .onTapGesture {
+            handleDismiss()
+        }
+    }
+    
+    // ... rest of the file remains the same ...
+    private func handleArtistTap(track: Track) {
+        if let artistId = track.artistRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
             dismiss()
         }
     }
     
-    // Track metadata with clickable artist/album
+    private func handleAlbumTap(track: Track) {
+        if let albumId = track.albumRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            dismiss()
+        }
+    }
+
+    @MainActor
+    private func refreshLastPlaylistQuickTarget() async {
+        guard let currentTrack = viewModel.currentTrack else {
+            lastPlaylistQuickTarget = nil
+            return
+        }
+        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+    }
+
+    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again in a moment.",
+                    dedupeKey: "playlist-picker-empty-\(title)"
+                )
+            )
+            return
+        }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+    }
+    
+    private func startSeeking(forward: Bool) {
+        if forward {
+            isSeekingForward = true
+        } else {
+            isSeekingBackward = true
+        }
+        
+        seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
+            Task { @MainActor in
+                guard let viewModel = viewModel else { return }
+                let currentTime = viewModel.currentTime
+                let seekAmount: TimeInterval = forward ? 2.0 : -2.0
+                let newTime = max(0, min(currentTime + seekAmount, viewModel.scrubberDuration))
+                viewModel.seek(to: newTime)
+            }
+        }
+    }
+    
+    private func stopSeeking() {
+        seekTimer?.invalidate()
+        seekTimer = nil
+        isSeekingForward = false
+        isSeekingBackward = false
+    }
+    
+    private func getScrubRate(verticalDistance: CGFloat) -> Double {
+        switch verticalDistance {
+        case 0..<40: return 1.0
+        case 40..<80: return 0.5
+        case 80..<120: return 0.25
+        default: return 0.1
+        }
+    }
+    
+    private func getScrubInfo() -> (label: String, rate: Double) {
+        let verticalDistance = abs(currentDragY - dragStartY)
+        switch verticalDistance {
+        case 0..<40: return ("Hi-Speed Scrubbing", 1.0)
+        case 40..<80: return ("Half-Speed Scrubbing", 0.5)
+        case 80..<120: return ("Quarter-Speed Scrubbing", 0.25)
+        default: return ("Fine Scrubbing", 0.1)
+        }
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
     private func trackMetadataView(track: Track) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Artist name (clickable)
             if let artist = track.artistName {
                 Button(action: {
                     handleArtistTap(track: track)
@@ -239,7 +372,6 @@ public struct NowPlayingView: View {
                 }
             }
 
-            // Track title
             MarqueeText(
                 text: track.title,
                 font: .title2,
@@ -247,7 +379,6 @@ public struct NowPlayingView: View {
                 fontWeight: .bold
             )
 
-            // Album name (clickable)
             if let album = track.albumName {
                 Button(action: {
                     handleAlbumTap(track: track)
@@ -264,13 +395,10 @@ public struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
 
-    // Progress slider with time labels
     private func progressView(track: Track) -> some View {
         VStack(spacing: 8) {
-            // Custom slider with variable speed scrubbing and waveform
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    // Waveform background
                     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                         let waveform = WaveformView(
                             progress: isDraggingSlider ? localProgress : viewModel.progress,
@@ -284,23 +412,20 @@ public struct NowPlayingView: View {
                         #if os(iOS)
                         if #available(iOS 16.0, *) {
                             waveform
-                                .id(track.id) // Force view reset when track changes
+                                .id(track.id)
                                 .transition(.opacity)
                                 .animation(.easeInOut, value: track.id)
                         } else {
-                            // iOS 15: avoid additional identity churn in TimelineView
-                            // to prevent SwiftUI IDViewList assertion recursion.
                             waveform
                         }
                         #else
                         waveform
-                            .id(track.id) // Force view reset when track changes
+                            .id(track.id)
                             .transition(.opacity)
                             .animation(.easeInOut, value: track.id)
                         #endif
                     }
                     
-                    // Invisible interaction layer
                     Color.clear
                         .contentShape(Rectangle())
                 }
@@ -323,12 +448,9 @@ public struct NowPlayingView: View {
                             }
                             
                             currentDragY = value.location.y
-                            
-                            // Calculate scrub rate based on vertical distance
                             let verticalDistance = abs(currentDragY - dragStartY)
                             let scrubRate = getScrubRate(verticalDistance: verticalDistance)
                             
-                            // Trigger haptics if scrub rate changed
                             if scrubRate != lastScrubRate {
                                 #if os(iOS)
                                 UISelectionFeedbackGenerator().selectionChanged()
@@ -336,16 +458,12 @@ public struct NowPlayingView: View {
                                 lastScrubRate = scrubRate
                             }
                             
-                            // Calculate delta from last position and apply current scrub rate
                             let deltaX = value.location.x - lastDragX
                             let progressChange = (deltaX / sliderWidth) * scrubRate
-                            
-                            // Update local progress incrementally
                             localProgress = max(0, min(1, localProgress + progressChange))
                             lastDragX = value.location.x
                         }
                         .onEnded { _ in
-                            // Seek to final position
                             viewModel.seekToProgress(localProgress)
                             isDraggingSlider = false
                         }
@@ -353,7 +471,6 @@ public struct NowPlayingView: View {
             }
             .frame(height: 24)
 
-            // Time labels with scrub indicator in center
             HStack {
                 Group {
                     if isDraggingSlider {
@@ -370,7 +487,6 @@ public struct NowPlayingView: View {
 
                 Spacer()
                 
-                // Scrub speed indicator (inline with time labels)
                 if isDraggingSlider {
                     scrubIndicator
                 }
@@ -394,7 +510,6 @@ public struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.3), radius: 5, x: 0, y: 0)
     }
     
-    // Scrub speed indicator (no background)
     private var scrubIndicator: some View {
         let verticalDistance = abs(currentDragY - dragStartY)
         let isMovingUp = currentDragY < dragStartY
@@ -413,15 +528,12 @@ public struct NowPlayingView: View {
         .transition(.opacity)
     }
 
-    // Main playback controls
     private var controlsView: some View {
         HStack(spacing: 50) {
-            // Previous/Rewind button with long-press
             ZStack {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 32))
                 
-                // Show seek indicator during long-press
                 if isSeekingBackward {
                     Image(systemName: "chevron.left.2")
                         .font(.system(size: 16))
@@ -449,23 +561,18 @@ public struct NowPlayingView: View {
                         if isSeekingBackward {
                             stopSeeking()
                         } else {
-                            // Short tap - execute previous action
                             viewModel.previous()
                         }
                     }
             )
 
-            // Play/Pause
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
-                    // Show spinner when loading or buffering
                     if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
-                        // Show faded button in background
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 80))
                             .opacity(0.3)
 
-                        // Spinner on top
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.5)
@@ -476,12 +583,10 @@ public struct NowPlayingView: View {
                 }
             }
 
-            // Next/Forward button with long-press
             ZStack {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 32))
                 
-                // Show seek indicator during long-press
                 if isSeekingForward {
                     Image(systemName: "chevron.right.2")
                         .font(.system(size: 16))
@@ -509,7 +614,6 @@ public struct NowPlayingView: View {
                         if isSeekingForward {
                             stopSeeking()
                         } else {
-                            // Short tap - execute next action
                             viewModel.next()
                         }
                     }
@@ -519,35 +623,29 @@ public struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 5)
     }
 
-    // Secondary controls: shuffle, repeat, heart, airplay
     private var secondaryControlsView: some View {
         HStack(spacing: 30) {
-            // Shuffle
             Button(action: viewModel.toggleShuffle) {
                 Image(systemName: "shuffle")
                     .font(.title3)
                     .foregroundColor(viewModel.isShuffleEnabled ? .accentColor : .white.opacity(0.7))
             }
 
-            // Repeat
             Button(action: viewModel.cycleRepeatMode) {
                 Image(systemName: viewModel.repeatMode.icon)
                     .font(.title3)
                     .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .white.opacity(0.7))
             }
 
-            // Heart/Rating button (three-state)
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
                     .font(.title3)
                     .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
             }
             
-            // AirPlay button
             AirPlayButton()
                 .frame(width: 24, height: 24)
 
-            // More actions
             Menu {
                 if let lastPlaylistQuickTarget {
                     if let currentTrack = viewModel.currentTrack,
@@ -587,10 +685,8 @@ public struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
 
-    // Queue section that follows Now Playing in the ScrollView
     private func queueSection(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Queue header with autoplay toggle
             HStack {
                 Text(viewModel.showHistory ? "History" : "Queue")
                     .font(.title2)
@@ -600,7 +696,6 @@ public struct NowPlayingView: View {
                 Spacer()
                 
                 HStack(spacing: 16) {
-                    // History toggle
                     Button(action: {
                         withAnimation(.spring()) {
                             viewModel.toggleHistory()
@@ -615,7 +710,6 @@ public struct NowPlayingView: View {
                         .foregroundColor(viewModel.showHistory ? .accentColor : .secondary)
                     }
 
-                    // Autoplay toggle
                     Button(action: viewModel.toggleAutoplay) {
                         HStack(spacing: 6) {
                             Image(systemName: viewModel.isAutoplayEnabled ? "sparkles" : "sparkles.slash")
@@ -630,12 +724,9 @@ public struct NowPlayingView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
             
-            // Queue table view
             if !viewModel.queue.isEmpty || !viewModel.playbackHistory.isEmpty {
                 #if canImport(UIKit)
                 let queueItemsToShow = Array(viewModel.queue.dropFirst(viewModel.currentQueueIndex + 1))
-                
-                // Capture currentQueueIndex at display time to avoid race conditions
                 let capturedCurrentIndex = viewModel.currentQueueIndex
                 
                 QueueTableView(
@@ -644,7 +735,6 @@ public struct NowPlayingView: View {
                     showHistory: viewModel.showHistory,
                     currentQueueIndex: -1,
                     onItemTap: { item, absoluteIndex in
-                        // Use captured index to ensure consistent calculations
                         viewModel.playFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
                     onHistoryTap: { item, historyIndex in
@@ -672,19 +762,11 @@ public struct NowPlayingView: View {
                     },
                     recentPlaylistTitle: lastPlaylistQuickTarget?.title,
                     onRemoveFromQueue: { absoluteIndex in
-                        // Use captured index for consistency
                         viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                     },
                     onMoveItem: { itemId, sourceIndex, destinationIndex in
-                        // destinationIndex from QueueTableView is relative to the *visible* queue (upcoming items)
-                        // PlaybackService expects absolute indices into the *master* queue
-                        // So we must add capturedCurrentIndex + 1
                         let offset = capturedCurrentIndex + 1
-                        viewModel.moveQueueItem(
-                            byId: itemId,
-                            from: sourceIndex + offset,
-                            to: destinationIndex + offset
-                        )
+                        viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
                     }
                 )
                 .padding(.bottom, 40)
@@ -694,7 +776,6 @@ public struct NowPlayingView: View {
                     .padding(.vertical, 40)
                 #endif
                 
-                // Show "End of recommendations" message when autoplay can't find more tracks
                 if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
                     VStack(spacing: 8) {
                         HStack(spacing: 6) {
@@ -717,7 +798,7 @@ public struct NowPlayingView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 12)
+                .padding(.bottom, 40)
             } else {
                 Text("Queue is empty")
                     .foregroundColor(.secondary)
@@ -735,177 +816,6 @@ public struct NowPlayingView: View {
         #endif
     }
     
-    // Helper: Load artwork image for blurred background
-    private func loadArtworkImage(for track: Track) {
-        let trackID = track.id
-        currentLoadTrackID = trackID
-        
-        artworkLoadTask = Task {
-            // Check if cancelled early
-            guard !Task.isCancelled else { return }
-            
-            // Get artwork URL
-            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: 600 // Use slightly larger size for background
-            ) {
-                guard !Task.isCancelled else { return }
-                
-                // Check Nuke cache first for instant display
-                let request = ImageRequest(url: artworkURL)
-                
-                // Try synchronous cache lookup first
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    guard !Task.isCancelled else { return }
-                    
-                    await MainActor.run {
-                        if self.currentLoadTrackID == trackID {
-                            self.artworkImage = cachedImage.image
-                        }
-                    }
-                    return
-                }
-                
-                // Load asynchronously if not cached
-                if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                    guard !Task.isCancelled else { return }
-                    
-                    await MainActor.run {
-                        // Only update if this is still the current track
-                        if self.currentLoadTrackID == trackID {
-                            // Using a smooth cross-fade transition.
-                            // DO NOT REMOVE THIS - it ensures beautiful track transitions.
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                self.artworkImage = uiImage
-                            }
-                        }
-                    }
-                }
-            } else {
-                // No artwork URL available - clear previous artwork
-                guard !Task.isCancelled else { return }
-                
-                await MainActor.run {
-                    if self.currentLoadTrackID == trackID {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            self.artworkImage = nil
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Helper: Navigate to artist
-    private func handleArtistTap(track: Track) {
-        if let artistId = track.artistRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
-            dismiss()
-        }
-    }
-    
-    // Helper: Navigate to album
-    private func handleAlbumTap(track: Track) {
-        if let albumId = track.albumRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
-            dismiss()
-        }
-    }
-
-    @MainActor
-    private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = viewModel.currentTrack else {
-            lastPlaylistQuickTarget = nil
-            return
-        }
-        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
-    }
-
-    private func presentPlaylistPicker(with tracks: [Track], title: String) {
-        guard !tracks.isEmpty else {
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .warning,
-                    iconSystemName: "exclamationmark.triangle.fill",
-                    title: "No tracks available",
-                    message: "Try again in a moment.",
-                    dedupeKey: "playlist-picker-empty-\(title)"
-                )
-            )
-            return
-        }
-        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
-    }
-    
-    // Helper: Start rapid seeking
-    private func startSeeking(forward: Bool) {
-        // Set seeking state
-        if forward {
-            isSeekingForward = true
-        } else {
-            isSeekingBackward = true
-        }
-        
-        // Create timer that seeks every 0.1 seconds
-        seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
-            Task { @MainActor in
-                guard let viewModel = viewModel else { return }
-                let currentTime = viewModel.currentTime
-                let seekAmount: TimeInterval = forward ? 2.0 : -2.0
-                let newTime = max(0, min(currentTime + seekAmount, viewModel.scrubberDuration))
-                viewModel.seek(to: newTime)
-            }
-        }
-    }
-    
-    // Helper: Stop rapid seeking
-    private func stopSeeking() {
-        seekTimer?.invalidate()
-        seekTimer = nil
-        isSeekingForward = false
-        isSeekingBackward = false
-    }
-    
-    // Helper: Get scrub rate based on vertical distance
-    private func getScrubRate(verticalDistance: CGFloat) -> Double {
-        switch verticalDistance {
-        case 0..<40:
-            return 1.0      // Hi-Speed Scrubbing
-        case 40..<80:
-            return 0.5      // Half-Speed Scrubbing
-        case 80..<120:
-            return 0.25     // Quarter-Speed Scrubbing
-        default:
-            return 0.1      // Fine Scrubbing
-        }
-    }
-    
-    // Helper: Get scrub info for display
-    private func getScrubInfo() -> (label: String, rate: Double) {
-        let verticalDistance = abs(currentDragY - dragStartY)
-        switch verticalDistance {
-        case 0..<40:
-            return ("Hi-Speed Scrubbing", 1.0)
-        case 40..<80:
-            return ("Half-Speed Scrubbing", 0.5)
-        case 80..<120:
-            return ("Quarter-Speed Scrubbing", 0.25)
-        default:
-            return ("Fine Scrubbing", 0.1)
-        }
-    }
-    
-    // Helper: Format time for display
-    private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     // Error overlay when playback fails
     private func errorOverlayView(errorMessage: String) -> some View {
         VStack(spacing: 20) {
@@ -955,7 +865,6 @@ public struct NowPlayingView: View {
 }
 
 #if canImport(UIKit)
-// Helper for corner radius on specific corners
 extension View {
     func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
         clipShape(RoundedCorner(radius: radius, corners: corners))
@@ -976,3 +885,15 @@ struct RoundedCorner: Shape {
     }
 }
 #endif
+
+// Helper extension for conditional matchedGeometryEffect
+extension View {
+    @ViewBuilder
+    func ifLet<V, ID, T: View>(_ value: V?, _ id: ID?, transform: (Self, V, ID) -> T) -> some View {
+        if let value = value, let id = id {
+            transform(self, value, id)
+        } else {
+            self
+        }
+    }
+}

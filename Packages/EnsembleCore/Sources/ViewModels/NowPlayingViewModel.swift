@@ -1,6 +1,8 @@
 import Combine
 import Foundation
 import EnsemblePersistence
+import Nuke
+import SwiftUI
 
 /// Rating states for the three-state heart button
 public enum TrackRating: Equatable {
@@ -75,7 +77,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
     @Published public private(set) var isPlaylistMutationInProgress = false
-    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
+    @Published public var lastPlaylistTarget: LastPlaylistTarget?
+    @Published public private(set) var artworkImage: UIImage?
     @Published private var optimisticTrackRatings: [String: Int] = [:]
 
     private let playbackService: PlaybackServiceProtocol
@@ -84,6 +87,10 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
+    
+    // Artwork loading state
+    private var artworkLoadTask: Task<Void, Never>?
+    private var currentLoadTrackID: String?
     
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
@@ -201,6 +208,84 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.currentRating = TrackRating.from(rating: self.trackDisplayRating(for: track))
             }
             .store(in: &cancellables)
+
+        // Automatically load artwork when track changes
+        $currentTrack
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self = self else { return }
+                if let track = track {
+                    self.loadArtworkImage(for: track)
+                } else {
+                    self.artworkLoadTask?.cancel()
+                    self.artworkImage = nil
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Artwork Management
+
+    private func loadArtworkImage(for track: Track) {
+        let trackID = track.id
+        guard currentLoadTrackID != trackID else { return }
+        
+        artworkLoadTask?.cancel()
+        currentLoadTrackID = trackID
+        
+        artworkLoadTask = Task { @MainActor in
+            // Check if cancelled early
+            guard !Task.isCancelled else { return }
+            
+            // Get artwork URL
+            let deps = DependencyContainer.shared
+            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
+                for: track.thumbPath,
+                sourceKey: track.sourceCompositeKey,
+                ratingKey: track.id,
+                fallbackPath: track.fallbackThumbPath,
+                fallbackRatingKey: track.fallbackRatingKey,
+                size: 600 // Use slightly larger size for background
+            ) {
+                guard !Task.isCancelled else { return }
+                
+                // Check Nuke cache first for instant display
+                let request = Nuke.ImageRequest(url: artworkURL)
+                
+                // Try synchronous cache lookup first
+                if let cachedImage = Nuke.ImagePipeline.shared.cache.cachedImage(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
+                    if self.currentLoadTrackID == trackID {
+                        self.artworkImage = cachedImage.image
+                    }
+                    return
+                }
+                
+                // Load asynchronously if not cached
+                if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
+                    // Only update if this is still the current track
+                    if self.currentLoadTrackID == trackID {
+                        // Using a smooth cross-fade transition.
+                        // DO NOT REMOVE THIS - it ensures beautiful track transitions.
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            self.artworkImage = result
+                        }
+                    }
+                }
+            } else {
+                // No artwork URL available - clear previous artwork
+                guard !Task.isCancelled else { return }
+                
+                if self.currentLoadTrackID == trackID {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        self.artworkImage = nil
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Computed Properties

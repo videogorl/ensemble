@@ -7,20 +7,28 @@ public struct MiniPlayer: View {
     let onTap: () -> Void
     
     @Environment(\.dependencies) private var deps
-    @State private var artworkImage: UIImage?
     @State private var dragOffset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
-    @State private var currentLoadTrackID: String?
-    @State private var artworkLoadTask: Task<Void, Never>?
     @State private var showingPlaylistPicker = false
     
     private let isFloating: Bool
     private let pillCornerRadius: CGFloat = 28
+    
+    private let namespace: Namespace.ID?
+    private let animationID: String?
 
-    public init(viewModel: NowPlayingViewModel, isFloating: Bool = false, onTap: @escaping () -> Void) {
+    public init(
+        viewModel: NowPlayingViewModel,
+        isFloating: Bool = false,
+        namespace: Namespace.ID? = nil,
+        animationID: String? = nil,
+        onTap: @escaping () -> Void
+    ) {
         self.viewModel = viewModel
         self.isFloating = isFloating
+        self.namespace = namespace
+        self.animationID = animationID
         self.onTap = onTap
     }
 
@@ -56,15 +64,21 @@ public struct MiniPlayer: View {
                 // Content
                 HStack(spacing: 12) {
                     // Artwork
-                    ArtworkView(
-                        path: track.thumbPath,
-                        sourceKey: track.sourceCompositeKey,
-                        ratingKey: track.id,
-                        fallbackPath: track.fallbackThumbPath,
-                        fallbackRatingKey: track.fallbackRatingKey,
-                        size: .tiny,
-                        cornerRadius: 4
-                    )
+                    ZStack {
+                        ArtworkView(
+                            path: track.thumbPath,
+                            sourceKey: track.sourceCompositeKey,
+                            ratingKey: track.id,
+                            fallbackPath: track.fallbackThumbPath,
+                            fallbackRatingKey: track.fallbackRatingKey,
+                            size: .tiny,
+                            cornerRadius: 4
+                        )
+                        .frame(width: 36, height: 36)
+                        .ifLet(namespace, animationID) { view, ns, id in
+                            view.matchedGeometryEffect(id: id, in: ns, isSource: true)
+                        }
+                    }
                     .frame(width: 36, height: 36)
 
                     // Track info (swipable)
@@ -207,7 +221,7 @@ public struct MiniPlayer: View {
                     // Animation ensures a smooth cross-fade between artwork backgrounds.
                     // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
                     BlurredArtworkBackground(
-                        image: artworkImage,
+                        image: viewModel.artworkImage,
                         blurRadius: 50, // Increased blur for softer glass look
                         contrast: 2.0,
                         saturation: 1.9,
@@ -216,7 +230,7 @@ public struct MiniPlayer: View {
                         bottomDimming: 0.1,
                         shouldIgnoreSafeArea: false
                     )
-                    .animation(.easeInOut(duration: 0.8), value: artworkImage)
+                    .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
                     .clipped()
                     // Background blur is visual-only and should never own touch events.
                     .allowsHitTesting(false)
@@ -320,107 +334,6 @@ public struct MiniPlayer: View {
                 PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
             }
         }
-        .onChange(of: viewModel.currentTrack) { newTrack in
-            // Cancel any pending artwork load and clear old artwork immediately
-            artworkLoadTask?.cancel()
-            artworkLoadTask = nil
-            currentLoadTrackID = nil
-            artworkImage = nil
-            
-            if let track = newTrack {
-                loadArtworkImage(for: track)
-            }
-        }
-        .onAppear {
-            if let track = viewModel.currentTrack {
-                loadArtworkImage(for: track)
-            }
-        }
-    }
-
-    private func loadArtworkImage(for track: Track) {
-        let trackID = track.id
-        currentLoadTrackID = trackID
-        
-        #if DEBUG
-        EnsembleLogger.debug("🎨 MiniPlayer: Loading artwork for \(track.title)")
-        #endif
-        
-        artworkLoadTask = Task {
-            // Check if cancelled early
-            guard !Task.isCancelled else { return }
-            
-            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: 200
-            ) {
-                guard !Task.isCancelled else { return }
-                
-                #if DEBUG
-                EnsembleLogger.debug("🎨 MiniPlayer: Got URL for \(track.title): \(artworkURL.absoluteString)")
-                #endif
-                let request = ImageRequest(url: artworkURL)
-                
-                // Try synchronous cache lookup first
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    guard !Task.isCancelled else { return }
-                    
-                    #if DEBUG
-                    EnsembleLogger.debug("🎨 MiniPlayer: Using cached image for \(track.title)")
-                    #endif
-                    await MainActor.run {
-                        if self.currentLoadTrackID == trackID {
-                            self.artworkImage = cachedImage.image
-                        }
-                    }
-                    return
-                }
-                
-                // Load asynchronously if not cached
-                #if DEBUG
-                EnsembleLogger.debug("🎨 MiniPlayer: Loading from network for \(track.title)")
-                #endif
-                if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                    guard !Task.isCancelled else { return }
-                    
-                    #if DEBUG
-                    EnsembleLogger.debug("🎨 MiniPlayer: Loaded image for \(track.title)")
-                    #endif
-                    await MainActor.run {
-                        // Only update if this is still the current track
-                        if self.currentLoadTrackID == trackID {
-                            // Using a smooth cross-fade transition.
-                            // DO NOT REMOVE THIS - it ensures beautiful track transitions.
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                self.artworkImage = uiImage
-                            }
-                        }
-                    }
-                } else {
-                    #if DEBUG
-                    EnsembleLogger.debug("🎨 MiniPlayer: Failed to load image for \(track.title)")
-                    #endif
-                }
-            } else {
-                // No artwork URL available - clear previous artwork
-                guard !Task.isCancelled else { return }
-                
-                #if DEBUG
-                EnsembleLogger.debug("🎨 MiniPlayer: No artwork URL for \(track.title) - clearing previous artwork")
-                #endif
-                await MainActor.run {
-                    if self.currentLoadTrackID == trackID {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            self.artworkImage = nil
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -453,7 +366,13 @@ public struct MiniPlayerContainer<Content: View>: View {
                 return false
             }()
 
-            MiniPlayer(viewModel: viewModel, isFloating: isFloating, onTap: onMiniPlayerTap)
+            MiniPlayer(
+                viewModel: viewModel,
+                isFloating: isFloating,
+                namespace: nil, // Container doesn't support shared animation yet
+                animationID: nil,
+                onTap: onMiniPlayerTap
+            )
         }
     }
 }

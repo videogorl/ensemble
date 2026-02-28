@@ -54,6 +54,9 @@ public struct MainTabView: View {
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
     
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
+    
     #if os(iOS)
     @StateObject private var keyboard = KeyboardObserver()
     #endif
@@ -84,8 +87,6 @@ public struct MainTabView: View {
     public var body: some View {
         GeometryReader { geometry in
             // Keep mini-player spacing aligned with the active tab bar style.
-            // iOS 18 floating tab bars already sit above the home indicator, so
-            // adding safe-area bottom again pushes mini-player too high.
             let miniPlayerBottomLift: CGFloat = {
                 if #available(iOS 18.0, *) {
                     return 56
@@ -95,71 +96,103 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
+                // Dimming background layer
+                if showingNowPlaying {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .zIndex(5)
+                        .onTapGesture {
+                            withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                                showingNowPlaying = false
+                            }
+                        }
+                }
+
+                // Main content layer (TabView)
                 VStack(spacing: 0) {
                     // Connection status banner at top
                     if !isImmersiveMode {
                         ConnectionStatusBanner(networkState: networkMonitor.networkState)
                     }
                     
-                    // Main content layer (TabView)
                     tabBarVisibility(
                         TabView(selection: tabBinding) {
-                        // Dynamic Tabs
-                        ForEach(barTabs) { tab in
-                            tabRootView(for: tab)
-                                .tag(tab)
-                                .tabItem {
-                                    Label(tab.displayTitle, systemImage: tab.systemImage)
-                                }
-                        }
-
-                        // Always show More as the 5th tab
-                        tabRootView(for: .settings, isMoreRoot: true)
-                            .tag(TabItem.settings)
-                            .tabItem {
-                                Label("More", systemImage: "ellipsis")
+                            ForEach(barTabs) { tab in
+                                tabRootView(for: tab)
+                                    .tag(tab)
+                                    .tabItem {
+                                        Label(tab.displayTitle, systemImage: tab.systemImage)
+                                    }
                             }
-                    },
-                        isHidden: isImmersiveMode
+
+                            tabRootView(for: .settings, isMoreRoot: true)
+                                .tag(TabItem.settings)
+                                .tabItem {
+                                    Label("More", systemImage: "ellipsis")
+                                }
+                        },
+                        isHidden: isImmersiveMode || showingNowPlaying
                     )
-                    // Use the new native floating style if available (iOS 18+)
                     .tabViewStyle(sidebarAdaptableIfAvailable())
-                    .onAppear {
-                        // Sync visible tabs to NavigationCoordinator for fallback logic
-                        navigationCoordinator.visibleTabs = barTabs
-
-                        if !didSetInitialTab {
-                            navigationCoordinator.selectedTab = barTabs.first ?? .home
-                            didSetInitialTab = true
-                        }
-                    }
-                    .onChange(of: settingsManager.enabledTabs) { _ in
-                        // Keep visibleTabs in sync when user changes tab settings
-                        navigationCoordinator.visibleTabs = barTabs
-                    }
                 }
+                .background(Color(UIColor.systemBackground)) // Ensure the content card is opaque
+                .cornerRadius(showingNowPlaying ? 38 : 0)
+                .scaleEffect(showingNowPlaying ? 0.92 : 1.0)
+                .ignoresSafeArea() // Ensure content extends behind status bar/home indicator even when scaled
+                .animation(.interactiveSpring(response: 0.45, dampingFraction: 0.85), value: showingNowPlaying)
+                .zIndex(1)
 
-                // Persistent MiniPlayer (Floating above native TabBar)
-                if !isKeyboardVisible && !isImmersiveMode {
+                // Persistent MiniPlayer
+                if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
                     let isFloating: Bool = {
+                        #if os(iOS)
                         if #available(iOS 18.0, *) {
                             return true
                         }
+                        #endif
                         return false
                     }()
 
-                    MiniPlayer(viewModel: nowPlayingVM, isFloating: isFloating) {
-                        showingNowPlaying = true
+                    MiniPlayer(
+                        viewModel: nowPlayingVM,
+                        isFloating: isFloating,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID
+                    ) {
+                        withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                            showingNowPlaying = true
+                        }
                     }
-                    // Position above native tab bar and keep touch frame aligned to visuals.
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
                     .zIndex(2)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    // Use a slight delay on appearance to let sheet clear, immediate disappearance
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(.easeInOut.delay(0.1)),
+                        removal: .identity
+                    ))
                 }
 
+                // Custom NowPlaying presentation
+                if showingNowPlaying {
+                    NowPlayingView(
+                        viewModel: nowPlayingVM,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: {
+                            withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                                showingNowPlaying = false
+                            }
+                        }
+                    )
+                    .zIndex(10)
+                    .transition(.move(edge: .bottom).combined(with: .offset(y: geometry.safeAreaInsets.bottom))) // Ensure it clears safe area
+                    .ignoresSafeArea()
+                }
             }
+            .background(Color.black.ignoresSafeArea()) // Root background is black for the scale effect
             .task {
                 await libraryVM.refresh()
             }
@@ -175,23 +208,7 @@ public struct MainTabView: View {
                 }
             }
             
-            let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
-
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
-                chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
-                    NowPlayingView(viewModel: nowPlayingVM)
-                }
-            } else {
-                chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
-                    NowPlayingView(viewModel: nowPlayingVM)
-                }
-            }
-            #else
-            chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
-                NowPlayingView(viewModel: nowPlayingVM)
-            }
-            #endif
+            applyChromeVisibilityObservation(to: rootView)
         }
     }
 
@@ -393,6 +410,9 @@ public struct SidebarView: View {
     @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @Environment(\.dependencies) private var deps
+    
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
 
     @State private var selection: SidebarSection? = .home
     @State private var showingNowPlaying = false
@@ -463,14 +483,38 @@ public struct SidebarView: View {
             }
 
             // Mini player overlay (always on top)
-            MiniPlayer(viewModel: nowPlayingVM, isFloating: true) {
-                showingNowPlaying = true
+            if !showingNowPlaying {
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID
+                ) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        showingNowPlaying = true
+                    }
+                }
+                .zIndex(2)
+                .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
-            .zIndex(2)
 
-        }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
+            // Custom NowPlaying presentation for iPad SidebarView
+            if showingNowPlaying {
+                NowPlayingView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            showingNowPlaying = false
+                        }
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .offset(y: 100))) // Extra offset to clear safe area
+                .zIndex(10)
+                .ignoresSafeArea()
+            }
+
         }
         .task {
             await libraryVM.refresh()
