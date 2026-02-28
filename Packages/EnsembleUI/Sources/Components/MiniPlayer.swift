@@ -13,6 +13,7 @@ public struct MiniPlayer: View {
     @State private var opacity: Double = 1.0
     @State private var currentLoadTrackID: String?
     @State private var artworkLoadTask: Task<Void, Never>?
+    @State private var showingPlaylistPicker = false
     
     private let isFloating: Bool
     private let pillCornerRadius: CGFloat = 28
@@ -276,6 +277,49 @@ public struct MiniPlayer: View {
         .padding(.horizontal, isFloating ? 24 : 12)
         .padding(.bottom, isFloating ? 12 : 8)
         .offset(y: verticalOffset)
+        .contextMenu {
+            if let track = viewModel.currentTrack {
+                Button {
+                    Task { await viewModel.toggleTrackFavorite(track) }
+                } label: {
+                    Label(
+                        viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
+                        systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+                    )
+                }
+
+                if let lastTarget = viewModel.lastPlaylistTarget {
+                    Button {
+                        Task {
+                            if let playlist = await viewModel.resolveLastPlaylistTarget() {
+                                _ = try? await viewModel.addCurrentTrack(to: playlist)
+                            }
+                        }
+                    } label: {
+                        Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
+                Button {
+                    showingPlaylistPicker = true
+                } label: {
+                    Label("Add to Playlist…", systemImage: "text.badge.plus")
+                }
+
+                Divider()
+
+                Button {
+                    onTap()
+                } label: {
+                    Label("Show Now Playing", systemImage: "music.note.list")
+                }
+            }
+        }
+        .sheet(isPresented: $showingPlaylistPicker) {
+            if let track = viewModel.currentTrack {
+                PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
+            }
+        }
         .onChange(of: viewModel.currentTrack) { newTrack in
             // Cancel any pending artwork load and clear old artwork immediately
             artworkLoadTask?.cancel()
