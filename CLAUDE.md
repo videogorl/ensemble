@@ -229,6 +229,7 @@ As you make changes, keep the following documents in sync:
 | New known bug, limitation, or tech debt | `known-issues` skill |
 | Feature shipped or roadmap item completed | `README.md` |
 | Anything that changes how agents should work in this repo | `CLAUDE.md` |
+| New View or UI element added/renamed/removed | `VOCABULARY.md` |
 
 When in doubt: if a future agent session wouldn't know about it by reading the skills, document it.
 

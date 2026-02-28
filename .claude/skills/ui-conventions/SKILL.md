@@ -7,6 +7,14 @@ description: "Load before building or modifying any SwiftUI view. Ensemble UI/UX
 
 These are core design decisions that must be maintained throughout the app.
 
+## UI Vocabulary
+
+See **`VOCABULARY.md`** at the project root for canonical names of all Views and UI elements. When:
+- Adding a new View: add a section to VOCABULARY.md with the view name, area, platforms, and element list
+- Adding new UI elements to existing views: add them to the view's element table
+- Renaming or removing elements: update VOCABULARY.md to match
+- Writing documentation, accessibility identifiers, or user-facing copy: use the canonical element names
+
 ## Navigation Behavior
 
 ### Tab Navigation
