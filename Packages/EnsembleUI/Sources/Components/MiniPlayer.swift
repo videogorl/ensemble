@@ -55,7 +55,16 @@ public struct MiniPlayer: View {
                 // Content
                 HStack(spacing: 12) {
                     // Artwork
-                    ArtworkView(track: track, size: .tiny, cornerRadius: 4)
+                    ArtworkView(
+                        path: track.thumbPath,
+                        sourceKey: track.sourceCompositeKey,
+                        ratingKey: track.id,
+                        fallbackPath: track.fallbackThumbPath,
+                        fallbackRatingKey: track.fallbackRatingKey,
+                        size: .tiny,
+                        cornerRadius: 4
+                    )
+                    .frame(width: 36, height: 36)
 
                     // Track info (swipable)
                     VStack(alignment: .leading, spacing: 2) {
@@ -145,13 +154,13 @@ public struct MiniPlayer: View {
                     .foregroundColor(.white)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 8)
             } else {
                 // Nothing Playing state
                 HStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.white.opacity(0.1))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 32, height: 32)
                         .overlay(
                             Image(systemName: "music.note")
                                 .foregroundColor(.white.opacity(0.6))
@@ -164,7 +173,7 @@ public struct MiniPlayer: View {
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 10)
             }
         }
         .overlay(alignment: .bottom) {
