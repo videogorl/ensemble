@@ -141,7 +141,14 @@ public struct MainTabView: View {
 
                 // Persistent MiniPlayer (Floating above native TabBar)
                 if !isKeyboardVisible && !isImmersiveMode {
-                    MiniPlayer(viewModel: nowPlayingVM) {
+                    let isFloating: Bool = {
+                        if #available(iOS 18.0, *) {
+                            return true
+                        }
+                        return false
+                    }()
+
+                    MiniPlayer(viewModel: nowPlayingVM, isFloating: isFloating) {
                         showingNowPlaying = true
                     }
                     // Position above native tab bar and keep touch frame aligned to visuals.
@@ -456,7 +463,7 @@ public struct SidebarView: View {
             }
 
             // Mini player overlay (always on top)
-            MiniPlayer(viewModel: nowPlayingVM) {
+            MiniPlayer(viewModel: nowPlayingVM, isFloating: true) {
                 showingNowPlaying = true
             }
             .zIndex(2)

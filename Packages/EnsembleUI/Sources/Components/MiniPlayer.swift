@@ -13,9 +13,13 @@ public struct MiniPlayer: View {
     @State private var opacity: Double = 1.0
     @State private var currentLoadTrackID: String?
     @State private var artworkLoadTask: Task<Void, Never>?
+    
+    private let isFloating: Bool
+    private let pillCornerRadius: CGFloat = 28
 
-    public init(viewModel: NowPlayingViewModel, onTap: @escaping () -> Void) {
+    public init(viewModel: NowPlayingViewModel, isFloating: Bool = false, onTap: @escaping () -> Void) {
         self.viewModel = viewModel
+        self.isFloating = isFloating
         self.onTap = onTap
     }
 
@@ -141,17 +145,7 @@ public struct MiniPlayer: View {
                     .foregroundColor(.white)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                // Progress bar at the bottom
-                GeometryReader { geometry in
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        Rectangle()
-                            .fill(Color.accentColor)
-                            .frame(width: geometry.size.width * viewModel.progress)
-                    }
-                }
-                .frame(height: 3)
+                .padding(.vertical, 12)
             } else {
                 // Nothing Playing state
                 HStack(spacing: 12) {
@@ -170,7 +164,27 @@ public struct MiniPlayer: View {
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 14)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if viewModel.currentTrack != nil {
+                // Edge-to-edge progress bar at the very bottom
+                GeometryReader { geometry in
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.15))
+                                .frame(height: 3)
+                            
+                            Rectangle()
+                                .fill(Color.accentColor)
+                                .frame(width: geometry.size.width * viewModel.progress, height: 3)
+                        }
+                    }
+                }
+                .frame(height: 3)
+                .allowsHitTesting(false)
             }
         }
         // Keep mini-player layout tightly bound to rendered content height.
@@ -184,7 +198,7 @@ public struct MiniPlayer: View {
                     // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
                     BlurredArtworkBackground(
                         image: artworkImage,
-                        blurRadius: 40,
+                        blurRadius: 50, // Increased blur for softer glass look
                         contrast: 2.0,
                         saturation: 1.9,
                         brightness: -0.1,
@@ -198,16 +212,39 @@ public struct MiniPlayer: View {
                     .allowsHitTesting(false)
                 }
                 
-                RoundedRectangle(cornerRadius: 20)
+                // Liquid Glass Layer
+                RoundedRectangle(cornerRadius: pillCornerRadius)
                     .fill(.ultraThinMaterial)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                        // Specular Highlight
+                        RoundedRectangle(cornerRadius: pillCornerRadius)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.4), .white.opacity(0.1), .clear, .white.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.5
+                            )
+                    )
+                    .overlay(
+                        // Top edge glow
+                        RoundedRectangle(cornerRadius: pillCornerRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.15), .clear],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                )
+                            )
+                            .padding(1)
+                            .mask(RoundedRectangle(cornerRadius: pillCornerRadius))
+                            .allowsHitTesting(false)
                     )
             }
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
         .onTapGesture(perform: onTap)
         .gesture(
             DragGesture()
@@ -226,9 +263,9 @@ public struct MiniPlayer: View {
                     }
                 }
         )
-        .shadow(color: .black.opacity(0.1), radius: 20, y: -5)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
+        .padding(.horizontal, isFloating ? 24 : 12)
+        .padding(.bottom, isFloating ? 12 : 8)
         .offset(y: verticalOffset)
         .onChange(of: viewModel.currentTrack) { newTrack in
             // Cancel any pending artwork load and clear old artwork immediately
@@ -356,7 +393,14 @@ public struct MiniPlayerContainer<Content: View>: View {
             content()
                 .padding(.bottom, 70)
 
-            MiniPlayer(viewModel: viewModel, onTap: onMiniPlayerTap)
+            let isFloating: Bool = {
+                if #available(iOS 18.0, *) {
+                    return true
+                }
+                return false
+            }()
+
+            MiniPlayer(viewModel: viewModel, isFloating: isFloating, onTap: onMiniPlayerTap)
         }
     }
 }
