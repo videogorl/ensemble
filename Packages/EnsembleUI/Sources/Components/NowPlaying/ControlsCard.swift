@@ -1,45 +1,611 @@
 import EnsembleCore
 import SwiftUI
+import AVKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Center card displaying artwork, scrubber, playback controls, and secondary controls
 /// Extracts and refines existing NowPlayingView controls into standalone card
 public struct ControlsCard: View {
+    private struct PlaylistPickerPayload: Identifiable {
+        let id = UUID()
+        let tracks: [Track]
+        let title: String
+    }
+    
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismiss) private var dismiss
     
-    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
+    // Long-press seek state
+    @State private var seekTimer: Timer?
+    @State private var seekWorkItem: DispatchWorkItem?
+    @State private var isSeekingForward = false
+    @State private var isSeekingBackward = false
+    
+    // Custom slider state
+    @State private var isDraggingSlider = false
+    @State private var dragStartY: CGFloat = 0
+    @State private var dragStartX: CGFloat = 0
+    @State private var lastDragX: CGFloat = 0
+    @State private var currentDragY: CGFloat = 0
+    @State private var initialProgress: Double = 0
+    @State private var localProgress: Double = 0
+    @State private var sliderWidth: CGFloat = 0
+    @State private var lastScrubRate: Double = 1.0
+    @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var lastPlaylistQuickTarget: Playlist?
+    
+    private let namespace: Namespace.ID?
+    private let animationID: String?
+    
+    public init(
+        viewModel: NowPlayingViewModel,
+        currentPage: Binding<Int>,
+        namespace: Namespace.ID? = nil,
+        animationID: String? = nil
+    ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self.namespace = namespace
+        self.animationID = animationID
     }
     
     public var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        GeometryReader { geometry in
+            if let track = viewModel.currentTrack {
+                contentView(track: track, geometry: geometry)
+            } else {
+                emptyStateView(geometry: geometry)
+            }
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(
+                nowPlayingVM: viewModel,
+                tracks: payload.tracks,
+                title: payload.title
+            )
+        }
+        .task {
+            await refreshLastPlaylistQuickTarget()
+        }
+        .onChange(of: viewModel.currentTrack?.id) { _ in
+            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
+        }
+        .onChange(of: viewModel.lastPlaylistTarget?.id) { _ in
+            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
+        }
+    }
+    
+    // MARK: - Content View
+    
+    private func contentView(track: Track, geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            // Dynamic artwork sizing for small screens
+            let maxWidth = geometry.size.width - 48  // 24pt padding each side
+            let maxHeight = geometry.size.height * 0.4  // Max 40% of available height
+            let artworkSize = min(maxWidth, maxHeight, 400)  // Cap at 400pt
             
-            // Placeholder content
-            VStack(spacing: 16) {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 64))
-                    .foregroundColor(.white.opacity(0.7))
-                
-                Text("Controls Card")
+            // Artwork
+            ArtworkView(track: track, size: .medium, cornerRadius: 12)
+                .frame(width: artworkSize, height: artworkSize)
+                .clipped()
+                .contrast(1.1)
+                .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 8)
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.matchedGeometryEffect(id: id, in: ns)
+                }
+                .padding(.top, 20)
+                .padding(.bottom, geometry.size.height > 700 ? 40 : 20)  // Reduce spacing on small screens
+            
+            // Scrubber/waveform
+            progressView(track: track)
+                .padding(.horizontal, 24)
+            
+            // Track metadata
+            trackMetadataView(track: track)
+                .padding(.horizontal, 24)
+                .padding(.top, geometry.size.height > 700 ? 16 : 8)
+            
+            // Primary playback controls
+            controlsView
+                .padding(.top, geometry.size.height > 700 ? 24 : 16)
+            
+            Spacer(minLength: 0)
+            
+            // Secondary controls + page indicator
+            VStack(spacing: 8) {
+                secondaryControlsView
+                PageIndicator(currentPage: currentPage)
+            }
+            .padding(.bottom, 20)
+        }
+    }
+    
+    private func emptyStateView(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            let maxWidth = geometry.size.width - 48
+            let maxHeight = geometry.size.height * 0.4
+            let artworkSize = min(maxWidth, maxHeight, 400)
+            
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 64))
+                        .foregroundColor(.white.opacity(0.35))
+                )
+                .frame(width: artworkSize, height: artworkSize)
+                .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: 8)
+                .padding(.top, 40)
+                .padding(.bottom, 60)
+            
+            VStack(spacing: 8) {
+                Text("Nothing Playing")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
                 
-                Text("Artwork, scrubber, and playback controls will go here")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
+                Text("Play music from your library to start listening")
+                    .font(.callout)
+                    .foregroundColor(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 16)
+            
+            controlsView
+                .opacity(0.5)
+                .allowsHitTesting(false)
+                .padding(.top, 32)
+            
+            Spacer(minLength: 0)
+            
+            VStack(spacing: 8) {
+                secondaryControlsView
+                    .opacity(0.5)
+                    .allowsHitTesting(false)
+                PageIndicator(currentPage: currentPage)
+            }
+            .padding(.bottom, 20)
+        }
+    }
+    
+    // MARK: - Track Metadata
+    
+    private func trackMetadataView(track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let artist = track.artistName {
+                Button(action: {
+                    handleArtistTap(track: track)
+                }) {
+                    MarqueeText(
+                        text: artist,
+                        font: .title3,
+                        color: .white.opacity(0.9)
+                    )
+                }
             }
             
-            Spacer()
+            MarqueeText(
+                text: track.title,
+                font: .title2,
+                color: .white,
+                fontWeight: .bold
+            )
             
-            // Page indicator at bottom
-            PageIndicator(currentPage: currentPage)
-                .padding(.bottom, 20)
+            if let album = track.albumName {
+                Button(action: {
+                    handleAlbumTap(track: track)
+                }) {
+                    MarqueeText(
+                        text: album,
+                        font: .callout,
+                        color: .white.opacity(0.7)
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+    }
+    
+    // MARK: - Progress View / Scrubber
+    
+    private func progressView(track: Track) -> some View {
+        VStack(spacing: 8) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        let waveform = WaveformView(
+                            progress: isDraggingSlider ? localProgress : viewModel.progress,
+                            bufferedProgress: viewModel.bufferedProgress,
+                            color: .white,
+                            heights: viewModel.waveformHeights
+                        )
+                        .frame(width: geometry.size.width)
+                        .opacity(0.8)
+                        
+                        #if os(iOS)
+                        if #available(iOS 16.0, *) {
+                            waveform
+                                .id(track.id)
+                                .transition(.opacity)
+                                .animation(.easeInOut, value: track.id)
+                        } else {
+                            waveform
+                        }
+                        #else
+                        waveform
+                            .id(track.id)
+                            .transition(.opacity)
+                            .animation(.easeInOut, value: track.id)
+                        #endif
+                    }
+                    
+                    Color.clear
+                        .contentShape(Rectangle())
+                }
+                .frame(height: 24)
+                .clipped()
+                .onAppear {
+                    sliderWidth = geometry.size.width
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isDraggingSlider {
+                                isDraggingSlider = true
+                                sliderWidth = geometry.size.width
+                                dragStartY = value.location.y
+                                dragStartX = value.location.x
+                                lastDragX = value.location.x
+                                initialProgress = max(0, min(1, value.location.x / sliderWidth))
+                                localProgress = initialProgress
+                            }
+                            
+                            currentDragY = value.location.y
+                            let verticalDistance = abs(currentDragY - dragStartY)
+                            let scrubRate = getScrubRate(verticalDistance: verticalDistance)
+                            
+                            if scrubRate != lastScrubRate {
+                                #if os(iOS)
+                                UISelectionFeedbackGenerator().selectionChanged()
+                                #endif
+                                lastScrubRate = scrubRate
+                            }
+                            
+                            let deltaX = value.location.x - lastDragX
+                            let progressChange = (deltaX / sliderWidth) * scrubRate
+                            localProgress = max(0, min(1, localProgress + progressChange))
+                            lastDragX = value.location.x
+                        }
+                        .onEnded { _ in
+                            viewModel.seekToProgress(localProgress)
+                            isDraggingSlider = false
+                        }
+                )
+            }
+            .frame(height: 24)
+            
+            HStack {
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime(localProgress * viewModel.scrubberDuration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedCurrentTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
+                
+                Spacer()
+                
+                if isDraggingSlider {
+                    scrubIndicator
+                }
+                
+                Spacer()
+                
+                Group {
+                    if isDraggingSlider {
+                        Text(formatTime((1 - localProgress) * viewModel.scrubberDuration))
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                            Text(viewModel.formattedRemainingTime)
+                        }
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundColor(.white.opacity(0.7))
+            }
+        }
+    }
+    
+    private var scrubIndicator: some View {
+        let isMovingUp = currentDragY < dragStartY
+        let verticalDistance = abs(currentDragY - dragStartY)
+        let isMaxFine = verticalDistance >= 120
+        let scrubInfo = getScrubInfo()
+        
+        return HStack(spacing: 4) {
+            Image(systemName: isMaxFine ? "minus" : (isMovingUp ? "chevron.compact.up" : "chevron.compact.down"))
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.7))
+            
+            Text(scrubInfo.label)
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .transition(.opacity)
+    }
+    
+    // MARK: - Primary Controls
+    
+    private var controlsView: some View {
+        HStack(spacing: 50) {
+            // Previous / Seek Backward
+            ZStack {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 32))
+                
+                if isSeekingBackward {
+                    Image(systemName: "chevron.left.2")
+                        .font(.system(size: 16))
+                        .offset(y: -28)
+                }
+            }
+            .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if seekTimer == nil && seekWorkItem == nil {
+                            let item = DispatchWorkItem {
+                                if !isSeekingBackward {
+                                    startSeeking(forward: false)
+                                }
+                            }
+                            seekWorkItem = item
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+                        }
+                    }
+                    .onEnded { _ in
+                        seekWorkItem?.cancel()
+                        seekWorkItem = nil
+                        
+                        if isSeekingBackward {
+                            stopSeeking()
+                        } else {
+                            viewModel.previous()
+                        }
+                    }
+            )
+            
+            // Play/Pause
+            Button(action: viewModel.togglePlayPause) {
+                ZStack {
+                    if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 80))
+                            .opacity(0.3)
+                        
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.5)
+                    } else {
+                        Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 80))
+                    }
+                }
+            }
+            
+            // Next / Seek Forward
+            ZStack {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 32))
+                
+                if isSeekingForward {
+                    Image(systemName: "chevron.right.2")
+                        .font(.system(size: 16))
+                        .offset(y: -28)
+                }
+            }
+            .scaleEffect(isSeekingForward ? 1.1 : 1.0)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if seekTimer == nil && seekWorkItem == nil {
+                            let item = DispatchWorkItem {
+                                if !isSeekingForward {
+                                    startSeeking(forward: true)
+                                }
+                            }
+                            seekWorkItem = item
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+                        }
+                    }
+                    .onEnded { _ in
+                        seekWorkItem?.cancel()
+                        seekWorkItem = nil
+                        
+                        if isSeekingForward {
+                            stopSeeking()
+                        } else {
+                            viewModel.next()
+                        }
+                    }
+            )
+        }
+        .foregroundColor(.white)
+        .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 5)
+    }
+    
+    // MARK: - Secondary Controls
+    
+    private var secondaryControlsView: some View {
+        HStack(spacing: 30) {
+            // AirPlay
+            AirPlayButton()
+                .frame(width: 24, height: 24)
+            
+            // Favorite toggle (heart)
+            Button(action: viewModel.toggleRating) {
+                Image(systemName: viewModel.currentRating.icon)
+                    .font(.title3)
+                    .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
+            }
+            
+            // Add to Playlist
+            Button(action: {
+                guard let currentTrack = viewModel.currentTrack else { return }
+                presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
+            }) {
+                Image(systemName: "text.badge.plus")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            // More menu (NOTE: "Save Queue" removed - moved to Queue card)
+            Menu {
+                if let lastPlaylistQuickTarget {
+                    if let currentTrack = viewModel.currentTrack,
+                       viewModel.compatibleTrackCount([currentTrack], for: lastPlaylistQuickTarget) > 0 {
+                        Button {
+                            Task {
+                                _ = try? await viewModel.addTracks([currentTrack], to: lastPlaylistQuickTarget)
+                            }
+                        } label: {
+                            Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+                }
+                
+                Button {
+                    guard let currentTrack = viewModel.currentTrack else { return }
+                    presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
+                } label: {
+                    Label("Add to Playlist...", systemImage: "text.badge.plus")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+        }
+        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func handleArtistTap(track: Track) {
+        if let artistId = track.artistRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+            dismiss()
+        }
+    }
+    
+    private func handleAlbumTap(track: Track) {
+        if let albumId = track.albumRatingKey {
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            dismiss()
+        }
+    }
+    
+    @MainActor
+    private func refreshLastPlaylistQuickTarget() async {
+        guard let currentTrack = viewModel.currentTrack else {
+            lastPlaylistQuickTarget = nil
+            return
+        }
+        lastPlaylistQuickTarget = await viewModel.resolveLastPlaylistTarget(for: [currentTrack])
+    }
+    
+    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+        guard !tracks.isEmpty else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "No tracks available",
+                    message: "Try again in a moment.",
+                    dedupeKey: "playlist-picker-empty-\(title)"
+                )
+            )
+            return
+        }
+        playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
+    }
+    
+    private func startSeeking(forward: Bool) {
+        if forward {
+            isSeekingForward = true
+        } else {
+            isSeekingBackward = true
+        }
+        
+        seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
+            Task { @MainActor in
+                guard let viewModel = viewModel else { return }
+                let currentTime = viewModel.currentTime
+                let seekAmount: TimeInterval = forward ? 2.0 : -2.0
+                let newTime = max(0, min(currentTime + seekAmount, viewModel.scrubberDuration))
+                viewModel.seek(to: newTime)
+            }
+        }
+    }
+    
+    private func stopSeeking() {
+        seekTimer?.invalidate()
+        seekTimer = nil
+        isSeekingForward = false
+        isSeekingBackward = false
+    }
+    
+    private func getScrubRate(verticalDistance: CGFloat) -> Double {
+        switch verticalDistance {
+        case 0..<40: return 1.0
+        case 40..<80: return 0.5
+        case 80..<120: return 0.25
+        default: return 0.1
+        }
+    }
+    
+    private func getScrubInfo() -> (label: String, rate: Double) {
+        let verticalDistance = abs(currentDragY - dragStartY)
+        switch verticalDistance {
+        case 0..<40: return ("Hi-Speed Scrubbing", 1.0)
+        case 40..<80: return ("Half-Speed Scrubbing", 0.5)
+        case 80..<120: return ("Quarter-Speed Scrubbing", 0.25)
+        default: return ("Fine Scrubbing", 0.1)
+        }
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Helper Extension
+
+extension View {
+    @ViewBuilder
+    func ifLet<V, ID, T: View>(_ value: V?, _ id: ID?, transform: (Self, V, ID) -> T) -> some View {
+        if let value = value, let id = id {
+            transform(self, value, id)
+        } else {
+            self
         }
     }
 }
