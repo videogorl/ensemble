@@ -26,10 +26,30 @@ public struct PageIndicator: View {
     }
     
     public var body: some View {
-        // TODO: Implement icon/dot indicator layout
-        // Active: filled circle; Inactive: icon with opacity
-        Text("Page Indicator Placeholder")
-            .foregroundColor(.white.opacity(0.5))
-            .font(.caption2)
+        HStack(spacing: 16) {
+            ForEach(NowPlayingPage.allCases, id: \.rawValue) { page in
+                pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    // MARK: - Helpers
+    
+    private func pageIndicatorItem(for page: NowPlayingPage, isCurrent: Bool) -> some View {
+        Group {
+            if isCurrent {
+                // Active page: filled circle
+                Circle()
+                    .fill(Color.primary)
+                    .frame(width: 8, height: 8)
+            } else {
+                // Inactive pages: icon with transparency
+                Image(systemName: page.icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.primary.opacity(0.4))
+            }
+        }
+        .frame(width: 20, height: 20) // Consistent hit area (though not tappable)
     }
 }

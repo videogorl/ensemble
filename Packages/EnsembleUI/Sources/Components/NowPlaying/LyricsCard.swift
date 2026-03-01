@@ -13,10 +13,32 @@ public struct LyricsCard: View {
     }
     
     public var body: some View {
-        // TODO: Implement placeholder with "Lyrics" title
-        // Center icon + "Lyrics coming soon" text
-        // Add fade masks for future scroll view
-        Text("Lyrics Card Placeholder")
-            .foregroundColor(.white)
+        VStack(spacing: 20) {
+            // Title at top
+            Text("Lyrics")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .padding(.top, 24)
+            
+            Spacer()
+            
+            // Centered placeholder
+            VStack(spacing: 16) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 64))
+                    .foregroundColor(.white.opacity(0.5))
+                
+                Text("Lyrics coming soon")
+                    .font(.headline)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            Spacer()
+            
+            // Page indicator at bottom
+            PageIndicator(currentPage: currentPage)
+                .padding(.bottom, 20)
+        }
     }
 }

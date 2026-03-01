@@ -14,11 +14,32 @@ public struct QueueCard: View {
     }
     
     public var body: some View {
-        // TODO: Create pinned header (title, history toggle, menu)
-        // Embed QueueTableView with fade masks
-        // Move shuffle/repeat/autoplay to secondary controls
-        // Add PageIndicator below secondary controls
-        Text("Queue Card Placeholder")
-            .foregroundColor(.white)
+        VStack(spacing: 20) {
+            Spacer()
+            
+            // Placeholder content
+            VStack(spacing: 16) {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 64))
+                    .foregroundColor(.white.opacity(0.7))
+                
+                Text("Queue Card")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                Text("Scrollable queue with header and secondary controls will go here")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            
+            Spacer()
+            
+            // Page indicator at bottom
+            PageIndicator(currentPage: currentPage)
+                .padding(.bottom, 20)
+        }
     }
 }

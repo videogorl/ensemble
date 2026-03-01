@@ -14,11 +14,32 @@ public struct ControlsCard: View {
     }
     
     public var body: some View {
-        // TODO: Extract artwork, scrubber, metadata, controls from NowPlayingView
-        // Implement dynamic sizing for small screens
-        // Add secondary controls: AirPlay, heart, add to playlist, more
-        // Position PageIndicator below secondary controls
-        Text("Controls Card Placeholder")
-            .foregroundColor(.white)
+        VStack(spacing: 20) {
+            Spacer()
+            
+            // Placeholder content
+            VStack(spacing: 16) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.white.opacity(0.7))
+                
+                Text("Controls Card")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                Text("Artwork, scrubber, and playback controls will go here")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            
+            Spacer()
+            
+            // Page indicator at bottom
+            PageIndicator(currentPage: currentPage)
+                .padding(.bottom, 20)
+        }
     }
 }
