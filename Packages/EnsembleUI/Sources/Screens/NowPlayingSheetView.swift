@@ -32,42 +32,48 @@ public struct NowPlayingSheetView: View {
     }
     
     public var body: some View {
-        ZStack {
-            // Blurred artwork background with legibility overlay
-            backgroundView
-            
-            VStack(spacing: 0) {
-                // Dismiss pill
-                dismissPill
-                    .padding(.top, 8)
+        GeometryReader { geometry in
+            ZStack {
+                // Blurred artwork background with legibility overlay
+                backgroundView
                 
-                // Carousel (placeholder for now)
-                NowPlayingCarousel(viewModel: viewModel, currentPage: $currentPage)
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 10)
-                .onChanged { value in
-                    // Track vertical drag for dismissal
-                    if value.translation.height > 0 {
-                        dragOffset = value.translation.height
+                VStack(spacing: 0) {
+                    // Dismiss pill
+                    dismissPill
+                        .padding(.top, 8)
+                    
+                    // Layout: side-by-side on iPad/Mac, carousel on iPhone
+                    if shouldUseSideBySideLayout(geometry: geometry) {
+                        sideBySideLayout
+                    } else {
+                        NowPlayingCarousel(viewModel: viewModel, currentPage: $currentPage)
                     }
                 }
-                .onEnded { value in
-                    // Dismiss if dragged down sufficiently
-                    if value.translation.height > 150 || value.velocity.height > 800 {
-                        handleDismiss()
-                    } else {
-                        // Snap back
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            dragOffset = 0
+            }
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        // Track vertical drag for dismissal
+                        if value.translation.height > 0 {
+                            dragOffset = value.translation.height
                         }
                     }
-                }
-        )
-        .offset(y: dragOffset)
-        .applyPresentationModifiers()
-        .ignoresSafeArea(edges: .bottom)
+                    .onEnded { value in
+                        // Dismiss if dragged down sufficiently
+                        if value.translation.height > 150 || value.velocity.height > 800 {
+                            handleDismiss()
+                        } else {
+                            // Snap back
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+            .offset(y: dragOffset)
+            .applyPresentationModifiers()
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
     
     // MARK: - Background
@@ -91,6 +97,42 @@ public struct NowPlayingSheetView: View {
         Capsule()
             .fill(Color.white.opacity(0.3))
             .frame(width: 36, height: 5)
+    }
+    
+    // MARK: - iPad/Mac Side-by-Side Layout
+    
+    private var sideBySideLayout: some View {
+        HStack(spacing: 0) {
+            // Left: Controls card (fixed, primary focus)
+            ControlsCard(viewModel: viewModel, currentPage: $currentPage)
+                .frame(maxWidth: 500) // Cap width for readability
+            
+            // Right: Carousel with Queue and Lyrics
+            TabView(selection: $currentPage) {
+                LyricsCard(viewModel: viewModel, currentPage: $currentPage)
+                    .tag(0)
+                
+                // Placeholder center slot (not shown in side-by-side)
+                Color.clear
+                    .tag(1)
+                
+                QueueCard(viewModel: viewModel, currentPage: $currentPage)
+                    .tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(maxWidth: 500) // Cap width to match controls
+        }
+    }
+    
+    private func shouldUseSideBySideLayout(geometry: GeometryProxy) -> Bool {
+        // Use side-by-side when horizontal size class is regular (iPad)
+        // or on macOS (always side-by-side)
+        #if os(macOS)
+        return true
+        #else
+        // iPad in landscape or split view
+        return geometry.size.width > 768
+        #endif
     }
     
     // MARK: - Helpers
