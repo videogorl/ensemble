@@ -187,6 +187,7 @@ public struct QueueCard: View {
                         viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
                     }
                 )
+                .padding(.horizontal, 24)
                 
                 // Recommendations exhausted indicator
                 if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
@@ -264,7 +265,7 @@ public struct QueueCard: View {
     }
     
     private var autoplayIcon: String {
-        viewModel.isAutoplayEnabled ? "infinity.circle.fill" : "infinity.circle"
+        viewModel.isAutoplayEnabled ? "infinity" : "infinity"
     }
     
     private var autoplayColor: Color {

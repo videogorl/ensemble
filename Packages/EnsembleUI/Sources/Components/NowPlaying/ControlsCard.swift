@@ -102,11 +102,11 @@ public struct ControlsCard: View {
             
             // Scrubber/waveform
             progressView(track: track)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 48)
             
             // Track metadata
             trackMetadataView(track: track)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 48)
                 .padding(.top, geometry.size.height > 700 ? 16 : 8)
             
             // Primary playback controls
@@ -152,7 +152,7 @@ public struct ControlsCard: View {
                     .font(.callout)
                     .foregroundColor(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 48)
             }
             .frame(maxWidth: .infinity)
             .padding(.bottom, 16)

@@ -37,7 +37,7 @@ public struct NowPlayingSheetView: View {
                 VStack(spacing: 0) {
                     // Dismiss pill (tappable to close sheet)
                     dismissPill
-                        .padding(.top, 16)
+                        .padding(.top, 32)
                         .padding(.bottom, 8)
                         .contentShape(Rectangle()) // Expand tap area
                         .onTapGesture {
