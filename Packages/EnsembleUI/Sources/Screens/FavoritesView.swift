@@ -262,33 +262,85 @@ public struct FavoritesView: View {
                 .padding(.bottom)
 
                 // Track list
+                #if os(iOS)
+                let trackCount = viewModel.filteredTracks.count
+                let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+                MediaTrackList(
+                    tracks: viewModel.filteredTracks,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false,
+                    currentTrackId: nowPlayingVM.currentTrack?.id,
+                    onPlayNext: { track in
+                        nowPlayingVM.playNext(track)
+                    },
+                    onPlayLast: { track in
+                        nowPlayingVM.playLast(track)
+                    },
+                    onAddToPlaylist: { track in
+                        presentPlaylistPicker(with: [track])
+                    },
+                    onAddToRecentPlaylist: { track in
+                        addToRecentPlaylist(track)
+                    },
+                    onToggleFavorite: { track in
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    onGoToAlbum: { track in
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onGoToArtist: { track in
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    isTrackFavorited: { track in
+                        nowPlayingVM.isTrackFavorited(track)
+                    },
+                    canAddToRecentPlaylist: { track in
+                        recentPlaylistTitle(for: track) != nil
+                    },
+                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                ) { _, index in
+                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+                }
+                .frame(height: height)
+                .padding(.horizontal)
+                #else
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(viewModel.filteredTracks.enumerated()), id: \.element.id) { index, track in
-                        TrackSwipeContainer(
+                        TrackRow(
                             track: track,
-                            nowPlayingVM: nowPlayingVM,
+                            showArtwork: true,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                             onPlayNext: { nowPlayingVM.playNext(track) },
                             onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                            onToggleFavorite: {
+                                Task {
+                                    await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            onGoToAlbum: {
+                                if let albumId = track.albumRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onGoToArtist: {
+                                if let artistId = track.artistRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
+                            recentPlaylistTitle: recentPlaylistTitle(for: track)
                         ) {
-                            TrackRow(
-                                track: track,
-                                showArtwork: true,
-                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                                onPlayNext: { nowPlayingVM.playNext(track) },
-                                onPlayLast: { nowPlayingVM.playLast(track) },
-                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                                onToggleFavorite: {
-                                    Task {
-                                        await nowPlayingVM.toggleTrackFavorite(track)
-                                    }
-                                },
-                                isFavorited: nowPlayingVM.isTrackFavorited(track),
-                                recentPlaylistTitle: recentPlaylistTitle(for: track)
-                            ) {
-                                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                            }
+                            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                         }
                         .id(track.id)
                         .padding(.horizontal)
@@ -300,6 +352,7 @@ public struct FavoritesView: View {
                         }
                     }
                 }
+                #endif
             }
         }
         .miniPlayerBottomSpacing(140)

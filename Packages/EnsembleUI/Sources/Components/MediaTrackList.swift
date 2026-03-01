@@ -221,6 +221,8 @@ public struct MediaTrackList: UIViewRepresentable {
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
     let onToggleFavorite: ((Track) -> Void)?
+    let onGoToAlbum: ((Track) -> Void)?
+    let onGoToArtist: ((Track) -> Void)?
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
@@ -238,6 +240,8 @@ public struct MediaTrackList: UIViewRepresentable {
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
         onToggleFavorite: ((Track) -> Void)? = nil,
+        onGoToAlbum: ((Track) -> Void)? = nil,
+        onGoToArtist: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
@@ -253,6 +257,8 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
         self.onToggleFavorite = onToggleFavorite
+        self.onGoToAlbum = onGoToAlbum
+        self.onGoToArtist = onGoToArtist
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
@@ -311,6 +317,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
         context.coordinator.onToggleFavorite = onToggleFavorite
+        context.coordinator.onGoToAlbum = onGoToAlbum
+        context.coordinator.onGoToArtist = onGoToArtist
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
@@ -358,6 +366,8 @@ public struct MediaTrackList: UIViewRepresentable {
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
             onToggleFavorite: onToggleFavorite,
+            onGoToAlbum: onGoToAlbum,
+            onGoToArtist: onGoToArtist,
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
@@ -390,6 +400,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
         var onToggleFavorite: ((Track) -> Void)?
+        var onGoToAlbum: ((Track) -> Void)?
+        var onGoToArtist: ((Track) -> Void)?
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
@@ -408,6 +420,8 @@ public struct MediaTrackList: UIViewRepresentable {
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
             onToggleFavorite: ((Track) -> Void)?,
+            onGoToAlbum: ((Track) -> Void)?,
+            onGoToArtist: ((Track) -> Void)?,
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
@@ -425,6 +439,8 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
             self.onToggleFavorite = onToggleFavorite
+            self.onGoToAlbum = onGoToAlbum
+            self.onGoToArtist = onGoToArtist
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
@@ -504,41 +520,54 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil else { return nil }
+            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-                var actions: [UIAction] = []
+                var topActions: [UIAction] = []
                 
                 if let onPlayNext = self?.onPlayNext {
-                    actions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                    topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
                         onPlayNext(track)
                     })
                 }
                 
                 if let onPlayLast = self?.onPlayLast {
-                    actions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                    topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
                         onPlayLast(track)
                     })
                 }
+                
+                var navigationActions: [UIAction] = []
+                if let onGoToAlbum = self?.onGoToAlbum, track.albumRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "album")) { _ in
+                        onGoToAlbum(track)
+                    })
+                }
+                if let onGoToArtist = self?.onGoToArtist, track.artistRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                        onGoToArtist(track)
+                    })
+                }
 
+                var bottomActions: [UIAction] = []
                 if let onAddToRecentPlaylist = self?.onAddToRecentPlaylist,
                    let canAddToRecentPlaylist = self?.canAddToRecentPlaylist,
                    canAddToRecentPlaylist(track),
                    let recentPlaylistTitle = self?.recentPlaylistTitle {
-                    actions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
+                    bottomActions.append(UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
                         onAddToRecentPlaylist(track)
                     })
                 }
 
                 if let onAddToPlaylist = self?.onAddToPlaylist {
-                    actions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
+                    bottomActions.append(UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
                         onAddToPlaylist(track)
                     })
                 }
 
                 if let onToggleFavorite = self?.onToggleFavorite {
                     let isFavorited = self?.isTrackFavorited?(track) ?? (track.rating >= 8)
-                    actions.append(UIAction(
+                    bottomActions.append(UIAction(
                         title: isFavorited ? "Unfavorite" : "Favorite",
                         image: UIImage(systemName: isFavorited ? "heart.slash" : "heart")
                     ) { _ in
@@ -546,7 +575,18 @@ public struct MediaTrackList: UIViewRepresentable {
                     })
                 }
                 
-                return UIMenu(children: actions)
+                var children: [UIMenuElement] = []
+                if !topActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: topActions))
+                }
+                if !navigationActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
+                }
+                if !bottomActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
+                }
+                
+                return UIMenu(children: children)
             }
         }
 

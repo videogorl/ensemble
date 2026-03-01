@@ -146,6 +146,14 @@ public struct AlbumGrid: View {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
         }
 
+        if let artistId = album.artistRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+            } label: {
+                Label("Go to Artist", systemImage: "person.circle")
+            }
+        }
+
         if let recentTarget = nowPlayingVM.lastPlaylistTarget {
             Button {
                 addAlbumToRecentPlaylist(album, expectedTitle: recentTarget.title)

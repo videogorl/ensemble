@@ -106,6 +106,16 @@ public struct MoodTracksView: View {
                                                     await nowPlayingVM.toggleTrackFavorite(track)
                                                 }
                                             },
+                                            onGoToAlbum: {
+                                                if let albumId = track.albumRatingKey {
+                                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                }
+                                            },
+                                            onGoToArtist: {
+                                                if let artistId = track.artistRatingKey {
+                                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                                }
+                                            },
                                             isFavorited: nowPlayingVM.isTrackFavorited(track),
                                             recentPlaylistTitle: recentPlaylistTitle(for: track),
                                             onTap: {

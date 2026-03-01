@@ -21,10 +21,14 @@ public final class NavigationCoordinator: ObservableObject {
 
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
     @Published public var homePath: [Destination] = []
+    @Published public var songsPath: [Destination] = []
     @Published public var artistsPath: [Destination] = []
     @Published public var albumsPath: [Destination] = []
+    @Published public var genresPath: [Destination] = []
     @Published public var playlistsPath: [Destination] = []
+    @Published public var favoritesPath: [Destination] = []
     @Published public var searchPath: [Destination] = []
+    @Published public var downloadsPath: [Destination] = []
     @Published public var settingsPath: [Destination] = []
     
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
@@ -51,12 +55,15 @@ public final class NavigationCoordinator: ObservableObject {
         
         switch tab {
         case .home: homePath.append(destination)
+        case .songs: songsPath.append(destination)
         case .artists: artistsPath.append(destination)
         case .albums: albumsPath.append(destination)
+        case .genres: genresPath.append(destination)
         case .playlists: playlistsPath.append(destination)
+        case .favorites: favoritesPath.append(destination)
         case .search: searchPath.append(destination)
+        case .downloads: downloadsPath.append(destination)
         case .settings: settingsPath.append(destination)
-        default: break
         }
     }
     
@@ -64,12 +71,15 @@ public final class NavigationCoordinator: ObservableObject {
     public func popToRoot(tab: TabItem) {
         switch tab {
         case .home: homePath.removeAll()
+        case .songs: songsPath.removeAll()
         case .artists: artistsPath.removeAll()
         case .albums: albumsPath.removeAll()
+        case .genres: genresPath.removeAll()
         case .playlists: playlistsPath.removeAll()
+        case .favorites: favoritesPath.removeAll()
         case .search: searchPath.removeAll()
+        case .downloads: downloadsPath.removeAll()
         case .settings: settingsPath.removeAll()
-        default: break
         }
     }
     
@@ -125,12 +135,15 @@ public final class NavigationCoordinator: ObservableObject {
     private func path(for tab: TabItem) -> [Destination] {
         switch tab {
         case .home: return homePath
+        case .songs: return songsPath
         case .artists: return artistsPath
         case .albums: return albumsPath
+        case .genres: return genresPath
         case .playlists: return playlistsPath
+        case .favorites: return favoritesPath
         case .search: return searchPath
+        case .downloads: return downloadsPath
         case .settings: return settingsPath
-        default: return []
         }
     }
 }

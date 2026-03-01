@@ -331,6 +331,16 @@ public struct SongsView: View {
                         await nowPlayingVM.toggleTrackFavorite(track)
                     }
                 },
+                onGoToAlbum: { track in
+                    if let albumId = track.albumRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onGoToArtist: { track in
+                    if let artistId = track.artistRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
                 isTrackFavorited: { track in
                     nowPlayingVM.isTrackFavorited(track)
                 },
@@ -366,6 +376,16 @@ public struct SongsView: View {
                             onToggleFavorite: {
                                 Task {
                                     await nowPlayingVM.toggleTrackFavorite(track)
+                                }
+                            },
+                            onGoToAlbum: {
+                                if let albumId = track.albumRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onGoToArtist: {
+                                if let artistId = track.artistRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                                 }
                             },
                             isFavorited: nowPlayingVM.isTrackFavorited(track),
@@ -420,6 +440,16 @@ public struct SongsView: View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
@@ -454,6 +484,16 @@ public struct SongsView: View {
             onToggleFavorite: { track in
                 Task {
                     await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                 }
             },
             canAddToRecentPlaylist: { track in

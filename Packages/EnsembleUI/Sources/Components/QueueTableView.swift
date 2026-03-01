@@ -235,6 +235,8 @@ public struct QueueTableView: UIViewRepresentable {
     let onPlayLast: (Track) -> Void
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
+    let onGoToAlbum: ((Track) -> Void)?
+    let onGoToArtist: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     let onRemoveFromQueue: (Int) -> Void
@@ -253,6 +255,8 @@ public struct QueueTableView: UIViewRepresentable {
         onPlayLast: @escaping (Track) -> Void,
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        onGoToAlbum: ((Track) -> Void)? = nil,
+        onGoToArtist: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         onRemoveFromQueue: @escaping (Int) -> Void,
@@ -268,6 +272,8 @@ public struct QueueTableView: UIViewRepresentable {
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.onGoToAlbum = onGoToAlbum
+        self.onGoToArtist = onGoToArtist
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onRemoveFromQueue = onRemoveFromQueue
@@ -312,6 +318,8 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onPlayLast = onPlayLast
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
+        context.coordinator.onGoToAlbum = onGoToAlbum
+        context.coordinator.onGoToArtist = onGoToArtist
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
@@ -356,6 +364,8 @@ public struct QueueTableView: UIViewRepresentable {
             onPlayLast: onPlayLast,
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
+            onGoToAlbum: onGoToAlbum,
+            onGoToArtist: onGoToArtist,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             onRemoveFromQueue: onRemoveFromQueue,
@@ -377,6 +387,8 @@ public struct QueueTableView: UIViewRepresentable {
         var onPlayLast: (Track) -> Void
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
+        var onGoToAlbum: ((Track) -> Void)?
+        var onGoToArtist: ((Track) -> Void)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var onRemoveFromQueue: (Int) -> Void
@@ -418,6 +430,8 @@ public struct QueueTableView: UIViewRepresentable {
             onPlayLast: @escaping (Track) -> Void,
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
+            onGoToAlbum: ((Track) -> Void)?,
+            onGoToArtist: ((Track) -> Void)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
@@ -434,6 +448,8 @@ public struct QueueTableView: UIViewRepresentable {
             self.onPlayLast = onPlayLast
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
+            self.onGoToAlbum = onGoToAlbum
+            self.onGoToArtist = onGoToArtist
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.onRemoveFromQueue = onRemoveFromQueue
@@ -597,35 +613,58 @@ public struct QueueTableView: UIViewRepresentable {
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 guard let self = self else { return nil }
                 
-                let playNext = UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                var topActions: [UIAction] = []
+                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
                     self.onPlayNext(item.track)
-                }
-                let playLast = UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                })
+                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
                     self.onPlayLast(item.track)
+                })
+
+                var navigationActions: [UIAction] = []
+                if let onGoToAlbum = self.onGoToAlbum, item.track.albumRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "album")) { _ in
+                        onGoToAlbum(item.track)
+                    })
                 }
-                var actions: [UIAction] = [playNext, playLast]
+                if let onGoToArtist = self.onGoToArtist, item.track.artistRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                        onGoToArtist(item.track)
+                    })
+                }
+
+                var bottomActions: [UIAction] = []
                 if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
                    let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
                    canAddToRecentPlaylist(item.track),
                    let recentPlaylistTitle = self.recentPlaylistTitle {
-                    actions.append(
+                    bottomActions.append(
                         UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
                             onAddToRecentPlaylist(item.track)
                         }
                     )
                 }
                 if let onAddToPlaylist = self.onAddToPlaylist {
-                    actions.append(
+                    bottomActions.append(
                         UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
                             onAddToPlaylist(item.track)
                         }
                     )
                 }
+                
                 let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                     self.onRemoveFromQueue(absoluteIndex)
                 }
-                actions.append(remove)
-                return UIMenu(children: actions)
+                bottomActions.append(remove)
+                
+                var children: [UIMenuElement] = []
+                children.append(UIMenu(title: "", options: .displayInline, children: topActions))
+                if !navigationActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
+                }
+                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
+                
+                return UIMenu(children: children)
             }
         }
         

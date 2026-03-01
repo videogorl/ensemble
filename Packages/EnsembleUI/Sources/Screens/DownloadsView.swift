@@ -182,6 +182,32 @@ struct DownloadRow: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let albumId = download.track.albumRatingKey {
+                Button {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                } label: {
+                    Label("Go to Album", systemImage: "album")
+                }
+            }
+
+            if let artistId = download.track.artistRatingKey {
+                Button {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                } label: {
+                    Label("Go to Artist", systemImage: "person.circle")
+                }
+            }
+            
+            Divider()
+            
+            Button(role: .destructive) {
+                // How to trigger delete from here? 
+                // Maybe it's better to just keep swipe actions for delete
+            } label: {
+                Label("Delete Download", systemImage: "trash")
+            }
+        }
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
