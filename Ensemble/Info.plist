@@ -51,7 +51,7 @@
 	<array>
 		<string>INMediaCategoryMusic</string>
 	</array>
-	<key>IntentsSupported</key>
+	<key>INIntentsSupported</key>
 	<array>
 		<string>INPlayMediaIntent</string>
 	</array>

@@ -32,6 +32,10 @@
 			<array>
 				<string>INPlayMediaIntent</string>
 			</array>
+			<key>SupportedMediaCategories</key>
+			<array>
+				<string>INMediaCategoryMusic</string>
+			</array>
 		</dict>
 	</dict>
 </dict>
