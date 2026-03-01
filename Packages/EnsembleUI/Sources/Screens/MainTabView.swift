@@ -175,9 +175,9 @@ public struct MainTabView: View {
                     ))
                 }
 
-                // Custom NowPlaying presentation
+                // Custom NowPlaying presentation (using new card-based UI)
                 if showingNowPlaying {
-                    NowPlayingView(
+                    NowPlayingSheetView(
                         viewModel: nowPlayingVM,
                         namespace: playerNamespace,
                         animationID: artworkAnimationID,
@@ -498,9 +498,9 @@ public struct SidebarView: View {
                 .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
 
-            // Custom NowPlaying presentation for iPad SidebarView
+            // Custom NowPlaying presentation for iPad SidebarView (using new card-based UI)
             if showingNowPlaying {
-                NowPlayingView(
+                NowPlayingSheetView(
                     viewModel: nowPlayingVM,
                     namespace: playerNamespace,
                     animationID: artworkAnimationID,
