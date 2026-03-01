@@ -16,6 +16,17 @@ public extension View {
         }
     }
     
+    /// Conditionally applies a view modifier if both optional values are non-nil
+    /// Used for namespace-based matched geometry effects
+    @ViewBuilder
+    func ifLet<V, ID, T: View>(_ value: V?, _ id: ID?, transform: (Self, V, ID) -> T) -> some View {
+        if let value = value, let id = id {
+            transform(self, value, id)
+        } else {
+            self
+        }
+    }
+    
     @ViewBuilder
     func hideTabBarIfAvailable(isHidden: Bool) -> some View {
         #if os(iOS)

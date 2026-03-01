@@ -32,6 +32,10 @@ public class QueueItemCell: UITableViewCell {
     }
     
     private func setupViews() {
+        // Make cell background transparent to show blur
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
         artworkImageView.layer.cornerRadius = 4
@@ -77,7 +81,7 @@ public class QueueItemCell: UITableViewCell {
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
@@ -103,7 +107,7 @@ public class QueueItemCell: UITableViewCell {
             autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
             widthConstraint,
             
-            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             dragHandleView.widthAnchor.constraint(equalToConstant: 20),
             dragHandleView.heightAnchor.constraint(equalToConstant: 20)
@@ -282,8 +286,8 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.dropDelegate = context.coordinator
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
-        tableView.backgroundColor = .systemBackground
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
+        tableView.backgroundColor = .clear // Transparent to show blurred background
         tableView.isScrollEnabled = false
         tableView.dragInteractionEnabled = true
         tableView.setEditing(true, animated: false) // Enable persistent drag handles
@@ -514,7 +518,7 @@ public struct QueueTableView: UIViewRepresentable {
             let sectionData = sections[section]
             
             let headerView = UIView()
-            headerView.backgroundColor = .systemBackground
+            headerView.backgroundColor = .clear // Transparent to show blurred background
             
             let label = UILabel()
             label.text = sectionData.type.title
@@ -532,7 +536,7 @@ public struct QueueTableView: UIViewRepresentable {
                 headerView.addSubview(clockIcon)
                 
                 NSLayoutConstraint.activate([
-                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     clockIcon.widthAnchor.constraint(equalToConstant: 14),
                     clockIcon.heightAnchor.constraint(equalToConstant: 14),
@@ -543,7 +547,7 @@ public struct QueueTableView: UIViewRepresentable {
                 ])
             } else {
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
                 ])
