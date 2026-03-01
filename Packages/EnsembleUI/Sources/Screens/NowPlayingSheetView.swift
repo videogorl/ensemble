@@ -35,13 +35,16 @@ public struct NowPlayingSheetView: View {
                 backgroundView
                 
                 VStack(spacing: 0) {
+                    // Dismiss pill
+                    dismissPill
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                    
                     // Layout: side-by-side on iPad/Mac, carousel on iPhone
                     if shouldUseSideBySideLayout(geometry: geometry) {
                         sideBySideLayout
-                            .padding(.top, 20) // Space from top
                     } else {
                         NowPlayingCarousel(viewModel: viewModel, currentPage: $currentPage)
-                            .padding(.top, 20) // Space from top
                     }
                 }
             }
@@ -61,6 +64,14 @@ public struct NowPlayingSheetView: View {
                 .allowsHitTesting(false)
         }
         .ignoresSafeArea()
+    }
+    
+    // MARK: - Dismiss Pill
+    
+    private var dismissPill: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.3))
+            .frame(width: 36, height: 5)
     }
     
     // MARK: - iPad/Mac Side-by-Side Layout

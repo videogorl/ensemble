@@ -23,21 +23,29 @@ public struct QueueCard: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            // Pinned header
-            headerView
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-            
-            // Scrollable queue list with fade masks
-            queueListView
-            
-            // Secondary controls + spacing for fixed page indicator
-            VStack(spacing: 8) {
-                secondaryControlsView
-                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Pinned header
+                headerView
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+                
+                // Scrollable queue list with fade masks
+                // Calculate available height: total - header - secondary controls - indicator space
+                let headerHeight: CGFloat = 70 // Approximate height of header
+                let controlsHeight: CGFloat = 124 // Secondary controls + indicator space + padding
+                let availableHeight = geometry.size.height - headerHeight - controlsHeight
+                
+                queueListView
+                    .frame(height: availableHeight)
+                
+                // Secondary controls + spacing for fixed page indicator
+                VStack(spacing: 8) {
+                    secondaryControlsView
+                    Spacer().frame(height: 36) // Reserve space for fixed page indicator
+                }
+                .padding(.bottom, 20)
             }
-            .padding(.bottom, 20)
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
