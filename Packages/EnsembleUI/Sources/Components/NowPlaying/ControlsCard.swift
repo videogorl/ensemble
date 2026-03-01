@@ -462,6 +462,20 @@ public struct ControlsCard: View {
                     .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
             }
             
+            // Add to Playlist
+            Button {
+                if let currentTrack = viewModel.currentTrack {
+                    playlistPickerPayload = PlaylistPickerPayload(
+                        tracks: [currentTrack],
+                        title: "Add to Playlist"
+                    )
+                }
+            } label: {
+                Image(systemName: "text.badge.plus")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
             // More menu with quick add to recent playlist
             Menu {
                 if let lastPlaylistQuickTarget {

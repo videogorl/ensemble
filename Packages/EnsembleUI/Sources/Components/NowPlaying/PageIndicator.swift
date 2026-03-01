@@ -11,7 +11,7 @@ public enum NowPlayingPage: Int, CaseIterable {
     var icon: String {
         switch self {
         case .queue: return "list.bullet"
-        case .controls: return "play.circle"
+        case .controls: return "play.fill"
         case .lyrics: return "text.quote"
         }
     }
