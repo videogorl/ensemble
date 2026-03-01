@@ -596,16 +596,3 @@ public struct ControlsCard: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-
-// MARK: - Helper Extension
-
-extension View {
-    @ViewBuilder
-    func ifLet<V, ID, T: View>(_ value: V?, _ id: ID?, transform: (Self, V, ID) -> T) -> some View {
-        if let value = value, let id = id {
-            transform(self, value, id)
-        } else {
-            self
-        }
-    }
-}

@@ -66,10 +66,7 @@ public struct NowPlayingSheetView: View {
                 }
         )
         .offset(y: dragOffset)
-        #if os(iOS)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.hidden) // We have our own pill
-        #endif
+        .applyPresentationModifiers()
         .ignoresSafeArea(edges: .bottom)
     }
     
@@ -104,5 +101,24 @@ public struct NowPlayingSheetView: View {
         } else {
             dismiss()
         }
+    }
+}
+
+// MARK: - iOS 16+ Presentation Modifier Extension
+
+extension View {
+    @ViewBuilder
+    func applyPresentationModifiers() -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
