@@ -2,18 +2,15 @@ import EnsembleCore
 import SwiftUI
 
 /// Main sheet container for Now Playing interface
-/// Manages presentation, dismissal, blurred background, and embeds carousel
+/// Uses native .sheet presentation with carousel layout
 public struct NowPlayingSheetView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     
-    // Page state (0: Lyrics, 1: Controls, 2: Queue)
+    // Page state (0: Queue, 1: Controls, 2: Lyrics)
     @State private var currentPage: Int = 1 // Start at Controls (center)
-    
-    // Interactive dismissal
-    @State private var dragOffset: CGFloat = 0
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -38,41 +35,16 @@ public struct NowPlayingSheetView: View {
                 backgroundView
                 
                 VStack(spacing: 0) {
-                    // Dismiss pill
-                    dismissPill
-                        .padding(.top, 8)
-                    
                     // Layout: side-by-side on iPad/Mac, carousel on iPhone
                     if shouldUseSideBySideLayout(geometry: geometry) {
                         sideBySideLayout
+                            .padding(.top, 20) // Space from top
                     } else {
                         NowPlayingCarousel(viewModel: viewModel, currentPage: $currentPage)
+                            .padding(.top, 20) // Space from top
                     }
                 }
             }
-            .gesture(
-                DragGesture(minimumDistance: 10)
-                    .onChanged { value in
-                        // Track vertical drag for dismissal
-                        if value.translation.height > 0 {
-                            dragOffset = value.translation.height
-                        }
-                    }
-                    .onEnded { value in
-                        // Dismiss if dragged down sufficiently
-                        if value.translation.height > 150 || value.velocity.height > 800 {
-                            handleDismiss()
-                        } else {
-                            // Snap back
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                dragOffset = 0
-                            }
-                        }
-                    }
-            )
-            .offset(y: dragOffset)
-            .applyPresentationModifiers()
-            .ignoresSafeArea(edges: .bottom)
         }
     }
     
@@ -89,14 +61,6 @@ public struct NowPlayingSheetView: View {
                 .allowsHitTesting(false)
         }
         .ignoresSafeArea()
-    }
-    
-    // MARK: - Dismiss Pill
-    
-    private var dismissPill: some View {
-        Capsule()
-            .fill(Color.white.opacity(0.3))
-            .frame(width: 36, height: 5)
     }
     
     // MARK: - iPad/Mac Side-by-Side Layout
@@ -138,35 +102,6 @@ public struct NowPlayingSheetView: View {
         #else
         // iPad in landscape or split view
         return geometry.size.width > 768
-        #endif
-    }
-    
-    // MARK: - Helpers
-    
-    private func handleDismiss() {
-        if let dismissAction = dismissAction {
-            dismissAction()
-        } else {
-            dismiss()
-        }
-    }
-}
-
-// MARK: - iOS 16+ Presentation Modifier Extension
-
-extension View {
-    @ViewBuilder
-    func applyPresentationModifiers() -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-        } else {
-            self
-        }
-        #else
-        self
         #endif
     }
 }

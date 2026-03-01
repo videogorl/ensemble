@@ -32,6 +32,10 @@ public class QueueItemCell: UITableViewCell {
     }
     
     private func setupViews() {
+        // Make cell background transparent to show blur
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
         artworkImageView.layer.cornerRadius = 4
@@ -283,7 +287,7 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
-        tableView.backgroundColor = .systemBackground
+        tableView.backgroundColor = .clear // Transparent to show blurred background
         tableView.isScrollEnabled = false
         tableView.dragInteractionEnabled = true
         tableView.setEditing(true, animated: false) // Enable persistent drag handles

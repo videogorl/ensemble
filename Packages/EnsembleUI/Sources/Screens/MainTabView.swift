@@ -96,19 +96,6 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
-                // Dimming background layer
-                if showingNowPlaying {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .zIndex(5)
-                        .onTapGesture {
-                            withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                                showingNowPlaying = false
-                            }
-                        }
-                }
-
                 // Main content layer (TabView)
                 VStack(spacing: 0) {
                     // Connection status banner at top
@@ -132,16 +119,10 @@ public struct MainTabView: View {
                                     Label("More", systemImage: "ellipsis")
                                 }
                         },
-                        isHidden: isImmersiveMode || showingNowPlaying
+                        isHidden: isImmersiveMode
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
                 }
-                .background(Color(UIColor.systemBackground)) // Ensure the content card is opaque
-                .cornerRadius(showingNowPlaying ? 38 : 0)
-                .scaleEffect(showingNowPlaying ? 0.92 : 1.0)
-                .ignoresSafeArea() // Ensure content extends behind status bar/home indicator even when scaled
-                .animation(.interactiveSpring(response: 0.45, dampingFraction: 0.85), value: showingNowPlaying)
-                .zIndex(1)
 
                 // Persistent MiniPlayer
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
@@ -174,25 +155,7 @@ public struct MainTabView: View {
                         removal: .identity
                     ))
                 }
-
-                // Custom NowPlaying presentation (using new card-based UI)
-                if showingNowPlaying {
-                    NowPlayingSheetView(
-                        viewModel: nowPlayingVM,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
-                        dismissAction: {
-                            withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                                showingNowPlaying = false
-                            }
-                        }
-                    )
-                    .zIndex(10)
-                    .transition(.move(edge: .bottom).combined(with: .offset(y: geometry.safeAreaInsets.bottom))) // Ensure it clears safe area
-                    .ignoresSafeArea()
-                }
             }
-            .background(Color.black.ignoresSafeArea()) // Root background is black for the scale effect
             .task {
                 await libraryVM.refresh()
             }
@@ -206,6 +169,16 @@ public struct MainTabView: View {
                     navigationCoordinator.push(pending.destination, in: pending.tab)
                     navigationCoordinator.pendingNavigation = nil
                 }
+            }
+            .sheet(isPresented: $showingNowPlaying) {
+                NowPlayingSheetView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        showingNowPlaying = false
+                    }
+                )
             }
             
             applyChromeVisibilityObservation(to: rootView)
@@ -498,23 +471,16 @@ public struct SidebarView: View {
                 .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
 
-            // Custom NowPlaying presentation for iPad SidebarView (using new card-based UI)
-            if showingNowPlaying {
-                NowPlayingSheetView(
-                    viewModel: nowPlayingVM,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    dismissAction: {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            showingNowPlaying = false
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .offset(y: 100))) // Extra offset to clear safe area
-                .zIndex(10)
-                .ignoresSafeArea()
-            }
-
+        }
+        .sheet(isPresented: $showingNowPlaying) {
+            NowPlayingSheetView(
+                viewModel: nowPlayingVM,
+                namespace: playerNamespace,
+                animationID: artworkAnimationID,
+                dismissAction: {
+                    showingNowPlaying = false
+                }
+            )
         }
         .task {
             await libraryVM.refresh()
