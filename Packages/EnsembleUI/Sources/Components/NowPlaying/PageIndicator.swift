@@ -4,15 +4,15 @@ import SwiftUI
 /// Active page: filled dot; Inactive pages: icon with transparency
 /// Follows system color scheme (not accent color), not tappable
 public enum NowPlayingPage: Int, CaseIterable {
-    case lyrics = 0
+    case queue = 0
     case controls = 1
-    case queue = 2
+    case lyrics = 2
     
     var icon: String {
         switch self {
-        case .lyrics: return "text.alignleft"
-        case .controls: return "play.circle"
         case .queue: return "list.bullet"
+        case .controls: return "play.circle"
+        case .lyrics: return "text.bubble"
         }
     }
 }

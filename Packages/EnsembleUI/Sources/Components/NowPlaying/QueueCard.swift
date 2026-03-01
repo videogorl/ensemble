@@ -32,10 +32,10 @@ public struct QueueCard: View {
             // Scrollable queue list with fade masks
             queueListView
             
-            // Secondary controls + page indicator at bottom
+            // Secondary controls + spacing for fixed page indicator
             VStack(spacing: 8) {
                 secondaryControlsView
-                PageIndicator(currentPage: currentPage)
+                Spacer().frame(height: 36) // Reserve space for fixed page indicator
             }
             .padding(.bottom, 20)
         }

@@ -21,10 +21,7 @@ public struct LyricsCard: View {
             
             // Scrollable content area with fade masks
             contentView
-            
-            // Page indicator at bottom
-            PageIndicator(currentPage: currentPage)
-                .padding(.bottom, 20)
+                .padding(.bottom, 60) // Space for fixed page indicator
         }
     }
     

@@ -115,10 +115,10 @@ public struct ControlsCard: View {
             
             Spacer(minLength: 0)
             
-            // Secondary controls + page indicator
+            // Secondary controls + spacing for fixed page indicator
             VStack(spacing: 8) {
                 secondaryControlsView
-                PageIndicator(currentPage: currentPage)
+                Spacer().frame(height: 36) // Reserve space for fixed page indicator
             }
             .padding(.bottom, 20)
         }
@@ -168,7 +168,7 @@ public struct ControlsCard: View {
                 secondaryControlsView
                     .opacity(0.5)
                     .allowsHitTesting(false)
-                PageIndicator(currentPage: currentPage)
+                Spacer().frame(height: 36) // Reserve space for fixed page indicator
             }
             .padding(.bottom, 20)
         }

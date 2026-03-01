@@ -108,19 +108,25 @@ public struct NowPlayingSheetView: View {
                 .frame(maxWidth: 500) // Cap width for readability
             
             // Right: Carousel with Queue and Lyrics
-            TabView(selection: $currentPage) {
-                LyricsCard(viewModel: viewModel, currentPage: $currentPage)
-                    .tag(0)
+            ZStack(alignment: .bottom) {
+                TabView(selection: $currentPage) {
+                    QueueCard(viewModel: viewModel, currentPage: $currentPage)
+                        .tag(0)
+                    
+                    // Placeholder center slot (not shown in side-by-side)
+                    Color.clear
+                        .tag(1)
+                    
+                    LyricsCard(viewModel: viewModel, currentPage: $currentPage)
+                        .tag(2)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(maxWidth: 500) // Cap width to match controls
                 
-                // Placeholder center slot (not shown in side-by-side)
-                Color.clear
-                    .tag(1)
-                
-                QueueCard(viewModel: viewModel, currentPage: $currentPage)
-                    .tag(2)
+                // Fixed page indicator for side-by-side carousel
+                PageIndicator(currentPage: currentPage)
+                    .padding(.bottom, 20)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(maxWidth: 500) // Cap width to match controls
         }
     }
     
