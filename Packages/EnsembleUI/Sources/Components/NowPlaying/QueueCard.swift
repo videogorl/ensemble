@@ -23,29 +23,53 @@ public struct QueueCard: View {
     }
     
     public var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // Pinned header
-                headerView
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
-                
-                // Scrollable queue list with fade masks
-                // Calculate available height: total - header - secondary controls - indicator space
-                let headerHeight: CGFloat = 70 // Approximate height of header
-                let controlsHeight: CGFloat = 124 // Secondary controls + indicator space + padding
-                let availableHeight = geometry.size.height - headerHeight - controlsHeight
-                
+        VStack(spacing: 0) {
+            // Pinned header
+            headerView
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+            
+            // Scrollable queue list with fade masks
+            ScrollView(showsIndicators: false) {
                 queueListView
-                    .frame(height: availableHeight)
-                
-                // Secondary controls + spacing for fixed page indicator
-                VStack(spacing: 8) {
-                    secondaryControlsView
-                    Spacer().frame(height: 36) // Reserve space for fixed page indicator
-                }
-                .padding(.bottom, 20)
             }
+            .mask(
+                VStack(spacing: 0) {
+                    // Top fade
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.05)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 30)
+                    
+                    // Middle: full opacity
+                    Rectangle().fill(Color.black)
+                    
+                    // Bottom fade
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .black, location: 0.85),
+                            .init(color: .clear, location: 1)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 50)
+                }
+            )
+            
+            Spacer(minLength: 0) // Push secondary controls to bottom, matching ControlsCard
+            
+            // Secondary controls + spacing for fixed page indicator
+            VStack(spacing: 8) {
+                secondaryControlsView
+                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+            }
+            .padding(.bottom, 20)
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
@@ -193,37 +217,10 @@ public struct QueueCard: View {
                         .font(.headline)
                         .foregroundColor(.white.opacity(0.6))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             }
         }
-        .mask(
-            VStack(spacing: 0) {
-                // Top fade
-                LinearGradient(
-                    gradient: Gradient(stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.05)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 30)
-                
-                // Middle: full opacity
-                Rectangle().fill(Color.black)
-                
-                // Bottom fade
-                LinearGradient(
-                    gradient: Gradient(stops: [
-                        .init(color: .black, location: 0.85),
-                        .init(color: .clear, location: 1)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 50)
-            }
-        )
     }
     
     // MARK: - Secondary Controls (Relocated from Controls Card)
