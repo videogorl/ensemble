@@ -12,7 +12,7 @@ public enum NowPlayingPage: Int, CaseIterable {
         switch self {
         case .queue: return "list.bullet"
         case .controls: return "play.circle"
-        case .lyrics: return "text.bubble"
+        case .lyrics: return "text.quote"
         }
     }
 }

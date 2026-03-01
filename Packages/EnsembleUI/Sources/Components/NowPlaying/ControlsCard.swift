@@ -462,17 +462,7 @@ public struct ControlsCard: View {
                     .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
             }
             
-            // Add to Playlist
-            Button(action: {
-                guard let currentTrack = viewModel.currentTrack else { return }
-                presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
-            }) {
-                Image(systemName: "text.badge.plus")
-                    .font(.title3)
-                    .foregroundColor(.white.opacity(0.7))
-            }
-            
-            // More menu (NOTE: "Save Queue" removed - moved to Queue card)
+            // More menu with quick add to recent playlist
             Menu {
                 if let lastPlaylistQuickTarget {
                     if let currentTrack = viewModel.currentTrack,
@@ -485,13 +475,6 @@ public struct ControlsCard: View {
                             Label("Add to \(lastPlaylistQuickTarget.title)", systemImage: "clock.arrow.circlepath")
                         }
                     }
-                }
-                
-                Button {
-                    guard let currentTrack = viewModel.currentTrack else { return }
-                    presentPlaylistPicker(with: [currentTrack], title: "Add to Playlist")
-                } label: {
-                    Label("Add to Playlist...", systemImage: "text.badge.plus")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")

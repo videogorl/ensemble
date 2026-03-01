@@ -35,30 +35,30 @@ public struct QueueCard: View {
             }
             .mask(
                 VStack(spacing: 0) {
-                    // Top fade
+                    // Top fade (more gradual)
                     LinearGradient(
                         gradient: Gradient(stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.05)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 30)
-                    
-                    // Middle: full opacity
-                    Rectangle().fill(Color.black)
-                    
-                    // Bottom fade
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .black, location: 0.85),
-                            .init(color: .clear, location: 1)
+                            .init(color: .black, location: 0.1)
                         ]),
                         startPoint: .top,
                         endPoint: .bottom
                     )
                     .frame(height: 50)
+                    
+                    // Middle: full opacity
+                    Rectangle().fill(Color.black)
+                    
+                    // Bottom fade (more gradual)
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .black, location: 0.7),
+                            .init(color: .clear, location: 1)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 80)
                 }
             )
             
@@ -67,6 +67,7 @@ public struct QueueCard: View {
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: 8) {
                 secondaryControlsView
+                    .padding(.top, 16) // Extra padding above secondary controls
                 Spacer().frame(height: 36) // Reserve space for fixed page indicator
             }
             .padding(.bottom, 20)
@@ -263,9 +264,7 @@ public struct QueueCard: View {
     }
     
     private var autoplayIcon: String {
-        // TODO: Verify this matches the SettingsView autoplay icon
-        // Currently using play.circle to match the queue context
-        viewModel.isAutoplayEnabled ? "play.circle.fill" : "play.circle"
+        viewModel.isAutoplayEnabled ? "infinity.circle.fill" : "infinity.circle"
     }
     
     private var autoplayColor: Color {
