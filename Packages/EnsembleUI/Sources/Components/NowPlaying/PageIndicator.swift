@@ -18,17 +18,22 @@ public enum NowPlayingPage: Int, CaseIterable {
 }
 
 public struct PageIndicator: View {
-    let currentPage: Int
+    @Binding var currentPage: Int
     @Environment(\.colorScheme) private var colorScheme
     
-    public init(currentPage: Int) {
-        self.currentPage = currentPage
+    public init(currentPage: Binding<Int>) {
+        self._currentPage = currentPage
     }
     
     public var body: some View {
         HStack(spacing: 16) {
             ForEach(NowPlayingPage.allCases, id: \.rawValue) { page in
                 pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            currentPage = page.rawValue
+                        }
+                    }
             }
         }
         .padding(.vertical, 8)
@@ -50,6 +55,7 @@ public struct PageIndicator: View {
                     .foregroundColor(Color.primary.opacity(0.4))
             }
         }
-        .frame(width: 20, height: 20) // Consistent hit area (though not tappable)
+        .frame(width: 20, height: 20) // Consistent hit area
+        .contentShape(Rectangle()) // Expand tap area
     }
 }

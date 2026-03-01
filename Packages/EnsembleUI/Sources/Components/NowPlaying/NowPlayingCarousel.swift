@@ -38,7 +38,7 @@ public struct NowPlayingCarousel: View {
             }
             
             // Fixed page indicator overlay
-            PageIndicator(currentPage: currentPage)
+            PageIndicator(currentPage: $currentPage)
                 .padding(.bottom, 20)
         }
     }
