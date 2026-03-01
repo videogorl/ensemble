@@ -107,7 +107,7 @@ public class QueueItemCell: UITableViewCell {
             autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
             widthConstraint,
             
-            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             dragHandleView.widthAnchor.constraint(equalToConstant: 20),
             dragHandleView.heightAnchor.constraint(equalToConstant: 20)
@@ -536,7 +536,7 @@ public struct QueueTableView: UIViewRepresentable {
                 headerView.addSubview(clockIcon)
                 
                 NSLayoutConstraint.activate([
-                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     clockIcon.widthAnchor.constraint(equalToConstant: 14),
                     clockIcon.heightAnchor.constraint(equalToConstant: 14),
@@ -547,7 +547,7 @@ public struct QueueTableView: UIViewRepresentable {
                 ])
             } else {
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
                 ])
