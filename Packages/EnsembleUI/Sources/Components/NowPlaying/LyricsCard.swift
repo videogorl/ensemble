@@ -36,7 +36,7 @@ public struct LyricsCard: View {
             
             Spacer()
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - Content
@@ -57,7 +57,7 @@ public struct LyricsCard: View {
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, 40)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

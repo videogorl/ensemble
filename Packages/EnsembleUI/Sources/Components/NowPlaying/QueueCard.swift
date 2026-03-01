@@ -135,7 +135,7 @@ public struct QueueCard: View {
                 }
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 40)
     }
     
     // MARK: - Queue List
@@ -187,7 +187,6 @@ public struct QueueCard: View {
                         viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
                     }
                 )
-                .padding(.horizontal, 24)
                 
                 // Recommendations exhausted indicator
                 if viewModel.recommendationsExhausted && viewModel.isAutoplayEnabled {
