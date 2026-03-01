@@ -286,7 +286,7 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.dropDelegate = context.coordinator
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
         tableView.backgroundColor = .clear // Transparent to show blurred background
         tableView.isScrollEnabled = false
         tableView.dragInteractionEnabled = true
