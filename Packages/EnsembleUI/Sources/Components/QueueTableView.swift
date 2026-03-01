@@ -81,7 +81,7 @@ public class QueueItemCell: UITableViewCell {
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
