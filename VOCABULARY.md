@@ -6,46 +6,89 @@ This document defines the canonical names for UI elements across the Ensemble ap
 
 ## NowPlayingView
 
-- **View name:** `NowPlayingView`
+- **View name:** `NowPlayingSheetView` (new card-based UI), `NowPlayingView` (legacy)
 - **Canonical name:** NowPlayingView
 - **Area:** Player
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
 
+### Architecture
+
+The Now Playing interface uses a **card-based carousel** layout with three swipeable pages:
+- **Lyrics Card** (left): Placeholder for future lyrics display with time-synced highlighting
+- **Controls Card** (center, default): Primary playback controls and track metadata
+- **Queue Card** (right): Scrollable queue list with shuffle/repeat/autoplay controls
+
+On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on left, Lyrics/Queue carousel on right.
+
 ### Elements
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Background gradient | region | Vibrant blurred artwork background that transitions smoothly between tracks | `backgroundGradientView`, `BlurredArtworkBackground` |
-| Dismiss handle | control | Capsule-shaped tap target at top to dismiss the full player sheet | `dismissHandle` |
-| Album artwork | artwork | Large centered artwork display for the current track (75% screen width) | `ArtworkView`, `artworkSize` |
-| Playback slider | control | Interactive waveform progress indicator with variable-speed scrubbing | `progressView`, `WaveformView` |
-| Elapsed time label | text | Current playback position timestamp (left side) | `formattedCurrentTime` |
-| Remaining time label | text | Time remaining until track ends (right side, negative format) | `formattedRemainingTime` |
-| Scrub speed indicator | indicator | Shows current scrubbing rate (Hi-Speed, Half-Speed, Quarter-Speed, Fine) | `scrubIndicator`, `getScrubInfo` |
+| Background gradient | region | Vibrant blurred artwork background with legibility overlay (30% dark, 50% light) | `backgroundView`, `BlurredArtworkBackground` |
+| Dismiss pill | control | Capsule-shaped indicator at top for vertical swipe dismissal | `dismissPill` |
+| Horizontal carousel | region | TabView-based page navigation between Lyrics/Controls/Queue | `NowPlayingCarousel` |
+| Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
+
+#### Lyrics Card (Left)
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Lyrics header | text | "Lyrics" title pinned at top | `headerView` |
+| Lyrics content area | region | Future scroll view with fade masks (5% top, 15% bottom) | `contentView` |
+| Lyrics placeholder | text | "Lyrics coming soon" with quote icon | `text.quote` |
+
+#### Controls Card (Center)
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Album artwork | artwork | Large centered artwork (capped at 400pt, max 40% height) | `ArtworkView`, `artworkSize` |
+| Track metadata region | region | Title, artist, and album with navigation buttons | `trackMetadataView` |
 | Track title | text | Scrolling marquee text showing current track name | `MarqueeText`, `track.title` |
-| Artist name | text | Clickable artist name that navigates to artist detail | `track.artistName` |
-| Album name | text | Clickable album name that navigates to album detail | `track.albumName` |
-| Track metadata region | region | Container for title, artist, and album information | `trackMetadataView` |
-| Previous button | control | Tap for previous track, long-press for rewind seek | `backward.fill`, `viewModel.previous()` |
+| Artist button | control | Clickable artist name that navigates to artist detail | `track.artistName` |
+| Album button | control | Clickable album name that navigates to album detail | `track.albumName` |
+| Playback scrubber | control | Interactive waveform progress with vertical drag scrub rate | `progressView`, `WaveformView` |
+| Elapsed time label | text | Current playback position timestamp (left side) | `formattedCurrentTime` |
+| Remaining time label | text | Time remaining until track ends (right side, negative) | `formattedRemainingTime` |
+| Scrub speed indicator | indicator | Shows scrubbing rate (Hi-Speed/Half/Quarter/Fine) | `scrubIndicator` |
+| Previous button | control | Tap for previous track, long-press (300ms) for rewind seek | `backward.fill` |
 | Play/Pause button | control | Primary playback toggle with loading spinner state | `play.circle.fill`, `pause.circle.fill` |
-| Next button | control | Tap for next track, long-press for fast-forward seek | `forward.fill`, `viewModel.next()` |
+| Next button | control | Tap for next track, long-press (300ms) for fast-forward seek | `forward.fill` |
 | Primary controls region | region | Main playback controls row (prev, play/pause, next) | `controlsView` |
-| Shuffle button | control | Toggle shuffle mode, accent color when active | `shuffle`, `toggleShuffle` |
-| Repeat button | control | Cycle repeat mode (off, all, one) | `viewModel.repeatMode.icon`, `cycleRepeatMode` |
-| Rating button | control | Three-state favorite toggle (none, loved, disliked) | `currentRating.icon`, `toggleRating` |
 | AirPlay button | control | System AirPlay route picker | `AirPlayButton` |
-| More actions menu | menu | Overflow menu with playlist actions (add to playlist, save queue) | `ellipsis.circle` |
-| Secondary controls region | region | Bottom row with shuffle, repeat, heart, airplay, more | `secondaryControlsView` |
-| Queue section | region | Scrollable list of upcoming tracks below main player | `queueSection`, `QueueTableView` |
-| Queue header | text | "Queue" or "History" title with toggle buttons | `showHistory` |
-| History toggle | control | Switch between upcoming queue and playback history | `clock.arrow.circlepath`, `toggleHistory` |
-| Autoplay toggle | control | Enable/disable automatic similar track additions | `sparkles`, `toggleAutoplay` |
-| Save queue button | action | Save current queue as new playlist | `square.and.arrow.down` |
-| Error overlay | indicator | Modal error display with retry option when playback fails | `errorOverlayView`, `.failed` |
+| Favorite button | control | Heart icon for loved/not loved toggle (accent when active) | `heart.fill`, `heart` |
+| Add to playlist button | control | Plus icon for playlist picker sheet | `plus.circle` |
+| More actions menu | menu | Overflow menu with playlist quick-add action | `ellipsis.circle` |
+| Secondary controls region | region | Row with AirPlay, favorite, playlist, more | `secondaryControlsView` |
+| Page indicator | indicator | Below secondary controls on Controls card | `PageIndicator` |
+
+#### Queue Card (Right)
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Queue header | region | "Queue"/"History" title with history toggle and tertiary menu | `headerView` |
+| History toggle | control | Switch between upcoming queue and playback history | `clock.arrow.circlepath` |
+| Tertiary actions menu | menu | Three-dot menu with "Save Queue as Playlist" action | `ellipsis.circle` |
+| Queue list | region | Scrollable track list with fade masks (5% top, 15% bottom) | `queueListView`, `QueueTableView` |
+| Queue track cell | control | Swipeable cell with artwork, title, artist, duration | `QueueItemCell` |
+| Playing indicator | indicator | Speaker icon on currently playing track | `speaker.wave.3.fill` |
+| Autoplay indicator | indicator | Sparkles icon on auto-recommended tracks | `sparkles` |
+| Drag handle | control | Three-line icon for reorder drag gesture | `line.3.horizontal` |
+| Empty queue state | state | Centered icon + "Queue is empty" message | empty state |
+| Recommendations exhausted | indicator | "End of recommendations" text when autoplay depleted | `recommendationsExhausted` |
+| Shuffle button | control | Toggle shuffle mode (accent when active) | `shuffle` |
+| Repeat button | control | Cycle repeat mode (off/all/one, accent when active) | `repeat`, `repeat.1` |
+| Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
+| Secondary controls region | region | Bottom row with shuffle/repeat/autoplay | `secondaryControlsView` |
+| Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
+
+### States & Overlays
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Error overlay | indicator | Modal error display with retry when playback fails | `errorOverlayView` |
 | Loading state | state | Spinner shown during buffering/loading | `playbackState == .loading` |
 | Buffering state | state | Progress indicator during stream buffering | `playbackState == .buffering` |
-| End of recommendations indicator | indicator | Message shown when autoplay exhausts similar tracks | `recommendationsExhausted` |
 
 ---
 
