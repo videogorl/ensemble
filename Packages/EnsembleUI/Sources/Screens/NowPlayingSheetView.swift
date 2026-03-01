@@ -35,10 +35,18 @@ public struct NowPlayingSheetView: View {
                 backgroundView
                 
                 VStack(spacing: 0) {
-                    // Dismiss pill
+                    // Dismiss pill (tappable to close sheet)
                     dismissPill
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+                        .padding(.top, 16)
+                        .padding(.bottom, 8)
+                        .contentShape(Rectangle()) // Expand tap area
+                        .onTapGesture {
+                            if let dismissAction = dismissAction {
+                                dismissAction()
+                            } else {
+                                dismiss()
+                            }
+                        }
                     
                     // Layout: side-by-side on iPad/Mac, carousel on iPhone
                     if shouldUseSideBySideLayout(geometry: geometry) {

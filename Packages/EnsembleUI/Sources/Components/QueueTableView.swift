@@ -518,7 +518,7 @@ public struct QueueTableView: UIViewRepresentable {
             let sectionData = sections[section]
             
             let headerView = UIView()
-            headerView.backgroundColor = .systemBackground
+            headerView.backgroundColor = .clear // Transparent to show blurred background
             
             let label = UILabel()
             label.text = sectionData.type.title
