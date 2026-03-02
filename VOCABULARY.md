@@ -218,6 +218,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Compact artist row | control | Condensed artist result with artwork | `CompactArtistRow` |
 | Compact album row | control | Condensed album result with artwork | `CompactAlbumRow` |
 | Compact playlist row | control | Condensed playlist result with artwork | `CompactPlaylistRow` |
+| Search result context menu | menu | Long-press menu for album/artist/playlist result actions | `albumContextMenu`, `artistContextMenu`, `playlistSearchContextMenu` |
+| Download action | action | Toggle offline target for album/artist/playlist from result menus | `Download`, `Remove Download` |
 | Empty state | state | Message when no results match query | (needs confirmation) |
 | No sources message | indicator | Prompt to connect music sources | `hasAnySources` |
 
@@ -349,6 +351,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Bio section | region | Expandable artist biography text | `bioSection` |
 | Read more button | control | Expand truncated bio text | `isBioExpanded` |
 | Pin menu | menu | Toolbar overflow menu with pin/unpin action | `artistPinMenuButton` |
+| Artist download action | action | Toggle artist offline target from toolbar menu | `Download`, `Remove Download` |
 
 ---
 
@@ -373,6 +376,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Delete confirmation dialog | menu | Alert confirming playlist deletion | `Delete Playlist?` |
 | Rename dialog | menu | Alert with text field to rename playlist | `Rename Playlist` |
 | Playlist context menu | menu | Long-press menu with play, shuffle, pin, edit, delete | `playlistContextMenu` |
+| Playlist download action | action | Toggle playlist offline target from context menu | `Download`, `Remove Download` |
 | Delete swipe action | gesture | Swipe-to-delete for non-smart playlists | `standardDeleteSwipeAction` |
 | Cover flow view | region | Landscape-only 3D playlist browsing mode | `CoverFlowView` |
 | Loading state | state | Spinner during initial playlist load | `loadingView` |
@@ -519,6 +523,47 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## DownloadManagerSettingsView
+
+- **View name:** `DownloadManagerSettingsView`
+- **Canonical name:** DownloadManagerSettingsView
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Bulk downloads section | region | Section containing top-level server bulk toggle entry | `Section("Bulk Downloads")` |
+| Servers link | control | Navigation row into server-grouped library toggles | `Servers`, `OfflineServersView` |
+| Items section | region | Section listing non-library offline targets | `Section("Items")` |
+| Offline item row | control | Row with item title, status label, and optional track counts | `DownloadManagerItemRow` |
+| Target progress bar | indicator | Progress shown for in-progress offline targets | `ProgressView(.linear)` |
+| Remove target swipe action | gesture | Swipe-to-delete offline target row | `standardDeleteSwipeAction` |
+| Empty state | state | Message when no album/artist/playlist targets exist | `No offline items selected` |
+
+---
+
+## OfflineServersView
+
+- **View name:** `OfflineServersView`
+- **Canonical name:** OfflineServersView
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Server section | region | Section per server with account subtitle | `OfflineServerSection` |
+| Library toggle row | control | Toggle enabling/disabling library-wide offline target | `Toggle`, `setLibraryEnabled` |
+| Library source key label | text | Secondary source identifier label below library title | `library.sourceCompositeKey` |
+| Empty state | state | Message shown when no libraries are sync-enabled | `No enabled libraries` |
+
+---
+
 ## AddPlexAccountView
 
 - **View name:** `AddPlexAccountView`
@@ -630,6 +675,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Add to playlist action | action | Open playlist picker sheet | `Add to Playlist...` |
 | Add to recent playlist action | action | Quick-add to last used playlist | `Add to [playlist]` |
 | Favorite toggle | action | Toggle track favorite status | `Favorite`, `Unfavorite` |
+| Offline unavailable state | state | Row appears dimmed when offline and track is not downloaded | `isUnavailableOffline` |
+| Offline blocked toast | indicator | Toast shown when tapping unavailable track while offline | `Not available offline` |
 
 ---
 

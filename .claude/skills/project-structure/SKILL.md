@@ -85,6 +85,7 @@ Sources/
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
 |   +-- DownloadManager.swift          # Track download queue & file storage
+|   +-- OfflineDownloadTargetRepository.swift # Offline target + membership persistence
 |   +-- ArtworkDownloadManager.swift   # Image caching
 +-- Repositories/
 |   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
@@ -94,6 +95,9 @@ Sources/
 
 Tests/
 +-- LibraryRepositoryTests.swift
++-- PlaylistRepositoryTests.swift
++-- DownloadManagerTests.swift
++-- OfflineDownloadTargetRepositoryTests.swift
 ```
 
 ## EnsembleCore (Business Logic Layer)
@@ -129,6 +133,8 @@ Sources/
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
 |   +-- SiriMediaIndexStore.swift      # Shared App Group Siri index persistence/rebuild hooks
@@ -148,6 +154,8 @@ Sources/
 |   +-- LibraryViewModel.swift
 |   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
+|   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
+|   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
@@ -226,6 +234,8 @@ Sources/
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
 |   +-- PlaylistsView.swift           # Playlist grid
+|   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (`Servers` + target items)
+|   +-- OfflineServersView.swift      # Server-grouped sync-enabled library toggles for offline targets
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors

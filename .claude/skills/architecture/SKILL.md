@@ -42,9 +42,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Types:**
 - `CoreDataStack` (singleton) -- Main/background contexts, saves on background queue
-- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`
+- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`
 - `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern
-- `DownloadManager` -- Offline track file management
+- `DownloadManager` -- Offline track file management (source-aware, quality-aware)
+- `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
 ### EnsembleCore (Business Logic Layer)
@@ -81,6 +82,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
+- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
+- `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -118,6 +121,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
 - `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
+- `DownloadManagerSettingsView` -- Settings-only offline manager screen (`Servers` + target status list)
+- `OfflineServersView` -- Server-grouped, sync-enabled library toggles for library-wide offline targets
 
 ## Key Architectural Patterns
 
@@ -241,6 +246,24 @@ Dynamic home screen powered by Plex's hub system:
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
 - Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
 - Legacy standalone Sync Panel routes were removed from `MainTabView`/`MoreView`/sidebar flows.
+
+## Subsystem: Offline Download Manager (Target-Based)
+
+- Persistence adds `CDOfflineDownloadTarget` (target metadata/state/progress) and `CDOfflineDownloadMembership` (target track snapshot).
+- `OfflineDownloadService` is the orchestrator for:
+  - toggling target types (`library`, `album`, `artist`, `playlist`)
+  - resolving target memberships from repositories
+  - enqueuing missing track downloads
+  - reconciling after sync/playlist updates
+  - reference-counted cleanup of shared tracks when targets are removed
+- `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
+- Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
+- Sync integration:
+  - `SyncCoordinator` publishes playlist refresh completion via `onPlaylistRefreshCompleted`.
+  - `OfflineDownloadService` also watches source sync timestamps to reconcile library/album/artist targets after incremental/full sync updates.
+- iOS 26+ optional acceleration:
+  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`.
+  - Background path is best-effort only; persistent queue state remains source of truth.
 
 ## Subsystem: Siri Media Intents (In-App-First)
 

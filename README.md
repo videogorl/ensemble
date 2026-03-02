@@ -48,10 +48,10 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
-- **Download Management** — Infrastructure for offline track downloads (UI complete, playback in progress)
+- **Offline Download Manager (Target-Based)** — Settings-managed `Manage Downloads` flow with `Servers` bulk toggles, album/artist/playlist target toggles, progress rows, and reference-counted cleanup across overlapping targets
+- **Offline-Safe Track UX** — While offline, non-downloaded tracks are dimmed and blocked with a toast prompt
 
 ### Planned Features
-- **Offline Playback** — Wire up audio file downloads for true offline playback (infrastructure complete)
 - **Apple Music Integration** — Multi-source architecture ready for additional services
 - **Library Visibility Profile Selector** — Add UI to switch and edit visibility presets without changing sync enablement
 - **Advanced Queue Management** — Reordering, playback history, queue persistence
@@ -183,7 +183,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 - **watchOS (deferred as of February 21, 2026):** Authentication path references missing `AuthViewModel`, so the watch target does not currently compile/run.
   - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
-- **Offline Playback:** Infrastructure complete but audio file downloads not wired to playback
+- **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
 
@@ -208,9 +208,10 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
 - Siri media intents (track/album/artist/playlist) with thin extension resolution and in-app playback execution coordinator
 - App Intents album/playlist fallback shortcuts wired to the same Siri playback coordinator and shared Siri index vocabulary
+- Target-based offline download manager with server/library bulk toggles and reference-counted membership reconciliation
+- Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
 
 **Next Steps:**
-- Complete offline playback wiring
 - Fix watchOS authentication
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
@@ -252,9 +253,11 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] **Network State UI** — Connectivity banner and status indicators
 - [x] **Playback Tracking** — Timeline reporting (every 10s) and scrobbling (at 90% completion) for accurate play counts
 - [x] **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data with intelligent fallback
-- [ ] **Complete Offline Support** — Wire up audio file downloads for true offline playback
+- [x] **Target-Based Offline Manager** — Settings-managed targets (`Servers`, albums, artists, playlists), source-safe queueing, and reference-counted cleanup
+- [x] **Complete Offline Support** — Downloaded tracks are persisted locally and playback/offline row behavior now respects download availability
 - [ ] **Artwork Pre-Caching During Sync** — Automatically download artwork during library sync
 - [x] **Background Sync** — iOS BGAppRefreshTask refreshes hubs every ~15 minutes (system-controlled)
+- [x] **Optional BG Continued Processing** — iOS 26+ best-effort `BGContinuedProcessingTask` accelerator for large offline jobs
 - [x] **Library Visibility Profile Groundwork** — Core profile/store + visibility filtering seams (selector UI still pending)
 - [ ] Queue reordering and persistence
 - [ ] Waveform seeking (jump to specific parts of track)

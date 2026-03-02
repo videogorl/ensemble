@@ -68,6 +68,36 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Offline Download Manager v1 (Settings-Managed, Target-Based) (Mar 2026)
+Offline downloads now use target-based management with source-safe reconciliation and optional iOS 26 continued background processing acceleration:
+
+- **Settings-managed flow:** Settings → `Manage Downloads` now opens a manager screen with a default `Servers` entry and an itemized target list.
+- **Server/library targeting:** `Servers` drill-in is grouped by server headings and shows only sync-enabled libraries; toggling a library creates/removes a library target.
+- **Target types:** albums, artists, and playlists can be toggled via context/detail menus (`Download` / `Remove Download`).
+- **Reference-counted memberships:** shared tracks are retained until all referencing targets are removed; orphaned downloads are removed automatically.
+- **Source-safe identity:** track downloads and target memberships are keyed by `ratingKey + sourceCompositeKey` to avoid cross-server/library collisions.
+- **Quality-aware downloads:** download queue uses Audio Quality setting (`downloadQuality`) and universal streaming URL generation for quality-aware fetches.
+- **Network policy:** queue is Wi-Fi/wired only; pauses on cellular/offline and resumes automatically.
+- **Sync-triggered reconciliation:** library/playlist targets re-evaluate after source sync updates and playlist refresh completion events.
+- **Optional iOS 26 BG accelerator:** `BGContinuedProcessingTask` path is best-effort for user-initiated bulk work; persistent queue remains source of truth and fallback.
+- **Offline UX hardening:** when offline, non-downloaded tracks are dimmed and taps are blocked with toast feedback.
+
+**Key files:**
+- `Packages/EnsemblePersistence/Sources/CoreData/Ensemble.xcdatamodeld/Ensemble.xcdatamodel/contents`
+- `Packages/EnsemblePersistence/Sources/CoreData/ManagedObjects.swift`
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift`
+- `Packages/EnsemblePersistence/Sources/Downloads/OfflineDownloadTargetRepository.swift`
+- `Packages/EnsemblePersistence/Sources/Repositories/LibraryRepository.swift`
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift`
+- `Packages/EnsembleCore/Sources/Services/OfflineBackgroundExecutionCoordinator.swift`
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift`
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift`
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift`
+- `Packages/EnsembleUI/Sources/Screens/DownloadManagerSettingsView.swift`
+- `Packages/EnsembleUI/Sources/Screens/OfflineServersView.swift`
+- `Ensemble/App/AppDelegate.swift`
+- `Ensemble/Info.plist`
+
 ### Universal Transcode Endpoint + Quality Settings (Mar 2026)
 Streaming now uses Plex's universal transcode endpoint with full quality settings support, fixing playback for non-Plex Pass accounts:
 
