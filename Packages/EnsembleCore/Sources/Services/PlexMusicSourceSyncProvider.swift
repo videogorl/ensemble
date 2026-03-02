@@ -434,31 +434,25 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
     }
 
-    public func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL {
-        // If we have a direct stream key (the media part path), use it
-        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+    public func getStreamURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality
+    ) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
+        #endif
+        
+        // Fetch the full track metadata to get the PlexTrack object
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey) else {
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
+            EnsembleLogger.debug("❌ PlexProvider: Could not fetch track metadata")
             #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            throw PlexAPIError.invalidURL
         }
         
-        // Fallback: Fetch the full track metadata which should include Media array
-        #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
-        #endif
-        if let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-           let streamKey = track.streamURL {
-            #if DEBUG
-            EnsembleLogger.debug("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
-            #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
-        }
-        
-        #if DEBUG
-        EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL for track")
-        #endif
-        throw PlexAPIError.invalidURL
+        // Use the universal transcode endpoint which works for both Plex Pass and non-Plex Pass
+        return try await apiClient.getUniversalStreamURL(for: track, quality: quality)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {

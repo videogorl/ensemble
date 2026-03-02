@@ -1077,9 +1077,12 @@ public final class SyncCoordinator: ObservableObject {
     }
     
     /// Get the stream URL for a track, routing to the correct provider
-    public func getStreamURL(for track: Track) async throws -> URL {
+    /// - Parameters:
+    ///   - track: The track to stream
+    ///   - quality: Streaming quality preference (default: original)
+    public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
         #if DEBUG
-        EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title)")
+        EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title) [quality: \(quality.rawValue)]")
         EnsembleLogger.debug("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
         EnsembleLogger.debug("🔍 Track streamKey: \(track.streamKey ?? "nil")")
         EnsembleLogger.debug("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
@@ -1106,7 +1109,7 @@ public final class SyncCoordinator: ObservableObject {
                     #endif
                 }
             }
-            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
+            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey, quality: quality)
         }
 
         // Fallback: try any available provider
@@ -1114,7 +1117,7 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("⚠️ Using fallback provider")
             #endif
-            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey)
+            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey, quality: quality)
         }
 
         #if DEBUG

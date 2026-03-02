@@ -32,6 +32,14 @@ public enum PlexAPIError: Error, LocalizedError {
     }
 }
 
+/// Streaming quality options matching the AppStorage settings in SettingsView
+public enum StreamingQuality: String, Sendable {
+    case original = "original"
+    case high = "high"        // 320 kbps
+    case medium = "medium"    // 192 kbps
+    case low = "low"          // 128 kbps
+}
+
 public struct PlexServerConnection: Sendable {
     public let url: String
     public let alternativeURLs: [String]  // Additional connection URLs for failover
@@ -889,7 +897,78 @@ public actor PlexAPIClient {
         return url
     }
 
-    /// Generate streaming URL for a track
+    /// Generate streaming URL for a track using universal transcode endpoint
+    /// This endpoint works for both Plex Pass and non-Plex Pass users by intelligently
+    /// choosing between direct play, direct stream, or transcode based on server capabilities
+    public func getUniversalStreamURL(
+        for track: PlexTrack,
+        quality: StreamingQuality = .original,
+        sessionId: String? = nil
+    ) throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL: \(track.title) [quality: \(quality.rawValue)]")
+        #endif
+        
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        
+        // Use Plex's universal transcode endpoint
+        components.path = "/music/:/transcode/universal/start.m3u8"
+        
+        var queryItems: [URLQueryItem] = [
+            // Path to the media item
+            URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
+            
+            // Protocol for streaming
+            URLQueryItem(name: "protocol", value: "http"),
+            
+            // Authentication
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier),
+            
+            // Session tracking (required for transcode)
+            URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId ?? UUID().uuidString)
+        ]
+        
+        // Add quality-specific parameters
+        switch quality {
+        case .original:
+            // Let Plex choose best method: direct play > direct stream > transcode
+            queryItems.append(URLQueryItem(name: "directPlay", value: "1"))
+            queryItems.append(URLQueryItem(name: "directStream", value: "1"))
+            
+        case .high:
+            // Force transcode at 320 kbps
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+            
+        case .medium:
+            // Force transcode at 192 kbps
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+            
+        case .low:
+            // Force transcode at 128 kbps
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+        }
+        
+        components.queryItems = queryItems
+        
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+        
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
+        #endif
+        
+        return url
+    }
+    
+    /// Generate streaming URL for a track (legacy direct file access)
+    /// Note: This may fail for non-Plex Pass users. Use getUniversalStreamURL instead.
     public func getStreamURL(for track: PlexTrack) throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🔍 PlexAPIClient.getStreamURL(for track): \(track.title)")
