@@ -139,6 +139,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var album: CDAlbum?
     @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?
+    @NSManaged public var offlineMemberships: NSSet?
     @NSManaged public var playlistTracks: NSSet?
 }
 
@@ -209,12 +210,87 @@ extension CDPlaylistTrack {
 public class CDDownload: NSManagedObject {
     @NSManaged public var status: String?
     @NSManaged public var progress: Float
+    @NSManaged public var quality: String?
     @NSManaged public var filePath: String?
     @NSManaged public var fileSize: Int64
     @NSManaged public var startedAt: Date?
     @NSManaged public var completedAt: Date?
     @NSManaged public var error: String?
     @NSManaged public var track: CDTrack?
+}
+
+// MARK: - CDOfflineDownloadTarget
+
+@objc(CDOfflineDownloadTarget)
+public class CDOfflineDownloadTarget: NSManagedObject {
+    @NSManaged public var key: String
+    @NSManaged public var kind: String
+    @NSManaged public var ratingKey: String?
+    @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var displayName: String?
+    @NSManaged public var status: String?
+    @NSManaged public var totalTrackCount: Int32
+    @NSManaged public var completedTrackCount: Int32
+    @NSManaged public var progress: Float
+    @NSManaged public var lastError: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var updatedAt: Date?
+    @NSManaged public var memberships: NSSet?
+}
+
+extension CDOfflineDownloadTarget {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDOfflineDownloadTarget> {
+        return NSFetchRequest<CDOfflineDownloadTarget>(entityName: "CDOfflineDownloadTarget")
+    }
+
+    public enum Kind: String {
+        case library
+        case album
+        case artist
+        case playlist
+    }
+
+    public enum Status: String {
+        case pending
+        case downloading
+        case completed
+        case paused
+        case failed
+    }
+
+    public var membershipArray: [CDOfflineDownloadMembership] {
+        let set = memberships as? Set<CDOfflineDownloadMembership> ?? []
+        return set.sorted { $0.id < $1.id }
+    }
+
+    public var targetKind: Kind {
+        get { Kind(rawValue: kind) ?? .library }
+        set { kind = newValue.rawValue }
+    }
+
+    public var targetStatus: Status {
+        get { Status(rawValue: status ?? "") ?? .pending }
+        set { status = newValue.rawValue }
+    }
+}
+
+// MARK: - CDOfflineDownloadMembership
+
+@objc(CDOfflineDownloadMembership)
+public class CDOfflineDownloadMembership: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var targetKey: String
+    @NSManaged public var trackRatingKey: String
+    @NSManaged public var trackSourceCompositeKey: String
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var target: CDOfflineDownloadTarget?
+    @NSManaged public var track: CDTrack?
+}
+
+extension CDOfflineDownloadMembership {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDOfflineDownloadMembership> {
+        return NSFetchRequest<CDOfflineDownloadMembership>(entityName: "CDOfflineDownloadMembership")
+    }
 }
 
 extension CDDownload {
