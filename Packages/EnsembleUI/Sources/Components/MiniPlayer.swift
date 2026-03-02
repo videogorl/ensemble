@@ -242,42 +242,6 @@ public struct MiniPlayer: View {
                 RoundedRectangle(cornerRadius: pillCornerRadius)
                     .fill(.ultraThinMaterial)
                     .overlay(
-                        // Border Refraction (Mimics material thickness and light bending)
-                        RoundedRectangle(cornerRadius: pillCornerRadius)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        .primary.opacity(colorScheme == .dark ? 0.4 : 0.25),
-                                        .primary.opacity(colorScheme == .dark ? 0.2 : 0.1),
-                                        .primary.opacity(colorScheme == .dark ? 0.1 : 0.05),
-                                        .primary.opacity(colorScheme == .dark ? 0.3 : 0.2)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.5
-                            )
-                            .blendMode(.plusLighter)
-                    )
-                    .overlay(
-                        // Specular Highlight (The sharp edge reflection)
-                        RoundedRectangle(cornerRadius: pillCornerRadius)
-                            .stroke(
-                                LinearGradient(
-                                    stops: [
-                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.6 : 0.4), location: 0),
-                                        .init(color: .clear, location: 0.25),
-                                        .init(color: .clear, location: 0.75),
-                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.3 : 0.2), location: 1)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.5
-                            )
-                            .blendMode(.plusLighter)
-                    )
-                    .overlay(
                         // Glass Sheen (Subtle surface reflection)
                         RoundedRectangle(cornerRadius: pillCornerRadius)
                             .fill(
