@@ -227,8 +227,8 @@ public struct MiniPlayer: View {
                         contrast: 2.0,
                         saturation: 1.9,
                         brightness: colorScheme == .dark ? -0.1 : 0.05,
-                        topDimming: 0.45,
-                        bottomDimming: 0.3,
+                        topDimming: 1,
+                        bottomDimming: 1,
                         shouldIgnoreSafeArea: false,
                         overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
                     )
