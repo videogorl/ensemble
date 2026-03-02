@@ -14,10 +14,11 @@ This document defines the canonical names for UI elements across the Ensemble ap
 
 ### Architecture
 
-The Now Playing interface uses a **card-based carousel** layout with three swipeable pages:
-- **Lyrics Card** (left): Placeholder for future lyrics display with time-synced highlighting
-- **Controls Card** (center, default): Primary playback controls and track metadata
-- **Queue Card** (right): Scrollable queue list with shuffle/repeat/autoplay controls
+The Now Playing interface uses a **card-based carousel** layout with four swipeable pages:
+- **Queue Card** (left): Scrollable queue list with shuffle/repeat/autoplay controls
+- **Controls Card** (center-left, default): Primary playback controls and track metadata
+- **Lyrics Card** (center-right): Placeholder for future lyrics display with time-synced highlighting
+- **Info Card** (right): Track metadata and streaming/connection details
 
 On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on left, Lyrics/Queue carousel on right.
 
@@ -81,6 +82,27 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
 | Secondary controls region | region | Bottom row with shuffle/repeat/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
+
+#### Info Card (Far Right)
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Info header | text | "Info" title pinned at top | `headerView` |
+| Track metadata section | region | Album, artist, year, track/disc, duration, plays, date added | `trackMetadataSection` |
+| Album row | control | Tappable row navigating to album detail | `handleAlbumTap` |
+| Artist row | control | Tappable row navigating to artist detail | `handleArtistTap` |
+| Year row | text | Album release year (from fetched album metadata) | `fetchedAlbum?.year` |
+| Track/Disc row | text | Track number and disc number (if multi-disc) | `formatTrackDiscInfo` |
+| Duration row | text | Track duration in mm:ss format | `track.formattedDuration` |
+| Plays row | text | Play count for the track | `track.playCount` |
+| Added row | text | Date track was added to library | `track.dateAdded` |
+| Section divider | indicator | Visual separator between metadata and streaming sections | `Divider()` |
+| Streaming header | text | "Streaming" section header | |
+| Quality row | text | Current streaming quality setting | `streamingQuality` |
+| Server row | text | Name of the connected Plex server | `resolveServerName()` |
+| Connection row | text | Connection URL with type (Local/Remote/Relay) | `resolveConnectionInfo()` |
+| Status row | indicator | Connection status with colored dot | `resolveConnectionStatus()` |
+| Network row | text | Current network type (Wi-Fi, Cellular, etc.) | `networkMonitor.networkState` |
 
 ### States & Overlays
 

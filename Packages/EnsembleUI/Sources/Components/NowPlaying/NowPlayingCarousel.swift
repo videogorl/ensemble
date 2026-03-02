@@ -1,8 +1,8 @@
 import EnsembleCore
 import SwiftUI
 
-/// Horizontal paging carousel managing three cards: Queue, Controls, Lyrics
-/// Opens to Controls (center) by default
+/// Horizontal paging carousel managing four cards: Queue, Controls, Lyrics, Info
+/// Opens to Controls by default
 public struct NowPlayingCarousel: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
@@ -22,14 +22,18 @@ public struct NowPlayingCarousel: View {
                 // Page 0: Queue (swipe left from center)
                 QueueCard(viewModel: viewModel, currentPage: $currentPage)
                     .tag(0)
-                
+
                 // Page 1: Controls (center, default)
                 ControlsCard(viewModel: viewModel, currentPage: $currentPage)
                     .tag(1)
-                
+
                 // Page 2: Lyrics (swipe right from center)
                 LyricsCard(viewModel: viewModel, currentPage: $currentPage)
                     .tag(2)
+
+                // Page 3: Info (far right)
+                InfoCard(viewModel: viewModel, currentPage: $currentPage)
+                    .tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide native page dots
             .onChange(of: currentPage) { newPage in
