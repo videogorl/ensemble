@@ -13,6 +13,7 @@ public struct QueueCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
+    @Environment(\.dismiss) private var dismiss
     
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
