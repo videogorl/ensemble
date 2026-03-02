@@ -89,9 +89,9 @@ public struct MainTabView: View {
             // Keep mini-player spacing aligned with the active tab bar style.
             let miniPlayerBottomLift: CGFloat = {
                 if #available(iOS 18.0, *) {
-                    return 56
+                    return 52
                 } else {
-                    return 56 + geometry.safeAreaInsets.bottom
+                    return 52 + geometry.safeAreaInsets.bottom
                 }
             }()
 

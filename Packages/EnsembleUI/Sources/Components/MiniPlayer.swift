@@ -329,7 +329,7 @@ public struct MiniPlayer: View {
         )
         .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
         .padding(.horizontal, isFloating ? 24 : 12)
-        .padding(.bottom, isFloating ? 12 : 8)
+        .padding(.bottom, isFloating ? 6 : 4)
         .offset(y: verticalOffset)
         .contextMenu {
             if let track = viewModel.currentTrack {
