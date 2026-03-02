@@ -108,7 +108,8 @@ public struct NowPlayingSheetView: View {
                 
                 // Fixed page indicator for side-by-side carousel
                 PageIndicator(currentPage: $currentPage)
-                    .padding(.bottom, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
             }
         }
     }
