@@ -53,6 +53,12 @@ public struct AuroraVisualizationView: View {
     public var body: some View {
         TimelineView(.animation(minimumInterval: frameInterval, paused: !shouldAnimate)) { timeline in
             Canvas { context, size in
+                #if DEBUG
+                // Debug: draw a semi-transparent rectangle to verify canvas is rendering
+                let debugRect = Path(CGRect(x: 0, y: size.height - 100, width: size.width, height: 100))
+                context.fill(debugRect, with: .color(Color.red.opacity(0.3)))
+                #endif
+
                 drawAurora(context: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
             }
         }
@@ -122,6 +128,13 @@ public struct AuroraVisualizationView: View {
 
         // Base opacity varies by color scheme
         let baseOpacity = colorScheme == .dark ? 0.4 : 0.25
+
+        #if DEBUG
+        // Log drawing info periodically (every ~60 frames)
+        if Int(time * 30) % 60 == 0 {
+            EnsembleLogger.debug("🌌 Aurora draw: size=\(Int(size.width))x\(Int(size.height)), loudness=\(String(format: "%.2f", loudness)), waveform=\(waveformHeights.count) samples, opacity=\(baseOpacity)")
+        }
+        #endif
 
         // Draw each sector
         for i in 0..<sectorCount {
