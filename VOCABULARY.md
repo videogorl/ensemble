@@ -484,7 +484,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | File size label | text | Size of downloaded file in KB/MB/GB | `formatBytes` |
 | Delete swipe action | gesture | Swipe-to-delete for completed/failed downloads | `swipeActions` |
 | Retry swipe action | gesture | Leading swipe action to requeue a failed download | `Label("Retry", systemImage: "arrow.clockwise")` |
-| Update quality action | action | Toolbar action that requeues completed downloads whose stored quality differs from Settings > Audio Quality > Download Quality | `arrow.triangle.2.circlepath`, `refreshCompletedDownloadsForCurrentQuality()` |
+| Update quality action | action | Toolbar action that requeues completed downloads whose stored quality differs from Settings > Audio Quality > Download Quality; shows warning when server only supports original offline quality | `arrow.triangle.2.circlepath`, `refreshCompletedDownloadsForCurrentQuality()` |
 | Failed indicator | indicator | Red exclamation for failed downloads | `exclamationmark.circle.fill` |
 | Total size label | text | Toolbar text showing total download size | `totalSize` |
 | Loading state | state | Spinner during initial download list load | `loadingView` |

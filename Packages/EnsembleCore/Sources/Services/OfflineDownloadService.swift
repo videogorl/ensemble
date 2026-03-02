@@ -20,6 +20,16 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     }
 }
 
+public struct OfflineDownloadQualityRefreshResult: Sendable {
+    public let requeuedCount: Int
+    public let skippedUnsupportedCount: Int
+
+    public init(requeuedCount: Int, skippedUnsupportedCount: Int) {
+        self.requeuedCount = requeuedCount
+        self.skippedUnsupportedCount = skippedUnsupportedCount
+    }
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     private enum DownloadProcessingError: LocalizedError {
@@ -50,6 +60,9 @@ public final class OfflineDownloadService: ObservableObject {
     private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
+    private var unsupportedTranscodeServerKeys: Set<String> = []
+
+    private static let unsupportedTranscodeServerDefaultsKey = "offlineTranscodeUnsupportedServerKeys"
 
     public init(
         downloadManager: DownloadManagerProtocol,
@@ -67,6 +80,9 @@ public final class OfflineDownloadService: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
+        self.unsupportedTranscodeServerKeys = Set(
+            UserDefaults.standard.stringArray(forKey: Self.unsupportedTranscodeServerDefaultsKey) ?? []
+        )
 
         backgroundExecutionCoordinator.onExecutionRequested = { [weak self] in
             self?.startQueueIfNeeded()
@@ -243,12 +259,14 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     /// Re-queue completed downloads that do not match the current quality setting.
-    /// Returns the number of tracks re-queued for refresh.
-    public func requeueCompletedDownloadsForCurrentQuality() async -> Int {
+    /// Returns a summary including re-queued tracks and tracks skipped due to known
+    /// server-side transcode limitations.
+    public func requeueCompletedDownloadsForCurrentQuality() async -> OfflineDownloadQualityRefreshResult {
         do {
             let desiredQuality = currentDownloadQuality()
             let completedDownloads = try await downloadManager.fetchCompletedDownloads()
             var requeuedCount = 0
+            var skippedUnsupportedCount = 0
 
             for download in completedDownloads {
                 guard let track = download.track,
@@ -258,6 +276,12 @@ public final class OfflineDownloadService: ObservableObject {
 
                 let currentQuality = download.quality ?? "original"
                 guard currentQuality != desiredQuality else { continue }
+
+                if desiredQuality != "original",
+                   isTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey) {
+                    skippedUnsupportedCount += 1
+                    continue
+                }
 
                 let reference = OfflineTrackReference(
                     trackRatingKey: track.ratingKey,
@@ -288,18 +312,21 @@ public final class OfflineDownloadService: ObservableObject {
 
             #if DEBUG
             EnsembleLogger.debug(
-                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) targetQuality=\(desiredQuality)"
+                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) skippedUnsupported=\(skippedUnsupportedCount) targetQuality=\(desiredQuality)"
             )
             #endif
 
-            return requeuedCount
+            return OfflineDownloadQualityRefreshResult(
+                requeuedCount: requeuedCount,
+                skippedUnsupportedCount: skippedUnsupportedCount
+            )
         } catch {
             #if DEBUG
             EnsembleLogger.debug(
                 "❌ Failed re-queueing completed downloads for quality refresh: \(error.localizedDescription)"
             )
             #endif
-            return 0
+            return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
         }
     }
 
@@ -550,9 +577,26 @@ public final class OfflineDownloadService: ObservableObject {
             let requestedQuality = streamingQuality(from: download.quality)
             var effectiveQuality = requestedQuality
             let domainTrack = Track(from: track)
-            let primaryURL = try await syncCoordinator.getOfflineDownloadURL(for: domainTrack, quality: requestedQuality)
-            var selectedURL = primaryURL
-            var selectedMode = "universal"
+            var selectedURL: URL
+            var selectedMode: String
+
+            if requestedQuality != .original,
+               isTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey) {
+                selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
+                selectedMode = "direct-original-known-unsupported"
+                effectiveQuality = .original
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Skipping offline transcode attempts for server with known unsupported transcode capability: source=\(sourceCompositeKey)"
+                )
+                #endif
+            } else {
+                selectedURL = try await syncCoordinator.getOfflineDownloadURL(
+                    for: domainTrack,
+                    quality: requestedQuality
+                )
+                selectedMode = "universal"
+            }
 
             #if DEBUG
             EnsembleLogger.debug(
@@ -560,7 +604,8 @@ public final class OfflineDownloadService: ObservableObject {
             )
             #endif
             var (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
-            if let httpResponse = response as? HTTPURLResponse,
+            if selectedMode == "universal",
+               let httpResponse = response as? HTTPURLResponse,
                httpResponse.statusCode == 400 {
                 #if DEBUG
                 EnsembleLogger.debug(
@@ -609,6 +654,9 @@ public final class OfflineDownloadService: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse,
                !(200...299).contains(httpResponse.statusCode),
                selectedMode != "direct-original-fallback" {
+                if httpResponse.statusCode == 400, requestedQuality != .original {
+                    markTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey)
+                }
                 #if DEBUG
                 EnsembleLogger.debug(
                     "⚠️ Offline transcode rejected (status=\(httpResponse.statusCode)) for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
@@ -774,6 +822,39 @@ public final class OfflineDownloadService: ObservableObject {
         }
 
         return attempts
+    }
+
+    private func isTranscodeUnsupported(forSourceCompositeKey sourceCompositeKey: String) -> Bool {
+        guard let serverSourceKey = serverSourceKey(fromSourceCompositeKey: sourceCompositeKey) else {
+            return false
+        }
+        return unsupportedTranscodeServerKeys.contains(serverSourceKey)
+    }
+
+    private func markTranscodeUnsupported(forSourceCompositeKey sourceCompositeKey: String) {
+        guard let serverSourceKey = serverSourceKey(fromSourceCompositeKey: sourceCompositeKey) else {
+            return
+        }
+        guard unsupportedTranscodeServerKeys.insert(serverSourceKey).inserted else {
+            return
+        }
+
+        UserDefaults.standard.set(
+            Array(unsupportedTranscodeServerKeys).sorted(),
+            forKey: Self.unsupportedTranscodeServerDefaultsKey
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "⚠️ Marked server as offline-transcode-unsupported: \(serverSourceKey)"
+        )
+        #endif
+    }
+
+    private func serverSourceKey(fromSourceCompositeKey sourceCompositeKey: String) -> String? {
+        let components = sourceCompositeKey.split(separator: ":")
+        guard components.count >= 4 else { return nil }
+        return "\(components[0]):\(components[1]):\(components[2])"
     }
 
     private func localFileURL(for track: CDTrack, quality: StreamingQuality, response: URLResponse) -> URL {

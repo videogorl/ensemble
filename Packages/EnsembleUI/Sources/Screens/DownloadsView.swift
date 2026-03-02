@@ -210,17 +210,32 @@ public struct DownloadsView: View {
         guard !isRefreshingDownloadQuality else { return }
         isRefreshingDownloadQuality = true
 
-        let requeuedCount = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
+        let refreshResult = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
         await viewModel.loadDownloads()
 
         let qualityLabel = formattedQuality(downloadQuality)
-        if requeuedCount > 0 {
+        if refreshResult.requeuedCount > 0 {
+            let skippedSuffix: String
+            if refreshResult.skippedUnsupportedCount > 0 {
+                skippedSuffix = " \(refreshResult.skippedUnsupportedCount) track\(refreshResult.skippedUnsupportedCount == 1 ? " was" : "s were") skipped because this server only supports original-quality offline downloads."
+            } else {
+                skippedSuffix = ""
+            }
             deps.toastCenter.show(
                 ToastPayload(
                     style: .info,
                     iconSystemName: "arrow.triangle.2.circlepath",
                     title: "Refreshing Downloads",
-                    message: "Re-queued \(requeuedCount) track\(requeuedCount == 1 ? "" : "s") for \(qualityLabel) quality."
+                    message: "Re-queued \(refreshResult.requeuedCount) track\(refreshResult.requeuedCount == 1 ? "" : "s") for \(qualityLabel) quality.\(skippedSuffix)"
+                )
+            )
+        } else if refreshResult.skippedUnsupportedCount > 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle",
+                    title: "Original Quality Only",
+                    message: "\(refreshResult.skippedUnsupportedCount) track\(refreshResult.skippedUnsupportedCount == 1 ? "" : "s") skipped because this server rejects offline transcode requests."
                 )
             )
         } else {
