@@ -514,6 +514,9 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(quality.rawValue) mode=\(selectedMode)"
                 )
+                if let plexError = httpResponse.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
+                    EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
+                }
                 #endif
                 guard (200...299).contains(httpResponse.statusCode) else {
                     #if DEBUG

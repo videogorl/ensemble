@@ -970,7 +970,8 @@ public actor PlexAPIClient {
             URLQueryItem(name: "path", value: normalizedPath),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
-            URLQueryItem(name: "musicBitrate", value: bitrate),
+            URLQueryItem(name: "audioBitrate", value: bitrate),
+            URLQueryItem(name: "audioCodec", value: "aac"),
             URLQueryItem(name: "transcodeSessionId", value: UUID().uuidString),
             URLQueryItem(name: "offset", value: "0"), // Start from beginning
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
@@ -1032,8 +1033,6 @@ public actor PlexAPIClient {
         ]
         
         // Add quality-specific parameters.
-        // The public PMS API documents `musicBitrate` for music transcode; this
-        // is preferred over legacy audioBitrate/audioCodec pairs.
         switch quality {
         case .original:
             // For original quality, don't add directPlay/directStream flags
@@ -1043,15 +1042,18 @@ public actor PlexAPIClient {
             
         case .high:
             // Force transcode at 320 kbps
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
             
         case .medium:
             // Force transcode at 192 kbps
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
             
         case .low:
             // Force transcode at 128 kbps
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
         
         components.queryItems = queryItems
