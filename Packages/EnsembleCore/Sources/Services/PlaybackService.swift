@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import EnsembleAPI
+import EnsemblePersistence
 import Foundation
 import MediaPlayer
 import Nuke
@@ -463,6 +464,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return enabledSourceCompositeKeys.contains(sourceCompositeKey)
     }
 
+    static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
+        lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
+    }
+
     static func pruneQueueForEnabledSources(
         queue: [QueueItem],
         originalQueue: [QueueItem],
@@ -674,6 +679,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let artworkLoader: ArtworkLoaderProtocol
+    private let downloadManager: DownloadManagerProtocol
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
@@ -753,10 +759,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol) {
+    public init(
+        syncCoordinator: SyncCoordinator,
+        networkMonitor: NetworkMonitor,
+        artworkLoader: ArtworkLoaderProtocol,
+        downloadManager: DownloadManagerProtocol
+    ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
+        self.downloadManager = downloadManager
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -2372,7 +2384,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        let track = queue[currentQueueIndex].track
+        let queuedTrack = queue[currentQueueIndex].track
+        let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
         let recoverySeekTime = validatedRecoverySeekTime(startTime, for: track)
 
         #if DEBUG
@@ -2845,7 +2858,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var cacheMisses = 0
 
         for index in targetIndices {
-            let track = queue[index].track
+            let queuedTrack = queue[index].track
+            let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
             do {
                 let item: AVPlayerItem
                 let cachedItem = getCachedPlayerItem(for: track.id)
@@ -3999,6 +4013,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func trackWithRating(_ track: Track, rating: Int) -> Track {
+        trackWith(track, rating: rating)
+    }
+
+    private func trackWithLocalFilePath(_ track: Track, localFilePath: String?) -> Track {
+        trackWith(track, localFilePath: localFilePath, useLocalFilePathOverride: true)
+    }
+
+    private func trackWith(
+        _ track: Track,
+        rating: Int? = nil,
+        localFilePath: String? = nil,
+        useLocalFilePathOverride: Bool = false
+    ) -> Track {
         Track(
             id: track.id,
             key: track.key,
@@ -4015,11 +4042,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             fallbackRatingKey: track.fallbackRatingKey,
             streamKey: track.streamKey,
             streamId: track.streamId,
-            localFilePath: track.localFilePath,
+            localFilePath: useLocalFilePathOverride ? localFilePath : track.localFilePath,
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
-            rating: rating,
+            rating: rating ?? track.rating,
             playCount: track.playCount,
             sourceCompositeKey: track.sourceCompositeKey
         )
@@ -4144,12 +4171,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queue = items
         originalQueue = items
         currentQueueIndex = index
-        currentTrack = items[index].track
+        let track = await resolveTrackForPlaybackIfNeeded(items[index].track)
+        currentTrack = track
         currentTime = 0
         waveformHeights = []  // Clear old waveform immediately
 
         // Load the player item but don't start playback
-        let track = items[index].track
         generateWaveform(for: track.id)
         playbackState = .loading
         
@@ -4161,6 +4188,90 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("❌ Failed to prepare track during restore: \(error)")
             #endif
             playbackState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func resolveTrackForPlaybackIfNeeded(_ track: Track) async -> Track {
+        let fileManager = FileManager.default
+
+        if let localPath = track.localFilePath,
+           fileManager.fileExists(atPath: localPath) {
+            return track
+        }
+
+        do {
+            if let persistedPath = try await downloadManager.getLocalFilePath(
+                forTrackRatingKey: track.id,
+                sourceCompositeKey: track.sourceCompositeKey
+            ) {
+                if fileManager.fileExists(atPath: persistedPath) {
+                    guard persistedPath != track.localFilePath else {
+                        return track
+                    }
+
+                    let resolvedTrack = trackWithLocalFilePath(track, localFilePath: persistedPath)
+                    applyTrackRefresh(resolvedTrack, replacing: track)
+
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "💾 Resolved local download for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none")"
+                    )
+                    #endif
+
+                    return resolvedTrack
+                }
+
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Persisted download path missing on disk during playback resolve: \(persistedPath)"
+                )
+                #endif
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⚠️ Failed to resolve persisted download path for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none") error=\(error.localizedDescription)"
+            )
+            #endif
+        }
+
+        guard track.localFilePath != nil else { return track }
+
+        let clearedTrack = trackWithLocalFilePath(track, localFilePath: nil)
+        applyTrackRefresh(clearedTrack, replacing: track)
+        return clearedTrack
+    }
+
+    private func applyTrackRefresh(_ refreshedTrack: Track, replacing originalTrack: Track) {
+        guard refreshedTrack.localFilePath != originalTrack.localFilePath else { return }
+
+        var queueChanged = false
+        for index in queue.indices where Self.isSameTrackIdentity(queue[index].track, originalTrack) {
+            let existing = queue[index]
+            queue[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            queueChanged = true
+        }
+
+        var originalQueueChanged = false
+        for index in originalQueue.indices where Self.isSameTrackIdentity(originalQueue[index].track, originalTrack) {
+            let existing = originalQueue[index]
+            originalQueue[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            originalQueueChanged = true
+        }
+
+        var historyChanged = false
+        for index in playbackHistory.indices where Self.isSameTrackIdentity(playbackHistory[index].track, originalTrack) {
+            let existing = playbackHistory[index]
+            playbackHistory[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            historyChanged = true
+        }
+
+        if let currentTrack, Self.isSameTrackIdentity(currentTrack, originalTrack) {
+            self.currentTrack = refreshedTrack
+        }
+
+        if queueChanged || originalQueueChanged || historyChanged {
+            savePlaybackState()
         }
     }
     

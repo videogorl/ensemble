@@ -141,7 +141,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let playbackServiceRef = PlaybackService(
             syncCoordinator: syncCoordinator,
             networkMonitor: nm,
-            artworkLoader: artworkLoaderRef
+            artworkLoader: artworkLoaderRef,
+            downloadManager: downloadManagerRef
         )
         playbackService = playbackServiceRef
         siriPlaybackCoordinator = MainActor.assumeIsolated {
