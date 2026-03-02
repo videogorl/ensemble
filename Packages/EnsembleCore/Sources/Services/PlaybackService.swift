@@ -106,6 +106,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var isShuffleEnabled: Bool { get }
     var repeatMode: RepeatMode { get }
     var waveformHeights: [Double] { get }
+    var frequencyBands: [Double] { get }
     var isAutoplayEnabled: Bool { get }
     var autoplayTracks: [Track] { get }
     var isAutoplayActive: Bool { get }
@@ -124,6 +125,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
     var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
     var waveformPublisher: AnyPublisher<[Double], Never> { get }
+    var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
     var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { get }
     var autoplayTracksPublisher: AnyPublisher<[Track], Never> { get }
     var autoplayActivePublisher: AnyPublisher<Bool, Never> { get }
@@ -574,6 +576,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
     @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
     @Published public private(set) var waveformHeights: [Double] = []
+    @Published public private(set) var frequencyBands: [Double] = []
     @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive: Bool = false
@@ -590,6 +593,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
     public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
+    public var frequencyBandsPublisher: AnyPublisher<[Double], Never> { $frequencyBands.eraseToAnyPublisher() }
     public var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { $isAutoplayEnabled.eraseToAnyPublisher() }
     public var autoplayTracksPublisher: AnyPublisher<[Track], Never> { $autoplayTracks.eraseToAnyPublisher() }
     public var autoplayActivePublisher: AnyPublisher<Bool, Never> { $isAutoplayActive.eraseToAnyPublisher() }
@@ -674,9 +678,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let artworkLoader: ArtworkLoaderProtocol
+    private let audioAnalyzer: AudioAnalyzerProtocol
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
+    private var audioAnalyzerCancellable: AnyCancellable?
     
     // Queue limiting: keep small lookahead of auto-generated next suggestions (5 tracks)
     private let maxQueueLookahead = 5  // Max number of future tracks to keep queued
@@ -753,10 +759,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol) {
+    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol, audioAnalyzer: AudioAnalyzerProtocol) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
+        self.audioAnalyzer = audioAnalyzer
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -764,6 +771,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupNetworkObservation()
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
+        setupAudioAnalyzer()
     }
 
     deinit {
@@ -2964,6 +2972,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🎵 Starting playback")
         #endif
         player?.play()
+        
+        // Setup audio tap for frequency analysis
+        audioAnalyzer.setupAudioTap(for: item)
 
         // Keep startup state as loading until AVPlayer confirms audio output via timeControlStatus.
         playbackState = .loading
@@ -3638,6 +3649,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
         }
     }
+    
+    /// Setup audio analyzer to subscribe to frequency band updates
+    private func setupAudioAnalyzer() {
+        audioAnalyzerCancellable = audioAnalyzer.frequencyBandsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bands in
+                self?.frequencyBands = bands
+            }
+    }
 
     @MainActor
     private func handleAccountSourcesChanged(_ accounts: [PlexAccountConfig]) async {
@@ -3816,6 +3836,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func cleanup() {
+        // Stop audio analysis
+        audioAnalyzer.stopAnalysis()
+        
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
