@@ -29,7 +29,7 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 65
+    private let maxHeight: CGFloat = 85
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 8
