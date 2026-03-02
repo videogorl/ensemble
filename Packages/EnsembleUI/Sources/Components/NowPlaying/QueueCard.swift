@@ -98,7 +98,7 @@ public struct QueueCard: View {
             Text(viewModel.showHistory ? "History" : "Queue")
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
             
             Spacer()
             
@@ -132,7 +132,7 @@ public struct QueueCard: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 16))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.primary.opacity(0.7))
                 }
             }
         }
@@ -225,11 +225,11 @@ public struct QueueCard: View {
                 VStack(spacing: 16) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 48))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                     
                     Text("Queue is empty")
                         .font(.headline)
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
@@ -245,14 +245,14 @@ public struct QueueCard: View {
             Button(action: viewModel.toggleShuffle) {
                 Image(systemName: "shuffle")
                     .font(.title3)
-                    .foregroundColor(viewModel.isShuffleEnabled ? .accentColor : .white.opacity(0.7))
+                    .foregroundColor(viewModel.isShuffleEnabled ? .accentColor : .primary.opacity(0.7))
             }
             
             // Repeat
             Button(action: viewModel.cycleRepeatMode) {
                 Image(systemName: viewModel.repeatMode.icon)
                     .font(.title3)
-                    .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .white.opacity(0.7))
+                    .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .primary.opacity(0.7))
             }
             
             // Autoplay (using Settings icon, not sparkles)
@@ -282,9 +282,9 @@ public struct QueueCard: View {
     
     private var autoplayColor: Color {
         if isAutoplayDisabledDueToNetwork {
-            return .white.opacity(0.4)
+            return .primary.opacity(0.4)
         }
-        return viewModel.isAutoplayEnabled ? .accentColor : .white.opacity(0.7)
+        return viewModel.isAutoplayEnabled ? .accentColor : .primary.opacity(0.7)
     }
     
     private var isAutoplayDisabledDueToNetwork: Bool {

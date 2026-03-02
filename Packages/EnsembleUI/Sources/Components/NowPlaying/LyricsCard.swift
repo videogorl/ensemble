@@ -32,7 +32,7 @@ public struct LyricsCard: View {
             Text("Lyrics")
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
             
             Spacer()
         }
@@ -47,15 +47,15 @@ public struct LyricsCard: View {
             VStack(spacing: 16) {
                 Image(systemName: "text.quote")
                     .font(.system(size: 48))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                 
                 Text("Lyrics coming soon")
                     .font(.headline)
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.primary.opacity(0.6))
                 
                 Text("Lyrics display and time-synced\nhighlighting will be available\nin a future update")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
