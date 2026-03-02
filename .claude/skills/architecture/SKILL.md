@@ -186,9 +186,22 @@ Displays audio waveforms in NowPlayingView:
    - **Fallback:** Deterministic pseudo-random waveform seeded by `ratingKey` (~120 samples)
    - **Normalization:** `pow((value - minValue) / (maxValue - minValue), 1.5) * 0.9 + 0.1`
 
-5. **WaveformView** (`EnsembleUI`) -- Horizontal bars with playback progress
+5. WaveformView (EnsembleUI) -- Horizontal bars with playback progress
+
+## Subsystem: Aurora Visualization
+
+Dynamic background effect that reacts to music intensity:
+
+1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
+2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and waveform heights (loudness data).
+3. **Sampling** -- `AuroraVisualizationView` samples `waveformHeights` using `currentTime / duration` to drive real-time animation intensity.
+4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation)` to draw overlapping fan-shaped sectors with radial gradients.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect.
+6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
+7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition.
 
 ## Subsystem: Hub-Based Home Screen
+
 
 Dynamic home screen powered by Plex's hub system:
 
