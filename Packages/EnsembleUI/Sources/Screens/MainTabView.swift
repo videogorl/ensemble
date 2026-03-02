@@ -89,9 +89,9 @@ public struct MainTabView: View {
             // Keep mini-player spacing aligned with the active tab bar style.
             let miniPlayerBottomLift: CGFloat = {
                 if #available(iOS 18.0, *) {
-                    return 56
+                    return 52
                 } else {
-                    return 56 + geometry.safeAreaInsets.bottom
+                    return 52 + geometry.safeAreaInsets.bottom
                 }
             }()
 
@@ -145,6 +145,7 @@ public struct MainTabView: View {
                             showingNowPlaying = true
                         }
                     }
+                    .accentColor(settingsManager.accentColor.color)
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
@@ -474,6 +475,7 @@ public struct SidebarView: View {
                         showingNowPlaying = true
                     }
                 }
+                .accentColor(deps.settingsManager.accentColor.color)
                 .zIndex(2)
                 .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
