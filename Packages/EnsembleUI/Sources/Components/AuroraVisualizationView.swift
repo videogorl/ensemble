@@ -153,6 +153,9 @@ public struct AuroraVisualizationView: View {
         // Get current loudness from waveform position
         let baseLoudness = sampleLoudness()
 
+        // Global pulse that affects all bands together (no sweep)
+        let globalPulse = sin(time * 3.0) * 0.08 + sin(time * 5.5) * 0.05
+
         for i in 0..<bandCount {
             let normalizedPosition = Double(i) / Double(bandCount - 1)
 
@@ -160,14 +163,14 @@ public struct AuroraVisualizationView: View {
                 // Frequency weighting: bass (left) typically louder
                 let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
 
-                // Per-band variation using different noise frequencies
-                // These create the "different frequencies" look without scrolling
-                let noise1 = sin(time * 4.5 + Double(i) * 0.8) * 0.12
-                let noise2 = sin(time * 7.2 + Double(i) * 1.3) * 0.08
-                let noise3 = sin(time * 2.1 + Double(i) * 0.4) * 0.06
+                // Static per-band variation (seeded by band index, doesn't change over time)
+                // This creates the "different frequencies" look without sweeping
+                let bandSeed = Double(i * 7919 % 100) / 100.0 // Pseudo-random per band
+                let staticVariation = (bandSeed - 0.5) * 0.15
 
-                // Combine base loudness with frequency weighting and noise
-                let intensity = baseLoudness * frequencyWeight + noise1 + noise2 + noise3
+                // Combine: all bands react together to loudness + global pulse
+                // Only the frequency weight and static variation differ per band
+                let intensity = (baseLoudness + globalPulse) * frequencyWeight + staticVariation
                 bands[i] = max(0.08, min(1.0, intensity))
             } else {
                 // Breathing animation when paused
