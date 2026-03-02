@@ -3,8 +3,8 @@ import SwiftUI
 import Combine
 
 /// Aurora-style frequency visualization inspired by Zune 3.0.
-/// Displays soft, wispy vertical frequency bands that rise from the bottom of the screen,
-/// with colors bleeding into each other for an aurora borealis effect.
+/// Displays soft, wispy blurred glow that rises from the bottom of the screen,
+/// reacting to music loudness like a frequency meter.
 @available(iOS 15.0, macOS 12.0, *)
 public struct AuroraVisualizationView: View {
     // MARK: - Dependencies
@@ -19,34 +19,32 @@ public struct AuroraVisualizationView: View {
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
     /// Smoothed band values for fluid animation
-    @State private var smoothedBands: [Double] = Array(repeating: 0.0, count: 64)
-    /// Previous frame's band values for interpolation
-    @State private var previousBands: [Double] = Array(repeating: 0.0, count: 64)
+    @State private var smoothedBands: [Double] = Array(repeating: 0.0, count: 24)
 
     @Environment(\.colorScheme) private var colorScheme
 
     // MARK: - Configuration
 
-    /// Number of frequency bands to display
-    private let bandCount = 64
+    /// Number of frequency bands (fewer = wider, softer)
+    private let bandCount = 24
 
-    /// Maximum height of bands as fraction of screen height
-    private let maxHeightFraction: CGFloat = 0.45
+    /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
+    private let maxHeight: CGFloat = 65
 
     /// Minimum height of bands (always visible base)
-    private let minHeightFraction: CGFloat = 0.02
+    private let minHeight: CGFloat = 8
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 3
+    private let poolHeight: CGFloat = 2
 
-    /// Smoothing factor for band animations (0 = no smoothing, 1 = frozen)
-    private let smoothingFactor: Double = 0.75
+    /// Smoothing factor for band animations (lower = snappier response)
+    private let smoothingFactor: Double = 0.35
 
     /// Breathing animation speed when paused
     private let breathingSpeed: Double = 0.5
 
     /// Breathing amplitude (how much bands move when paused)
-    private let breathingAmplitude: Double = 0.15
+    private let breathingAmplitude: Double = 0.2
 
     // MARK: - Init
 
@@ -58,14 +56,19 @@ public struct AuroraVisualizationView: View {
     // MARK: - Body
 
     public var body: some View {
-        TimelineView(.animation(paused: false)) { timeline in
-            Canvas { context, size in
-                drawAurora(
-                    context: context,
-                    size: size,
-                    time: timeline.date.timeIntervalSinceReferenceDate
-                )
+        GeometryReader { geometry in
+            TimelineView(.animation(paused: false)) { timeline in
+                Canvas { context, size in
+                    drawAurora(
+                        context: context,
+                        size: size,
+                        time: timeline.date.timeIntervalSinceReferenceDate
+                    )
+                }
             }
+            // Constrain the canvas to only the bottom area we need
+            .frame(height: maxHeight + 20) // Extra for glow overflow
+            .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 1.0), value: isVisible)
@@ -124,45 +127,48 @@ public struct AuroraVisualizationView: View {
         for i in 0..<bandCount {
             let target = targetBands[i]
             let current = smoothedBands[i]
-            // Faster response when playing, slower breathing decay when paused
-            let factor = isPlaying ? smoothingFactor : 0.92
+            // Fast attack, slightly slower decay for natural feel
+            let attackFactor = target > current ? 0.15 : smoothingFactor
+            let factor = isPlaying ? attackFactor : 0.85
             newSmoothed[i] = current * factor + target * (1.0 - factor)
         }
 
         // Update state for next frame
         DispatchQueue.main.async {
-            self.previousBands = self.smoothedBands
             self.smoothedBands = newSmoothed
         }
 
-        // Draw layers from back to front for proper blending
-        drawAuroraGlow(context: context, size: size, bands: newSmoothed)
-        drawAuroraBands(context: context, size: size, bands: newSmoothed)
+        // Draw multiple soft glow passes for blur effect (back to front)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 25, opacity: 0.15)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.25)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.35)
         drawBottomPool(context: context, size: size)
     }
 
     /// Calculates the intensity value for each frequency band
+    /// All bands react simultaneously to current loudness (like a real-time meter)
     private func calculateBandValues(time: Double, isPlaying: Bool) -> [Double] {
         var bands = [Double](repeating: 0.0, count: bandCount)
 
-        // Get base loudness from waveform
+        // Get current loudness from waveform position
         let baseLoudness = sampleLoudness()
 
         for i in 0..<bandCount {
             let normalizedPosition = Double(i) / Double(bandCount - 1)
 
             if isPlaying {
-                // Simulate frequency distribution: bass (left) is typically louder
+                // Frequency weighting: bass (left) typically louder
                 let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
 
-                // Add variation based on position and time for organic movement
-                let phaseOffset = normalizedPosition * 6.0
-                let variation = sin(time * 3.0 + phaseOffset) * 0.15
-                let secondaryWave = sin(time * 1.7 + phaseOffset * 0.5) * 0.08
+                // Per-band variation using different noise frequencies
+                // These create the "different frequencies" look without scrolling
+                let noise1 = sin(time * 4.5 + Double(i) * 0.8) * 0.12
+                let noise2 = sin(time * 7.2 + Double(i) * 1.3) * 0.08
+                let noise3 = sin(time * 2.1 + Double(i) * 0.4) * 0.06
 
-                // Combine loudness with frequency weighting and variation
-                let intensity = baseLoudness * frequencyWeight + variation + secondaryWave
-                bands[i] = max(0.05, min(1.0, intensity))
+                // Combine base loudness with frequency weighting and noise
+                let intensity = baseLoudness * frequencyWeight + noise1 + noise2 + noise3
+                bands[i] = max(0.08, min(1.0, intensity))
             } else {
                 // Breathing animation when paused
                 bands[i] = calculateBreathingValue(
@@ -177,7 +183,6 @@ public struct AuroraVisualizationView: View {
     }
 
     /// Calculates frequency weighting to simulate bass-heavy response
-    /// Bass frequencies (left side) tend to have more energy in music
     private func calculateFrequencyWeight(_ normalizedPosition: Double) -> Double {
         // Bell curve favoring lower-mid frequencies with gradual treble rolloff
         let bassBoost = exp(-pow((normalizedPosition - 0.15) * 2.5, 2))
@@ -190,67 +195,70 @@ public struct AuroraVisualizationView: View {
     /// Calculates breathing animation value for a band when paused
     private func calculateBreathingValue(bandIndex: Int, time: Double, baseLoudness: Double) -> Double {
         let normalizedPosition = Double(bandIndex) / Double(bandCount - 1)
-
-        // Multiple overlapping sine waves for organic breathing
         let breathTime = time * breathingSpeed
 
-        // Primary slow breath
+        // Multiple overlapping sine waves for organic breathing
         let primaryBreath = sin(breathTime * 0.8) * 0.5 + 0.5
-
-        // Secondary wave with position offset for ripple effect
         let phaseOffset = normalizedPosition * Double.pi * 2
         let secondaryBreath = sin(breathTime * 1.3 + phaseOffset) * 0.3
-
-        // Tertiary subtle variation
         let tertiaryBreath = sin(breathTime * 2.1 + phaseOffset * 0.7) * 0.1
 
-        // Frequency weighting even when paused (keeps the shape)
+        // Keep frequency shape when paused
         let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
 
-        // Combine for final breathing value
         let breathValue = (primaryBreath + secondaryBreath + tertiaryBreath) * breathingAmplitude
-        let baseValue = baseLoudness * 0.3 + 0.1 // Keep some memory of last played loudness
+        let baseValue = baseLoudness * 0.3 + 0.15
 
-        return max(0.05, min(0.4, (baseValue + breathValue) * frequencyWeight))
+        return max(0.08, min(0.5, (baseValue + breathValue) * frequencyWeight))
     }
 
-    /// Draws the soft glow layer behind the bands
-    private func drawAuroraGlow(context: GraphicsContext, size: CGSize, bands: [Double]) {
+    /// Draws a soft glow layer with wide, overlapping bands
+    private func drawSoftGlowLayer(
+        context: GraphicsContext,
+        size: CGSize,
+        bands: [Double],
+        blur: CGFloat,
+        opacity: Double
+    ) {
         let bandWidth = size.width / CGFloat(bandCount)
-        let maxHeight = size.height * maxHeightFraction
-        let baseOpacity = colorScheme == .dark ? 0.2 : 0.12
+        let baseOpacity = (colorScheme == .dark ? 0.5 : 0.35) * opacity
 
-        // Draw wider, softer glow rectangles behind each band
         for i in 0..<bandCount {
             let intensity = bands[i]
-            let height = maxHeight * CGFloat(intensity)
-            let x = CGFloat(i) * bandWidth
+            let height = minHeight + (maxHeight - minHeight) * CGFloat(intensity)
+
+            // Center the band and make it wide for overlap
+            let centerX = (CGFloat(i) + 0.5) * bandWidth
+            let glowWidth = bandWidth * 4 // Wide overlap for blending
+            let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
-            // Glow extends wider than the band
-            let glowWidth = bandWidth * 3
-            let glowX = x - bandWidth
-
-            // Create vertical gradient for glow
-            let glowGradient = Gradient(colors: [
-                accentColor.opacity(baseOpacity * intensity * 0.3),
-                accentColor.opacity(baseOpacity * intensity),
-                accentColor.opacity(0)
+            // Create vertical gradient: concentrated at bottom, fading up
+            let bandGradient = Gradient(stops: [
+                .init(color: accentColor.opacity(baseOpacity * intensity), location: 0.0),
+                .init(color: accentColor.opacity(baseOpacity * intensity * 0.7), location: 0.2),
+                .init(color: accentColor.opacity(baseOpacity * intensity * 0.3), location: 0.5),
+                .init(color: accentColor.opacity(0), location: 1.0)
             ])
 
+            // Use ellipse for softer edges instead of rectangle
             let glowRect = CGRect(
-                x: glowX,
+                x: x,
                 y: y,
                 width: glowWidth,
                 height: height + poolHeight
             )
 
-            var glowContext = context
-            glowContext.blendMode = .plusLighter
-            glowContext.fill(
-                Path(glowRect),
+            var bandContext = context
+            bandContext.blendMode = .plusLighter
+
+            // Apply blur filter for soft glow
+            bandContext.addFilter(.blur(radius: blur))
+
+            bandContext.fill(
+                Path(ellipseIn: glowRect),
                 with: .linearGradient(
-                    glowGradient,
+                    bandGradient,
                     startPoint: CGPoint(x: glowRect.midX, y: glowRect.maxY),
                     endPoint: CGPoint(x: glowRect.midX, y: glowRect.minY)
                 )
@@ -258,86 +266,32 @@ public struct AuroraVisualizationView: View {
         }
     }
 
-    /// Draws the main frequency band columns
-    private func drawAuroraBands(context: GraphicsContext, size: CGSize, bands: [Double]) {
-        let bandWidth = size.width / CGFloat(bandCount)
-        let maxHeight = size.height * maxHeightFraction
-        let minHeight = size.height * minHeightFraction
-        let baseOpacity = colorScheme == .dark ? 0.5 : 0.35
-
-        for i in 0..<bandCount {
-            let intensity = bands[i]
-            let height = minHeight + (maxHeight - minHeight) * CGFloat(intensity)
-            let x = CGFloat(i) * bandWidth
-            let y = size.height - height - poolHeight
-
-            // Create vertical gradient: solid at bottom, fading to transparent at top
-            let bandGradient = Gradient(stops: [
-                .init(color: accentColor.opacity(baseOpacity * intensity), location: 0.0),
-                .init(color: accentColor.opacity(baseOpacity * intensity * 0.8), location: 0.3),
-                .init(color: accentColor.opacity(baseOpacity * intensity * 0.4), location: 0.6),
-                .init(color: accentColor.opacity(0), location: 1.0)
-            ])
-
-            let bandRect = CGRect(
-                x: x,
-                y: y,
-                width: bandWidth + 1, // Slight overlap to prevent gaps
-                height: height + poolHeight
-            )
-
-            var bandContext = context
-            bandContext.blendMode = .plusLighter
-            bandContext.fill(
-                Path(bandRect),
-                with: .linearGradient(
-                    bandGradient,
-                    startPoint: CGPoint(x: bandRect.midX, y: bandRect.maxY),
-                    endPoint: CGPoint(x: bandRect.midX, y: bandRect.minY)
-                )
-            )
-        }
-    }
-
     /// Draws the solid color pool at the very bottom
     private func drawBottomPool(context: GraphicsContext, size: CGSize) {
-        let poolOpacity = colorScheme == .dark ? 0.6 : 0.4
+        let poolOpacity = colorScheme == .dark ? 0.5 : 0.35
 
-        // Solid line at the very bottom
+        // Soft gradient pool at the bottom
         let poolRect = CGRect(
             x: 0,
-            y: size.height - poolHeight,
+            y: size.height - poolHeight - 15,
             width: size.width,
-            height: poolHeight
+            height: poolHeight + 15
         )
+
+        let poolGradient = Gradient(colors: [
+            .clear,
+            accentColor.opacity(poolOpacity * 0.3),
+            accentColor.opacity(poolOpacity * 0.6)
+        ])
 
         var poolContext = context
         poolContext.blendMode = .plusLighter
         poolContext.fill(
             Path(poolRect),
-            with: .color(accentColor.opacity(poolOpacity))
-        )
-
-        // Gradient fade just above the pool
-        let fadeHeight: CGFloat = 20
-        let fadeRect = CGRect(
-            x: 0,
-            y: size.height - poolHeight - fadeHeight,
-            width: size.width,
-            height: fadeHeight
-        )
-
-        let fadeGradient = Gradient(colors: [
-            .clear,
-            accentColor.opacity(poolOpacity * 0.5)
-        ])
-
-        poolContext.fill(
-            Path(fadeRect),
             with: .linearGradient(
-                fadeGradient,
-                startPoint: CGPoint(x: fadeRect.midX, y: fadeRect.minY),
-                endPoint: CGPoint(x: fadeRect.midX, y: fadeRect.maxY)
+                poolGradient,
+                startPoint: CGPoint(x: poolRect.midX, y: poolRect.minY),
+                endPoint: CGPoint(x: poolRect.midX, y: poolRect.maxY)
             )
         )
     }
@@ -365,7 +319,6 @@ public struct AuroraVisualizationView: View {
 
         let interpolated = lowerValue + (upperValue - lowerValue) * fraction
 
-        // Return with minimum floor for visual presence
         return max(0.2, interpolated)
     }
 }
