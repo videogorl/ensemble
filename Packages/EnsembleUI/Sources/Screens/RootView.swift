@@ -5,23 +5,11 @@ import SwiftUI
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    private let playbackService = DependencyContainer.shared.playbackService
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            // Layer 0: Main content (tabs, navigation)
-            mainContentView
-
-            // Layer 1: Aurora visualization (overlay, doesn't block touches)
-            if settingsManager.auroraVisualizationEnabled {
-                AuroraVisualizationView(
-                    playbackService: playbackService,
-                    accentColor: settingsManager.accentColor.color
-                )
-            }
-        }
+        mainContentView
         .accentColor(settingsManager.accentColor.color)
         .onAppear {
             updateAppearance()
