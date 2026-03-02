@@ -913,15 +913,20 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's universal transcode endpoint
-        components.path = "/music/:/transcode/universal/start.m3u8"
+        // Use Plex's universal transcode endpoint - use start.mp3 for direct audio stream
+        // (not .m3u8 which requires HLS playlist parsing)
+        components.path = "/music/:/transcode/universal/start.mp3"
         
         var queryItems: [URLQueryItem] = [
             // Path to the media item
             URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
             
-            // Protocol for streaming
+            // Protocol for streaming - http for simple progressive download
             URLQueryItem(name: "protocol", value: "http"),
+            
+            // Media type
+            URLQueryItem(name: "mediaIndex", value: "0"),
+            URLQueryItem(name: "partIndex", value: "0"),
             
             // Authentication
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
