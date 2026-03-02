@@ -81,6 +81,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     var healedPathCount = 0
                     var healedSizeCount = 0
                     var missingFileCount = 0
+                    var invalidFileCount = 0
 
                     for download in downloads where download.downloadStatus == .completed {
                         guard let filePath = download.filePath, !filePath.isEmpty else {
@@ -89,6 +90,17 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                         let fileExists = FileManager.default.fileExists(atPath: filePath)
                         if fileExists {
+                            if Self.isClearlyInvalidDownloadedPayload(atPath: filePath) {
+                                download.downloadStatus = .failed
+                                download.error = "Downloaded file is invalid"
+                                download.progress = 0
+                                if download.track?.localFilePath == filePath {
+                                    download.track?.localFilePath = nil
+                                }
+                                invalidFileCount += 1
+                                continue
+                            }
+
                             if download.track?.localFilePath != filePath {
                                 download.track?.localFilePath = filePath
                                 healedPathCount += 1
@@ -116,7 +128,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         try context.save()
                         #if DEBUG
                         EnsembleLogger.debug(
-                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount))"
+                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount))"
                         )
                         #endif
                     }
@@ -464,6 +476,24 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 }
             }
         }
+    }
+
+    private static func isClearlyInvalidDownloadedPayload(atPath path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return true }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 64), !header.isEmpty else {
+            return true
+        }
+
+        let leadingText = String(decoding: header, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return leadingText.hasPrefix("<html")
+            || leadingText.hasPrefix("<!doctype html")
+            || leadingText.hasPrefix("<?xml")
+            || leadingText.contains("<h1>400 bad request</h1>")
+            || leadingText.contains("<h1>404 not found</h1>")
     }
 
     private static func normalizedQuality(_ quality: String) -> String {

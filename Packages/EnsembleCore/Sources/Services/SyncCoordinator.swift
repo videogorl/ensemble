@@ -1159,7 +1159,7 @@ public final class SyncCoordinator: ObservableObject {
     public func getOfflineDownloadQueueMedia(
         for track: Track,
         quality: StreamingQuality
-    ) async throws -> (data: Data, suggestedFilename: String?) {
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
         guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }

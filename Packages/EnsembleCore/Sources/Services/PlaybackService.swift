@@ -2630,11 +2630,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If we have a local file, use it regardless of network state.
         if let localPath = track.localFilePath {
             if FileManager.default.fileExists(atPath: localPath) {
+                let localPlaybackURL = preparedLocalPlaybackURL(forPath: localPath)
+                if isClearlyInvalidLocalPayload(localPlaybackURL) {
+                    #if DEBUG
+                    EnsembleLogger.debug("   ⚠️ Local file payload appears invalid; falling back to stream setup: \(localPlaybackURL.path)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    EnsembleLogger.debug("   ✅ Using local file: \(localPlaybackURL.path)")
+                    #endif
+                    return AVPlayerItem(url: localPlaybackURL)
+                }
+
+                // If an extension-normalized alias exists but is invalid, remove it and
+                // try the original path before falling back to streaming.
+                if localPlaybackURL.path != localPath {
+                    try? FileManager.default.removeItem(at: localPlaybackURL)
+                    let originalURL = URL(fileURLWithPath: localPath)
+                    if !isClearlyInvalidLocalPayload(originalURL) {
+                        #if DEBUG
+                        EnsembleLogger.debug("   ✅ Using local file (original): \(originalURL.path)")
+                        #endif
+                        return AVPlayerItem(url: originalURL)
+                    }
+                }
+
                 #if DEBUG
-                EnsembleLogger.debug("   ✅ Using local file: \(localPath)")
+                EnsembleLogger.debug("   ⚠️ Local file was present but unreadable; continuing with stream fallback")
                 #endif
-                let url = URL(fileURLWithPath: localPath)
-                return AVPlayerItem(url: url)
             }
 
             #if DEBUG
@@ -2769,6 +2792,80 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         if let urlAsset = player?.currentItem?.asset as? AVURLAsset {
             return urlAsset.url.isFileURL
+        }
+
+        return false
+    }
+
+    /// Normalize local playback URL so container/extension mismatches do not prevent decode.
+    /// Some servers return MPEG data via queue flow without a filename extension.
+    private func preparedLocalPlaybackURL(forPath path: String) -> URL {
+        let originalURL = URL(fileURLWithPath: path)
+        guard originalURL.pathExtension.lowercased() == "m4a" else { return originalURL }
+        guard sniffedAudioContainer(for: originalURL) == "mp3" else { return originalURL }
+
+        let mp3URL = originalURL.deletingPathExtension().appendingPathExtension("mp3")
+        if FileManager.default.fileExists(atPath: mp3URL.path) {
+            if sniffedAudioContainer(for: mp3URL) == "mp3", !isClearlyInvalidLocalPayload(mp3URL) {
+                return mp3URL
+            }
+            try? FileManager.default.removeItem(at: mp3URL)
+        }
+
+        do {
+            try FileManager.default.linkItem(at: originalURL, to: mp3URL)
+            return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
+        } catch {
+            do {
+                try FileManager.default.copyItem(at: originalURL, to: mp3URL)
+                return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed creating mp3 alias for local playback: \(error.localizedDescription)")
+                #endif
+                return originalURL
+            }
+        }
+    }
+
+    private func sniffedAudioContainer(for fileURL: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 12), !header.isEmpty else {
+            return nil
+        }
+
+        if header.starts(with: Data([0x49, 0x44, 0x33])) { // ID3
+            return "mp3"
+        }
+        if header.starts(with: Data([0x66, 0x4C, 0x61, 0x43])) { // fLaC
+            return "flac"
+        }
+        if header.starts(with: Data([0xFF, 0xFB])) || header.starts(with: Data([0xFF, 0xF3])) || header.starts(with: Data([0xFF, 0xF2])) {
+            return "mp3"
+        }
+        if header.count >= 8 && header.subdata(in: 4..<8) == Data([0x66, 0x74, 0x79, 0x70]) {
+            return "m4a"
+        }
+        return nil
+    }
+
+    private func isClearlyInvalidLocalPayload(_ fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return true }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 64), !header.isEmpty else {
+            return true
+        }
+
+        let leadingText = String(decoding: header, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if leadingText.hasPrefix("<html")
+            || leadingText.hasPrefix("<!doctype html")
+            || leadingText.hasPrefix("<?xml")
+            || leadingText.contains("<h1>400 bad request</h1>")
+            || leadingText.contains("<h1>404 not found</h1>") {
+            return true
         }
 
         return false
@@ -3817,6 +3914,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // If playback failed due to network, try to recover.
             if case .failed = playbackState {
+                if isCurrentPlaybackUsingLocalFile() {
+                    #if DEBUG
+                    EnsembleLogger.debug("ℹ️ Skipping reconnect retry for local playback failure")
+                    #endif
+                    return
+                }
                 #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
                 #endif

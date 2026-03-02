@@ -596,7 +596,9 @@ public final class OfflineDownloadService: ObservableObject {
                     let destinationURL = localFileURL(
                         for: track,
                         quality: requestedQuality,
-                        suggestedFilename: queuePayload.suggestedFilename
+                        suggestedFilename: queuePayload.suggestedFilename,
+                        mimeType: queuePayload.mimeType,
+                        payload: queuePayload.data
                     )
                     if FileManager.default.fileExists(atPath: destinationURL.path) {
                         try? FileManager.default.removeItem(at: destinationURL)
@@ -916,19 +918,69 @@ public final class OfflineDownloadService: ObservableObject {
         let safeSource = (track.sourceCompositeKey ?? "unknown")
             .replacingOccurrences(of: ":", with: "_")
         let responseExtension = response.suggestedFilename.flatMap { URL(fileURLWithPath: $0).pathExtension }
-        let ext = responseExtension?.isEmpty == false ? responseExtension! : "m4a"
+        let ext = responseExtension?.isEmpty == false
+            ? responseExtension!
+            : inferredFileExtension(mimeType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"), payload: nil)
         let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    private func localFileURL(for track: CDTrack, quality: StreamingQuality, suggestedFilename: String?) -> URL {
+    private func localFileURL(
+        for track: CDTrack,
+        quality: StreamingQuality,
+        suggestedFilename: String?,
+        mimeType: String?,
+        payload: Data?
+    ) -> URL {
         let safeSource = (track.sourceCompositeKey ?? "unknown")
             .replacingOccurrences(of: ":", with: "_")
         let suggestedExtension = suggestedFilename
             .flatMap { URL(fileURLWithPath: $0).pathExtension }
-        let ext = suggestedExtension?.isEmpty == false ? suggestedExtension! : "m4a"
+        let ext = suggestedExtension?.isEmpty == false
+            ? suggestedExtension!
+            : inferredFileExtension(mimeType: mimeType, payload: payload)
         let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private func inferredFileExtension(mimeType: String?, payload: Data?) -> String {
+        if let mimeType {
+            let normalized = mimeType.lowercased()
+            if normalized.contains("mpeg") || normalized.contains("mp3") {
+                return "mp3"
+            }
+            if normalized.contains("mp4") || normalized.contains("m4a") {
+                return "m4a"
+            }
+            if normalized.contains("aac") {
+                return "aac"
+            }
+            if normalized.contains("flac") {
+                return "flac"
+            }
+        }
+
+        guard let payload, payload.count >= 4 else {
+            return "m4a"
+        }
+
+        if payload.starts(with: [0x49, 0x44, 0x33]) { // ID3
+            return "mp3"
+        }
+        if payload.starts(with: [0x66, 0x4C, 0x61, 0x43]) { // fLaC
+            return "flac"
+        }
+        if payload.starts(with: [0xFF, 0xFB]) || payload.starts(with: [0xFF, 0xF3]) || payload.starts(with: [0xFF, 0xF2]) {
+            return "mp3"
+        }
+        if payload.count >= 12 {
+            let ftypMarker = Data([0x66, 0x74, 0x79, 0x70]) // ftyp
+            if payload.subdata(in: 4..<8) == ftypMarker {
+                return "m4a"
+            }
+        }
+
+        return "m4a"
     }
 
     private var canExecuteDownloads: Bool {

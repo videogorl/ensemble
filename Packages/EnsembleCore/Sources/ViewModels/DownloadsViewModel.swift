@@ -13,6 +13,10 @@ public final class DownloadsViewModel: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var lastLoadStartedAt = Date.distantPast
     private let minimumLoadInterval: TimeInterval = 0.75
+    private let minimumForcedLoadInterval: TimeInterval = 0.35
+    private static var globalLastLoadStartedAt = Date.distantPast
+    private var lastLoggedSnapshot: String?
+    private static var globalLastLoggedSnapshot: String?
 
     public init(downloadManager: DownloadManagerProtocol) {
         self.downloadManager = downloadManager
@@ -26,11 +30,9 @@ public final class DownloadsViewModel: ObservableObject {
         guard pollingTask == nil else { return }
 
         pollingTask = Task { [weak self] in
-            guard let self else { return }
-            await self.loadDownloads(force: true)
-
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self else { return }
                 await self.loadDownloads()
             }
         }
@@ -47,10 +49,15 @@ public final class DownloadsViewModel: ObservableObject {
         }
 
         let now = Date()
-        if !force, now.timeIntervalSince(lastLoadStartedAt) < minimumLoadInterval {
+        let minimumInterval = force ? minimumForcedLoadInterval : minimumLoadInterval
+        if now.timeIntervalSince(lastLoadStartedAt) < minimumInterval {
+            return
+        }
+        if now.timeIntervalSince(Self.globalLastLoadStartedAt) < minimumInterval {
             return
         }
         lastLoadStartedAt = now
+        Self.globalLastLoadStartedAt = now
 
         isLoading = true
         error = nil
@@ -69,9 +76,15 @@ public final class DownloadsViewModel: ObservableObject {
                 guard let path = download.track.localFilePath ?? download.filePath else { return true }
                 return !FileManager.default.fileExists(atPath: path)
             }
-            EnsembleLogger.debug(
-                "📦 Downloads loaded: total=\(downloads.count), completed=\(completed.count), withPath=\(completedWithLocalPath.count), missingDiskFile=\(completedWithMissingDiskFile.count), totalSize=\(size)"
-            )
+            let snapshot =
+                "total=\(downloads.count),completed=\(completed.count),withPath=\(completedWithLocalPath.count),missingDiskFile=\(completedWithMissingDiskFile.count),totalSize=\(size)"
+            if snapshot != lastLoggedSnapshot, snapshot != Self.globalLastLoggedSnapshot {
+                EnsembleLogger.debug(
+                    "📦 Downloads loaded: total=\(downloads.count), completed=\(completed.count), withPath=\(completedWithLocalPath.count), missingDiskFile=\(completedWithMissingDiskFile.count), totalSize=\(size)"
+                )
+                lastLoggedSnapshot = snapshot
+                Self.globalLastLoggedSnapshot = snapshot
+            }
             #endif
         } catch {
             self.error = error.localizedDescription

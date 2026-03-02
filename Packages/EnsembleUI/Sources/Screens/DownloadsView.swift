@@ -6,6 +6,7 @@ public struct DownloadsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @State private var isRefreshingDownloadQuality = false
+    @State private var hasStartedPolling = false
     @AppStorage("downloadQuality") private var downloadQuality = "original"
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -14,7 +15,7 @@ public struct DownloadsView: View {
     }
 
     public var body: some View {
-        Group {
+        ZStack {
             if viewModel.isLoading && viewModel.downloads.isEmpty {
                 loadingView
             } else if viewModel.downloads.isEmpty {
@@ -76,10 +77,14 @@ public struct DownloadsView: View {
             #endif
         }
         .task {
+            guard !hasStartedPolling else { return }
+            hasStartedPolling = true
+            await viewModel.loadDownloads(force: true)
             viewModel.startPolling()
         }
         .onDisappear {
             viewModel.stopPolling()
+            hasStartedPolling = false
         }
         .refreshable {
             await viewModel.loadDownloads(force: true)

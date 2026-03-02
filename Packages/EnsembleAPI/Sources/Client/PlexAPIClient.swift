@@ -992,7 +992,7 @@ public actor PlexAPIClient {
     public func downloadTranscodedMediaViaQueue(
         trackRatingKey: String,
         quality: StreamingQuality
-    ) async throws -> (data: Data, suggestedFilename: String?) {
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
         }
@@ -1299,7 +1299,7 @@ public actor PlexAPIClient {
     private func fetchDownloadQueueMedia(
         queueId: Int,
         itemId: Int
-    ) async throws -> (data: Data, suggestedFilename: String?) {
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
         let deadline = Date().addingTimeInterval(90)
         while Date() < deadline {
             let request = try makeServerRequest(
@@ -1318,7 +1318,8 @@ public actor PlexAPIClient {
                             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                         return filename.isEmpty ? nil : String(filename)
                     }
-                return (data, suggestedFilename)
+                let mimeType = response.value(forHTTPHeaderField: "Content-Type")
+                return (data, suggestedFilename, mimeType)
             }
 
             if response.statusCode == 503 {
