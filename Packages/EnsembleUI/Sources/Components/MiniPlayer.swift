@@ -257,6 +257,7 @@ public struct MiniPlayer: View {
                                 ),
                                 lineWidth: 1.5
                             )
+                            .blendMode(.plusLighter)
                     )
                     .overlay(
                         // Specular Highlight (The sharp edge reflection)
@@ -274,6 +275,7 @@ public struct MiniPlayer: View {
                                 ),
                                 lineWidth: 0.5
                             )
+                            .blendMode(.plusLighter)
                     )
                     .overlay(
                         // Glass Sheen (Subtle surface reflection)
@@ -328,7 +330,7 @@ public struct MiniPlayer: View {
                 }
         )
         .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
-        .padding(.horizontal, isFloating ? 24 : 12)
+        .padding(.horizontal, isFloating ? 12 : 8)
         .padding(.bottom, isFloating ? 6 : 4)
         .offset(y: verticalOffset)
         .contextMenu {
