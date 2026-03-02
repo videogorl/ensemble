@@ -929,6 +929,7 @@ public actor PlexAPIClient {
             URLQueryItem(name: "path", value: trackKey), // e.g. /library/parts/123/456.mp3
             URLQueryItem(name: "audioCodec", value: "aac"),
             URLQueryItem(name: "audioBitrate", value: bitrate),
+            URLQueryItem(name: "offset", value: "0"), // Start from beginning
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
