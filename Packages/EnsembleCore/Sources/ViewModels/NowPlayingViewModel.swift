@@ -344,6 +344,23 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.queueSections
     }
 
+    // MARK: - Album Metadata
+
+    /// Fetch album metadata for the current track (for Info card display)
+    public func fetchAlbumForCurrentTrack() async -> Album? {
+        guard let albumRatingKey = currentTrack?.albumRatingKey else { return nil }
+        do {
+            if let cdAlbum = try await libraryRepository.fetchAlbum(ratingKey: albumRatingKey) {
+                return Album(from: cdAlbum)
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("Failed to fetch album for current track: \(error)")
+            #endif
+        }
+        return nil
+    }
+
     // MARK: - Playback Controls
 
     public func play(track: Track) {

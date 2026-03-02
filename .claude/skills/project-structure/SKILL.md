@@ -172,6 +172,13 @@ Tests/
 ```
 Sources/
 +-- Components/
+|   +-- NowPlaying/
+|   |   +-- ControlsCard.swift        # Center card with artwork, scrubber, playback controls
+|   |   +-- InfoCard.swift            # Track metadata and streaming/connection details card
+|   |   +-- LyricsCard.swift          # Lyrics display card (placeholder)
+|   |   +-- NowPlayingCarousel.swift  # Horizontal paging carousel for all cards
+|   |   +-- PageIndicator.swift       # Page dots/icons for carousel navigation
+|   |   +-- QueueCard.swift           # Queue list with shuffle/repeat/autoplay controls
 |   +-- AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 |   +-- AlbumCard.swift               # Grid card for albums
 |   +-- AlbumDetailLoader.swift       # Async loader for album detail with loading/error states

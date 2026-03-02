@@ -7,12 +7,14 @@ public enum NowPlayingPage: Int, CaseIterable {
     case queue = 0
     case controls = 1
     case lyrics = 2
-    
+    case info = 3
+
     var icon: String {
         switch self {
         case .queue: return "list.bullet"
         case .controls: return "play.fill"
         case .lyrics: return "text.quote"
+        case .info: return "info.circle"
         }
     }
 }
