@@ -1095,10 +1095,10 @@ public final class SyncCoordinator: ObservableObject {
            let provider = syncProviders[sourceKey] {
             // Parse the composite key to extract serverId
             let components = sourceKey.split(separator: ":")
-            if components.count >= 3 {
-                let accountId = String(components[0])
-                let serverId = String(components[1])
-                let libraryId = String(components[2])
+            if components.count >= 4 {
+                let accountId = String(components[1])
+                let serverId = String(components[2])
+                let libraryId = String(components[3])
                 
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
@@ -1127,6 +1127,31 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("❌ No providers available")
         #endif
         throw PlexAPIError.noServerSelected
+    }
+
+    /// Get a quality-aware universal stream URL for offline downloading.
+    /// Playback should continue using direct stream URLs for AVPlayer compatibility.
+    public func getOfflineDownloadURL(for track: Track, quality: StreamingQuality) async throws -> URL {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
+            throw PlexAPIError.invalidResponse
+        }
+
+        return try await apiClient.getUniversalStreamURL(for: plexTrack, quality: quality)
     }
 
     /// Get artwork URL, routing to the correct provider

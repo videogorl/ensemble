@@ -434,7 +434,7 @@ public final class OfflineDownloadService: ObservableObject {
             try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading)
 
             let quality = streamingQuality(from: download.quality)
-            let streamURL = try await syncCoordinator.getStreamURL(for: Track(from: track), quality: quality)
+            let streamURL = try await syncCoordinator.getOfflineDownloadURL(for: Track(from: track), quality: quality)
 
             let (temporaryURL, response) = try await URLSession.shared.download(from: streamURL)
 
