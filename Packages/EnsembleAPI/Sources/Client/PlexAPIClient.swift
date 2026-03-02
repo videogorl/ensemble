@@ -879,7 +879,6 @@ public actor PlexAPIClient {
         
         components.path = partKey
         components.queryItems = [
-            URLQueryItem(name: "download", value: "1"), // Request transcoding for incompatible formats (e.g. FLAC)
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
@@ -1070,7 +1069,6 @@ public actor PlexAPIClient {
         
         components.path = partKey
         components.queryItems = [
-            URLQueryItem(name: "download", value: "1"), // Request transcoding for incompatible formats (e.g. FLAC)
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
