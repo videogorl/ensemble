@@ -16,7 +16,6 @@ public struct AuroraVisualizationView: View {
 
     @State private var waveformHeights: [Double] = []
     @State private var currentTime: TimeInterval = 0
-    @State private var duration: TimeInterval = 0
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
 
@@ -75,12 +74,8 @@ public struct AuroraVisualizationView: View {
             // Initialize with current state
             waveformHeights = playbackService.waveformHeights
             currentTime = playbackService.currentTime
-            duration = playbackService.duration
             playbackState = playbackService.playbackState
             updateVisibility(for: playbackState)
-        }
-        .onChange(of: playbackService.duration) { newDuration in
-            duration = newDuration
         }
     }
 
@@ -98,11 +93,19 @@ public struct AuroraVisualizationView: View {
 
     /// Updates visibility based on playback state
     private func updateVisibility(for state: PlaybackState) {
+        let newVisibility: Bool
         switch state {
         case .playing, .buffering, .loading:
-            isVisible = true
+            newVisibility = true
         case .paused, .stopped, .failed:
-            isVisible = false
+            newVisibility = false
+        }
+
+        if newVisibility != isVisible {
+            #if DEBUG
+            EnsembleLogger.debug("🌌 Aurora visibility: \(newVisibility) (state: \(state))")
+            #endif
+            isVisible = newVisibility
         }
     }
 
@@ -204,12 +207,14 @@ public struct AuroraVisualizationView: View {
 
     /// Samples the current loudness from waveform data based on playback position
     private func sampleLoudness() -> Double {
-        guard !waveformHeights.isEmpty, duration > 0 else {
+        // Read duration directly from service since it's a computed property
+        let currentDuration = playbackService.duration
+        guard !waveformHeights.isEmpty, currentDuration > 0 else {
             return idleAmplitude
         }
 
         // Calculate position in waveform array
-        let progress = min(1.0, max(0.0, currentTime / duration))
+        let progress = min(1.0, max(0.0, currentTime / currentDuration))
         let floatIndex = progress * Double(waveformHeights.count - 1)
 
         // Linear interpolation between adjacent samples
