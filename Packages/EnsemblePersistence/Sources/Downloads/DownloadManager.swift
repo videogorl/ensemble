@@ -82,42 +82,63 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     var healedSizeCount = 0
                     var missingFileCount = 0
                     var invalidFileCount = 0
+                    var recoveredFailedCount = 0
 
-                    for download in downloads where download.downloadStatus == .completed {
-                        guard let filePath = download.filePath, !filePath.isEmpty else {
+                    for download in downloads {
+                        guard let originalFilePath = download.filePath, !originalFilePath.isEmpty else {
                             continue
                         }
 
-                        let fileExists = FileManager.default.fileExists(atPath: filePath)
+                        let resolvedFilePath = Self.resolveExistingDownloadedFilePath(originalFilePath) ?? originalFilePath
+                        if resolvedFilePath != originalFilePath {
+                            download.filePath = resolvedFilePath
+                            healedPathCount += 1
+                        }
+
+                        let fileExists = FileManager.default.fileExists(atPath: resolvedFilePath)
+                        let isCompleted = download.downloadStatus == .completed
+                        let isFailed = download.downloadStatus == .failed
+
                         if fileExists {
-                            if Self.isClearlyInvalidDownloadedPayload(atPath: filePath) {
+                            if Self.isClearlyInvalidDownloadedPayload(atPath: resolvedFilePath) {
                                 download.downloadStatus = .failed
                                 download.error = "Downloaded file is invalid"
                                 download.progress = 0
-                                if download.track?.localFilePath == filePath {
+                                if download.track?.localFilePath == resolvedFilePath {
                                     download.track?.localFilePath = nil
                                 }
                                 invalidFileCount += 1
                                 continue
                             }
 
-                            if download.track?.localFilePath != filePath {
-                                download.track?.localFilePath = filePath
+                            // Recover failed records that already have a valid payload on disk.
+                            if isFailed {
+                                download.downloadStatus = .completed
+                                download.error = nil
+                                download.progress = 1
+                                if download.completedAt == nil {
+                                    download.completedAt = Date()
+                                }
+                                recoveredFailedCount += 1
+                            }
+
+                            if download.track?.localFilePath != resolvedFilePath {
+                                download.track?.localFilePath = resolvedFilePath
                                 healedPathCount += 1
                             }
 
                             if download.fileSize <= 0,
-                               let attributes = try? FileManager.default.attributesOfItem(atPath: filePath),
+                               let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedFilePath),
                                let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
                                actualSize > 0 {
                                 download.fileSize = actualSize
                                 healedSizeCount += 1
                             }
-                        } else {
+                        } else if isCompleted {
                             download.downloadStatus = .failed
                             download.error = "Downloaded file missing on disk"
                             download.progress = 0
-                            if download.track?.localFilePath == filePath {
+                            if download.track?.localFilePath == resolvedFilePath {
                                 download.track?.localFilePath = nil
                             }
                             missingFileCount += 1
@@ -128,7 +149,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         try context.save()
                         #if DEBUG
                         EnsembleLogger.debug(
-                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount))"
+                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
                         )
                         #endif
                     }
@@ -503,6 +524,31 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         default:
             return "original"
         }
+    }
+
+    /// Resolve legacy/stale download paths to an existing local file path when possible.
+    /// This repairs records that kept an outdated absolute sandbox path.
+    private static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
+        let normalizedStoredPath: String
+        if storedPath.hasPrefix("file://"), let url = URL(string: storedPath), !url.path.isEmpty {
+            normalizedStoredPath = url.path
+        } else {
+            normalizedStoredPath = storedPath
+        }
+
+        if FileManager.default.fileExists(atPath: normalizedStoredPath) {
+            return normalizedStoredPath
+        }
+
+        let fileName = URL(fileURLWithPath: normalizedStoredPath).lastPathComponent
+        guard !fileName.isEmpty else { return nil }
+
+        let fallbackPath = downloadsDirectory.appendingPathComponent(fileName, isDirectory: false).path
+        if FileManager.default.fileExists(atPath: fallbackPath) {
+            return fallbackPath
+        }
+
+        return nil
     }
 
     private static func downloadPredicate(trackRatingKey: String, sourceCompositeKey: String?) -> NSPredicate {

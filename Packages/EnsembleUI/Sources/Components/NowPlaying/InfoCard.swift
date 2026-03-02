@@ -191,28 +191,37 @@ public struct InfoCard: View {
         isTappable: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        HStack {
+        HStack(alignment: .top, spacing: 12) {
             Text(label)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            Spacer()
+                .frame(minWidth: 72, alignment: .leading)
+
             if isTappable, let action = action {
                 Button(action: action) {
-                    HStack(spacing: 4) {
+                    HStack(alignment: .top, spacing: 4) {
                         Text(value)
                             .font(.subheadline)
                             .foregroundColor(.primary)
-                            .lineLimit(1)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                         Image(systemName: "chevron.right")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .padding(.top, 2)
                     }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+                .buttonStyle(.plain)
             } else {
                 Text(value)
                     .font(.subheadline)
                     .foregroundColor(.primary)
-                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
