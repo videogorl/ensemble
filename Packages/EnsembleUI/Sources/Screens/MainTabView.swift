@@ -179,6 +179,7 @@ public struct MainTabView: View {
                         showingNowPlaying = false
                     }
                 )
+                .accentColor(settingsManager.accentColor.color)
             }
             
             applyChromeVisibilityObservation(to: rootView)
@@ -487,6 +488,7 @@ public struct SidebarView: View {
                     showingNowPlaying = false
                 }
             )
+            .accentColor(deps.settingsManager.accentColor.color)
         }
         .task {
             await libraryVM.refresh()
