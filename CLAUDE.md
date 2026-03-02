@@ -15,8 +15,9 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
 | `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
+| `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
 
-**When in doubt, load all seven.** They are small and the cost of reading them is far lower than making a wrong decision.
+**When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
 
 
 ## Workflow (MUST follow for every task)
