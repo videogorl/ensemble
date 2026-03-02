@@ -118,8 +118,7 @@ public struct MainTabView: View {
                                 .tabItem {
                                     Label("More", systemImage: "ellipsis")
                                 }
-                        }
-                        .auroraBackgroundSupport(),
+                        },
                         isHidden: isImmersiveMode
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
