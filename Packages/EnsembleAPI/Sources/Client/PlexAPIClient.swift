@@ -444,6 +444,36 @@ public actor PlexAPIClient {
         return track
     }
 
+    /// Get multiple tracks in a single batch request
+    /// This is more efficient than making multiple getTrack calls when you need to fetch several tracks
+    /// - Parameter ratingKeys: Array of track rating keys to fetch
+    /// - Returns: Array of tracks matching the provided keys (may be fewer if some keys don't exist)
+    public func getTracks(ratingKeys: [String]) async throws -> [PlexTrack] {
+        guard !ratingKeys.isEmpty else { return [] }
+        
+        // Join rating keys with commas for batch request
+        let ids = ratingKeys.joined(separator: ",")
+        
+        #if DEBUG
+        EnsembleLogger.debug("📦 Fetching \(ratingKeys.count) tracks in batch")
+        #endif
+        
+        let data = try await serverRequest(
+            path: "/library/metadata/\(ids)"
+        )
+        
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        
+        #if DEBUG
+        EnsembleLogger.debug("✅ Batch fetch returned \(container.mediaContainer.items.count) tracks")
+        #endif
+        
+        return container.mediaContainer.items
+    }
+
     /// Get genres in a library section
     public func getGenres(sectionKey: String) async throws -> [PlexGenre] {
         let data = try await serverRequest(path: "/library/sections/\(sectionKey)/genre")
