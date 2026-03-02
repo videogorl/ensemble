@@ -897,6 +897,53 @@ public actor PlexAPIClient {
         return url
     }
 
+    /// Generate transcode streaming URL using the documented Plex audio transcode endpoint
+    /// This should work for all account types
+    public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
+        #endif
+        
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        
+        // Use Plex's audio transcode endpoint
+        components.path = "/audio/:/transcode"
+        
+        // Map quality to bitrate
+        let bitrate: String
+        switch quality {
+        case .original:
+            bitrate = "320" // Use high quality when transcoding "original"
+        case .high:
+            bitrate = "320"
+        case .medium:
+            bitrate = "192"
+        case .low:
+            bitrate = "128"
+        }
+        
+        components.queryItems = [
+            URLQueryItem(name: "protocol", value: "http"),
+            URLQueryItem(name: "path", value: trackKey), // e.g. /library/parts/123/456.mp3
+            URLQueryItem(name: "audioCodec", value: "aac"),
+            URLQueryItem(name: "audioBitrate", value: bitrate),
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
+        ]
+        
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+        
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
+        #endif
+        
+        return url
+    }
+    
     /// Generate streaming URL for a track using universal transcode endpoint
     /// This endpoint works for both Plex Pass and non-Plex Pass users by intelligently
     /// choosing between direct play, direct stream, or transcode based on server capabilities
@@ -939,9 +986,10 @@ public actor PlexAPIClient {
         // Add quality-specific parameters
         switch quality {
         case .original:
-            // Let Plex choose best method: direct play > direct stream > transcode
-            queryItems.append(URLQueryItem(name: "directPlay", value: "1"))
-            queryItems.append(URLQueryItem(name: "directStream", value: "1"))
+            // For original quality, don't add directPlay/directStream flags
+            // This forces the server to provide a compatible stream
+            // (it will transcode if needed for non-Plex Pass users)
+            break
             
         case .high:
             // Force transcode at 320 kbps

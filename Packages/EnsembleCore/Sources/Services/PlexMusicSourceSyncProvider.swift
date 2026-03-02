@@ -434,7 +434,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
     }
 
-    public func getStreamURL(
+public func getStreamURL(
         for trackRatingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality
@@ -443,16 +443,30 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
         
-        // Fetch the full track metadata to get the PlexTrack object
-        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey) else {
-            #if DEBUG
-            EnsembleLogger.debug("❌ PlexProvider: Could not fetch track metadata")
-            #endif
-            throw PlexAPIError.invalidURL
+        // ALWAYS use transcode for streaming to avoid Plex Pass restrictions
+        // Direct file URLs can be cut off at ~655KB for non-Plex Pass users
+        
+        // Need streamKey for transcode path parameter
+        let streamKey: String
+        if let cachedKey = trackStreamKey, !cachedKey.isEmpty {
+            streamKey = cachedKey
+        } else {
+            // Fetch from metadata if not cached
+            guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+                  let key = track.streamURL else {
+                #if DEBUG
+                EnsembleLogger.debug("❌ PlexProvider: Could not get stream key")
+                #endif
+                throw PlexAPIError.invalidURL
+            }
+            streamKey = key
         }
         
-        // Use the universal transcode endpoint which works for both Plex Pass and non-Plex Pass
-        return try await apiClient.getUniversalStreamURL(for: track, quality: quality)
+        #if DEBUG
+        EnsembleLogger.debug("🔄 PlexProvider: Using transcode stream: \(streamKey)")
+        #endif
+        
+        return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
