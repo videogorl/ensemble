@@ -930,6 +930,23 @@ public actor PlexAPIClient {
     /// Generate transcode streaming URL using Plex's universal transcode endpoint.
     /// Accepts a rating key (e.g. "8257") or a full library path (e.g. "/library/metadata/8257").
     public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
+        try await getTranscodeStreamURL(
+            trackKey: trackKey,
+            quality: quality,
+            useAbsolutePathParameter: false,
+            useAudioEndpoint: false,
+            useStartWithoutExtension: false
+        )
+    }
+
+    /// Generate a transcode URL with endpoint and path-shape fallbacks.
+    public func getTranscodeStreamURL(
+        trackKey: String,
+        quality: StreamingQuality,
+        useAbsolutePathParameter: Bool,
+        useAudioEndpoint: Bool,
+        useStartWithoutExtension: Bool
+    ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
         #endif
@@ -938,10 +955,10 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's music universal transcode endpoint.
-        // `/audio` is not accepted by some PMS builds for music items and can
-        // cause quality-specific offline downloads to fail into original fallback.
-        components.path = "/music/:/transcode/universal/start.mp3"
+        components.path = transcodeStartPath(
+            useAudioEndpoint: useAudioEndpoint,
+            useStartWithoutExtension: useStartWithoutExtension
+        )
         
         // Map quality to bitrate
         let bitrate: String
@@ -966,7 +983,16 @@ public actor PlexAPIClient {
         } else {
             normalizedPath = "/\(trackKey)"
         }
-        let transcodePath = normalizedPath
+        let transcodePath: String
+        if useAbsolutePathParameter {
+            guard let baseURL = URL(string: currentServerURL),
+                  let absolutePathURL = URL(string: normalizedPath, relativeTo: baseURL)?.absoluteURL else {
+                throw PlexAPIError.invalidURL
+            }
+            transcodePath = absolutePathURL.absoluteString
+        } else {
+            transcodePath = normalizedPath
+        }
 
         let sessionId = UUID().uuidString
         var queryItems = [
@@ -1004,65 +1030,13 @@ public actor PlexAPIClient {
         quality: StreamingQuality,
         useAbsolutePathParameter: Bool
     ) async throws -> URL {
-        guard useAbsolutePathParameter else {
-            return try await getTranscodeStreamURL(trackKey: trackKey, quality: quality)
-        }
-
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        components.path = "/music/:/transcode/universal/start.mp3"
-
-        let bitrate: String
-        switch quality {
-        case .original, .high:
-            bitrate = "320"
-        case .medium:
-            bitrate = "192"
-        case .low:
-            bitrate = "128"
-        }
-
-        let normalizedPath: String
-        if trackKey.hasPrefix("/library/") {
-            normalizedPath = trackKey
-        } else if trackKey.allSatisfy({ $0.isNumber }) {
-            normalizedPath = "/library/metadata/\(trackKey)"
-        } else if trackKey.hasPrefix("/") {
-            normalizedPath = trackKey
-        } else {
-            normalizedPath = "/\(trackKey)"
-        }
-
-        guard let baseURL = URL(string: currentServerURL),
-              let absolutePathURL = URL(string: normalizedPath, relativeTo: baseURL)?.absoluteURL else {
-            throw PlexAPIError.invalidURL
-        }
-
-        let sessionId = UUID().uuidString
-        var queryItems = [
-            URLQueryItem(name: "protocol", value: "http"),
-            URLQueryItem(name: "path", value: absolutePathURL.absoluteString),
-            URLQueryItem(name: "mediaIndex", value: "0"),
-            URLQueryItem(name: "partIndex", value: "0"),
-            URLQueryItem(name: "musicBitrate", value: bitrate),
-            URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "offset", value: "0"),
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
-        ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
-
-        #if DEBUG
-        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL absolute path: \(absolutePathURL.absoluteString)")
-        EnsembleLogger.debug("✅ Created transcode stream URL (absolute path): \(url)")
-        #endif
-        return url
+        try await getTranscodeStreamURL(
+            trackKey: trackKey,
+            quality: quality,
+            useAbsolutePathParameter: useAbsolutePathParameter,
+            useAudioEndpoint: false,
+            useStartWithoutExtension: false
+        )
     }
     
     /// Generate streaming URL for a track using universal transcode endpoint
@@ -1146,6 +1120,8 @@ public actor PlexAPIClient {
             // servers that enforce transcode profile matching.
             URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId),
             URLQueryItem(name: "transcodeSessionId", value: sessionId),
+            // Some server versions key transcode sessions off `session`.
+            URLQueryItem(name: "session", value: sessionId),
             URLQueryItem(name: "X-Plex-Product", value: productName),
             URLQueryItem(name: "X-Plex-Platform", value: platformName),
             URLQueryItem(name: "X-Plex-Device", value: deviceName),
@@ -1163,6 +1139,15 @@ public actor PlexAPIClient {
         // Request an explicit audio transcode target so PMS can resolve a profile
         // even when generic client matching would otherwise fail.
         "add-transcode-target(type=musicProfile&context=streaming&protocol=http&container=mp3&audioCodec=aac)"
+    }
+
+    private func transcodeStartPath(
+        useAudioEndpoint: Bool,
+        useStartWithoutExtension: Bool
+    ) -> String {
+        let transcodeType = useAudioEndpoint ? "audio" : "music"
+        let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
+        return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
     }
     
     /// Generate streaming URL for a track (legacy direct file access)

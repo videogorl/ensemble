@@ -729,11 +729,23 @@ public final class OfflineDownloadService: ObservableObject {
         for track: Track,
         quality: StreamingQuality
     ) async -> [(mode: String, url: URL)] {
-        let candidates: [(mode: String, preferStreamKeyPath: Bool, useAbsolutePathParameter: Bool)] = [
-            ("transcode-fallback-metadata", false, false),
-            ("transcode-fallback-part", true, false),
-            ("transcode-fallback-metadata-absolute", false, true),
-            ("transcode-fallback-part-absolute", true, true)
+        let candidates: [(
+            mode: String,
+            preferStreamKeyPath: Bool,
+            useAbsolutePathParameter: Bool,
+            useAudioEndpoint: Bool,
+            useStartWithoutExtension: Bool
+        )] = [
+            ("transcode-fallback-music-metadata", false, false, false, false),
+            ("transcode-fallback-music-part", true, false, false, false),
+            ("transcode-fallback-music-metadata-absolute", false, true, false, false),
+            ("transcode-fallback-music-part-absolute", true, true, false, false),
+            ("transcode-fallback-audio-metadata", false, false, true, false),
+            ("transcode-fallback-audio-part", true, false, true, false),
+            ("transcode-fallback-audio-metadata-absolute", false, true, true, false),
+            ("transcode-fallback-audio-part-absolute", true, true, true, false),
+            ("transcode-fallback-music-start-metadata", false, false, false, true),
+            ("transcode-fallback-audio-start-metadata", false, false, true, true)
         ]
 
         var attempts: [(mode: String, url: URL)] = []
@@ -745,7 +757,9 @@ public final class OfflineDownloadService: ObservableObject {
                     for: track,
                     quality: quality,
                     preferStreamKeyPath: candidate.preferStreamKeyPath,
-                    useAbsolutePathParameter: candidate.useAbsolutePathParameter
+                    useAbsolutePathParameter: candidate.useAbsolutePathParameter,
+                    useAudioEndpoint: candidate.useAudioEndpoint,
+                    useStartWithoutExtension: candidate.useStartWithoutExtension
                 )
                 if seen.insert(url.absoluteString).inserted {
                     attempts.append((candidate.mode, url))

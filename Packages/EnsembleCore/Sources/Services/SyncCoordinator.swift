@@ -1160,7 +1160,9 @@ public final class SyncCoordinator: ObservableObject {
         for track: Track,
         quality: StreamingQuality,
         preferStreamKeyPath: Bool = false,
-        useAbsolutePathParameter: Bool = false
+        useAbsolutePathParameter: Bool = false,
+        useAudioEndpoint: Bool = false,
+        useStartWithoutExtension: Bool = false
     ) async throws -> URL {
         guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
@@ -1191,7 +1193,9 @@ public final class SyncCoordinator: ObservableObject {
         return try await apiClient.getTranscodeStreamURL(
             trackKey: transcodeTrackKey,
             quality: quality,
-            useAbsolutePathParameter: useAbsolutePathParameter
+            useAbsolutePathParameter: useAbsolutePathParameter,
+            useAudioEndpoint: useAudioEndpoint,
+            useStartWithoutExtension: useStartWithoutExtension
         )
     }
 
