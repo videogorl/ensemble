@@ -98,7 +98,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Added row | text | Date track was added to library | `track.dateAdded` |
 | Section divider | indicator | Visual separator between metadata and streaming sections | `Divider()` |
 | Streaming header | text | "Streaming" section header | |
-| Quality row | text | Current streaming quality setting | `streamingQuality` |
+| Playback Quality row | text | Effective playback quality and format (`Downloaded` uses file token/container; `Streaming` uses selected streaming quality) | `resolvePlaybackQuality()` |
 | Source row | text | Playback source indicator (`Downloaded` vs `Streaming`) | `resolvePlaybackSource()` |
 | Server row | text | Name of the connected Plex server | `resolveServerName()` |
 | Connection row | text | Connection URL with type (Local/Remote/Relay) | `resolveConnectionInfo()` |

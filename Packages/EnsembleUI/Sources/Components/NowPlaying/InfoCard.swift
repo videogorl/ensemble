@@ -145,8 +145,8 @@ public struct InfoCard: View {
                 infoRow(label: "Source", value: resolvePlaybackSource())
             }
 
-            // Quality setting
-            infoRow(label: "Quality", value: formatQuality(streamingQuality))
+            // Actual playback quality for the current source.
+            infoRow(label: "Playback Quality", value: resolvePlaybackQuality())
 
             // Server name
             if let serverName = resolveServerName() {
@@ -276,6 +276,62 @@ public struct InfoCard: View {
         guard let track = viewModel.currentTrack else { return "—" }
         guard let localFilePath = track.localFilePath else { return "Streaming" }
         return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
+    }
+
+    /// Resolve playback quality with source-aware context.
+    /// For downloaded tracks, this reads the persisted filename quality token and container.
+    /// For streaming playback, this reflects the currently selected streaming quality.
+    private func resolvePlaybackQuality() -> String {
+        guard let track = viewModel.currentTrack else { return "—" }
+        guard let localFilePath = track.localFilePath,
+              FileManager.default.fileExists(atPath: localFilePath) else {
+            return "\(formatQuality(streamingQuality)) (Streaming)"
+        }
+
+        let fileURL = URL(fileURLWithPath: localFilePath)
+        let offlineQuality = extractOfflineQualityToken(from: fileURL)
+        let container = formatContainer(fileExtension: fileURL.pathExtension)
+
+        switch (offlineQuality, container) {
+        case let (.some(quality), .some(container)):
+            return "\(formatQuality(quality)) • \(container) (Downloaded)"
+        case let (.some(quality), .none):
+            return "\(formatQuality(quality)) (Downloaded)"
+        case let (.none, .some(container)):
+            return "\(container) (Downloaded)"
+        case (.none, .none):
+            return "Downloaded"
+        }
+    }
+
+    private func extractOfflineQualityToken(from fileURL: URL) -> String? {
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        guard let token = stem.split(separator: "_").last?.lowercased() else {
+            return nil
+        }
+        switch token {
+        case "original", "high", "medium", "low":
+            return token
+        default:
+            return nil
+        }
+    }
+
+    private func formatContainer(fileExtension: String) -> String? {
+        let normalized = fileExtension.lowercased()
+        guard !normalized.isEmpty else { return nil }
+        switch normalized {
+        case "m4a":
+            return "AAC"
+        case "mp3":
+            return "MP3"
+        case "flac":
+            return "FLAC"
+        case "aac":
+            return "AAC"
+        default:
+            return normalized.uppercased()
+        }
     }
 
     /// Extract server key from track's sourceCompositeKey
