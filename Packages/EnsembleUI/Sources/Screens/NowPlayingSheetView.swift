@@ -64,12 +64,20 @@ public struct NowPlayingSheetView: View {
     private var backgroundView: some View {
         ZStack {
             // Base blurred artwork
-            BlurredArtworkBackground(image: viewModel.artworkImage)
-                .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+            BlurredArtworkBackground(
+                image: viewModel.artworkImage,
+                overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+            )
+            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
             
             // Legibility overlay (adapts to light/dark mode)
-            Color.black.opacity(colorScheme == .dark ? 0.3 : 0.5)
-                .allowsHitTesting(false)
+            if colorScheme == .dark {
+                Color.black.opacity(0.3)
+                    .allowsHitTesting(false)
+            } else {
+                Color(uiColor: .systemBackground).opacity(0.5)
+                    .allowsHitTesting(false)
+            }
         }
         .ignoresSafeArea()
     }
@@ -78,7 +86,7 @@ public struct NowPlayingSheetView: View {
     
     private var dismissPill: some View {
         Capsule()
-            .fill(Color.white.opacity(0.3))
+            .fill(Color.primary.opacity(0.3))
             .frame(width: 36, height: 5)
     }
     
@@ -108,7 +116,8 @@ public struct NowPlayingSheetView: View {
                 
                 // Fixed page indicator for side-by-side carousel
                 PageIndicator(currentPage: $currentPage)
-                    .padding(.bottom, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
             }
         }
     }

@@ -865,6 +865,22 @@ public struct SearchView: View {
                             Label("Play Last", systemImage: "text.append")
                         }
 
+                        if let albumId = track.albumRatingKey {
+                            Button {
+                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            } label: {
+                                Label("Go to Album", systemImage: "square.stack")
+                            }
+                        }
+
+                        if let artistId = track.artistRatingKey {
+                            Button {
+                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            } label: {
+                                Label("Go to Artist", systemImage: "person.circle")
+                            }
+                        }
+
                         if let recentTitle = recentPlaylistTitle(for: track) {
                             Button {
                                 addToRecentPlaylist(track)
@@ -1032,6 +1048,14 @@ public struct SearchView: View {
             }
         } label: {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
+        }
+
+        if let artistId = album.artistRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+            } label: {
+                Label("Go to Artist", systemImage: "person.circle")
+            }
         }
 
         if let recentTarget = nowPlayingVM.lastPlaylistTarget {

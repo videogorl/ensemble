@@ -593,6 +593,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             },
+            onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
@@ -628,6 +638,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     onToggleFavorite: {
                         Task {
                             await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                         }
                     },
                     isFavorited: nowPlayingVM.isTrackFavorited(track),

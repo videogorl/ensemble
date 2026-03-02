@@ -642,6 +642,12 @@ public struct ArtistDetailView: View {
                                     await nowPlayingVM.toggleTrackFavorite(track)
                                 }
                             },
+                            onGoToAlbum: {
+                                if let albumId = track.albumRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onGoToArtist: nil, // Already in artist view
                             isFavorited: nowPlayingVM.isTrackFavorited(track),
                             recentPlaylistTitle: recentPlaylistTitle(for: track)
                         ) {

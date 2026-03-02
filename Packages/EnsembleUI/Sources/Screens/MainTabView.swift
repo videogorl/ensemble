@@ -179,6 +179,7 @@ public struct MainTabView: View {
                         showingNowPlaying = false
                     }
                 )
+                .accentColor(settingsManager.accentColor.color)
             }
             
             applyChromeVisibilityObservation(to: rootView)
@@ -299,24 +300,30 @@ public struct MainTabView: View {
     private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
         switch tab {
         case .home: return $navigationCoordinator.homePath
+        case .songs: return $navigationCoordinator.songsPath
         case .artists: return $navigationCoordinator.artistsPath
         case .albums: return $navigationCoordinator.albumsPath
+        case .genres: return $navigationCoordinator.genresPath
         case .playlists: return $navigationCoordinator.playlistsPath
+        case .favorites: return $navigationCoordinator.favoritesPath
         case .search: return $navigationCoordinator.searchPath
+        case .downloads: return $navigationCoordinator.downloadsPath
         case .settings: return $navigationCoordinator.settingsPath
-        default: return .constant([])
         }
     }
 
     private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
         switch tab {
         case .home: return navigationCoordinator.homePath
+        case .songs: return navigationCoordinator.songsPath
         case .artists: return navigationCoordinator.artistsPath
         case .albums: return navigationCoordinator.albumsPath
+        case .genres: return navigationCoordinator.genresPath
         case .playlists: return navigationCoordinator.playlistsPath
+        case .favorites: return navigationCoordinator.favoritesPath
         case .search: return navigationCoordinator.searchPath
+        case .downloads: return navigationCoordinator.downloadsPath
         case .settings: return navigationCoordinator.settingsPath
-        default: return []
         }
     }
 
@@ -481,6 +488,7 @@ public struct SidebarView: View {
                     showingNowPlaying = false
                 }
             )
+            .accentColor(deps.settingsManager.accentColor.color)
         }
         .task {
             await libraryVM.refresh()

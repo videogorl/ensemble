@@ -11,6 +11,7 @@ public struct BlurredArtworkBackground: View {
     let topDimming: Double
     let bottomDimming: Double
     let shouldIgnoreSafeArea: Bool
+    let overlayColor: Color
     
     public init(
         image: UIImage?,
@@ -21,7 +22,8 @@ public struct BlurredArtworkBackground: View {
         opacity: Double = 1.0,
         topDimming: Double = 0.1,
         bottomDimming: Double = 0.5,
-        shouldIgnoreSafeArea: Bool = true
+        shouldIgnoreSafeArea: Bool = true,
+        overlayColor: Color = .black
     ) {
         self.image = image
         self.blurRadius = blurRadius
@@ -32,6 +34,7 @@ public struct BlurredArtworkBackground: View {
         self.topDimming = topDimming
         self.bottomDimming = bottomDimming
         self.shouldIgnoreSafeArea = shouldIgnoreSafeArea
+        self.overlayColor = overlayColor
     }
     
     public var body: some View {
@@ -89,16 +92,16 @@ public struct BlurredArtworkBackground: View {
                     // Dimming gradient to ensure controls are visible
                     LinearGradient(
                         stops: [
-                            .init(color: .black.opacity(topDimming), location: 0),
-                            .init(color: .black.opacity(topDimming * 0.5), location: 0.4),
-                            .init(color: .black.opacity(bottomDimming * 0.7), location: 0.7),
-                            .init(color: .black.opacity(bottomDimming), location: 1.0)
+                            .init(color: overlayColor.opacity(topDimming), location: 0),
+                            .init(color: overlayColor.opacity(topDimming * 0.5), location: 0.4),
+                            .init(color: overlayColor.opacity(bottomDimming * 0.7), location: 0.7),
+                            .init(color: overlayColor.opacity(bottomDimming), location: 1.0)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 } else {
-                    Color.black
+                    overlayColor
                 }
             }
             .clipped()

@@ -131,14 +131,14 @@ public struct ControlsCard: View {
             let artworkSize = min(maxWidth, maxHeight, 400)
             
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(Color.primary.opacity(0.05))
                 .overlay(
                     Image(systemName: "music.note")
                         .font(.system(size: 64))
-                        .foregroundColor(.white.opacity(0.35))
+                        .foregroundColor(.primary.opacity(0.35))
                 )
                 .frame(width: artworkSize, height: artworkSize)
-                .shadow(color: .black.opacity(0.25), radius: 15, x: 0, y: 8)
+                .shadow(color: .black.opacity(0.15), radius: 15, x: 0, y: 8)
                 .padding(.top, 40)
                 .padding(.bottom, 60)
             
@@ -146,11 +146,11 @@ public struct ControlsCard: View {
                 Text("Nothing Playing")
                     .font(.title2)
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 
                 Text("Play music from your library to start listening")
                     .font(.callout)
-                    .foregroundColor(.white.opacity(0.75))
+                    .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
@@ -185,7 +185,7 @@ public struct ControlsCard: View {
                     MarqueeText(
                         text: artist,
                         font: .title3,
-                        color: .white.opacity(0.9)
+                        color: .primary.opacity(0.9)
                     )
                 }
             }
@@ -193,7 +193,7 @@ public struct ControlsCard: View {
             MarqueeText(
                 text: track.title,
                 font: .title2,
-                color: .white,
+                color: .primary,
                 fontWeight: .bold
             )
             
@@ -204,13 +204,13 @@ public struct ControlsCard: View {
                     MarqueeText(
                         text: album,
                         font: .callout,
-                        color: .white.opacity(0.7)
+                        color: .primary.opacity(0.7)
                     )
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+        // Removed shadow on text container as it can look weird on light mode
     }
     
     // MARK: - Progress View / Scrubber
@@ -223,7 +223,7 @@ public struct ControlsCard: View {
                         let waveform = WaveformView(
                             progress: isDraggingSlider ? localProgress : viewModel.progress,
                             bufferedProgress: viewModel.bufferedProgress,
-                            color: .white,
+                            color: .primary,
                             heights: viewModel.waveformHeights
                         )
                         .frame(width: geometry.size.width)
@@ -303,7 +303,7 @@ public struct ControlsCard: View {
                 }
                 .font(.caption)
                 .monospacedDigit()
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.secondary)
                 
                 Spacer()
                 
@@ -324,7 +324,7 @@ public struct ControlsCard: View {
                 }
                 .font(.caption)
                 .monospacedDigit()
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.secondary)
             }
         }
     }
@@ -338,11 +338,11 @@ public struct ControlsCard: View {
         return HStack(spacing: 4) {
             Image(systemName: isMaxFine ? "minus" : (isMovingUp ? "chevron.compact.up" : "chevron.compact.down"))
                 .font(.caption2)
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.secondary)
             
             Text(scrubInfo.label)
                 .font(.caption2)
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .transition(.opacity)
     }
@@ -397,7 +397,7 @@ public struct ControlsCard: View {
                             .opacity(0.3)
                         
                         ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(1.5)
                     } else {
                         Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -443,8 +443,8 @@ public struct ControlsCard: View {
                     }
             )
         }
-        .foregroundColor(.white)
-        .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 5)
+        .foregroundColor(.primary)
+        // Removed shadow on controls
     }
     
     // MARK: - Secondary Controls
@@ -459,7 +459,7 @@ public struct ControlsCard: View {
             Button(action: viewModel.toggleRating) {
                 Image(systemName: viewModel.currentRating.icon)
                     .font(.title3)
-                    .foregroundColor(viewModel.currentRating == .none ? .white.opacity(0.7) : .accentColor)
+                    .foregroundColor(viewModel.currentRating == .none ? .primary.opacity(0.7) : .accentColor)
             }
             
             // Add to Playlist
@@ -473,11 +473,31 @@ public struct ControlsCard: View {
             } label: {
                 Image(systemName: "text.badge.plus")
                     .font(.title3)
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.primary.opacity(0.7))
             }
             
-            // More menu with quick add to recent playlist
+            // More menu with navigation and quick add
             Menu {
+                if let currentTrack = viewModel.currentTrack {
+                    Section {
+                        if let albumId = currentTrack.albumRatingKey {
+                            Button {
+                                handleAlbumTap(track: currentTrack)
+                            } label: {
+                                Label("Go to Album", systemImage: "square.stack")
+                            }
+                        }
+                        
+                        if let artistId = currentTrack.artistRatingKey {
+                            Button {
+                                handleArtistTap(track: currentTrack)
+                            } label: {
+                                Label("Go to Artist", systemImage: "person.circle")
+                            }
+                        }
+                    }
+                }
+
                 if let lastPlaylistQuickTarget {
                     if let currentTrack = viewModel.currentTrack,
                        viewModel.compatibleTrackCount([currentTrack], for: lastPlaylistQuickTarget) > 0 {
@@ -493,13 +513,13 @@ public struct ControlsCard: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.primary.opacity(0.7))
             }
             .transaction { transaction in
                 transaction.animation = nil
             }
         }
-        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+        // Removed shadow on secondary controls
     }
     
     // MARK: - Helper Methods

@@ -293,39 +293,59 @@ public struct MiniPlayer: View {
         .offset(y: verticalOffset)
         .contextMenu {
             if let track = viewModel.currentTrack {
-                Button {
-                    Task { await viewModel.toggleTrackFavorite(track) }
-                } label: {
-                    Label(
-                        viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
-                        systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
-                    )
-                }
-
-                if let lastTarget = viewModel.lastPlaylistTarget {
+                Section {
                     Button {
-                        Task {
-                            if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                                _ = try? await viewModel.addCurrentTrack(to: playlist)
-                            }
-                        }
+                        Task { await viewModel.toggleTrackFavorite(track) }
                     } label: {
-                        Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
+                        Label(
+                            viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
+                            systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+                        )
+                    }
+
+                    if let lastTarget = viewModel.lastPlaylistTarget {
+                        Button {
+                            Task {
+                                if let playlist = await viewModel.resolveLastPlaylistTarget() {
+                                    _ = try? await viewModel.addCurrentTrack(to: playlist)
+                                }
+                            }
+                        } label: {
+                            Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+
+                    Button {
+                        showingPlaylistPicker = true
+                    } label: {
+                        Label("Add to Playlist…", systemImage: "text.badge.plus")
                     }
                 }
 
-                Button {
-                    showingPlaylistPicker = true
-                } label: {
-                    Label("Add to Playlist…", systemImage: "text.badge.plus")
+                Section {
+                    if let albumId = track.albumRatingKey {
+                        Button {
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
+                        } label: {
+                            Label("Go to Album", systemImage: "square.stack")
+                        }
+                    }
+
+                    if let artistId = track.artistRatingKey {
+                        Button {
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
+                        } label: {
+                            Label("Go to Artist", systemImage: "person.circle")
+                        }
+                    }
                 }
 
-                Divider()
-
-                Button {
-                    onTap()
-                } label: {
-                    Label("Show Now Playing", systemImage: "music.note.list")
+                Section {
+                    Button {
+                        onTap()
+                    } label: {
+                        Label("Show Now Playing", systemImage: "music.note.list")
+                    }
                 }
             }
         }
