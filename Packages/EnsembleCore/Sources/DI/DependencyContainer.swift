@@ -288,7 +288,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     public func makeDownloadsViewModel() -> DownloadsViewModel {
-        DownloadsViewModel(downloadManager: downloadManager)
+        DownloadsViewModel(offlineDownloadService: offlineDownloadService)
     }
 
     @MainActor

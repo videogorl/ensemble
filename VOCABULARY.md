@@ -473,22 +473,18 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Downloaded section | region | Section grouping completed downloads | `Section("Downloaded")` |
-| Downloading section | region | Section grouping in-progress downloads | `Section("Downloading")` |
-| Failed section | region | Section grouping failed downloads | `Section("Failed")` |
-| Download row | control | Completed download with artwork, title, file size; tap plays track | `DownloadRow` |
-| Download progress row | control | Active download with progress bar | `DownloadProgressRow` |
-| Retry button | action | Visible button on failed download rows that requeues the track | `Retry`, `onRetry` |
-| Progress bar | indicator | Linear progress indicator for active downloads | `ProgressView(.linear)` |
-| Progress percentage | text | Download completion percentage | `download.progress` |
-| File size label | text | Size of downloaded file in KB/MB/GB | `formatBytes` |
-| Delete swipe action | gesture | Swipe-to-delete for completed/failed downloads | `swipeActions` |
-| Retry swipe action | gesture | Leading swipe action to requeue a failed download | `Label("Retry", systemImage: "arrow.clockwise")` |
+| Bulk downloads section | region | Top section containing server-level offline management entry | `Section("Bulk Downloads")` |
+| Servers row | control | Navigation row to server/library bulk offline toggles | `ServersRow`, `OfflineServersView` |
+| Items section | region | Section listing non-library offline targets (playlist/album/artist) | `Section("Items")` |
+| Downloaded item row | control | Offline target row with kind icon, title, status, counts, and size | `DownloadedItemRow` |
+| Item metadata label | text | Track count summary and downloaded storage for the target | `metadataText` |
+| Item progress bar | indicator | Linear progress for targets that are not complete | `ProgressView(.linear)` |
+| Item detail navigation | action | Opens album/artist/playlist detail when target has valid ID | `destinationView(for:)` |
+| Remove target swipe action | gesture | Swipe-to-remove offline target | `standardDeleteSwipeAction` |
+| Manage downloads settings button | control | Toolbar button opening Manage Downloads quality controls | `slider.horizontal.3`, `DownloadManagerSettingsView` |
 | Update quality action | action | Toolbar action that requeues completed downloads whose stored quality differs from Settings > Audio Quality > Download Quality; shows warning when server only supports original offline quality | `arrow.triangle.2.circlepath`, `refreshCompletedDownloadsForCurrentQuality()` |
-| Failed indicator | indicator | Red exclamation for failed downloads | `exclamationmark.circle.fill` |
-| Total size label | text | Toolbar text showing total download size | `totalSize` |
-| Loading state | state | Spinner during initial download list load | `loadingView` |
-| Empty state | state | Message when no downloads | `emptyView` |
+| Loading state | state | Overlay spinner while loading first target snapshot | `loadingOverlay` |
+| Empty state | state | Inline message when no playlist/album/artist targets exist | `No offline items selected` |
 
 ---
 
@@ -515,7 +511,6 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Connection security link | control | Navigation to connection policy settings | `Connection Security` |
 | Track swipe actions link | control | Navigation to swipe action customization | `Track Swipe Actions` |
 | Storage section | region | Section with storage management | `Section("Storage")` |
-| Manage downloads link | control | Navigation to downloads management | `Manage Downloads` |
 | Clear all data button | action | Destructive button to clear library data | `Clear All Library Data` |
 | Reset section | region | Section with account reset options | `Section("Reset")` |
 | Remove all accounts button | action | Destructive button to remove all accounts | `Remove All Accounts` |
@@ -531,7 +526,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 - **View name:** `DownloadManagerSettingsView`
 - **Canonical name:** DownloadManagerSettingsView
-- **Area:** Settings
+- **Area:** Downloads
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
 
@@ -539,13 +534,9 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Bulk downloads section | region | Section containing top-level server bulk toggle entry | `Section("Bulk Downloads")` |
-| Servers link | control | Navigation row into server-grouped library toggles | `Servers`, `OfflineServersView` |
-| Items section | region | Section listing non-library offline targets | `Section("Items")` |
-| Offline item row | control | Row with item title, status label, and optional track counts | `DownloadManagerItemRow` |
-| Target progress bar | indicator | Progress shown for in-progress offline targets | `ProgressView(.linear)` |
-| Remove target swipe action | gesture | Swipe-to-delete offline target row | `standardDeleteSwipeAction` |
-| Empty state | state | Message when no album/artist/playlist targets exist | `No offline items selected` |
+| Downloads section | region | Section that mirrors Settings > Audio Quality > Download Quality | `Section("Downloads")` |
+| Download quality selector | control | Menu picker for Original/High/Medium/Low quality | `Picker("Download Quality", selection: $downloadQuality)` |
+| Download quality footer | text | Clarifies this control matches Audio Quality settings | `This matches Settings > Audio Quality > Download Quality.` |
 
 ---
 

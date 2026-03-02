@@ -13,6 +13,7 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     public let status: CDOfflineDownloadTarget.Status
     public let totalTrackCount: Int
     public let completedTrackCount: Int
+    public let downloadedBytes: Int64
     public let progress: Float
 
     public var isComplete: Bool {
@@ -62,6 +63,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
     private var unsupportedTranscodeServerKeys: Set<String> = []
+    private var downloadedBytesByTargetKey: [String: Int64] = [:]
 
     private static let unsupportedTranscodeServerDefaultsKey = "offlineTranscodeUnsupportedServerKeys"
 
@@ -1060,6 +1062,8 @@ public final class OfflineDownloadService: ObservableObject {
     private func refreshTargetSnapshots() async {
         do {
             let fetched = try await targetRepository.fetchTargets()
+            let existingTargetKeys = Set(fetched.map(\.key))
+            downloadedBytesByTargetKey = downloadedBytesByTargetKey.filter { existingTargetKeys.contains($0.key) }
             targets = fetched.map {
                 OfflineDownloadTargetSnapshot(
                     id: $0.key,
@@ -1071,6 +1075,7 @@ public final class OfflineDownloadService: ObservableObject {
                     status: $0.targetStatus,
                     totalTrackCount: Int($0.totalTrackCount),
                     completedTrackCount: Int($0.completedTrackCount),
+                    downloadedBytes: downloadedBytesByTargetKey[$0.key] ?? 0,
                     progress: $0.progress
                 )
             }
@@ -1099,6 +1104,7 @@ public final class OfflineDownloadService: ObservableObject {
         do {
             let references = try await targetRepository.fetchTrackReferences(targetKey: targetKey)
             guard !references.isEmpty else {
+                downloadedBytesByTargetKey[targetKey] = 0
                 try await targetRepository.updateTarget(
                     key: targetKey,
                     status: .completed,
@@ -1116,6 +1122,7 @@ public final class OfflineDownloadService: ObservableObject {
             var paused = 0
             var failed = 0
             var firstFailure: String?
+            var downloadedBytes: Int64 = 0
 
             for reference in references {
                 guard let download = try await downloadManager.fetchDownload(
@@ -1129,6 +1136,7 @@ public final class OfflineDownloadService: ObservableObject {
                 switch download.downloadStatus {
                 case .completed:
                     completed += 1
+                    downloadedBytes += max(download.fileSize, 0)
                 case .downloading:
                     downloading += 1
                 case .pending:
@@ -1167,6 +1175,7 @@ public final class OfflineDownloadService: ObservableObject {
                 progress: progress,
                 lastError: firstFailure
             )
+            downloadedBytesByTargetKey[targetKey] = downloadedBytes
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")

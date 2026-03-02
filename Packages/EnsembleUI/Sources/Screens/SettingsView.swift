@@ -141,16 +141,6 @@ public struct SettingsView: View {
 
             // Storage section
             Section(header: Text("Storage").textCase(nil)) {
-                NavigationLink {
-                    DownloadManagerSettingsView()
-                } label: {
-                    HStack {
-                        Image(systemName: "internaldrive")
-                            .frame(width: 44)
-                        Text("Manage Downloads")
-                    }
-                }
-                
                 Button(role: .destructive) {
                     showingClearDataAlert = true
                 } label: {
