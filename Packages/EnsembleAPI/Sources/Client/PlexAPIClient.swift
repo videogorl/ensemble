@@ -927,7 +927,7 @@ public actor PlexAPIClient {
         return url
     }
 
-    /// Generate transcode streaming URL using Plex's audio transcode endpoint.
+    /// Generate transcode streaming URL using Plex's universal transcode endpoint.
     /// Accepts a rating key (e.g. "8257") or a full library path (e.g. "/library/metadata/8257").
     public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
         #if DEBUG
@@ -938,8 +938,8 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's audio transcode endpoint
-        components.path = "/audio/:/transcode"
+        // Use Plex's universal transcode endpoint for broader server compatibility.
+        components.path = "/audio/:/transcode/universal/start.mp3"
         
         // Map quality to bitrate
         let bitrate: String
@@ -965,16 +965,21 @@ public actor PlexAPIClient {
             normalizedPath = "/\(trackKey)"
         }
 
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "protocol", value: "http"),
             URLQueryItem(name: "path", value: normalizedPath),
-            URLQueryItem(name: "audioCodec", value: "aac"),
-            URLQueryItem(name: "audioBitrate", value: bitrate),
+            URLQueryItem(name: "mediaIndex", value: "0"),
+            URLQueryItem(name: "partIndex", value: "0"),
+            URLQueryItem(name: "musicBitrate", value: bitrate),
+            URLQueryItem(name: "transcodeSessionId", value: UUID().uuidString),
             URLQueryItem(name: "offset", value: "0"), // Start from beginning
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        
+        // Older server builds may still key off X-Plex session identifier.
+        queryItems.append(URLQueryItem(name: "X-Plex-Session-Identifier", value: UUID().uuidString))
+        components.queryItems = queryItems
+
         guard let url = components.url else {
             throw PlexAPIError.invalidURL
         }
@@ -1026,7 +1031,9 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId ?? UUID().uuidString)
         ]
         
-        // Add quality-specific parameters
+        // Add quality-specific parameters.
+        // The public PMS API documents `musicBitrate` for music transcode; this
+        // is preferred over legacy audioBitrate/audioCodec pairs.
         switch quality {
         case .original:
             // For original quality, don't add directPlay/directStream flags
@@ -1036,18 +1043,15 @@ public actor PlexAPIClient {
             
         case .high:
             // Force transcode at 320 kbps
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             
         case .medium:
             // Force transcode at 192 kbps
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             
         case .low:
             // Force transcode at 128 kbps
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
         }
         
         components.queryItems = queryItems
