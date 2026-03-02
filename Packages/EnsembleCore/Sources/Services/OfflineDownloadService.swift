@@ -836,7 +836,7 @@ public final class OfflineDownloadService: ObservableObject {
     private func currentDownloadQuality() -> String {
         let raw = UserDefaults.standard.string(forKey: "downloadQuality") ?? "original"
         switch raw {
-        case "original", "high", "medium":
+        case "original", "high", "medium", "low":
             return raw
         default:
             return "original"

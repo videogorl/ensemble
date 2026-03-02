@@ -938,8 +938,10 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's universal transcode endpoint for broader server compatibility.
-        components.path = "/audio/:/transcode/universal/start.mp3"
+        // Use Plex's music universal transcode endpoint.
+        // `/audio` is not accepted by some PMS builds for music items and can
+        // cause quality-specific offline downloads to fail into original fallback.
+        components.path = "/music/:/transcode/universal/start.mp3"
         
         // Map quality to bitrate
         let bitrate: String
