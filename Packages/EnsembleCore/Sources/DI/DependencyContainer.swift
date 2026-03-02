@@ -120,7 +120,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: playlistRef,
                 syncCoordinator: syncCoordinatorRef,
                 networkMonitor: nm,
-                backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef
+                backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
+                artworkDownloadManager: artworkDownloadRef
             )
         }
         offlineDownloadService = offlineServiceRef

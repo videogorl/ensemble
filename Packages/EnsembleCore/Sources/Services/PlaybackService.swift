@@ -1356,6 +1356,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
+        guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
+            playbackState = .failed("No downloaded tracks available offline")
+            return
+        }
+        let queueTracks = playableQueue.tracks
 
         // Disable shuffle on regular play
         if isShuffleEnabled {
@@ -1363,9 +1368,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
         }
 
-        queue = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        #if DEBUG
+        if playableQueue.skippedCount > 0 {
+            EnsembleLogger.debug(
+                "🎵 Offline queue filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
+            )
+        }
+        #endif
+
+        queue = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
         originalQueue = queue
-        currentQueueIndex = index
+        currentQueueIndex = playableQueue.startIndex
 
         // Clear history and cache for fresh session
         playbackHistory.removeAll()
@@ -1381,6 +1394,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+        guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
+            playbackState = .failed("No downloaded tracks available offline")
+            return
+        }
+        let queueTracks = playableQueue.tracks
 
         // Enable shuffle
         if !isShuffleEnabled {
@@ -1388,7 +1406,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(true, forKey: "isShuffleEnabled")
         }
 
-        let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        #if DEBUG
+        if playableQueue.skippedCount > 0 {
+            EnsembleLogger.debug(
+                "🎵 Offline shuffle filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
+            )
+        }
+        #endif
+
+        let items = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
         originalQueue = items
 
         var shuffled = items
@@ -1407,6 +1433,79 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
+    }
+
+    private func resolvePlayableQueue(
+        tracks: [Track],
+        preferredStartIndex: Int
+    ) async -> (tracks: [Track], startIndex: Int, skippedCount: Int)? {
+        guard !tracks.isEmpty else { return nil }
+        let clampedStartIndex = min(max(preferredStartIndex, 0), tracks.count - 1)
+        let isOfflineConstrained = await MainActor.run {
+            !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+        }
+
+        // When streaming is available, keep queue behavior unchanged.
+        guard isOfflineConstrained else {
+            return (tracks: tracks, startIndex: clampedStartIndex, skippedCount: 0)
+        }
+
+        var playableTracks: [Track] = []
+        var originalPlayableIndices: [Int] = []
+        playableTracks.reserveCapacity(tracks.count)
+        originalPlayableIndices.reserveCapacity(tracks.count)
+
+        for (index, track) in tracks.enumerated() {
+            if let offlineTrack = await resolveOfflinePlayableTrack(track) {
+                playableTracks.append(offlineTrack)
+                originalPlayableIndices.append(index)
+            }
+        }
+
+        guard !playableTracks.isEmpty else { return nil }
+
+        let resolvedStartIndex: Int
+        if let indexAtOrAfterSelection = originalPlayableIndices.firstIndex(where: { $0 >= clampedStartIndex }) {
+            resolvedStartIndex = indexAtOrAfterSelection
+        } else if let indexBeforeSelection = originalPlayableIndices.lastIndex(where: { $0 <= clampedStartIndex }) {
+            resolvedStartIndex = indexBeforeSelection
+        } else {
+            resolvedStartIndex = 0
+        }
+
+        return (
+            tracks: playableTracks,
+            startIndex: resolvedStartIndex,
+            skippedCount: tracks.count - playableTracks.count
+        )
+    }
+
+    private func resolveOfflinePlayableTrack(_ track: Track) async -> Track? {
+        if let localFilePath = track.localFilePath,
+           FileManager.default.fileExists(atPath: localFilePath) {
+            return track
+        }
+
+        do {
+            if let persistedPath = try await downloadManager.getLocalFilePath(
+                forTrackRatingKey: track.id,
+                sourceCompositeKey: track.sourceCompositeKey
+            ),
+                FileManager.default.fileExists(atPath: persistedPath) {
+                if persistedPath == track.localFilePath {
+                    return track
+                }
+                return trackWithLocalFilePath(track, localFilePath: persistedPath)
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⚠️ Failed resolving offline playable track \(track.id): \(error.localizedDescription)"
+            )
+            #endif
+        }
+
+        return nil
     }
 
     public func playQueueIndex(_ index: Int) async {

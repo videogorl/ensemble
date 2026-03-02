@@ -56,6 +56,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    private let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
     private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -71,7 +72,8 @@ public final class OfflineDownloadService: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         networkMonitor: NetworkMonitor,
-        backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+        backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating,
+        artworkDownloadManager: ArtworkDownloadManagerProtocol
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -80,6 +82,7 @@ public final class OfflineDownloadService: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
+        self.artworkDownloadManager = artworkDownloadManager
         self.unsupportedTranscodeServerKeys = Set(
             UserDefaults.standard.stringArray(forKey: Self.unsupportedTranscodeServerDefaultsKey) ?? []
         )
@@ -623,6 +626,7 @@ public final class OfflineDownloadService: ObservableObject {
                         fileSize: persistedFileSize,
                         quality: requestedQuality.rawValue
                     )
+                    await cacheArtworkForDownloadedTrack(track)
                     await refreshAllTargetProgresses()
                     return
                 } catch {
@@ -791,6 +795,7 @@ public final class OfflineDownloadService: ObservableObject {
                 fileSize: persistedFileSize,
                 quality: effectiveQuality.rawValue
             )
+            await cacheArtworkForDownloadedTrack(track)
             await refreshAllTargetProgresses()
         } catch {
             if Task.isCancelled {
@@ -923,6 +928,64 @@ public final class OfflineDownloadService: ObservableObject {
             : inferredFileExtension(mimeType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"), payload: nil)
         let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
+    private func cacheArtworkForDownloadedTrack(_ track: CDTrack) async {
+        let sourceKey = track.sourceCompositeKey
+        let albumRatingKey = track.album?.ratingKey
+        let albumThumbPath = track.album?.thumbPath
+
+        var candidates: [(ratingKey: String, path: String)] = []
+        if let path = track.thumbPath, !path.isEmpty {
+            candidates.append((track.ratingKey, path))
+        }
+        if let albumRatingKey, let albumThumbPath, !albumThumbPath.isEmpty {
+            candidates.append((albumRatingKey, albumThumbPath))
+        }
+
+        guard !candidates.isEmpty else { return }
+
+        var seen = Set<String>()
+        for candidate in candidates {
+            let dedupeKey = "\(candidate.ratingKey)|\(candidate.path)"
+            guard seen.insert(dedupeKey).inserted else { continue }
+
+            let cachedArtworkPath = ArtworkDownloadManager.artworkDirectory
+                .appendingPathComponent("\(candidate.ratingKey)_album.jpg")
+                .path
+            if FileManager.default.fileExists(atPath: cachedArtworkPath) {
+                continue
+            }
+
+            do {
+                guard let artworkURL = try await syncCoordinator.getArtworkURL(
+                    path: candidate.path,
+                    sourceKey: sourceKey,
+                    size: 500
+                ) else {
+                    continue
+                }
+
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: artworkURL,
+                    ratingKey: candidate.ratingKey,
+                    type: .album
+                )
+
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "🖼️ Cached artwork for downloaded track: track=\(track.ratingKey) artworkKey=\(candidate.ratingKey)"
+                )
+                #endif
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Failed caching artwork for downloaded track \(track.ratingKey): \(error.localizedDescription)"
+                )
+                #endif
+            }
+        }
     }
 
     private func localFileURL(
