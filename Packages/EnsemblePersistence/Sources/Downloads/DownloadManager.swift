@@ -34,7 +34,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws
     func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws
 
-    func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64) async throws
+    func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws
     func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws
 
     func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws
@@ -339,7 +339,12 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64) async throws {
+    public func completeDownload(
+        _ downloadId: NSManagedObjectID,
+        filePath: String,
+        fileSize: Int64,
+        quality: String? = nil
+    ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
@@ -352,6 +357,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     download.filePath = filePath
                     download.fileSize = fileSize
                     download.completedAt = Date()
+                    if let quality, !quality.isEmpty {
+                        download.quality = Self.normalizedQuality(quality)
+                    }
 
                     // Update track local path for offline playback routing.
                     download.track?.localFilePath = filePath

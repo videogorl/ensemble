@@ -486,8 +486,10 @@ public final class OfflineDownloadService: ObservableObject {
 
             try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading)
 
-            let quality = streamingQuality(from: download.quality)
-            let primaryURL = try await syncCoordinator.getOfflineDownloadURL(for: Track(from: track), quality: quality)
+            let requestedQuality = streamingQuality(from: download.quality)
+            var effectiveQuality = requestedQuality
+            let domainTrack = Track(from: track)
+            let primaryURL = try await syncCoordinator.getOfflineDownloadURL(for: domainTrack, quality: requestedQuality)
             var selectedURL = primaryURL
             var selectedMode = "universal"
 
@@ -502,17 +504,33 @@ public final class OfflineDownloadService: ObservableObject {
                 try? FileManager.default.removeItem(at: temporaryURL)
 
                 selectedURL = try await syncCoordinator.getOfflineDownloadFallbackURL(
-                    for: Track(from: track),
-                    quality: quality
+                    for: domainTrack,
+                    quality: requestedQuality
                 )
                 selectedMode = "transcode-fallback"
+                (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
+            }
+
+            if let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 400,
+               requestedQuality != .original {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Offline transcode rejected for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
+                )
+                #endif
+                try? FileManager.default.removeItem(at: temporaryURL)
+
+                selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
+                selectedMode = "direct-original-fallback"
+                effectiveQuality = .original
                 (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
             }
 
             if let httpResponse = response as? HTTPURLResponse {
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(quality.rawValue) mode=\(selectedMode)"
+                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
                 )
                 if let plexError = httpResponse.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
                     EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
@@ -537,7 +555,7 @@ public final class OfflineDownloadService: ObservableObject {
                 throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
             }
 
-            let destinationURL = localFileURL(for: track, quality: quality, response: response)
+            let destinationURL = localFileURL(for: track, quality: effectiveQuality, response: response)
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try? FileManager.default.removeItem(at: destinationURL)
             }
@@ -559,7 +577,8 @@ public final class OfflineDownloadService: ObservableObject {
             try await downloadManager.completeDownload(
                 download.objectID,
                 filePath: destinationURL.path,
-                fileSize: persistedFileSize
+                fileSize: persistedFileSize,
+                quality: effectiveQuality.rawValue
             )
             await refreshAllTargetProgresses()
         } catch {
