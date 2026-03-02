@@ -2607,6 +2607,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("📦 Creating player item for: \(track.title)")
         #endif
 
+        // Read streaming quality setting from AppStorage
+        let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+        let quality = StreamingQuality(rawValue: qualityString) ?? .original
+        #if DEBUG
+        EnsembleLogger.debug("   🎵 Using streaming quality: \(quality.rawValue)")
+        #endif
+
         // If we have a local file, use it regardless of network state
         if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
             #if DEBUG
@@ -2658,7 +2665,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #if DEBUG
             EnsembleLogger.debug("   🔄 Getting stream URL...")
             #endif
-            streamURL = try await syncCoordinator.getStreamURL(for: track)
+            streamURL = try await syncCoordinator.getStreamURL(for: track, quality: quality)
         } catch {
             #if DEBUG
             EnsembleLogger.debug("   ⚠️ Failed to get stream URL on first attempt: \(error)")
@@ -2670,7 +2677,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
                 do {
                     try await syncCoordinator.refreshConnection()
-                    streamURL = try await syncCoordinator.getStreamURL(for: track)
+                    streamURL = try await syncCoordinator.getStreamURL(for: track, quality: quality)
                 } catch {
                     #if DEBUG
                     EnsembleLogger.debug("   ❌ Stream URL retry failed: \(error)")

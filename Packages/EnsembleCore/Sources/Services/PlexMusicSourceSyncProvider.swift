@@ -434,8 +434,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(1.0)
     }
 
-    public func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL {
-        // If we have a direct stream key (the media part path), use it
+public func getStreamURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality
+    ) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
+        #endif
+        
+        // Use direct file URLs for streaming
+        // Note: Plex transcode endpoints don't exist on all servers
+        // Direct file access should work on local networks even without Plex Pass
+        
+        // If we have a cached stream key, use it directly
         if let streamKey = trackStreamKey, !streamKey.isEmpty {
             #if DEBUG
             EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
@@ -443,22 +455,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             return try await apiClient.getStreamURL(trackKey: streamKey)
         }
         
-        // Fallback: Fetch the full track metadata which should include Media array
+        // Otherwise fetch track metadata to get the stream key
         #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
+        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
         #endif
-        if let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-           let streamKey = track.streamURL {
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
             #if DEBUG
-            EnsembleLogger.debug("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
+            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
             #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            throw PlexAPIError.invalidURL
         }
         
         #if DEBUG
-        EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL for track")
+        EnsembleLogger.debug("✅ PlexProvider: Got stream key from metadata: \(streamKey)")
         #endif
-        throw PlexAPIError.invalidURL
+        return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
