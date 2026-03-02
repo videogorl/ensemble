@@ -242,21 +242,54 @@ public struct MiniPlayer: View {
                 RoundedRectangle(cornerRadius: pillCornerRadius)
                     .fill(.ultraThinMaterial)
                     .overlay(
-                        // Specular Highlight
+                        // Border Refraction (Mimics material thickness and light bending)
+                        RoundedRectangle(cornerRadius: pillCornerRadius)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        .primary.opacity(colorScheme == .dark ? 0.25 : 0.15),
+                                        .primary.opacity(colorScheme == .dark ? 0.1 : 0.05),
+                                        .primary.opacity(colorScheme == .dark ? 0.05 : 0.02),
+                                        .primary.opacity(colorScheme == .dark ? 0.15 : 0.1)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.5
+                            )
+                    )
+                    .overlay(
+                        // Specular Highlight (The sharp edge reflection)
                         RoundedRectangle(cornerRadius: pillCornerRadius)
                             .stroke(
                                 LinearGradient(
-                                    colors: [
-                                        .primary.opacity(colorScheme == .dark ? 0.4 : 0.2),
-                                        .primary.opacity(0.1),
-                                        .clear,
-                                        .primary.opacity(0.1)
+                                    stops: [
+                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.5 : 0.3), location: 0),
+                                        .init(color: .clear, location: 0.25),
+                                        .init(color: .clear, location: 0.75),
+                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.2 : 0.1), location: 1)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
                                 lineWidth: 0.5
                             )
+                    )
+                    .overlay(
+                        // Glass Sheen (Subtle surface reflection)
+                        RoundedRectangle(cornerRadius: pillCornerRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .primary.opacity(colorScheme == .dark ? 0.03 : 0.01),
+                                        .clear,
+                                        .primary.opacity(colorScheme == .dark ? 0.02 : 0.01)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .allowsHitTesting(false)
                     )
                     .overlay(
                         // Top edge glow
