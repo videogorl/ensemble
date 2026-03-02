@@ -500,6 +500,12 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "⚠️ Offline universal URL rejected (400), retrying fallback transcode URL for track=\(track.ratingKey)"
                 )
+                logRejectedDownloadResponse(
+                    response: httpResponse,
+                    temporaryURL: temporaryURL,
+                    stage: "universal",
+                    trackRatingKey: track.ratingKey
+                )
                 #endif
                 try? FileManager.default.removeItem(at: temporaryURL)
 
@@ -517,6 +523,12 @@ public final class OfflineDownloadService: ObservableObject {
                 #if DEBUG
                 EnsembleLogger.debug(
                     "⚠️ Offline transcode rejected for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
+                )
+                logRejectedDownloadResponse(
+                    response: httpResponse,
+                    temporaryURL: temporaryURL,
+                    stage: selectedMode,
+                    trackRatingKey: track.ratingKey
                 )
                 #endif
                 try? FileManager.default.removeItem(at: temporaryURL)
@@ -595,6 +607,29 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
         }
     }
+
+    #if DEBUG
+    private func logRejectedDownloadResponse(
+        response: HTTPURLResponse,
+        temporaryURL: URL,
+        stage: String,
+        trackRatingKey: String
+    ) {
+        EnsembleLogger.debug(
+            "⬇️ Offline download intermediate rejection: track=\(trackRatingKey) stage=\(stage) status=\(response.statusCode)"
+        )
+
+        if let plexError = response.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
+            EnsembleLogger.debug("⬇️ Offline download intermediate X-Plex-Error: \(plexError)")
+        }
+
+        if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
+            let preview = String(decoding: data.prefix(200), as: UTF8.self)
+                .replacingOccurrences(of: "\n", with: " ")
+            EnsembleLogger.debug("⬇️ Offline download intermediate body (preview): \(preview)")
+        }
+    }
+    #endif
 
     private func localFileURL(for track: CDTrack, quality: StreamingQuality, response: URLResponse) -> URL {
         let safeSource = (track.sourceCompositeKey ?? "unknown")

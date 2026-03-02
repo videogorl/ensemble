@@ -972,8 +972,10 @@ public actor PlexAPIClient {
             URLQueryItem(name: "path", value: normalizedPath),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
+            // `musicBitrate` is the canonical query parameter for audio-only
+            // transcoding. Keep `audioBitrate` for older server compatibility.
+            URLQueryItem(name: "musicBitrate", value: bitrate),
             URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "audioCodec", value: "aac"),
             URLQueryItem(name: "transcodeSessionId", value: UUID().uuidString),
             URLQueryItem(name: "offset", value: "0"), // Start from beginning
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
@@ -1015,6 +1017,7 @@ public actor PlexAPIClient {
         // (not .m3u8 which requires HLS playlist parsing)
         components.path = "/music/:/transcode/universal/start.mp3"
         
+        let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
             // Path to the media item
             URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
@@ -1031,7 +1034,8 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier),
             
             // Session tracking (required for transcode)
-            URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId ?? UUID().uuidString)
+            URLQueryItem(name: "X-Plex-Session-Identifier", value: resolvedSessionId),
+            URLQueryItem(name: "transcodeSessionId", value: resolvedSessionId)
         ]
         
         // Add quality-specific parameters.
@@ -1044,18 +1048,18 @@ public actor PlexAPIClient {
             
         case .high:
             // Force transcode at 320 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
             
         case .medium:
             // Force transcode at 192 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
             
         case .low:
             // Force transcode at 128 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
         
         components.queryItems = queryItems
