@@ -76,14 +76,13 @@ public struct DownloadsView: View {
             #endif
         }
         .task {
-            await viewModel.loadDownloads()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                await viewModel.loadDownloads()
-            }
+            viewModel.startPolling()
+        }
+        .onDisappear {
+            viewModel.stopPolling()
         }
         .refreshable {
-            await viewModel.loadDownloads()
+            await viewModel.loadDownloads(force: true)
         }
     }
 
@@ -121,10 +120,11 @@ public struct DownloadsView: View {
                     ForEach(completed) { download in
                         DownloadRow(
                             download: download,
-                            isPlaying: download.track.id == nowPlayingVM.currentTrack?.id
-                        ) {
-                            nowPlayingVM.play(track: download.track)
-                        }
+                            isPlaying: download.track.id == nowPlayingVM.currentTrack?.id,
+                            onTap: {
+                                nowPlayingVM.play(track: download.track)
+                            }
+                        )
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Task {
@@ -162,7 +162,7 @@ public struct DownloadsView: View {
                                         trackRatingKey: download.id,
                                         sourceCompositeKey: download.track.sourceCompositeKey
                                     )
-                                    await viewModel.loadDownloads()
+                                    await viewModel.loadDownloads(force: true)
                                 }
                             },
                             onDelete: {
@@ -178,7 +178,7 @@ public struct DownloadsView: View {
                                         trackRatingKey: download.id,
                                         sourceCompositeKey: download.track.sourceCompositeKey
                                     )
-                                    await viewModel.loadDownloads()
+                                    await viewModel.loadDownloads(force: true)
                                 }
                             } label: {
                                 Label("Retry", systemImage: "arrow.clockwise")
@@ -211,7 +211,7 @@ public struct DownloadsView: View {
         isRefreshingDownloadQuality = true
 
         let refreshResult = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
-        await viewModel.loadDownloads()
+        await viewModel.loadDownloads(force: true)
 
         let qualityLabel = formattedQuality(downloadQuality)
         if refreshResult.requeuedCount > 0 {

@@ -2759,6 +2759,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return .unknown(error)
     }
 
+    /// Detect whether the currently active playback item is local-file backed.
+    /// Local playback should avoid streaming-oriented stall recovery.
+    private func isCurrentPlaybackUsingLocalFile() -> Bool {
+        if let localPath = currentTrack?.localFilePath,
+           FileManager.default.fileExists(atPath: localPath) {
+            return true
+        }
+
+        if let urlAsset = player?.currentItem?.asset as? AVURLAsset {
+            return urlAsset.url.isFileURL
+        }
+
+        return false
+    }
+
     static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
         guard domain == NSURLErrorDomain else { return false }
         switch errorCode {
@@ -3040,6 +3055,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackBufferEmpty && self.playbackState == .playing {
+                    if self.isCurrentPlaybackUsingLocalFile() {
+                        #if DEBUG
+                        EnsembleLogger.debug("ℹ️ Ignoring buffer-empty transition for local playback item")
+                        #endif
+                        return
+                    }
                     #if DEBUG
                     EnsembleLogger.debug("⚠️ Playback buffer empty - switching to buffering state")
                     #endif
@@ -3104,6 +3125,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             return
                         }
 
+                        if self.isCurrentPlaybackUsingLocalFile() {
+                            #if DEBUG
+                            EnsembleLogger.debug("ℹ️ Ignoring unexpected pause recovery for local playback item")
+                            #endif
+                            return
+                        }
+
                         let item = self.player?.currentItem
                         if let recoveryAction = Self.unexpectedPauseRecoveryAction(
                             playbackState: self.playbackState,
@@ -3151,6 +3179,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     case .waitingToPlayAtSpecifiedRate:
                         // Player is waiting to play (buffering, seeking, or loading)
+                        if self.isCurrentPlaybackUsingLocalFile() {
+                            #if DEBUG
+                            EnsembleLogger.debug("ℹ️ Ignoring waiting-to-play transition for local playback item")
+                            #endif
+                            return
+                        }
+
                         if self.playbackState == .playing {
                             #if DEBUG
                             EnsembleLogger.debug("⏳ AVPlayer waiting to play (buffering)")
@@ -3456,6 +3491,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleStallRecoveryTimeout() async {
         guard playbackState == .buffering else { return }
+
+        if isCurrentPlaybackUsingLocalFile() {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Local playback stalled; skipping streaming recovery loop")
+            #endif
+            playbackState = .failed("Downloaded file playback stalled")
+            return
+        }
 
         // End-of-queue often presents as "waiting" with no current item.
         // Treat this as completion instead of retrying the same track.

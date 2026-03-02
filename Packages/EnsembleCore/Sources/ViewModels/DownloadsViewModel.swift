@@ -10,15 +10,47 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var error: String?
 
     private let downloadManager: DownloadManagerProtocol
+    private var pollingTask: Task<Void, Never>?
+    private var lastLoadStartedAt = Date.distantPast
+    private let minimumLoadInterval: TimeInterval = 0.75
 
     public init(downloadManager: DownloadManagerProtocol) {
         self.downloadManager = downloadManager
     }
 
-    public func loadDownloads() async {
+    deinit {
+        pollingTask?.cancel()
+    }
+
+    public func startPolling() {
+        guard pollingTask == nil else { return }
+
+        pollingTask = Task { [weak self] in
+            guard let self else { return }
+            await self.loadDownloads(force: true)
+
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await self.loadDownloads()
+            }
+        }
+    }
+
+    public func stopPolling() {
+        pollingTask?.cancel()
+        pollingTask = nil
+    }
+
+    public func loadDownloads(force: Bool = false) async {
         if isLoading {
             return
         }
+
+        let now = Date()
+        if !force, now.timeIntervalSince(lastLoadStartedAt) < minimumLoadInterval {
+            return
+        }
+        lastLoadStartedAt = now
 
         isLoading = true
         error = nil
@@ -54,7 +86,7 @@ public final class DownloadsViewModel: ObservableObject {
                 forTrackRatingKey: download.id,
                 sourceCompositeKey: download.track.sourceCompositeKey
             )
-            await loadDownloads()
+            await loadDownloads(force: true)
         } catch {
             self.error = error.localizedDescription
         }
