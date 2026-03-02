@@ -227,8 +227,8 @@ public struct MiniPlayer: View {
                         contrast: 2.0,
                         saturation: 1.9,
                         brightness: colorScheme == .dark ? -0.1 : 0.05,
-                        topDimming: 1,
-                        bottomDimming: 1,
+                        topDimming: 0.45,
+                        bottomDimming: 0.3,
                         shouldIgnoreSafeArea: false,
                         overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
                     )
@@ -247,10 +247,10 @@ public struct MiniPlayer: View {
                             .strokeBorder(
                                 LinearGradient(
                                     colors: [
-                                        .primary.opacity(colorScheme == .dark ? 0.25 : 0.15),
+                                        .primary.opacity(colorScheme == .dark ? 0.4 : 0.25),
+                                        .primary.opacity(colorScheme == .dark ? 0.2 : 0.1),
                                         .primary.opacity(colorScheme == .dark ? 0.1 : 0.05),
-                                        .primary.opacity(colorScheme == .dark ? 0.05 : 0.02),
-                                        .primary.opacity(colorScheme == .dark ? 0.15 : 0.1)
+                                        .primary.opacity(colorScheme == .dark ? 0.3 : 0.2)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -265,10 +265,10 @@ public struct MiniPlayer: View {
                             .stroke(
                                 LinearGradient(
                                     stops: [
-                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.5 : 0.3), location: 0),
+                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.6 : 0.4), location: 0),
                                         .init(color: .clear, location: 0.25),
                                         .init(color: .clear, location: 0.75),
-                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.2 : 0.1), location: 1)
+                                        .init(color: .primary.opacity(colorScheme == .dark ? 0.3 : 0.2), location: 1)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -330,7 +330,7 @@ public struct MiniPlayer: View {
                 }
         )
         .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
-        .padding(.horizontal, isFloating ? 12 : 8)
+        .padding(.horizontal, isFloating ? 20 : 12)
         .padding(.bottom, isFloating ? 6 : 4)
         .offset(y: verticalOffset)
         .contextMenu {
