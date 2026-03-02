@@ -31,6 +31,9 @@ public struct RootView: View {
         .onChange(of: settingsManager.accentColor) { _ in
             updateAppearance()
         }
+        .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
+            updateAppearance()
+        }
         .task {
             let deps = DependencyContainer.shared
             deps.accountManager.loadAccounts()
@@ -40,16 +43,26 @@ public struct RootView: View {
     }
 
     private func updateAppearance() {
-        #if canImport(UIKit)
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
+        #if canImport(UIKit) && !os(watchOS)
+        let navAppearance = UINavigationBarAppearance()
+        let tabBarAppearance = UITabBarAppearance()
 
-        // Use default system title colors — accent color is applied via
-        // .accentColor() modifier and only affects interactive elements
+        if settingsManager.auroraVisualizationEnabled {
+            // Transparent backgrounds for aurora visibility
+            navAppearance.configureWithTransparentBackground()
+            tabBarAppearance.configureWithTransparentBackground()
+        } else {
+            // Default opaque backgrounds
+            navAppearance.configureWithDefaultBackground()
+            tabBarAppearance.configureWithDefaultBackground()
+        }
 
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
         #endif
     }
 
