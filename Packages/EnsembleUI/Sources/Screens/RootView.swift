@@ -11,18 +11,16 @@ public struct RootView: View {
 
     public var body: some View {
         ZStack {
-            // Layer 0: Aurora visualization (behind everything)
+            // Layer 0: Main content (tabs, navigation)
+            mainContentView
+
+            // Layer 1: Aurora visualization (overlay, doesn't block touches)
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: playbackService,
                     accentColor: settingsManager.accentColor.color
                 )
-                .zIndex(0)
             }
-
-            // Layer 1: Main content (tabs, navigation)
-            mainContentView
-                .zIndex(1)
         }
         .accentColor(settingsManager.accentColor.color)
         .onAppear {
