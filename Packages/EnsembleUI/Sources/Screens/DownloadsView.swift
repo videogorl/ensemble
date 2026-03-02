@@ -43,6 +43,10 @@ public struct DownloadsView: View {
         }
         .task {
             await viewModel.loadDownloads()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await viewModel.loadDownloads()
+            }
         }
         .refreshable {
             await viewModel.loadDownloads()

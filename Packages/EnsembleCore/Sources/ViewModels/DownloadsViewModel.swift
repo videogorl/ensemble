@@ -16,6 +16,10 @@ public final class DownloadsViewModel: ObservableObject {
     }
 
     public func loadDownloads() async {
+        if isLoading {
+            return
+        }
+
         isLoading = true
         error = nil
 

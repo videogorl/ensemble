@@ -516,6 +516,14 @@ public final class OfflineDownloadService: ObservableObject {
                 )
                 #endif
                 guard (200...299).contains(httpResponse.statusCode) else {
+                    #if DEBUG
+                    if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
+                        let preview = String(decoding: data.prefix(200), as: UTF8.self)
+                            .replacingOccurrences(of: "\n", with: " ")
+                        EnsembleLogger.debug("⬇️ Offline download error body (preview): \(preview)")
+                    }
+                    #endif
+                    try? FileManager.default.removeItem(at: temporaryURL)
                     throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
                 }
             }

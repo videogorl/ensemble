@@ -927,8 +927,8 @@ public actor PlexAPIClient {
         return url
     }
 
-    /// Generate transcode streaming URL using the documented Plex audio transcode endpoint
-    /// This should work for all account types
+    /// Generate transcode streaming URL using Plex's audio transcode endpoint.
+    /// Accepts a rating key (e.g. "8257") or a full library path (e.g. "/library/metadata/8257").
     public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
@@ -954,9 +954,20 @@ public actor PlexAPIClient {
             bitrate = "128"
         }
         
+        let normalizedPath: String
+        if trackKey.hasPrefix("/library/") {
+            normalizedPath = trackKey
+        } else if trackKey.allSatisfy({ $0.isNumber }) {
+            normalizedPath = "/library/metadata/\(trackKey)"
+        } else if trackKey.hasPrefix("/") {
+            normalizedPath = trackKey
+        } else {
+            normalizedPath = "/\(trackKey)"
+        }
+
         components.queryItems = [
             URLQueryItem(name: "protocol", value: "http"),
-            URLQueryItem(name: "path", value: trackKey), // e.g. /library/parts/123/456.mp3
+            URLQueryItem(name: "path", value: normalizedPath),
             URLQueryItem(name: "audioCodec", value: "aac"),
             URLQueryItem(name: "audioBitrate", value: bitrate),
             URLQueryItem(name: "offset", value: "0"), // Start from beginning
@@ -969,6 +980,7 @@ public actor PlexAPIClient {
         }
         
         #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL normalized path: \(normalizedPath)")
         EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
         #endif
         

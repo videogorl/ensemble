@@ -1172,17 +1172,12 @@ public final class SyncCoordinator: ObservableObject {
             throw PlexAPIError.noServerSelected
         }
 
-        if let streamKey = track.streamKey, !streamKey.isEmpty {
-            return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
-        }
-
-        guard let plexTrack = try await apiClient.getTrack(trackKey: track.id),
-              let streamKey = plexTrack.streamURL,
-              !streamKey.isEmpty else {
-            throw PlexAPIError.invalidURL
-        }
-
-        return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
+        // Prefer metadata path for transcode fallback; this is more broadly accepted
+        // across Plex server versions than part-key based paths.
+        return try await apiClient.getTranscodeStreamURL(
+            trackKey: "/library/metadata/\(track.id)",
+            quality: quality
+        )
     }
 
     /// Get artwork URL, routing to the correct provider
