@@ -577,6 +577,61 @@ public final class OfflineDownloadService: ObservableObject {
             let requestedQuality = streamingQuality(from: download.quality)
             var effectiveQuality = requestedQuality
             let domainTrack = Track(from: track)
+
+            if requestedQuality != .original {
+                do {
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
+                    )
+                    #endif
+                    let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
+                        for: domainTrack,
+                        quality: requestedQuality
+                    )
+                    guard !queuePayload.data.isEmpty else {
+                        throw DownloadProcessingError.emptyPayload("download-queue")
+                    }
+
+                    let destinationURL = localFileURL(
+                        for: track,
+                        quality: requestedQuality,
+                        suggestedFilename: queuePayload.suggestedFilename
+                    )
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try? FileManager.default.removeItem(at: destinationURL)
+                    }
+                    try queuePayload.data.write(to: destinationURL, options: [.atomic])
+
+                    let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+                    let persistedFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
+                    guard persistedFileSize > 0 else {
+                        throw DownloadProcessingError.emptyPayload("download-queue")
+                    }
+
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=download-queue"
+                    )
+                    #endif
+
+                    try await downloadManager.completeDownload(
+                        download.objectID,
+                        filePath: destinationURL.path,
+                        fileSize: persistedFileSize,
+                        quality: requestedQuality.rawValue
+                    )
+                    await refreshAllTargetProgresses()
+                    return
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⚠️ Download queue transcode attempt failed for track=\(track.ratingKey): \(error.localizedDescription)"
+                    )
+                    #endif
+                }
+            }
+
             var selectedURL: URL
             var selectedMode: String
 
@@ -862,6 +917,16 @@ public final class OfflineDownloadService: ObservableObject {
             .replacingOccurrences(of: ":", with: "_")
         let responseExtension = response.suggestedFilename.flatMap { URL(fileURLWithPath: $0).pathExtension }
         let ext = responseExtension?.isEmpty == false ? responseExtension! : "m4a"
+        let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
+        return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private func localFileURL(for track: CDTrack, quality: StreamingQuality, suggestedFilename: String?) -> URL {
+        let safeSource = (track.sourceCompositeKey ?? "unknown")
+            .replacingOccurrences(of: ":", with: "_")
+        let suggestedExtension = suggestedFilename
+            .flatMap { URL(fileURLWithPath: $0).pathExtension }
+        let ext = suggestedExtension?.isEmpty == false ? suggestedExtension! : "m4a"
         let fileName = "\(track.ratingKey)_\(safeSource)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
     }

@@ -93,6 +93,53 @@ public struct PlexLibrarySelection: Sendable {
 }
 
 public actor PlexAPIClient {
+    private enum DownloadQueueError: LocalizedError {
+        case queueNotAvailable
+        case itemProcessingTimedOut
+        case itemFailed(String)
+        case invalidQueueResponse
+        case mediaFetchFailed(statusCode: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .queueNotAvailable:
+                return "Download queue not available on this server"
+            case .itemProcessingTimedOut:
+                return "Download queue item timed out while processing"
+            case .itemFailed(let reason):
+                return "Download queue item failed: \(reason)"
+            case .invalidQueueResponse:
+                return "Invalid download queue response"
+            case .mediaFetchFailed(let statusCode):
+                return "Download queue media fetch failed with status \(statusCode)"
+            }
+        }
+    }
+
+    private struct DownloadQueueEnvelope: Decodable {
+        let MediaContainer: DownloadQueueMediaContainer
+    }
+
+    private struct DownloadQueueMediaContainer: Decodable {
+        let DownloadQueue: [DownloadQueueRecord]?
+        let AddedQueueItems: [DownloadQueueAddedItem]?
+        let DownloadQueueItem: [DownloadQueueItemRecord]?
+    }
+
+    private struct DownloadQueueRecord: Decodable {
+        let id: Int
+    }
+
+    private struct DownloadQueueAddedItem: Decodable {
+        let id: Int
+    }
+
+    private struct DownloadQueueItemRecord: Decodable {
+        let id: Int
+        let status: String
+        let error: String?
+    }
+
     private let session: URLSession
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
@@ -939,6 +986,53 @@ public actor PlexAPIClient {
         )
     }
 
+    /// Download transcoded media using Plex's download queue flow.
+    /// This "primes" server-side transcode before media retrieval and is closer
+    /// to the flow used by first-party offline clients.
+    public func downloadTranscodedMediaViaQueue(
+        trackRatingKey: String,
+        quality: StreamingQuality
+    ) async throws -> (data: Data, suggestedFilename: String?) {
+        guard quality != .original else {
+            throw DownloadQueueError.queueNotAvailable
+        }
+
+        let queueId = try await getOrCreateDownloadQueueID()
+        let metadataKey = "/library/metadata/\(trackRatingKey)"
+        let itemId = try await addDownloadQueueItem(
+            queueId: queueId,
+            metadataKey: metadataKey,
+            quality: quality
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "⬇️ DownloadQueue enqueued: queue=\(queueId) item=\(itemId) track=\(trackRatingKey) quality=\(quality.rawValue)"
+        )
+        #endif
+
+        let timeoutDeadline = Date().addingTimeInterval(120)
+        while Date() < timeoutDeadline {
+            let item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
+            switch item.status {
+            case "available":
+                let media = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                return media
+            case "error":
+                throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
+            case "expired":
+                try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            case "deciding", "waiting", "processing":
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            default:
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+
+        throw DownloadQueueError.itemProcessingTimedOut
+    }
+
     /// Generate a transcode URL with endpoint and path-shape fallbacks.
     public func getTranscodeStreamURL(
         trackKey: String,
@@ -1148,6 +1242,109 @@ public actor PlexAPIClient {
         let transcodeType = useAudioEndpoint ? "audio" : "music"
         let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
         return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
+    }
+
+    private func getOrCreateDownloadQueueID() async throws -> Int {
+        let data = try await serverRequestPOST(path: "/downloadQueue")
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let queueId = decoded.MediaContainer.DownloadQueue?.first?.id else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return queueId
+    }
+
+    private func addDownloadQueueItem(
+        queueId: Int,
+        metadataKey: String,
+        quality: StreamingQuality
+    ) async throws -> Int {
+        let bitrate = downloadQueueBitrate(for: quality)
+        var query: [String: String] = [
+            "keys": metadataKey,
+            "path": metadataKey,
+            "protocol": "http",
+            "mediaIndex": "0",
+            "partIndex": "0",
+            "directPlay": "0",
+            "directStream": "0",
+            "directStreamAudio": "0",
+            "hasMDE": "1"
+        ]
+        if let bitrate {
+            query["musicBitrate"] = bitrate
+            query["audioBitrate"] = bitrate
+        }
+
+        let data = try await serverRequestPOST(path: "/downloadQueue/\(queueId)/add", query: query)
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let itemId = decoded.MediaContainer.AddedQueueItems?.first?.id else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return itemId
+    }
+
+    private func getDownloadQueueItem(queueId: Int, itemId: Int) async throws -> DownloadQueueItemRecord {
+        let data = try await serverRequest(path: "/downloadQueue/\(queueId)/items/\(itemId)")
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let item = decoded.MediaContainer.DownloadQueueItem?.first else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return item
+    }
+
+    private func restartDownloadQueueItem(queueId: Int, itemId: Int) async throws {
+        _ = try await serverRequestPOST(path: "/downloadQueue/\(queueId)/items/\(itemId)/restart")
+    }
+
+    private func fetchDownloadQueueMedia(
+        queueId: Int,
+        itemId: Int
+    ) async throws -> (data: Data, suggestedFilename: String?) {
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline {
+            let request = try makeServerRequest(
+                url: currentServerURL,
+                method: "GET",
+                path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
+            )
+            let (data, response) = try await performRequestAllowingNon2xx(request)
+
+            if response.statusCode == 200 {
+                let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
+                    .flatMap { contentDisposition -> String? in
+                        let marker = "filename="
+                        guard let range = contentDisposition.range(of: marker) else { return nil }
+                        let filename = contentDisposition[range.upperBound...]
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                        return filename.isEmpty ? nil : String(filename)
+                    }
+                return (data, suggestedFilename)
+            }
+
+            if response.statusCode == 503 {
+                let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
+                    .flatMap(Int.init) ?? 1
+                try? await Task.sleep(nanoseconds: UInt64(max(retryAfter, 1)) * 1_000_000_000)
+                continue
+            }
+
+            throw DownloadQueueError.mediaFetchFailed(statusCode: response.statusCode)
+        }
+
+        throw DownloadQueueError.itemProcessingTimedOut
+    }
+
+    private func downloadQueueBitrate(for quality: StreamingQuality) -> String? {
+        switch quality {
+        case .high:
+            return "320"
+        case .medium:
+            return "192"
+        case .low:
+            return "128"
+        case .original:
+            return nil
+        }
     }
     
     /// Generate streaming URL for a track (legacy direct file access)
@@ -1818,6 +2015,24 @@ public actor PlexAPIClient {
                 throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
             }
 
+            return (data, httpResponse)
+        } catch let error as PlexAPIError {
+            throw error
+        } catch {
+            throw PlexAPIError.networkError(error)
+        }
+    }
+
+    private func performRequestAllowingNon2xx(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw PlexAPIError.invalidResponse
+            }
             return (data, httpResponse)
         } catch let error as PlexAPIError {
             throw error
