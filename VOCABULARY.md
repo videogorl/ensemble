@@ -99,6 +99,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Section divider | indicator | Visual separator between metadata and streaming sections | `Divider()` |
 | Streaming header | text | "Streaming" section header | |
 | Quality row | text | Current streaming quality setting | `streamingQuality` |
+| Source row | text | Playback source indicator (`Downloaded` vs `Streaming`) | `resolvePlaybackSource()` |
 | Server row | text | Name of the connected Plex server | `resolveServerName()` |
 | Connection row | text | Connection URL with type (Local/Remote/Relay) | `resolveConnectionInfo()` |
 | Status row | indicator | Connection status with colored dot | `resolveConnectionStatus()` |
@@ -475,7 +476,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Downloaded section | region | Section grouping completed downloads | `Section("Downloaded")` |
 | Downloading section | region | Section grouping in-progress downloads | `Section("Downloading")` |
 | Failed section | region | Section grouping failed downloads | `Section("Failed")` |
-| Download row | control | Completed download with artwork, title, file size | `DownloadRow` |
+| Download row | control | Completed download with artwork, title, file size; tap plays track | `DownloadRow` |
 | Download progress row | control | Active download with progress bar | `DownloadProgressRow` |
 | Progress bar | indicator | Linear progress indicator for active downloads | `ProgressView(.linear)` |
 | Progress percentage | text | Download completion percentage | `download.progress` |

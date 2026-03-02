@@ -117,9 +117,7 @@ public struct DownloadsView: View {
                         DownloadRow(
                             download: download,
                             isPlaying: false
-                        ) {
-                            // Retry download
-                        }
+                        )
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Task {
@@ -147,41 +145,42 @@ public struct DownloadsView: View {
 struct DownloadRow: View {
     let download: Download
     let isPlaying: Bool
-    let onTap: () -> Void
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                ArtworkView(track: download.track, size: .thumbnail, cornerRadius: 4)
-                    .frame(width: 44, height: 44)
+        HStack(spacing: 12) {
+            ArtworkView(track: download.track, size: .thumbnail, cornerRadius: 4)
+                .frame(width: 44, height: 44)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(download.track.title)
-                        .font(.body)
-                        .foregroundColor(isPlaying ? .accentColor : .primary)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(download.track.title)
+                    .font(.body)
+                    .foregroundColor(isPlaying ? .accentColor : .primary)
+                    .lineLimit(1)
 
-                    if let artist = download.track.artistName {
-                        Text(artist)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer()
-
-                if download.status == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(.red)
-                } else {
-                    Text(formatBytes(download.fileSize))
+                if let artist = download.track.artistName {
+                    Text(artist)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
             }
+
+            Spacer()
+
+            if download.status == .failed {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.red)
+            } else {
+                Text(formatBytes(download.fileSize))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
+        }
         .contextMenu {
             if let albumId = download.track.albumRatingKey {
                 Button {

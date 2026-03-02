@@ -141,6 +141,10 @@ public struct InfoCard: View {
             }
             .padding(.bottom, 4)
 
+            if viewModel.currentTrack != nil {
+                infoRow(label: "Source", value: resolvePlaybackSource())
+            }
+
             // Quality setting
             infoRow(label: "Quality", value: formatQuality(streamingQuality))
 
@@ -265,6 +269,13 @@ public struct InfoCard: View {
         case .unknown:
             return "Unknown"
         }
+    }
+
+    /// Resolve whether current playback is from a downloaded local file or streaming.
+    private func resolvePlaybackSource() -> String {
+        guard let track = viewModel.currentTrack else { return "—" }
+        guard let localFilePath = track.localFilePath else { return "Streaming" }
+        return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
     }
 
     /// Extract server key from track's sourceCompositeKey
