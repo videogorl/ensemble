@@ -26,7 +26,6 @@ public struct HomeView: View {
                 hubsScrollView
             }
         }
-        .auroraBackgroundSupport()
         .navigationTitle("Feed")
         .toolbar {
             ToolbarItem(placement: .primaryActionIfAvailable) {

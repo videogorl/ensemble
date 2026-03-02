@@ -166,7 +166,6 @@ public struct PlaylistsView: View {
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .auroraBackgroundSupport()
             .navigationTitle(isCoverFlowActive ? "" : "Playlists")
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {

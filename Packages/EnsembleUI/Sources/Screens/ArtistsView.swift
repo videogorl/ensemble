@@ -27,7 +27,6 @@ public struct ArtistsView: View {
                 artistListView
             }
         }
-        .auroraBackgroundSupport()
         .navigationTitle("Artists")
         .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {

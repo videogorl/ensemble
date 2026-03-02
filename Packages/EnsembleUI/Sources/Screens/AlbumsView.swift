@@ -52,7 +52,6 @@ public struct AlbumsView: View {
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
-            .auroraBackgroundSupport()
             .navigationTitle(isCoverFlowActive ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
