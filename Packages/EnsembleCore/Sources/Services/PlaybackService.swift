@@ -2614,13 +2614,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("   🎵 Using streaming quality: \(quality.rawValue)")
         #endif
 
-        // If we have a local file, use it regardless of network state
-        if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
+        // If we have a local file, use it regardless of network state.
+        if let localPath = track.localFilePath {
+            if FileManager.default.fileExists(atPath: localPath) {
+                #if DEBUG
+                EnsembleLogger.debug("   ✅ Using local file: \(localPath)")
+                #endif
+                let url = URL(fileURLWithPath: localPath)
+                return AVPlayerItem(url: url)
+            }
+
             #if DEBUG
-            EnsembleLogger.debug("   ✅ Using local file: \(localPath)")
+            EnsembleLogger.debug("   ⚠️ localFilePath set but file missing on disk: \(localPath)")
             #endif
-            let url = URL(fileURLWithPath: localPath)
-            return AVPlayerItem(url: url)
         }
 
         // Avoid failing fast on cold Siri launches where NWPathMonitor may still be

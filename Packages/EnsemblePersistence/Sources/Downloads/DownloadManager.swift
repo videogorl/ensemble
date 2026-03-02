@@ -73,6 +73,54 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
                 do {
                     let downloads = try context.fetch(request)
+
+                    // Self-heal metadata drift for completed downloads:
+                    // - backfill missing track.localFilePath from download.filePath
+                    // - backfill fileSize from on-disk file
+                    // - mark completed items as failed when file is missing on disk
+                    var healedPathCount = 0
+                    var healedSizeCount = 0
+                    var missingFileCount = 0
+
+                    for download in downloads where download.downloadStatus == .completed {
+                        guard let filePath = download.filePath, !filePath.isEmpty else {
+                            continue
+                        }
+
+                        let fileExists = FileManager.default.fileExists(atPath: filePath)
+                        if fileExists {
+                            if download.track?.localFilePath != filePath {
+                                download.track?.localFilePath = filePath
+                                healedPathCount += 1
+                            }
+
+                            if download.fileSize <= 0,
+                               let attributes = try? FileManager.default.attributesOfItem(atPath: filePath),
+                               let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
+                               actualSize > 0 {
+                                download.fileSize = actualSize
+                                healedSizeCount += 1
+                            }
+                        } else {
+                            download.downloadStatus = .failed
+                            download.error = "Downloaded file missing on disk"
+                            download.progress = 0
+                            if download.track?.localFilePath == filePath {
+                                download.track?.localFilePath = nil
+                            }
+                            missingFileCount += 1
+                        }
+                    }
+
+                    if context.hasChanges {
+                        try context.save()
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount))"
+                        )
+                        #endif
+                    }
+
                     continuation.resume(returning: downloads)
                 } catch {
                     continuation.resume(throwing: error)

@@ -25,6 +25,18 @@ public final class DownloadsViewModel: ObservableObject {
 
             let size = try await downloadManager.getTotalDownloadSize()
             totalSize = formatBytes(size)
+
+            #if DEBUG
+            let completed = downloads.filter { $0.status == .completed }
+            let completedWithLocalPath = completed.filter { ($0.track.localFilePath?.isEmpty == false) || ($0.filePath?.isEmpty == false) }
+            let completedWithMissingDiskFile = completed.filter { download in
+                guard let path = download.track.localFilePath ?? download.filePath else { return true }
+                return !FileManager.default.fileExists(atPath: path)
+            }
+            EnsembleLogger.debug(
+                "📦 Downloads loaded: total=\(downloads.count), completed=\(completed.count), withPath=\(completedWithLocalPath.count), missingDiskFile=\(completedWithMissingDiskFile.count), totalSize=\(size)"
+            )
+            #endif
         } catch {
             self.error = error.localizedDescription
         }

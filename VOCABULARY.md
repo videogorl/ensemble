@@ -480,7 +480,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Download progress row | control | Active download with progress bar | `DownloadProgressRow` |
 | Progress bar | indicator | Linear progress indicator for active downloads | `ProgressView(.linear)` |
 | Progress percentage | text | Download completion percentage | `download.progress` |
-| File size label | text | Size of downloaded file in MB | `formatBytes` |
+| File size label | text | Size of downloaded file in KB/MB/GB | `formatBytes` |
 | Delete swipe action | gesture | Swipe-to-delete for completed/failed downloads | `swipeActions` |
 | Failed indicator | indicator | Red exclamation for failed downloads | `exclamationmark.circle.fill` |
 | Total size label | text | Toolbar text showing total download size | `totalSize` |

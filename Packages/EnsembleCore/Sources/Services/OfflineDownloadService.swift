@@ -22,6 +22,20 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
 
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
+    private enum DownloadProcessingError: LocalizedError {
+        case invalidHTTPStatus(Int)
+        case emptyPayload(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidHTTPStatus(let statusCode):
+                return "Download HTTP status \(statusCode)"
+            case .emptyPayload(let url):
+                return "Download payload was empty for \(url)"
+            }
+        }
+    }
+
     @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
     @Published public private(set) var isQueueRunning = false
 
@@ -437,6 +451,22 @@ public final class OfflineDownloadService: ObservableObject {
             let streamURL = try await syncCoordinator.getOfflineDownloadURL(for: Track(from: track), quality: quality)
 
             let (temporaryURL, response) = try await URLSession.shared.download(from: streamURL)
+            if let httpResponse = response as? HTTPURLResponse {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(quality.rawValue)"
+                )
+                #endif
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
+                }
+            }
+
+            let temporaryAttributes = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)
+            let temporaryFileSize = (temporaryAttributes?[.size] as? NSNumber)?.int64Value ?? 0
+            guard temporaryFileSize > 0 else {
+                throw DownloadProcessingError.emptyPayload(streamURL.absoluteString)
+            }
 
             let destinationURL = localFileURL(for: track, quality: quality, response: response)
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -445,11 +475,22 @@ public final class OfflineDownloadService: ObservableObject {
             try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
 
             let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-            let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+            let destinationFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+            let persistedFileSize = max(temporaryFileSize, destinationFileSize)
+            guard persistedFileSize > 0 else {
+                throw DownloadProcessingError.emptyPayload(streamURL.absoluteString)
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug(
+                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize)"
+            )
+            #endif
+
             try await downloadManager.completeDownload(
                 download.objectID,
                 filePath: destinationURL.path,
-                fileSize: fileSize
+                fileSize: persistedFileSize
             )
             await refreshAllTargetProgresses()
         } catch {
@@ -457,6 +498,11 @@ public final class OfflineDownloadService: ObservableObject {
                 try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
             } else {
                 try? await downloadManager.failDownload(download.objectID, error: error.localizedDescription)
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "❌ Offline download failed: track=\(track.ratingKey) source=\(sourceCompositeKey) reason=\(error.localizedDescription)"
+                )
+                #endif
             }
             await refreshAllTargetProgresses()
         }

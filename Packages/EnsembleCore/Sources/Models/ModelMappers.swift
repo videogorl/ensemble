@@ -263,13 +263,43 @@ public extension Library {
 
 public extension Download {
     init(from cd: CDDownload) {
-        let track = cd.track.map { Track(from: $0) } ?? Track(
+        let mappedTrack = cd.track.map { Track(from: $0) } ?? Track(
             id: "unknown",
             key: "",
             title: "Unknown Track",
             artistName: "Unknown Artist",
             albumName: "Unknown Album"
         )
+        let track: Track
+        if mappedTrack.localFilePath == nil, let fallbackFilePath = cd.filePath, !fallbackFilePath.isEmpty {
+            // Use download.filePath as a safety net when track.localFilePath has not been populated yet.
+            track = Track(
+                id: mappedTrack.id,
+                key: mappedTrack.key,
+                title: mappedTrack.title,
+                artistName: mappedTrack.artistName,
+                albumName: mappedTrack.albumName,
+                albumRatingKey: mappedTrack.albumRatingKey,
+                artistRatingKey: mappedTrack.artistRatingKey,
+                trackNumber: mappedTrack.trackNumber,
+                discNumber: mappedTrack.discNumber,
+                duration: mappedTrack.duration,
+                thumbPath: mappedTrack.thumbPath,
+                fallbackThumbPath: mappedTrack.fallbackThumbPath,
+                fallbackRatingKey: mappedTrack.fallbackRatingKey,
+                streamKey: mappedTrack.streamKey,
+                streamId: mappedTrack.streamId,
+                localFilePath: fallbackFilePath,
+                dateAdded: mappedTrack.dateAdded,
+                dateModified: mappedTrack.dateModified,
+                lastPlayed: mappedTrack.lastPlayed,
+                rating: mappedTrack.rating,
+                playCount: mappedTrack.playCount,
+                sourceCompositeKey: mappedTrack.sourceCompositeKey
+            )
+        } else {
+            track = mappedTrack
+        }
 
         let status: DownloadStatus
         switch cd.downloadStatus {
