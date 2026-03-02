@@ -15,8 +15,9 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `known-issues` | Investigating a bug, planning work, or before touching any area with known problems |
 | `common-tasks` | Adding a ViewModel, view, CoreData entity, hub, music source, playlist mutation, or sync trigger |
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
+| `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
 
-**When in doubt, load all seven.** They are small and the cost of reading them is far lower than making a wrong decision.
+**When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
 
 
 ## Workflow (MUST follow for every task)
@@ -66,6 +67,21 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 
 ## Recent Major Changes
+
+### Universal Transcode Endpoint + Quality Settings (Mar 2026)
+Streaming now uses Plex's universal transcode endpoint with full quality settings support, fixing playback for non-Plex Pass accounts:
+
+- **Universal endpoint:** All streaming uses `/music/:/transcode/universal/start.m3u8` instead of direct file URLs.
+- **Quality-aware routing:** "Original" quality uses `directPlay=1&directStream=1` flags (server chooses best method); reduced qualities force transcode with explicit bitrates.
+- **Non-Plex Pass fix:** Servers were cutting off direct file URLs at ~655KB for non-Plex Pass users; universal endpoint works reliably for all account types.
+- **Quality mapping:** original=server decides, high=320kbps AAC, medium=192kbps AAC, low=128kbps AAC.
+- **Settings integration:** `streamingQuality` AppStorage value (from Settings → Audio Quality) is now respected during playback.
+
+**Key files:**
+- `PlexAPIClient.swift` - `StreamingQuality` enum + `getUniversalStreamURL()` method
+- `MusicSourceSyncProvider.swift` + `PlexMusicSourceSyncProvider.swift` - protocol and implementation updated to pass quality
+- `SyncCoordinator.swift` - quality parameter added to `getStreamURL()`
+- `PlaybackService.swift` - reads `streamingQuality` from UserDefaults and passes to stream URL generation
 
 ### Siri Media Intents v1.1 (In-App-First) (Feb 2026)
 Siri playback now supports **track, album, artist, and playlist** phrases through SiriKit Media Intents with in-app execution:

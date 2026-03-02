@@ -1,4 +1,5 @@
 import EnsemblePersistence
+import EnsembleAPI
 import Foundation
 
 /// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
@@ -32,7 +33,11 @@ public protocol MusicSourceSyncProvider: Sendable {
     ) async throws
 
     /// Get a streaming URL for a track
-    func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL
+    func getStreamURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality
+    ) async throws -> URL
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
