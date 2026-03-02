@@ -29,6 +29,7 @@ public struct GenresView: View {
                 genreListView
             }
         }
+        .auroraBackgroundSupport()
         .navigationTitle("Genres")
         #if os(iOS)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))

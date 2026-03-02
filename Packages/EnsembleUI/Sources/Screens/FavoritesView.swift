@@ -46,6 +46,7 @@ public struct FavoritesView: View {
                 trackListView
             }
         }
+        .auroraBackgroundSupport()
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
         .toolbar {

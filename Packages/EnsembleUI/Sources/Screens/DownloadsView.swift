@@ -20,6 +20,7 @@ public struct DownloadsView: View {
                 downloadListView
             }
         }
+        .auroraBackgroundSupport()
         .navigationTitle("Downloads")
         .toolbar {
             #if os(iOS)

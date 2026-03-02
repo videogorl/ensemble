@@ -84,6 +84,19 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 .padding(.vertical, 4)
+
+                Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Aurora Visualization")
+                            Text("Animated background that reacts to music")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             } header: {
                 Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
                     .foregroundColor(.accentColor)

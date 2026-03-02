@@ -55,6 +55,7 @@ public struct SearchView: View {
             await viewModel.loadExploreContentIfNeeded()
             await pinnedVM.loadPinnedItems()
         }
+        .auroraBackgroundSupport()
         .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)

@@ -77,6 +77,19 @@ public extension View {
     func wiggle(isWiggling: Bool) -> some View {
         self.modifier(WiggleModifier(isWiggling: isWiggling))
     }
+
+    /// Makes the view's background transparent so the aurora visualization shows through.
+    /// Uses scrollContentBackground(.hidden) on iOS 16+ for List/ScrollView backgrounds,
+    /// and falls back to clear background on iOS 15.
+    @ViewBuilder
+    func auroraBackgroundSupport() -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            self.scrollContentBackground(.hidden)
+                .background(Color.clear)
+        } else {
+            self.background(Color.clear)
+        }
+    }
 }
 
 #if os(iOS)

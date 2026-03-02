@@ -5,24 +5,38 @@ import SwiftUI
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    
+    private let playbackService = DependencyContainer.shared.playbackService
+
     public init() {}
 
     public var body: some View {
-        mainContentView
-            .accentColor(settingsManager.accentColor.color)
-            .onAppear {
-                updateAppearance()
+        ZStack {
+            // Layer 0: Aurora visualization (behind everything)
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: playbackService,
+                    accentColor: settingsManager.accentColor.color
+                )
+                .zIndex(0)
             }
-            .onChange(of: settingsManager.accentColor) { _ in
-                updateAppearance()
-            }
-            .task {
-                let deps = DependencyContainer.shared
-                deps.accountManager.loadAccounts()
-                deps.syncCoordinator.refreshProviders()
-                _ = await deps.siriMediaIndexStore.rebuildIndex()
-            }
+
+            // Layer 1: Main content (tabs, navigation)
+            mainContentView
+                .zIndex(1)
+        }
+        .accentColor(settingsManager.accentColor.color)
+        .onAppear {
+            updateAppearance()
+        }
+        .onChange(of: settingsManager.accentColor) { _ in
+            updateAppearance()
+        }
+        .task {
+            let deps = DependencyContainer.shared
+            deps.accountManager.loadAccounts()
+            deps.syncCoordinator.refreshProviders()
+            _ = await deps.siriMediaIndexStore.rebuildIndex()
+        }
     }
 
     private func updateAppearance() {

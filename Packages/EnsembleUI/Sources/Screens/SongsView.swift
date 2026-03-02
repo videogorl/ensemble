@@ -65,6 +65,7 @@ public struct SongsView: View {
             #if os(iOS)
             .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
             #endif
+            .auroraBackgroundSupport()
             .navigationTitle(isCoverFlowActive ? "" : "Songs")
             .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
             .refreshable {
