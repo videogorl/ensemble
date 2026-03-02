@@ -46,7 +46,10 @@ public final class DownloadsViewModel: ObservableObject {
 
     public func deleteDownload(_ download: Download) async {
         do {
-            try await downloadManager.deleteDownload(forTrackRatingKey: download.id)
+            try await downloadManager.deleteDownload(
+                forTrackRatingKey: download.id,
+                sourceCompositeKey: download.track.sourceCompositeKey
+            )
             await loadDownloads()
         } catch {
             self.error = error.localizedDescription

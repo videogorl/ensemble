@@ -203,6 +203,45 @@ public final class OfflineDownloadService: ObservableObject {
         await reconcilePlaylistTargets(forServerSourceKey: serverSourceKey)
     }
 
+    /// Requeue a failed/offline download for a specific track and wake the queue immediately.
+    public func retryDownload(trackRatingKey: String, sourceCompositeKey: String?) async {
+        do {
+            let existing = try await downloadManager.fetchDownload(
+                forTrackRatingKey: trackRatingKey,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            let quality = existing?.quality ?? currentDownloadQuality()
+
+            try await downloadManager.deleteDownload(
+                forTrackRatingKey: trackRatingKey,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            _ = try await downloadManager.createDownload(
+                forTrackRatingKey: trackRatingKey,
+                sourceCompositeKey: sourceCompositeKey,
+                quality: quality
+            )
+
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🔁 Retrying download: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") quality=\(quality)"
+            )
+            #endif
+
+            await refreshAllTargetProgresses()
+            startQueueIfNeeded()
+
+            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") reason=\(error.localizedDescription)"
+            )
+            #endif
+        }
+    }
+
     // MARK: - Target Lifecycle
 
     private func enableTarget(

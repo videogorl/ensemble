@@ -478,10 +478,12 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Failed section | region | Section grouping failed downloads | `Section("Failed")` |
 | Download row | control | Completed download with artwork, title, file size; tap plays track | `DownloadRow` |
 | Download progress row | control | Active download with progress bar | `DownloadProgressRow` |
+| Retry button | action | Visible button on failed download rows that requeues the track | `Retry`, `onRetry` |
 | Progress bar | indicator | Linear progress indicator for active downloads | `ProgressView(.linear)` |
 | Progress percentage | text | Download completion percentage | `download.progress` |
 | File size label | text | Size of downloaded file in KB/MB/GB | `formatBytes` |
 | Delete swipe action | gesture | Swipe-to-delete for completed/failed downloads | `swipeActions` |
+| Retry swipe action | gesture | Leading swipe action to requeue a failed download | `Label("Retry", systemImage: "arrow.clockwise")` |
 | Failed indicator | indicator | Red exclamation for failed downloads | `exclamationmark.circle.fill` |
 | Total size label | text | Toolbar text showing total download size | `totalSize` |
 | Loading state | state | Spinner during initial download list load | `loadingView` |

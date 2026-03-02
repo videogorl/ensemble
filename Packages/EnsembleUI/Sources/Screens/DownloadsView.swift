@@ -4,6 +4,7 @@ import SwiftUI
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
@@ -116,8 +117,36 @@ public struct DownloadsView: View {
                     ForEach(failed) { download in
                         DownloadRow(
                             download: download,
-                            isPlaying: false
+                            isPlaying: false,
+                            onRetry: {
+                                Task {
+                                    await deps.offlineDownloadService.retryDownload(
+                                        trackRatingKey: download.id,
+                                        sourceCompositeKey: download.track.sourceCompositeKey
+                                    )
+                                    await viewModel.loadDownloads()
+                                }
+                            },
+                            onDelete: {
+                                Task {
+                                    await viewModel.deleteDownload(download)
+                                }
+                            }
                         )
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button {
+                                Task {
+                                    await deps.offlineDownloadService.retryDownload(
+                                        trackRatingKey: download.id,
+                                        sourceCompositeKey: download.track.sourceCompositeKey
+                                    )
+                                    await viewModel.loadDownloads()
+                                }
+                            } label: {
+                                Label("Retry", systemImage: "arrow.clockwise")
+                            }
+                            .tint(.blue)
+                        }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Task {
@@ -146,6 +175,8 @@ struct DownloadRow: View {
     let download: Download
     let isPlaying: Bool
     var onTap: (() -> Void)? = nil
+    var onRetry: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -169,8 +200,15 @@ struct DownloadRow: View {
             Spacer()
 
             if download.status == .failed {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundColor(.red)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                    if let onRetry {
+                        Button("Retry", action: onRetry)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                    }
+                }
             } else {
                 Text(formatBytes(download.fileSize))
                     .font(.caption)
@@ -199,12 +237,21 @@ struct DownloadRow: View {
             }
             
             Divider()
-            
-            Button(role: .destructive) {
-                // How to trigger delete from here? 
-                // Maybe it's better to just keep swipe actions for delete
-            } label: {
-                Label("Delete Download", systemImage: "trash")
+
+            if download.status == .failed, let onRetry {
+                Button {
+                    onRetry()
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+
+            if let onDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete Download", systemImage: "trash")
+                }
             }
         }
     }
