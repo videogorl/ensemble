@@ -554,6 +554,11 @@ public final class OfflineDownloadService: ObservableObject {
             var selectedURL = primaryURL
             var selectedMode = "universal"
 
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
+            )
+            #endif
             var (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
             if let httpResponse = response as? HTTPURLResponse,
                httpResponse.statusCode == 400 {
@@ -577,6 +582,11 @@ public final class OfflineDownloadService: ObservableObject {
                 for attempt in fallbackAttempts {
                     selectedURL = attempt.url
                     selectedMode = attempt.mode
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
+                    )
+                    #endif
                     (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
 
                     if let rejection = response as? HTTPURLResponse,
@@ -615,6 +625,11 @@ public final class OfflineDownloadService: ObservableObject {
                 selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
                 selectedMode = "direct-original-fallback"
                 effectiveQuality = .original
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
+                )
+                #endif
                 (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
             }
 
