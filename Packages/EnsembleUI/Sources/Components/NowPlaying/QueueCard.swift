@@ -174,6 +174,16 @@ public struct QueueCard: View {
                             _ = try? await viewModel.addTracks([track], to: lastPlaylistQuickTarget)
                         }
                     },
+                    onGoToAlbum: { track in
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+                        }
+                    },
+                    onGoToArtist: { track in
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+                        }
+                    },
                     canAddToRecentPlaylist: { track in
                         guard let lastPlaylistQuickTarget else { return false }
                         return viewModel.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
