@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.videogorl.ensemble.refresh</string>
+		<string>com.videogorl.ensemble.offline.continued</string>
 		<string>com.videogorl.ensemble.offline.continued.*</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>

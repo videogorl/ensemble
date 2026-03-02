@@ -21,7 +21,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
     public var onExecutionRequested: (() -> Void)?
     public var onExpiration: (() -> Void)?
 
-    private static let identifierPrefix = "com.videogorl.ensemble.offline.continued"
+    private static let continuedTaskIdentifier = "com.videogorl.ensemble.offline.continued"
     private var currentTask: AnyObject?
     private var didRegister = false
 
@@ -31,8 +31,10 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
         guard #available(iOS 26.0, *) else { return }
         guard !didRegister else { return }
 
-        let wildcardIdentifier = "\(Self.identifierPrefix).*"
-        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: wildcardIdentifier, using: nil) { [weak self] task in
+        let registered = BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: Self.continuedTaskIdentifier,
+            using: nil
+        ) { [weak self] task in
             guard let self else {
                 task.setTaskCompleted(success: false)
                 return
@@ -62,10 +64,15 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
     public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
         guard #available(iOS 26.0, *) else { return }
         guard pendingTrackCount > 0 else { return }
+        guard didRegister else {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Skipping BG continued processing submit: handler not registered")
+            #endif
+            return
+        }
 
-        let identifier = "\(Self.identifierPrefix).\(UUID().uuidString)"
         let request = BGContinuedProcessingTaskRequest(
-            identifier: identifier,
+            identifier: Self.continuedTaskIdentifier,
             title: "Downloading Music",
             subtitle: "Preparing offline tracks"
         )
