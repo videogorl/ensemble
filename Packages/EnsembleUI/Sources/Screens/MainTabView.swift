@@ -145,6 +145,7 @@ public struct MainTabView: View {
                             showingNowPlaying = true
                         }
                     }
+                    .accentColor(settingsManager.accentColor.color)
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
@@ -474,6 +475,7 @@ public struct SidebarView: View {
                         showingNowPlaying = true
                     }
                 }
+                .accentColor(deps.settingsManager.accentColor.color)
                 .zIndex(2)
                 .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }

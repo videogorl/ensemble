@@ -7,6 +7,7 @@ public struct MiniPlayer: View {
     let onTap: () -> Void
     
     @Environment(\.dependencies) private var deps
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dragOffset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
@@ -86,13 +87,13 @@ public struct MiniPlayer: View {
                         Text(track.title)
                             .font(.subheadline)
                             .fontWeight(.bold)
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                             .lineLimit(1)
 
                         if let artist = track.artistName {
                             Text(artist)
                                 .font(.caption)
-                                .foregroundColor(.white.opacity(0.8))
+                                .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -152,7 +153,7 @@ public struct MiniPlayer: View {
                                 // Show spinner when loading or buffering
                                 if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
                                     ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                                         .scaleEffect(0.8)
                                 } else {
                                     Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
@@ -166,7 +167,7 @@ public struct MiniPlayer: View {
                                 .font(.title3)
                         }
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -174,16 +175,16 @@ public struct MiniPlayer: View {
                 // Nothing Playing state
                 HStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.white.opacity(0.1))
+                        .fill(Color.primary.opacity(0.1))
                         .frame(width: 32, height: 32)
                         .overlay(
                             Image(systemName: "music.note")
-                                .foregroundColor(.white.opacity(0.6))
+                                .foregroundColor(.primary.opacity(0.6))
                         )
 
                     Text("Nothing Playing")
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(.primary.opacity(0.8))
 
                     Spacer()
                 }
@@ -198,7 +199,7 @@ public struct MiniPlayer: View {
                     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                         ZStack(alignment: .leading) {
                             Rectangle()
-                                .fill(Color.white.opacity(0.15))
+                                .fill(Color.primary.opacity(0.15))
                                 .frame(height: 3)
                             
                             Rectangle()
@@ -225,10 +226,11 @@ public struct MiniPlayer: View {
                         blurRadius: 50, // Increased blur for softer glass look
                         contrast: 2.0,
                         saturation: 1.9,
-                        brightness: -0.1,
+                        brightness: colorScheme == .dark ? -0.1 : 0.05,
                         topDimming: 0.1,
                         bottomDimming: 0.1,
-                        shouldIgnoreSafeArea: false
+                        shouldIgnoreSafeArea: false,
+                        overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
                     )
                     .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
                     .clipped()
@@ -244,7 +246,12 @@ public struct MiniPlayer: View {
                         RoundedRectangle(cornerRadius: pillCornerRadius)
                             .stroke(
                                 LinearGradient(
-                                    colors: [.white.opacity(0.4), .white.opacity(0.1), .clear, .white.opacity(0.1)],
+                                    colors: [
+                                        .primary.opacity(colorScheme == .dark ? 0.4 : 0.2),
+                                        .primary.opacity(0.1),
+                                        .clear,
+                                        .primary.opacity(0.1)
+                                    ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
@@ -256,7 +263,7 @@ public struct MiniPlayer: View {
                         RoundedRectangle(cornerRadius: pillCornerRadius)
                             .fill(
                                 LinearGradient(
-                                    colors: [.white.opacity(0.15), .clear],
+                                    colors: [.primary.opacity(colorScheme == .dark ? 0.15 : 0.05), .clear],
                                     startPoint: .top,
                                     endPoint: .center
                                 )
