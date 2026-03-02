@@ -443,30 +443,34 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
         
-        // ALWAYS use transcode for streaming to avoid Plex Pass restrictions
-        // Direct file URLs can be cut off at ~655KB for non-Plex Pass users
+        // Use direct file URLs for streaming
+        // Note: Plex transcode endpoints don't exist on all servers
+        // Direct file access should work on local networks even without Plex Pass
         
-        // Need streamKey for transcode path parameter
-        let streamKey: String
-        if let cachedKey = trackStreamKey, !cachedKey.isEmpty {
-            streamKey = cachedKey
-        } else {
-            // Fetch from metadata if not cached
-            guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-                  let key = track.streamURL else {
-                #if DEBUG
-                EnsembleLogger.debug("❌ PlexProvider: Could not get stream key")
-                #endif
-                throw PlexAPIError.invalidURL
-            }
-            streamKey = key
+        // If we have a cached stream key, use it directly
+        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+            #if DEBUG
+            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
+            #endif
+            return try await apiClient.getStreamURL(trackKey: streamKey)
+        }
+        
+        // Otherwise fetch track metadata to get the stream key
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
+        #endif
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
+            #if DEBUG
+            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
+            #endif
+            throw PlexAPIError.invalidURL
         }
         
         #if DEBUG
-        EnsembleLogger.debug("🔄 PlexProvider: Using transcode stream: \(streamKey)")
+        EnsembleLogger.debug("✅ PlexProvider: Got stream key from metadata: \(streamKey)")
         #endif
-        
-        return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
+        return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
