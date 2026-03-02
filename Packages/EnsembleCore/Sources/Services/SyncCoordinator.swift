@@ -1154,6 +1154,37 @@ public final class SyncCoordinator: ObservableObject {
         return try await apiClient.getUniversalStreamURL(for: plexTrack, quality: quality)
     }
 
+    /// Get a quality-aware fallback URL for offline downloading using Plex's audio transcode endpoint.
+    /// This is used when universal offline URLs are rejected by certain server configurations.
+    public func getOfflineDownloadFallbackURL(for track: Track, quality: StreamingQuality) async throws -> URL {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        if let streamKey = track.streamKey, !streamKey.isEmpty {
+            return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
+        }
+
+        guard let plexTrack = try await apiClient.getTrack(trackKey: track.id),
+              let streamKey = plexTrack.streamURL,
+              !streamKey.isEmpty else {
+            throw PlexAPIError.invalidURL
+        }
+
+        return try await apiClient.getTranscodeStreamURL(trackKey: streamKey, quality: quality)
+    }
+
     /// Get artwork URL, routing to the correct provider
     public func getArtworkURL(path: String?, sourceKey: String?, size: Int = 300) async throws -> URL? {
         guard let path = path else { return nil }

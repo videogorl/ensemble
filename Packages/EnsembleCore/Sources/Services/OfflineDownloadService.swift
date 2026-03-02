@@ -487,13 +487,32 @@ public final class OfflineDownloadService: ObservableObject {
             try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading)
 
             let quality = streamingQuality(from: download.quality)
-            let streamURL = try await syncCoordinator.getOfflineDownloadURL(for: Track(from: track), quality: quality)
+            let primaryURL = try await syncCoordinator.getOfflineDownloadURL(for: Track(from: track), quality: quality)
+            var selectedURL = primaryURL
+            var selectedMode = "universal"
 
-            let (temporaryURL, response) = try await URLSession.shared.download(from: streamURL)
+            var (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
+            if let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 400 {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Offline universal URL rejected (400), retrying fallback transcode URL for track=\(track.ratingKey)"
+                )
+                #endif
+                try? FileManager.default.removeItem(at: temporaryURL)
+
+                selectedURL = try await syncCoordinator.getOfflineDownloadFallbackURL(
+                    for: Track(from: track),
+                    quality: quality
+                )
+                selectedMode = "transcode-fallback"
+                (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
+            }
+
             if let httpResponse = response as? HTTPURLResponse {
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(quality.rawValue)"
+                    "⬇️ Offline download response: track=\(track.ratingKey) status=\(httpResponse.statusCode) quality=\(quality.rawValue) mode=\(selectedMode)"
                 )
                 #endif
                 guard (200...299).contains(httpResponse.statusCode) else {
@@ -504,7 +523,7 @@ public final class OfflineDownloadService: ObservableObject {
             let temporaryAttributes = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)
             let temporaryFileSize = (temporaryAttributes?[.size] as? NSNumber)?.int64Value ?? 0
             guard temporaryFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(streamURL.absoluteString)
+                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
             }
 
             let destinationURL = localFileURL(for: track, quality: quality, response: response)
@@ -517,12 +536,12 @@ public final class OfflineDownloadService: ObservableObject {
             let destinationFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
             let persistedFileSize = max(temporaryFileSize, destinationFileSize)
             guard persistedFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(streamURL.absoluteString)
+                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
             }
 
             #if DEBUG
             EnsembleLogger.debug(
-                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize)"
+                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode)"
             )
             #endif
 
