@@ -966,23 +966,23 @@ public actor PlexAPIClient {
         } else {
             normalizedPath = "/\(trackKey)"
         }
+        let transcodePath = normalizedPath
 
+        let sessionId = UUID().uuidString
         var queryItems = [
             URLQueryItem(name: "protocol", value: "http"),
-            URLQueryItem(name: "path", value: normalizedPath),
+            URLQueryItem(name: "path", value: transcodePath),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
             // `musicBitrate` is the canonical query parameter for audio-only
             // transcoding. Keep `audioBitrate` for older server compatibility.
             URLQueryItem(name: "musicBitrate", value: bitrate),
             URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "transcodeSessionId", value: UUID().uuidString),
             URLQueryItem(name: "offset", value: "0"), // Start from beginning
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        // Older server builds may still key off X-Plex session identifier.
-        queryItems.append(URLQueryItem(name: "X-Plex-Session-Identifier", value: UUID().uuidString))
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
         components.queryItems = queryItems
 
         guard let url = components.url else {
@@ -993,7 +993,75 @@ public actor PlexAPIClient {
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL normalized path: \(normalizedPath)")
         EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
         #endif
-        
+
+        return url
+    }
+
+    /// Generate a transcode URL with optional absolute-path parameter fallback.
+    /// Some PMS builds reject relative `/library/...` path values for transcode requests.
+    public func getTranscodeStreamURL(
+        trackKey: String,
+        quality: StreamingQuality,
+        useAbsolutePathParameter: Bool
+    ) async throws -> URL {
+        guard useAbsolutePathParameter else {
+            return try await getTranscodeStreamURL(trackKey: trackKey, quality: quality)
+        }
+
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        components.path = "/music/:/transcode/universal/start.mp3"
+
+        let bitrate: String
+        switch quality {
+        case .original, .high:
+            bitrate = "320"
+        case .medium:
+            bitrate = "192"
+        case .low:
+            bitrate = "128"
+        }
+
+        let normalizedPath: String
+        if trackKey.hasPrefix("/library/") {
+            normalizedPath = trackKey
+        } else if trackKey.allSatisfy({ $0.isNumber }) {
+            normalizedPath = "/library/metadata/\(trackKey)"
+        } else if trackKey.hasPrefix("/") {
+            normalizedPath = trackKey
+        } else {
+            normalizedPath = "/\(trackKey)"
+        }
+
+        guard let baseURL = URL(string: currentServerURL),
+              let absolutePathURL = URL(string: normalizedPath, relativeTo: baseURL)?.absoluteURL else {
+            throw PlexAPIError.invalidURL
+        }
+
+        let sessionId = UUID().uuidString
+        var queryItems = [
+            URLQueryItem(name: "protocol", value: "http"),
+            URLQueryItem(name: "path", value: absolutePathURL.absoluteString),
+            URLQueryItem(name: "mediaIndex", value: "0"),
+            URLQueryItem(name: "partIndex", value: "0"),
+            URLQueryItem(name: "musicBitrate", value: bitrate),
+            URLQueryItem(name: "audioBitrate", value: bitrate),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
+        ]
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL absolute path: \(absolutePathURL.absoluteString)")
+        EnsembleLogger.debug("✅ Created transcode stream URL (absolute path): \(url)")
+        #endif
         return url
     }
     
@@ -1031,12 +1099,9 @@ public actor PlexAPIClient {
             
             // Authentication
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier),
-            
-            // Session tracking (required for transcode)
-            URLQueryItem(name: "X-Plex-Session-Identifier", value: resolvedSessionId),
-            URLQueryItem(name: "transcodeSessionId", value: resolvedSessionId)
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
         
         // Add quality-specific parameters.
         switch quality {
@@ -1073,6 +1138,31 @@ public actor PlexAPIClient {
         #endif
         
         return url
+    }
+
+    private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {
+        [
+            // Session identity and broad client metadata improve compatibility on
+            // servers that enforce transcode profile matching.
+            URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId),
+            URLQueryItem(name: "transcodeSessionId", value: sessionId),
+            URLQueryItem(name: "X-Plex-Product", value: productName),
+            URLQueryItem(name: "X-Plex-Platform", value: platformName),
+            URLQueryItem(name: "X-Plex-Device", value: deviceName),
+            URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
+            URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
+            URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
+            URLQueryItem(name: "directPlay", value: "1"),
+            URLQueryItem(name: "directStream", value: "1"),
+            URLQueryItem(name: "directStreamAudio", value: "1"),
+            URLQueryItem(name: "hasMDE", value: "1")
+        ]
+    }
+
+    private func transcodeClientProfileExtra() -> String {
+        // Request an explicit audio transcode target so PMS can resolve a profile
+        // even when generic client matching would otherwise fail.
+        "add-transcode-target(type=musicProfile&context=streaming&protocol=http&container=mp3&audioCodec=aac)"
     }
     
     /// Generate streaming URL for a track (legacy direct file access)

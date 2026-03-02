@@ -5,6 +5,8 @@ public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @State private var isRefreshingDownloadQuality = false
+    @AppStorage("downloadQuality") private var downloadQuality = "original"
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
@@ -26,12 +28,44 @@ public struct DownloadsView: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.downloads.isEmpty {
+                    Button {
+                        Task {
+                            await refreshCompletedDownloadsForCurrentQuality()
+                        }
+                    } label: {
+                        if isRefreshingDownloadQuality {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(isRefreshingDownloadQuality)
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !viewModel.downloads.isEmpty {
                     Text(viewModel.totalSize)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             #else
+            ToolbarItem(placement: .automatic) {
+                if !viewModel.downloads.isEmpty {
+                    Button {
+                        Task {
+                            await refreshCompletedDownloadsForCurrentQuality()
+                        }
+                    } label: {
+                        if isRefreshingDownloadQuality {
+                            ProgressView()
+                        } else {
+                            Label("Update Quality", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(isRefreshingDownloadQuality)
+                }
+            }
             ToolbarItem(placement: .automatic) {
                 if !viewModel.downloads.isEmpty {
                     Text(viewModel.totalSize)
@@ -170,6 +204,50 @@ public struct DownloadsView: View {
         .listStyle(.inset)
         #endif
         .miniPlayerBottomSpacing(140)
+    }
+
+    private func refreshCompletedDownloadsForCurrentQuality() async {
+        guard !isRefreshingDownloadQuality else { return }
+        isRefreshingDownloadQuality = true
+
+        let requeuedCount = await deps.offlineDownloadService.requeueCompletedDownloadsForCurrentQuality()
+        await viewModel.loadDownloads()
+
+        let qualityLabel = formattedQuality(downloadQuality)
+        if requeuedCount > 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Refreshing Downloads",
+                    message: "Re-queued \(requeuedCount) track\(requeuedCount == 1 ? "" : "s") for \(qualityLabel) quality."
+                )
+            )
+        } else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "checkmark.circle",
+                    title: "Downloads Up to Date",
+                    message: "Completed downloads already match \(qualityLabel) quality."
+                )
+            )
+        }
+
+        isRefreshingDownloadQuality = false
+    }
+
+    private func formattedQuality(_ quality: String) -> String {
+        switch quality {
+        case "high":
+            return "high (320 kbps)"
+        case "medium":
+            return "medium (192 kbps)"
+        case "low":
+            return "low (128 kbps)"
+        default:
+            return "original"
+        }
     }
 }
 

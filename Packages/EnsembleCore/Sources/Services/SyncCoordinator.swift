@@ -1156,7 +1156,12 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Get a quality-aware fallback URL for offline downloading using Plex's audio transcode endpoint.
     /// This is used when universal offline URLs are rejected by certain server configurations.
-    public func getOfflineDownloadFallbackURL(for track: Track, quality: StreamingQuality) async throws -> URL {
+    public func getOfflineDownloadFallbackURL(
+        for track: Track,
+        quality: StreamingQuality,
+        preferStreamKeyPath: Bool = false,
+        useAbsolutePathParameter: Bool = false
+    ) async throws -> URL {
         guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
@@ -1172,11 +1177,21 @@ public final class SyncCoordinator: ObservableObject {
             throw PlexAPIError.noServerSelected
         }
 
-        // Prefer metadata path for transcode fallback; this is more broadly accepted
-        // across Plex server versions than part-key based paths.
+        let transcodeTrackKey: String
+        if preferStreamKeyPath,
+           let streamKey = track.streamKey,
+           !streamKey.isEmpty {
+            // Some servers are stricter about path shape for transcode start and
+            // only accept part paths instead of metadata paths.
+            transcodeTrackKey = streamKey
+        } else {
+            transcodeTrackKey = "/library/metadata/\(track.id)"
+        }
+
         return try await apiClient.getTranscodeStreamURL(
-            trackKey: "/library/metadata/\(track.id)",
-            quality: quality
+            trackKey: transcodeTrackKey,
+            quality: quality,
+            useAbsolutePathParameter: useAbsolutePathParameter
         )
     }
 

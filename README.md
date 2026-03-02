@@ -48,7 +48,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
-- **Offline Download Manager (Target-Based)** — Settings-managed `Manage Downloads` flow with `Servers` bulk toggles, album/artist/playlist target toggles, progress rows, and reference-counted cleanup across overlapping targets
+- **Offline Download Manager (Target-Based)** — Settings-managed `Manage Downloads` flow with `Servers` bulk toggles, album/artist/playlist target toggles, progress rows, reference-counted cleanup across overlapping targets, and a Downloads toolbar action to refresh completed files to the currently selected download quality
 - **Offline-Safe Track UX** — While offline, non-downloaded tracks are dimmed and blocked with a toast prompt
 
 ### Planned Features

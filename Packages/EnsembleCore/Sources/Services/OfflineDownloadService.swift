@@ -242,6 +242,67 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Re-queue completed downloads that do not match the current quality setting.
+    /// Returns the number of tracks re-queued for refresh.
+    public func requeueCompletedDownloadsForCurrentQuality() async -> Int {
+        do {
+            let desiredQuality = currentDownloadQuality()
+            let completedDownloads = try await downloadManager.fetchCompletedDownloads()
+            var requeuedCount = 0
+
+            for download in completedDownloads {
+                guard let track = download.track,
+                      let sourceCompositeKey = track.sourceCompositeKey else {
+                    continue
+                }
+
+                let currentQuality = download.quality ?? "original"
+                guard currentQuality != desiredQuality else { continue }
+
+                let reference = OfflineTrackReference(
+                    trackRatingKey: track.ratingKey,
+                    trackSourceCompositeKey: sourceCompositeKey
+                )
+
+                // Only refresh downloads still referenced by at least one active target.
+                guard try await targetRepository.hasAnyMembership(for: reference) else {
+                    continue
+                }
+
+                _ = try await downloadManager.createDownload(
+                    forTrackRatingKey: track.ratingKey,
+                    sourceCompositeKey: sourceCompositeKey,
+                    quality: desiredQuality
+                )
+                requeuedCount += 1
+            }
+
+            if requeuedCount > 0 {
+                await refreshAllTargetProgresses()
+                startQueueIfNeeded()
+                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(
+                    pendingTrackCount: pendingCount
+                )
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) targetQuality=\(desiredQuality)"
+            )
+            #endif
+
+            return requeuedCount
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "❌ Failed re-queueing completed downloads for quality refresh: \(error.localizedDescription)"
+            )
+            #endif
+            return 0
+        }
+    }
+
     // MARK: - Target Lifecycle
 
     private func enableTarget(
@@ -509,20 +570,38 @@ public final class OfflineDownloadService: ObservableObject {
                 #endif
                 try? FileManager.default.removeItem(at: temporaryURL)
 
-                selectedURL = try await syncCoordinator.getOfflineDownloadFallbackURL(
+                let fallbackAttempts = await transcodeFallbackAttempts(
                     for: domainTrack,
                     quality: requestedQuality
                 )
-                selectedMode = "transcode-fallback"
-                (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
+                for attempt in fallbackAttempts {
+                    selectedURL = attempt.url
+                    selectedMode = attempt.mode
+                    (temporaryURL, response) = try await URLSession.shared.download(from: selectedURL)
+
+                    if let rejection = response as? HTTPURLResponse,
+                       rejection.statusCode == 400 {
+                        #if DEBUG
+                        logRejectedDownloadResponse(
+                            response: rejection,
+                            temporaryURL: temporaryURL,
+                            stage: selectedMode,
+                            trackRatingKey: track.ratingKey
+                        )
+                        #endif
+                        try? FileManager.default.removeItem(at: temporaryURL)
+                        continue
+                    }
+                    break
+                }
             }
 
             if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 400,
-               requestedQuality != .original {
+               !(200...299).contains(httpResponse.statusCode),
+               selectedMode != "direct-original-fallback" {
                 #if DEBUG
                 EnsembleLogger.debug(
-                    "⚠️ Offline transcode rejected for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
+                    "⚠️ Offline transcode rejected (status=\(httpResponse.statusCode)) for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
                 )
                 logRejectedDownloadResponse(
                     response: httpResponse,
@@ -630,6 +709,43 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
     #endif
+
+    private func transcodeFallbackAttempts(
+        for track: Track,
+        quality: StreamingQuality
+    ) async -> [(mode: String, url: URL)] {
+        let candidates: [(mode: String, preferStreamKeyPath: Bool, useAbsolutePathParameter: Bool)] = [
+            ("transcode-fallback-metadata", false, false),
+            ("transcode-fallback-part", true, false),
+            ("transcode-fallback-metadata-absolute", false, true),
+            ("transcode-fallback-part-absolute", true, true)
+        ]
+
+        var attempts: [(mode: String, url: URL)] = []
+        var seen = Set<String>()
+
+        for candidate in candidates {
+            do {
+                let url = try await syncCoordinator.getOfflineDownloadFallbackURL(
+                    for: track,
+                    quality: quality,
+                    preferStreamKeyPath: candidate.preferStreamKeyPath,
+                    useAbsolutePathParameter: candidate.useAbsolutePathParameter
+                )
+                if seen.insert(url.absoluteString).inserted {
+                    attempts.append((candidate.mode, url))
+                }
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Failed building transcode fallback URL (mode=\(candidate.mode)): \(error.localizedDescription)"
+                )
+                #endif
+            }
+        }
+
+        return attempts
+    }
 
     private func localFileURL(for track: CDTrack, quality: StreamingQuality, response: URLResponse) -> URL {
         let safeSource = (track.sourceCompositeKey ?? "unknown")
