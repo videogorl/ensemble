@@ -72,10 +72,10 @@ public struct NowPlayingSheetView: View {
             
             // Legibility overlay (adapts to light/dark mode)
             if colorScheme == .dark {
-                Color.black.opacity(0.3)
+                Color.black.opacity(0.45)
                     .allowsHitTesting(false)
             } else {
-                Color(uiColor: .systemBackground).opacity(0.5)
+                Color(uiColor: .systemBackground).opacity(0.7)
                     .allowsHitTesting(false)
             }
         }
