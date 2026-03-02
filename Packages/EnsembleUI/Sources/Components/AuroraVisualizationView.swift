@@ -15,6 +15,7 @@ public struct AuroraVisualizationView: View {
     // MARK: - State
 
     @State private var waveformHeights: [Double] = []
+    @State private var frequencyBands: [Double] = []
     @State private var currentTime: TimeInterval = 0
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
@@ -74,6 +75,9 @@ public struct AuroraVisualizationView: View {
         .animation(.easeInOut(duration: 1.0), value: isVisible)
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onReceive(playbackService.frequencyBandsPublisher) { bands in
+            frequencyBands = bands
+        }
         .onReceive(playbackService.waveformPublisher) { heights in
             waveformHeights = heights
         }
@@ -85,6 +89,7 @@ public struct AuroraVisualizationView: View {
             updateVisibility(for: state)
         }
         .onAppear {
+            frequencyBands = playbackService.frequencyBands
             waveformHeights = playbackService.waveformHeights
             currentTime = playbackService.currentTime
             playbackState = playbackService.playbackState
@@ -146,34 +151,34 @@ public struct AuroraVisualizationView: View {
     }
 
     /// Calculates the intensity value for each frequency band
-    /// All bands react simultaneously to current loudness (like a real-time meter)
+    /// When playing: uses real-time frequency analysis from AudioAnalyzer
+    /// When paused: uses loudness-based breathing animation
     private func calculateBandValues(time: Double, isPlaying: Bool) -> [Double] {
         var bands = [Double](repeating: 0.0, count: bandCount)
 
-        // Get current loudness from waveform position
-        let baseLoudness = sampleLoudness()
+        if isPlaying && !frequencyBands.isEmpty {
+            // Use real-time frequency data from audio analyzer
+            // frequencyBands is already normalized to 0.0-1.0 range
+            for i in 0..<min(bandCount, frequencyBands.count) {
+                bands[i] = max(0.08, min(1.0, frequencyBands[i]))
+            }
+        } else if isPlaying {
+            // Fallback to loudness-based visualization if frequency data not available
+            let baseLoudness = sampleLoudness()
+            let globalPulse = sin(time * 3.0) * 0.08 + sin(time * 5.5) * 0.05
 
-        // Global pulse that affects all bands together (no sweep)
-        let globalPulse = sin(time * 3.0) * 0.08 + sin(time * 5.5) * 0.05
-
-        for i in 0..<bandCount {
-            let normalizedPosition = Double(i) / Double(bandCount - 1)
-
-            if isPlaying {
-                // Frequency weighting: bass (left) typically louder
+            for i in 0..<bandCount {
+                let normalizedPosition = Double(i) / Double(bandCount - 1)
                 let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
-
-                // Static per-band variation (seeded by band index, doesn't change over time)
-                // This creates the "different frequencies" look without sweeping
-                let bandSeed = Double(i * 7919 % 100) / 100.0 // Pseudo-random per band
+                let bandSeed = Double(i * 7919 % 100) / 100.0
                 let staticVariation = (bandSeed - 0.5) * 0.15
-
-                // Combine: all bands react together to loudness + global pulse
-                // Only the frequency weight and static variation differ per band
                 let intensity = (baseLoudness + globalPulse) * frequencyWeight + staticVariation
                 bands[i] = max(0.08, min(1.0, intensity))
-            } else {
-                // Breathing animation when paused
+            }
+        } else {
+            // Breathing animation when paused
+            let baseLoudness = sampleLoudness()
+            for i in 0..<bandCount {
                 bands[i] = calculateBreathingValue(
                     bandIndex: i,
                     time: time,
