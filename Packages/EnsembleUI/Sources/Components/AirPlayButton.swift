@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import EnsembleCore
 
 #if canImport(UIKit)
 import UIKit
@@ -11,10 +12,7 @@ public struct AirPlayButton: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> AVRoutePickerView {
         let routePickerView = AVRoutePickerView()
-        
-        // Style the button with white color to match other controls
-        routePickerView.tintColor = UIColor.white.withAlphaComponent(0.7)
-        routePickerView.activeTintColor = UIColor(Color.accentColor)
+        updateLook(routePickerView)
         
         // Set priority for layout
         routePickerView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -24,9 +22,16 @@ public struct AirPlayButton: UIViewRepresentable {
     }
     
     public func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
-        // Update tint colors if needed
-        uiView.tintColor = UIColor.white.withAlphaComponent(0.7)
-        uiView.activeTintColor = UIColor(Color.accentColor)
+        updateLook(uiView)
+    }
+    
+    private func updateLook(_ view: AVRoutePickerView) {
+        // Use semantic label color (adapts to light/dark) to match .primary.opacity(0.7)
+        view.tintColor = UIColor.label.withAlphaComponent(0.7)
+        
+        // Use user-selected accent color from SettingsManager
+        let accentColor = DependencyContainer.shared.settingsManager.accentColor.color
+        view.activeTintColor = UIColor(accentColor)
     }
 }
 #else
