@@ -46,6 +46,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register for Darwin notification from Siri extension
         registerForSiriPendingPlaybackNotification()
 
+        // Register optional iOS 26+ continued processing handler for offline downloads.
+        DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
+
         // Load accounts synchronously before any Siri/playback code runs.
         // This is critical for cold launches from Siri where the coordinator
         // needs accounts loaded before RootView.task has a chance to run.

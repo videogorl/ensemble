@@ -111,6 +111,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
     public var onConnectionsRefreshed: (() async -> Void)?
+    /// Signal fired when a server-level playlist refresh completes.
+    public var onPlaylistRefreshCompleted: ((String) -> Void)?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -632,6 +634,7 @@ public final class SyncCoordinator: ObservableObject {
                     to: playlistRepository,
                     progressHandler: { _ in }
                 )
+                onPlaylistRefreshCompleted?("plex:\(sourceId.accountId):\(sourceId.serverId)")
             } catch {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
@@ -1454,17 +1457,23 @@ public final class SyncCoordinator: ObservableObject {
         for (_, provider) in syncProviders where
             provider.sourceIdentifier.accountId == parsed.accountId &&
             provider.sourceIdentifier.serverId == parsed.serverId {
+            var didRefresh = false
             do {
                 try await provider.syncPlaylistsIncremental(to: playlistRepository, progressHandler: { _ in })
+                didRefresh = true
             } catch {
                 // Fall back to full sync if incremental fails for any reason.
                 do {
                     try await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
+                    didRefresh = true
                 } catch {
                     #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to refresh playlists for \(serverSourceKey): \(error.localizedDescription)")
                     #endif
                 }
+            }
+            if didRefresh {
+                onPlaylistRefreshCompleted?(serverSourceKey)
             }
             return
         }

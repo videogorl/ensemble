@@ -26,6 +26,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubRepository: HubRepositoryProtocol
     public let moodRepository: MoodRepositoryProtocol
     public let downloadManager: DownloadManagerProtocol
+    public let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
     // MARK: - Services
@@ -44,6 +45,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaIndexStore: SiriMediaIndexStore
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
     public let siriMediaUserContextManager: SiriMediaUserContextManager
+    public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    public let offlineDownloadService: OfflineDownloadService
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -63,12 +66,15 @@ public final class DependencyContainer: @unchecked Sendable {
         hubRepository = HubRepository()
         moodRepository = MoodRepository(coreDataStack: coreDataStack)
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
+        offlineDownloadTargetRepository = OfflineDownloadTargetRepository(coreDataStack: coreDataStack)
         artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
 
         // Multi-source management - initialize on main actor
         let keychainRef = keychain
         let libraryRef = libraryRepository
         let playlistRef = playlistRepository
+        let downloadManagerRef = downloadManager
+        let offlineTargetRepoRef = offlineDownloadTargetRepository
         let artworkDownloadRef = artworkDownloadManager
 
         let am = MainActor.assumeIsolated {
@@ -98,6 +104,33 @@ public final class DependencyContainer: @unchecked Sendable {
                 networkMonitor: nm,
                 serverHealthChecker: shc
             )
+        }
+        let syncCoordinatorRef = syncCoordinator
+
+        let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {
+            OfflineBackgroundExecutionCoordinator()
+        }
+        offlineBackgroundExecutionCoordinator = offlineBackgroundCoordinatorRef
+
+        let offlineServiceRef = MainActor.assumeIsolated {
+            OfflineDownloadService(
+                downloadManager: downloadManagerRef,
+                targetRepository: offlineTargetRepoRef,
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef,
+                syncCoordinator: syncCoordinatorRef,
+                networkMonitor: nm,
+                backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef
+            )
+        }
+        offlineDownloadService = offlineServiceRef
+
+        MainActor.assumeIsolated {
+            syncCoordinatorRef.onPlaylistRefreshCompleted = { [weak offlineServiceRef] serverSourceKey in
+                Task { @MainActor in
+                    await offlineServiceRef?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+                }
+            }
         }
 
         // Services using sync coordinator
@@ -254,6 +287,19 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makeDownloadsViewModel() -> DownloadsViewModel {
         DownloadsViewModel(downloadManager: downloadManager)
+    }
+
+    @MainActor
+    public func makeDownloadManagerSettingsViewModel() -> DownloadManagerSettingsViewModel {
+        DownloadManagerSettingsViewModel(offlineDownloadService: offlineDownloadService)
+    }
+
+    @MainActor
+    public func makeOfflineServersViewModel() -> OfflineServersViewModel {
+        OfflineServersViewModel(
+            accountManager: accountManager,
+            offlineDownloadService: offlineDownloadService
+        )
     }
 
     @MainActor

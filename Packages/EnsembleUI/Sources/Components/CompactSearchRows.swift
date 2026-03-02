@@ -118,6 +118,7 @@ public struct CompactTrackRow: View {
     let track: Track
     let isPlaying: Bool
     let onTap: () -> Void
+    @Environment(\.dependencies) private var deps
 
     public init(track: Track, isPlaying: Bool = false, onTap: @escaping () -> Void) {
         self.track = track
@@ -169,11 +170,28 @@ public struct CompactTrackRow: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
+        .opacity(isUnavailableOffline ? 0.45 : 1)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
+            guard !isUnavailableOffline else {
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .warning,
+                        iconSystemName: "wifi.slash",
+                        title: "Not available offline",
+                        message: "Download this track before going offline.",
+                        dedupeKey: "compact-offline-track-blocked-\(track.id)"
+                    )
+                )
+                return
+            }
             onTap()
         }
+    }
+
+    private var isUnavailableOffline: Bool {
+        !deps.networkMonitor.isConnected && !track.isDownloaded
     }
     
     private func formatDuration(_ seconds: TimeInterval) -> String {

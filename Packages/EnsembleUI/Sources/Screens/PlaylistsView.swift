@@ -559,6 +559,8 @@ public struct PlaylistsView: View {
 
     @ViewBuilder
     private func playlistContextMenu(_ playlist: Playlist) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+
         Button {
             withPlaylistTracks(playlist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -589,6 +591,17 @@ public struct PlaylistsView: View {
             }
         } label: {
             Label("Play Last", systemImage: "text.append")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: playlist.id)

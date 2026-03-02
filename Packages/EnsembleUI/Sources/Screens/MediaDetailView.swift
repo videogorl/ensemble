@@ -208,6 +208,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
         let isPinned = pinManager.isPinned(id: ratingKey)
+        let sourceKey = headerData.sourceKey
         return Menu {
             if showFilter {
                 Button {
@@ -238,6 +239,75 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Unpin", systemImage: "pin.slash")
                 } else {
                     Label("Pin", systemImage: "pin.fill")
+                }
+            }
+
+            if let sourceKey {
+                switch mediaType {
+                case .album:
+                    let album = Album(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        artistName: headerData.subtitle,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                        )
+                    }
+
+                case .artist:
+                    let artist = Artist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        name: headerData.title,
+                        summary: nil,
+                        thumbPath: headerData.artworkPath,
+                        artPath: nil,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                        )
+                    }
+
+                case .playlist:
+                    let playlist = Playlist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        summary: nil,
+                        isSmart: false,
+                        trackCount: 0,
+                        duration: 0,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                        )
+                    }
                 }
             }
 

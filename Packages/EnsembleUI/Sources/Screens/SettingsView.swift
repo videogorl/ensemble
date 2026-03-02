@@ -142,7 +142,7 @@ public struct SettingsView: View {
             // Storage section
             Section(header: Text("Storage").textCase(nil)) {
                 NavigationLink {
-                    StorageSettingsView()
+                    DownloadManagerSettingsView()
                 } label: {
                     HStack {
                         Image(systemName: "internaldrive")

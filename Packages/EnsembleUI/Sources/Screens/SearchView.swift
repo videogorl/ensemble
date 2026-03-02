@@ -1002,6 +1002,8 @@ public struct SearchView: View {
 
     @ViewBuilder
     private func albumContextMenu(_ album: Album) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+
         Button {
             withAlbumTracks(album) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -1050,6 +1052,17 @@ public struct SearchView: View {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
         }
 
+        Button {
+            Task {
+                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
+        }
+
         if let artistId = album.artistRatingKey {
             Button {
                 DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
@@ -1089,6 +1102,8 @@ public struct SearchView: View {
 
     @ViewBuilder
     private func artistContextMenu(_ artist: Artist) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+
         Button {
             withArtistTracks(artist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -1111,6 +1126,17 @@ public struct SearchView: View {
             }
         } label: {
             Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: artist.id)
@@ -1136,6 +1162,8 @@ public struct SearchView: View {
 
     @ViewBuilder
     private func playlistSearchContextMenu(_ playlist: Playlist) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+
         Button {
             withPlaylistTracks(playlist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -1166,6 +1194,17 @@ public struct SearchView: View {
             }
         } label: {
             Label("Play Last", systemImage: "text.append")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: playlist.id)

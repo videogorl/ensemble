@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.videogorl.ensemble.refresh</string>
+		<string>com.videogorl.ensemble.offline.continued.*</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -35,30 +36,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_plex._tcp</string>
-	</array>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
-	<key>NSSiriUsageDescription</key>
-	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
-	<key>INSupportedMediaCategories</key>
-	<array>
-		<string>INMediaCategoryMusic</string>
-	</array>
-	<key>INIntentsSupported</key>
-	<array>
-		<string>INPlayMediaIntent</string>
-	</array>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>com.videogorl.ensemble.siri.playmedia</string>
-	</array>
 	<key>INAlternativeAppNames</key>
 	<array>
 		<dict>
@@ -77,6 +54,30 @@
 			<key>INAlternativeAppName</key>
 			<string>Ensemble Player</string>
 		</dict>
+	</array>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
+	<key>INSupportedMediaCategories</key>
+	<array>
+		<string>INMediaCategoryMusic</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_plex._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.videogorl.ensemble.siri.playmedia</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

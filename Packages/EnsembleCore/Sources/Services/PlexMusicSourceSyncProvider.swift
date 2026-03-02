@@ -443,34 +443,22 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
         
-        // Use direct file URLs for streaming
-        // Note: Plex transcode endpoints don't exist on all servers
-        // Direct file access should work on local networks even without Plex Pass
-        
-        // If we have a cached stream key, use it directly
-        if let streamKey = trackStreamKey, !streamKey.isEmpty {
-            #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
-            #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
-        }
-        
-        // Otherwise fetch track metadata to get the stream key
-        #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
-        #endif
+        // Always use universal transcode URLs so quality settings are respected
+        // and non-Plex Pass accounts can download reliably.
         guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-              let streamKey = track.streamURL else {
+              !track.ratingKey.isEmpty else {
             #if DEBUG
-            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
+            EnsembleLogger.debug("❌ PlexProvider: Could not fetch track metadata for universal stream URL")
             #endif
             throw PlexAPIError.invalidURL
         }
-        
+
         #if DEBUG
-        EnsembleLogger.debug("✅ PlexProvider: Got stream key from metadata: \(streamKey)")
+        if let trackStreamKey, !trackStreamKey.isEmpty {
+            EnsembleLogger.debug("🔍 PlexProvider: Cached stream key available but using universal endpoint for quality-aware URL")
+        }
         #endif
-        return try await apiClient.getStreamURL(trackKey: streamKey)
+        return try await apiClient.getUniversalStreamURL(for: track, quality: quality)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
