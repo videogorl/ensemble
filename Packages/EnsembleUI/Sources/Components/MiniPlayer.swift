@@ -325,15 +325,15 @@ public struct MiniPlayer: View {
                 Section {
                     if let albumId = track.albumRatingKey {
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
                         } label: {
-                            Label("Go to Album", systemImage: "album")
+                            Label("Go to Album", systemImage: "square.stack")
                         }
                     }
 
                     if let artistId = track.artistRatingKey {
                         Button {
-                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
                         } label: {
                             Label("Go to Artist", systemImage: "person.circle")
                         }

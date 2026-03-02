@@ -869,7 +869,7 @@ public struct SearchView: View {
                             Button {
                                 DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                             } label: {
-                                Label("Go to Album", systemImage: "album")
+                                Label("Go to Album", systemImage: "square.stack")
                             }
                         }
 

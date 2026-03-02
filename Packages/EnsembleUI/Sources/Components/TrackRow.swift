@@ -121,7 +121,7 @@ public struct TrackRow: View {
             Section {
                 if let onGoToAlbum = onGoToAlbum, track.albumRatingKey != nil {
                     Button(action: onGoToAlbum) {
-                        Label("Go to Album", systemImage: "album")
+                        Label("Go to Album", systemImage: "square.stack")
                     }
                 }
                 if let onGoToArtist = onGoToArtist, track.artistRatingKey != nil {

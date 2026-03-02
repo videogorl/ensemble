@@ -83,6 +83,18 @@ public final class NavigationCoordinator: ObservableObject {
         }
     }
     
+    /// Request navigation immediately (using current tab or fallback)
+    public func navigate(to destination: Destination) {
+        let targetTab: TabItem
+        if selectedTab == .search {
+            targetTab = visibleTabs.first ?? .home
+        } else {
+            targetTab = selectedTab
+        }
+        selectedTab = targetTab
+        push(destination, in: targetTab)
+    }
+    
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)
     /// Uses current tab (or first visible if currently in Search)
     public func navigateFromNowPlaying(to destination: Destination) {

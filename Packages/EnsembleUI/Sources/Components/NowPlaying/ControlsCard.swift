@@ -476,8 +476,28 @@ public struct ControlsCard: View {
                     .foregroundColor(.white.opacity(0.7))
             }
             
-            // More menu with quick add to recent playlist
+            // More menu with navigation and quick add
             Menu {
+                if let currentTrack = viewModel.currentTrack {
+                    Section {
+                        if let albumId = currentTrack.albumRatingKey {
+                            Button {
+                                handleAlbumTap(track: currentTrack)
+                            } label: {
+                                Label("Go to Album", systemImage: "square.stack")
+                            }
+                        }
+                        
+                        if let artistId = currentTrack.artistRatingKey {
+                            Button {
+                                handleArtistTap(track: currentTrack)
+                            } label: {
+                                Label("Go to Artist", systemImage: "person.circle")
+                            }
+                        }
+                    }
+                }
+
                 if let lastPlaylistQuickTarget {
                     if let currentTrack = viewModel.currentTrack,
                        viewModel.compatibleTrackCount([currentTrack], for: lastPlaylistQuickTarget) > 0 {

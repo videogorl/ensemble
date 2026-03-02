@@ -539,7 +539,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 
                 var navigationActions: [UIAction] = []
                 if let onGoToAlbum = self?.onGoToAlbum, track.albumRatingKey != nil {
-                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "album")) { _ in
+                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
                         onGoToAlbum(track)
                     })
                 }
