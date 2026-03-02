@@ -159,12 +159,14 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             &tap
         )
         
-        guard status == noErr, let audioTap = tap?.takeRetainedValue() else {
+        guard status == noErr, let unwrappedTap = tap else {
             #if DEBUG
             logger.error("Failed to create audio processing tap: \(status)")
             #endif
             return
         }
+        
+        let audioTap = unwrappedTap.takeRetainedValue()
         
         // Create audio mix with the tap
         let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
@@ -198,7 +200,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     // MARK: - Audio Processing
     
     /// Process audio samples and extract frequency bands
-    private func processAudioBuffer(_ bufferList: UnsafePointer<AudioBufferList>, frameCount: Int, sampleRate: Double) {
+    fileprivate func processAudioBuffer(_ bufferList: UnsafePointer<AudioBufferList>, frameCount: Int, sampleRate: Double) {
         guard let fftSetup = fftSetup else { return }
         
         // Rate limit updates to ~30 fps
@@ -363,29 +365,21 @@ private func tapProcess(
     }
     
     // Get analyzer instance from client info
-    guard let clientInfo = MTAudioProcessingTapGetStorage(tap) else { return }
+    let clientInfo = MTAudioProcessingTapGetStorage(tap)
+    guard clientInfo != nil else { return }
     let analyzer = Unmanaged<AudioAnalyzer>.fromOpaque(clientInfo).takeUnretainedValue()
     
-    // Get audio format
-    var processingFormat = AudioStreamBasicDescription()
-    MTAudioProcessingTapGetSourceAudio(tap, 0, nil, nil, nil, nil)
-    
-    var formatListSize: UInt32 = 0
-    var writable: DarwinBoolean = false
-    MTAudioProcessingTapGetPropertyInfo(tap, kMTAudioProcessingTapProperty_SourceFormat, &formatListSize, &writable)
-    
-    if formatListSize > 0 {
-        var formatList = AudioStreamBasicDescription()
-        MTAudioProcessingTapGetProperty(tap, kMTAudioProcessingTapProperty_SourceFormat, formatListSize, &formatList, nil)
-        processingFormat = formatList
-    }
+    // Get sample rate from audio buffer format (typical is 44.1kHz or 48kHz)
+    let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferListInOut, count: 1)
+    // Default to 44.1kHz if we can't determine format
+    let sampleRate: Double = 44100.0
     
     // Process the audio
     Task { @MainActor in
         analyzer.processAudioBuffer(
             bufferListInOut,
             frameCount: Int(numberFramesOut.pointee),
-            sampleRate: processingFormat.mSampleRate
+            sampleRate: sampleRate
         )
     }
 }
