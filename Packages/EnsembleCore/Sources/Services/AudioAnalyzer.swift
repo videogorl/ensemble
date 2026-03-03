@@ -70,12 +70,6 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     /// Frequency band edges (in Hz)
     private var bandEdges: [Double] = []
     
-    /// Mock data generator timer (simulator only)
-    private var mockDataTimer: Timer?
-    
-    /// Mock data phase for animation
-    private var mockDataPhase: Double = 0.0
-    
     /// Whether updates are paused (thread-safe via NSLock)
     private let isPausedLock = NSLock()
     private var _isPaused: Bool = false
@@ -154,17 +148,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         stopAnalysis()
         
         #if DEBUG
-        logger.debug("🎵 setupAudioTap called for player item")
-        #endif
-        
-        #if targetEnvironment(simulator)
-        // MTAudioProcessingTap doesn't work reliably in iOS Simulator
-        // Use mock data generator for testing
-        #if DEBUG
-        logger.warning("⚠️ Running in simulator - using mock frequency data generator")
-        #endif
-        startMockDataGenerator()
-        return
+        logger.debug("🎵 setupAudioTap called for player item - using REAL audio tap")
         #endif
         
         guard let fftSetup = fftSetup else {
@@ -227,8 +211,6 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     @MainActor
     public func stopAnalysis() {
         audioMix = nil
-        mockDataTimer?.invalidate()
-        mockDataTimer = nil
         isPaused = false
         
         // Reset bands to silent
@@ -242,8 +224,6 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     @MainActor
     public func pauseUpdates() {
         isPaused = true
-        mockDataTimer?.invalidate()
-        mockDataTimer = nil
         
         #if DEBUG
         logger.debug("Audio analysis paused")
@@ -255,62 +235,9 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         guard isPaused else { return }
         isPaused = false
         
-        #if targetEnvironment(simulator)
-        // Restart mock data generator
-        startMockDataGenerator()
-        #endif
-        
         #if DEBUG
         logger.debug("Audio analysis resumed")
         #endif
-    }
-    
-    // MARK: - Mock Data Generator (Simulator Only)
-    
-    @MainActor
-    private func startMockDataGenerator() {
-        mockDataTimer?.invalidate()
-        mockDataPhase = 0.0
-        
-        mockDataTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.generateMockFrequencyBands()
-        }
-        
-        #if DEBUG
-        logger.debug("✅ Mock data generator started (simulator mode)")
-        #endif
-    }
-    
-    @MainActor
-    private func generateMockFrequencyBands() {
-        mockDataPhase += 0.1
-        
-        var bands = [Double](repeating: 0.0, count: bandCount)
-        
-        // Generate realistic-looking frequency spectrum
-        // Bass frequencies (0-7): higher energy
-        // Mid frequencies (8-15): moderate energy
-        // High frequencies (16-23): lower energy
-        for i in 0..<bandCount {
-            let normalizedPosition = Double(i) / Double(bandCount - 1)
-            
-            // Bass boost for lower frequencies
-            let bassBoost = exp(-normalizedPosition * 2.0)
-            
-            // Multiple sine waves at different speeds for organic movement
-            let wave1 = sin(mockDataPhase + Double(i) * 0.3)
-            let wave2 = sin(mockDataPhase * 1.5 + Double(i) * 0.2)
-            let wave3 = sin(mockDataPhase * 0.7 + Double(i) * 0.5)
-            
-            // Combine waves with bass boost
-            let amplitude = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2) * bassBoost
-            
-            // Normalize to 0.0-1.0 range with minimum floor
-            bands[i] = max(0.1, min(1.0, (amplitude + 1.0) / 2.0))
-        }
-        
-        frequencyBands = bands
     }
     
     // MARK: - Audio Processing
@@ -333,7 +260,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         lastUpdateTime = currentTime
         
         #if DEBUG
-        logger.debug("🎵 Processing audio buffer: \(frameCount) frames at \(Int(sampleRate))Hz")
+        logger.debug("🎵 Processing REAL audio buffer: \(frameCount) frames at \(Int(sampleRate))Hz")
         #endif
         
         // Get audio samples from first channel
@@ -354,6 +281,12 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             #endif
             return
         }
+        
+        #if DEBUG
+        // Log sample values to verify we're getting real audio
+        let first10Samples = (0..<min(10, sampleCount)).map { String(format: "%.4f", samples[$0]) }.joined(separator: ", ")
+        logger.debug("📊 First 10 audio samples: [\(first10Samples)]")
+        #endif
         
         // Prepare FFT input
         var realParts = [Float](repeating: 0, count: fftSize / 2)
@@ -392,14 +325,15 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         
         #if DEBUG
         let avgBand = bands.reduce(0.0, +) / Double(bands.count)
-        logger.debug("🎵 Extracted \(bands.count) frequency bands, avg: \(String(format: "%.3f", avgBand))")
+        let first5 = bands.prefix(5).map { String(format: "%.3f", $0) }.joined(separator: ", ")
+        logger.debug("🎵 Extracted \(bands.count) REAL FFT bands, avg: \(String(format: "%.3f", avgBand)), first 5: [\(first5)]")
         #endif
         
         // Update on main thread
         Task { @MainActor in
             self.frequencyBands = bands
             #if DEBUG
-            logger.debug("✅ Updated frequency bands on main thread")
+            logger.debug("✅ Updated REAL frequency bands on main thread")
             #endif
         }
     }
