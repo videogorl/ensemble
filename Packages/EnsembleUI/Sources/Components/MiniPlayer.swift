@@ -227,6 +227,7 @@ public struct MiniPlayer: View {
                         contrast: 2.0,
                         saturation: 1.9,
                         brightness: colorScheme == .dark ? -0.1 : 0.05,
+                        opacity: 0.55, // Reduced so the aurora behind shows through
                         topDimming: 0.45,
                         bottomDimming: 0.3,
                         shouldIgnoreSafeArea: false,
