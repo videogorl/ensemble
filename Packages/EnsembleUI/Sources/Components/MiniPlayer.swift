@@ -299,26 +299,6 @@ public struct MiniPlayer: View {
                 .padding(.vertical, 10)
             }
         }
-        .overlay(alignment: .bottom) {
-            if viewModel.currentTrack != nil {
-                // Edge-to-edge progress bar at the very bottom
-                GeometryReader { geometry in
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.primary.opacity(0.15))
-                                .frame(height: 3)
-
-                            Rectangle()
-                                .fill(Color.accentColor)
-                                .frame(width: geometry.size.width * viewModel.progress, height: 3)
-                        }
-                    }
-                }
-                .frame(height: 3)
-                .allowsHitTesting(false)
-            }
-        }
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
@@ -427,5 +407,40 @@ public struct MiniPlayerContainer<Content: View>: View {
                 onTap: onMiniPlayerTap
             )
         }
+    }
+}
+
+// MARK: - Playback Progress Bar
+
+/// Full-width 5pt progress bar shown at the very bottom of the screen.
+/// Sits above the aurora visualization, below the mini player and tab bar.
+public struct PlaybackProgressBar: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    public init(viewModel: NowPlayingViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                ZStack(alignment: .leading) {
+                    // Track background
+                    Rectangle()
+                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08))
+                        .frame(height: 5)
+
+                    // Filled portion
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: geometry.size.width * viewModel.progress, height: 5)
+                }
+            }
+        }
+        .frame(height: 5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
     }
 }

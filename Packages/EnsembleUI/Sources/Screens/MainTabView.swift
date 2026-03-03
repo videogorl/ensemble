@@ -158,6 +158,15 @@ public struct MainTabView: View {
                         removal: .identity
                     ))
                 }
+
+                // Full-width playback progress bar pinned to the very bottom of the screen.
+                // Sits above the aurora, below the mini player and tab bar.
+                if nowPlayingVM.currentTrack != nil && !showingNowPlaying && !isImmersiveMode {
+                    PlaybackProgressBar(viewModel: nowPlayingVM)
+                        .ignoresSafeArea(.all, edges: .bottom)
+                        .zIndex(1)
+                        .transition(.opacity)
+                }
             }
             .task {
                 await libraryVM.refresh()
