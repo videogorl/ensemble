@@ -34,6 +34,113 @@ public struct MiniPlayer: View {
     }
 
     public var body: some View {
+        // Branch on OS version for surface treatment, then apply shared interaction modifiers.
+        Group {
+            if #available(iOS 26, macOS 26, *) {
+                // Native Liquid Glass — the real material, handles blur/lighting/elevation itself.
+                pillContent
+                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+                    .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
+            } else {
+                // iOS 15–25 fallback: handcrafted material stack approximating glass.
+                pillContent
+                    .background(legacyBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+                    .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
+        .onTapGesture(perform: onTap)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Vertical only for the whole player
+                    if value.translation.height < 0 {
+                        verticalOffset = value.translation.height * 0.5 // Rubber band effect
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height < -50 {
+                        onTap()
+                    }
+                    withAnimation(.spring()) {
+                        verticalOffset = 0
+                    }
+                }
+        )
+        .padding(.horizontal, isFloating ? 20 : 12)
+        .padding(.bottom, isFloating ? 6 : 4)
+        .offset(y: verticalOffset)
+        .contextMenu {
+            if let track = viewModel.currentTrack {
+                Section {
+                    Button {
+                        Task { await viewModel.toggleTrackFavorite(track) }
+                    } label: {
+                        Label(
+                            viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
+                            systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+                        )
+                    }
+
+                    if let lastTarget = viewModel.lastPlaylistTarget {
+                        Button {
+                            Task {
+                                if let playlist = await viewModel.resolveLastPlaylistTarget() {
+                                    _ = try? await viewModel.addCurrentTrack(to: playlist)
+                                }
+                            }
+                        } label: {
+                            Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+
+                    Button {
+                        showingPlaylistPicker = true
+                    } label: {
+                        Label("Add to Playlist…", systemImage: "text.badge.plus")
+                    }
+                }
+
+                Section {
+                    if let albumId = track.albumRatingKey {
+                        Button {
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
+                        } label: {
+                            Label("Go to Album", systemImage: "square.stack")
+                        }
+                    }
+
+                    if let artistId = track.artistRatingKey {
+                        Button {
+                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
+                        } label: {
+                            Label("Go to Artist", systemImage: "person.circle")
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        onTap()
+                    } label: {
+                        Label("Show Now Playing", systemImage: "music.note.list")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingPlaylistPicker) {
+            if let track = viewModel.currentTrack {
+                PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    /// The pill's inner content: error banner, track info or empty state, and progress bar.
+    /// Shared across both the iOS 26 glass and legacy material paths.
+    private var pillContent: some View {
         VStack(spacing: 0) {
             // Error banner (if playback failed)
             if case .failed(let errorMessage) = viewModel.playbackState {
@@ -192,173 +299,73 @@ public struct MiniPlayer: View {
                 .padding(.vertical, 10)
             }
         }
-        .overlay(alignment: .bottom) {
-            if viewModel.currentTrack != nil {
-                // Edge-to-edge progress bar at the very bottom
-                GeometryReader { geometry in
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.primary.opacity(0.15))
-                                .frame(height: 3)
-                            
-                            Rectangle()
-                                .fill(Color.accentColor)
-                                .frame(width: geometry.size.width * viewModel.progress, height: 3)
-                        }
-                    }
-                }
-                .frame(height: 3)
-                .allowsHitTesting(false)
-            }
-        }
-        // Keep mini-player layout tightly bound to rendered content height.
-        // This avoids oversized touch regions when artwork background is active.
+        // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
-        .background(
-            ZStack {
-                if viewModel.currentTrack != nil {
-                    // Animation ensures a smooth cross-fade between artwork backgrounds.
-                    // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
-                    BlurredArtworkBackground(
-                        image: viewModel.artworkImage,
-                        blurRadius: 50, // Increased blur for softer glass look
-                        contrast: 2.0,
-                        saturation: 1.9,
-                        brightness: colorScheme == .dark ? -0.1 : 0.05,
-                        topDimming: 0.45,
-                        bottomDimming: 0.3,
-                        shouldIgnoreSafeArea: false,
-                        overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-                    )
-                    .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
-                    .clipped()
-                    // Background blur is visual-only and should never own touch events.
-                    .allowsHitTesting(false)
-                }
-                
-                // Liquid Glass Layer
-                RoundedRectangle(cornerRadius: pillCornerRadius)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        // Glass Sheen (Subtle surface reflection)
-                        RoundedRectangle(cornerRadius: pillCornerRadius)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .primary.opacity(colorScheme == .dark ? 0.03 : 0.01),
-                                        .clear,
-                                        .primary.opacity(colorScheme == .dark ? 0.02 : 0.01)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .allowsHitTesting(false)
-                    )
-                    .overlay(
-                        // Top edge glow
-                        RoundedRectangle(cornerRadius: pillCornerRadius)
-                            .fill(
-                                LinearGradient(
-                                    colors: [.primary.opacity(colorScheme == .dark ? 0.15 : 0.05), .clear],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            )
-                            .padding(1)
-                            .mask(RoundedRectangle(cornerRadius: pillCornerRadius))
-                            .allowsHitTesting(false)
-                    )
+    }
+
+    /// Handcrafted material background used on iOS 15–25.
+    /// Combines a blurred artwork tint with ultraThinMaterial + subtle glass sheen overlays.
+    private var legacyBackground: some View {
+        ZStack {
+            if viewModel.currentTrack != nil {
+                // Animation ensures smooth cross-fade between artwork backgrounds.
+                // DO NOT REMOVE THIS — it prevents jarring swaps and flickering.
+                BlurredArtworkBackground(
+                    image: viewModel.artworkImage,
+                    blurRadius: 50,
+                    contrast: 2.0,
+                    saturation: 1.9,
+                    brightness: colorScheme == .dark ? -0.1 : 0.05,
+                    opacity: 0.3,
+                    topDimming: 0.2,
+                    bottomDimming: 0.15,
+                    shouldIgnoreSafeArea: false,
+                    overlayColor: colorScheme == .dark ? .black : {
+                        #if canImport(UIKit)
+                        return Color(uiColor: .systemBackground)
+                        #else
+                        return Color(nsColor: .windowBackgroundColor)
+                        #endif
+                    }()
+                )
+                .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
+                .clipped()
+                .allowsHitTesting(false)
             }
-        )
-        .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
-        .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
-        .onTapGesture(perform: onTap)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Vertical only for the whole player
-                    if value.translation.height < 0 {
-                        verticalOffset = value.translation.height * 0.5 // Rubber band effect
-                    }
-                }
-                .onEnded { value in
-                    if value.translation.height < -50 {
-                        onTap()
-                    }
-                    withAnimation(.spring()) {
-                        verticalOffset = 0
-                    }
-                }
-        )
-        .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
-        .padding(.horizontal, isFloating ? 20 : 12)
-        .padding(.bottom, isFloating ? 6 : 4)
-        .offset(y: verticalOffset)
-        .contextMenu {
-            if let track = viewModel.currentTrack {
-                Section {
-                    Button {
-                        Task { await viewModel.toggleTrackFavorite(track) }
-                    } label: {
-                        Label(
-                            viewModel.isTrackFavorited(track) ? "Unfavorite" : "Favorite",
-                            systemImage: viewModel.isTrackFavorited(track) ? "heart.slash" : "heart"
+
+            RoundedRectangle(cornerRadius: pillCornerRadius)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    // Subtle surface sheen
+                    RoundedRectangle(cornerRadius: pillCornerRadius)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .primary.opacity(colorScheme == .dark ? 0.03 : 0.01),
+                                    .clear,
+                                    .primary.opacity(colorScheme == .dark ? 0.02 : 0.01)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    }
-
-                    if let lastTarget = viewModel.lastPlaylistTarget {
-                        Button {
-                            Task {
-                                if let playlist = await viewModel.resolveLastPlaylistTarget() {
-                                    _ = try? await viewModel.addCurrentTrack(to: playlist)
-                                }
-                            }
-                        } label: {
-                            Label("Add to \(lastTarget.title)", systemImage: "clock.arrow.circlepath")
-                        }
-                    }
-
-                    Button {
-                        showingPlaylistPicker = true
-                    } label: {
-                        Label("Add to Playlist…", systemImage: "text.badge.plus")
-                    }
-                }
-
-                Section {
-                    if let albumId = track.albumRatingKey {
-                        Button {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
-                        } label: {
-                            Label("Go to Album", systemImage: "square.stack")
-                        }
-                    }
-
-                    if let artistId = track.artistRatingKey {
-                        Button {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
-                        } label: {
-                            Label("Go to Artist", systemImage: "person.circle")
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        onTap()
-                    } label: {
-                        Label("Show Now Playing", systemImage: "music.note.list")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showingPlaylistPicker) {
-            if let track = viewModel.currentTrack {
-                PlaylistPickerSheet(nowPlayingVM: viewModel, tracks: [track])
-            }
+                        .allowsHitTesting(false)
+                )
+                .overlay(
+                    // Top edge glow
+                    RoundedRectangle(cornerRadius: pillCornerRadius)
+                        .fill(
+                            LinearGradient(
+                                colors: [.primary.opacity(colorScheme == .dark ? 0.15 : 0.05), .clear],
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        )
+                        .padding(1)
+                        .mask(RoundedRectangle(cornerRadius: pillCornerRadius))
+                        .allowsHitTesting(false)
+                )
         }
     }
 }
@@ -400,5 +407,49 @@ public struct MiniPlayerContainer<Content: View>: View {
                 onTap: onMiniPlayerTap
             )
         }
+    }
+}
+
+// MARK: - Playback Progress Bar
+
+/// Full-width 5pt progress bar shown at the very bottom of the screen.
+/// Sits above the aurora visualization, below the mini player and tab bar.
+public struct PlaybackProgressBar: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    public init(viewModel: NowPlayingViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                ZStack(alignment: .leading) {
+                    // Track background
+                    Rectangle()
+                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08))
+                        .frame(height: 10)
+
+                    // Filled portion with an overlay blend on top to make it pop.
+                    // Inverted from the color scheme: light overlay in dark mode (screens the
+                    // accent color brighter), dark overlay in light mode (multiplies it richer).
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: geometry.size.width * viewModel.progress, height: 5)
+                        .overlay(
+                            Rectangle()
+                                .fill(colorScheme == .dark
+                                    ? Color.white.opacity(0.35)
+                                    : Color.black.opacity(0.25))
+                                .blendMode(.overlay)
+                        )
+                }
+            }
+        }
+        .frame(height: 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
     }
 }

@@ -4,6 +4,9 @@ import EnsembleAPI
 import Foundation
 import MediaPlayer
 import Nuke
+#if canImport(QuartzCore)
+import QuartzCore
+#endif
 
 // MARK: - Playback State
 
@@ -106,6 +109,8 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var isShuffleEnabled: Bool { get }
     var repeatMode: RepeatMode { get }
     var waveformHeights: [Double] { get }
+    var frequencyBands: [Double] { get }
+    var isExternalPlaybackActive: Bool { get }
     var isAutoplayEnabled: Bool { get }
     var autoplayTracks: [Track] { get }
     var isAutoplayActive: Bool { get }
@@ -124,6 +129,8 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
     var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
     var waveformPublisher: AnyPublisher<[Double], Never> { get }
+    var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
+    var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { get }
     var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { get }
     var autoplayTracksPublisher: AnyPublisher<[Track], Never> { get }
     var autoplayActivePublisher: AnyPublisher<Bool, Never> { get }
@@ -574,6 +581,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
     @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
     @Published public private(set) var waveformHeights: [Double] = []
+    @Published public private(set) var frequencyBands: [Double] = []
+    @Published public private(set) var isExternalPlaybackActive: Bool = false
     @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive: Bool = false
@@ -590,6 +599,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
     public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
+    public var frequencyBandsPublisher: AnyPublisher<[Double], Never> { $frequencyBands.eraseToAnyPublisher() }
+    public var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { $isExternalPlaybackActive.eraseToAnyPublisher() }
     public var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { $isAutoplayEnabled.eraseToAnyPublisher() }
     public var autoplayTracksPublisher: AnyPublisher<[Track], Never> { $autoplayTracks.eraseToAnyPublisher() }
     public var autoplayActivePublisher: AnyPublisher<Bool, Never> { $isAutoplayActive.eraseToAnyPublisher() }
@@ -674,9 +685,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let artworkLoader: ArtworkLoaderProtocol
+    private let audioAnalyzer: AudioAnalyzerProtocol
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
+    private var audioAnalyzerCancellable: AnyCancellable?
+    private var externalPlaybackObservation: NSKeyValueObservation?
+    private var simulatedBandsTimer: Timer?
+    private var simulatedBandsStartTime: TimeInterval = 0
     
     // Queue limiting: keep small lookahead of auto-generated next suggestions (5 tracks)
     private let maxQueueLookahead = 5  // Max number of future tracks to keep queued
@@ -753,10 +769,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol) {
+    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol, audioAnalyzer: AudioAnalyzerProtocol) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
+        self.audioAnalyzer = audioAnalyzer
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -764,6 +781,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupNetworkObservation()
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
+        setupAudioAnalyzer()
     }
 
     deinit {
@@ -791,6 +809,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         guard self.player?.currentItem == nil else { return }
                         await self.handleQueueExhausted()
                     }
+                }
+            }
+        }
+
+        // Observe external playback (AirPlay) to switch frequency visualization source
+        externalPlaybackObservation = player?.observe(\.isExternalPlaybackActive, options: [.new, .initial]) { [weak self] player, _ in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                let isExternal = player.isExternalPlaybackActive
+                self.isExternalPlaybackActive = isExternal
+
+                #if DEBUG
+                EnsembleLogger.debug("🔊 External playback active: \(isExternal)")
+                #endif
+
+                // MTAudioProcessingTap doesn't work during AirPlay, so switch to simulated bands
+                if isExternal {
+                    self.startSimulatedFrequencyBands()
+                } else {
+                    self.stopSimulatedFrequencyBands()
                 }
             }
         }
@@ -1095,6 +1133,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func handleAudioSessionInterruption(_ notification: Notification) {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
@@ -1133,10 +1172,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @unknown default:
             break
         }
+        #endif
     }
 
     @MainActor
     private func handleAudioSessionRouteChange(_ notification: Notification) {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         guard let userInfo = notification.userInfo,
               let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
@@ -1178,6 +1219,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         default:
             isRouteChangeInProgress = false
         }
+        #endif
     }
 
     // MARK: - Remote Commands
@@ -1480,6 +1522,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.pause()
         playbackState = .paused
         updateNowPlayingInfo()
+        
+        // Pause frequency analysis
+        Task { @MainActor in
+            audioAnalyzer.pauseUpdates()
+        }
 
         // Report pause state to Plex
         if let track = currentTrack {
@@ -1496,6 +1543,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
+        
+        // Setup audio tap if not already set up (e.g., after state restoration)
+        if let currentItem = player?.currentItem, currentItem.audioMix == nil {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
+            #endif
+            Task { @MainActor in
+                audioAnalyzer.setupAudioTap(for: currentItem)
+            }
+        }
+        
+        // Resume frequency analysis
+        Task { @MainActor in
+            audioAnalyzer.resumeUpdates()
+        }
         
         #if !os(macOS)
         // Ensure session is active before resuming, especially critical for background handovers.
@@ -2905,6 +2967,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func loadAndPlay(item: AVPlayerItem, track: Track) {
+        #if DEBUG
+        EnsembleLogger.debug("🎵🎵🎵 loadAndPlay() CALLED for track: \(track.title)")
+        #endif
+        
         // Stop current observers but don't full cleanup
         statusObservation?.invalidate()
         statusObservation = nil
@@ -2936,6 +3002,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         player?.removeAllItems()
         player?.insert(item, after: nil)
+        
+        #if DEBUG
+        EnsembleLogger.debug("🎵 Player item inserted, about to setup audio analyzer")
+        EnsembleLogger.debug("🎵 AudioAnalyzer instance: \(type(of: audioAnalyzer))")
+        EnsembleLogger.debug("🎵 PlayerItem: \(item)")
+        #endif
+
+        // Setup audio tap BEFORE playback starts (must be done before play() is called)
+        #if DEBUG
+        EnsembleLogger.debug("🎵 CALLING setupAudioTap NOW...")
+        #endif
+        audioAnalyzer.setupAudioTap(for: item)
+        #if DEBUG
+        EnsembleLogger.debug("🎵 setupAudioTap call COMPLETED")
+        #endif
 
         // Cancel loading state delay - we're about to play
         loadingStateTask?.cancel()
@@ -3638,6 +3719,150 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
         }
     }
+    
+    /// Setup audio analyzer to subscribe to frequency band updates
+    /// Only forwards FFT bands when not using external playback (AirPlay)
+    private func setupAudioAnalyzer() {
+        audioAnalyzerCancellable = audioAnalyzer.frequencyBandsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bands in
+                guard let self = self else { return }
+                // Only use real FFT bands when not in AirPlay mode
+                guard !self.isExternalPlaybackActive else { return }
+                self.frequencyBands = bands
+            }
+    }
+
+    // MARK: - Simulated Frequency Bands (for AirPlay)
+
+    /// Start generating simulated frequency bands from waveform data during AirPlay
+    /// MTAudioProcessingTap doesn't receive audio during external playback
+    private func startSimulatedFrequencyBands() {
+        stopSimulatedFrequencyBands()
+
+        #if DEBUG
+        EnsembleLogger.debug("🎵 Starting simulated frequency bands for AirPlay")
+        #endif
+
+        // Record start time for animation
+        simulatedBandsStartTime = CACurrentMediaTime()
+
+        // Use Timer for ~30fps updates (cross-platform compatible)
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.updateSimulatedFrequencyBands()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        simulatedBandsTimer = timer
+    }
+
+    /// Stop generating simulated frequency bands
+    private func stopSimulatedFrequencyBands() {
+        simulatedBandsTimer?.invalidate()
+        simulatedBandsTimer = nil
+
+        #if DEBUG
+        if isExternalPlaybackActive {
+            EnsembleLogger.debug("🎵 Stopped simulated frequency bands")
+        }
+        #endif
+    }
+
+    /// Generate frequency bands from waveform data based on current playback progress
+    private func updateSimulatedFrequencyBands() {
+        // Only update when actively playing during AirPlay
+        guard isExternalPlaybackActive,
+              playbackState == .playing || playbackState == .buffering,
+              duration > 0 else {
+            // Clear bands when paused/stopped
+            if !frequencyBands.isEmpty && playbackState != .playing && playbackState != .buffering {
+                frequencyBands = Array(repeating: 0.0, count: 24)
+            }
+            return
+        }
+
+        let time = CACurrentMediaTime() - simulatedBandsStartTime
+        let bands = generateFrequencyBandsFromWaveform(progress: currentTime / duration, time: time)
+        frequencyBands = bands
+    }
+
+    /// Generate 24 frequency bands from waveform data at the current playback position
+    /// Uses waveform amplitude with frequency-like distribution for visual variety
+    private func generateFrequencyBandsFromWaveform(progress: Double, time: TimeInterval) -> [Double] {
+        let bandCount = 24
+
+        // Clamp progress to valid range
+        let clampedProgress = max(0, min(1, progress))
+
+        // If we have waveform data, sample around the current position
+        if !waveformHeights.isEmpty {
+            return sampleWaveformAsBands(progress: clampedProgress, time: time, bandCount: bandCount)
+        }
+
+        // Fallback: generate a gentle pulsing animation if no waveform data
+        return generateFallbackBands(progress: clampedProgress, time: time, bandCount: bandCount)
+    }
+
+    /// Sample waveform data around the current position and spread across frequency bands
+    private func sampleWaveformAsBands(progress: Double, time: TimeInterval, bandCount: Int) -> [Double] {
+        let waveformCount = waveformHeights.count
+        guard waveformCount > 0 else { return Array(repeating: 0.1, count: bandCount) }
+
+        // Find the center sample index based on progress
+        let centerIndex = Int(progress * Double(waveformCount - 1))
+
+        // Sample a window around the current position for variation
+        // Window size gives us temporal context
+        let windowSize = max(5, waveformCount / 50)
+        let halfWindow = windowSize / 2
+
+        var bands = [Double](repeating: 0.0, count: bandCount)
+
+        for i in 0..<bandCount {
+            // Each band samples from a slightly different offset in the window
+            // This creates frequency-like variation from the amplitude data
+            let bandOffset = (i - bandCount / 2) * halfWindow / bandCount
+            let sampleIndex = max(0, min(waveformCount - 1, centerIndex + bandOffset))
+
+            // Get base amplitude from waveform
+            var amplitude = waveformHeights[sampleIndex]
+
+            // Apply frequency shaping (bass-heavy like real music)
+            let normalizedBand = Double(i) / Double(bandCount - 1)
+            let bassBoost = 1.0 + (1.0 - normalizedBand) * 0.4
+
+            // Add subtle time-based variation for liveliness
+            let phaseOffset = Double(i) * 0.3
+            let timeVariation = sin(time * 2.5 + phaseOffset) * 0.08
+
+            amplitude = min(1.0, max(0.05, amplitude * bassBoost + timeVariation))
+            bands[i] = amplitude
+        }
+
+        return bands
+    }
+
+    /// Generate fallback bands when no waveform data is available
+    private func generateFallbackBands(progress: Double, time: TimeInterval, bandCount: Int) -> [Double] {
+        var bands = [Double](repeating: 0.0, count: bandCount)
+
+        for i in 0..<bandCount {
+            let normalizedPos = Double(i) / Double(bandCount - 1)
+
+            // Bass-heavy shape
+            let bassShape = 1.0 - normalizedPos * 0.5
+
+            // Time-based animation
+            let phaseOffset = normalizedPos * .pi * 2
+            let primary = sin(time * 1.5) * 0.3 + 0.5
+            let secondary = sin(time * 2.3 + phaseOffset) * 0.15
+            let tertiary = sin(time * 3.7 + phaseOffset * 0.7) * 0.08
+
+            let value = (primary + secondary + tertiary) * bassShape
+            bands[i] = max(0.05, min(0.7, value))
+        }
+
+        return bands
+    }
 
     @MainActor
     private func handleAccountSourcesChanged(_ accounts: [PlexAccountConfig]) async {
@@ -3816,6 +4041,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func cleanup() {
+        // Stop audio analysis on main actor
+        Task { @MainActor in
+            self.audioAnalyzer.stopAnalysis()
+        }
+        
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
@@ -3841,6 +4071,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         currentItemObservation?.invalidate()
         currentItemObservation = nil
+
+        externalPlaybackObservation?.invalidate()
+        externalPlaybackObservation = nil
+
+        stopSimulatedFrequencyBands()
 
         bufferEmptyObservation?.invalidate()
         bufferEmptyObservation = nil
