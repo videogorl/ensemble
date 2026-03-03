@@ -12,33 +12,35 @@ struct TabViewFactory {
         searchVM: SearchViewModel,
         isMoreRoot: Bool = false
     ) -> some View {
-        if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM
-            )
-        } else {
-            switch tab {
-            case .home:
-                HomeView(nowPlayingVM: nowPlayingVM)
-            case .songs:
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .artists:
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .albums:
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .genres:
-                GenresView(libraryVM: libraryVM)
-            case .playlists:
-                PlaylistsView(nowPlayingVM: nowPlayingVM)
-            case .favorites:
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-            case .downloads:
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            case .settings:
-                SettingsView()
+        AuroraBackgroundContainer {
+            if isMoreRoot {
+                MoreView(
+                    libraryVM: libraryVM,
+                    nowPlayingVM: nowPlayingVM
+                )
+            } else {
+                switch tab {
+                case .home:
+                    HomeView(nowPlayingVM: nowPlayingVM)
+                case .songs:
+                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                case .artists:
+                    ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                case .albums:
+                    AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                case .genres:
+                    GenresView(libraryVM: libraryVM)
+                case .playlists:
+                    PlaylistsView(nowPlayingVM: nowPlayingVM)
+                case .favorites:
+                    FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+                case .search:
+                    SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+                case .downloads:
+                    DownloadsView(nowPlayingVM: nowPlayingVM)
+                case .settings:
+                    SettingsView()
+                }
             }
         }
     }
@@ -96,16 +98,7 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
-                // Layer 0: Aurora visualization background
-                if settingsManager.auroraVisualizationEnabled {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        accentColor: settingsManager.accentColor.color
-                    )
-                    .zIndex(0)
-                }
-                
-                // Layer 1: Main content layer (TabView) - above aurora
+                // Main content layer with TabView
                 VStack(spacing: 0) {
                     // Connection status banner at top
                     if !isImmersiveMode {
@@ -116,7 +109,6 @@ public struct MainTabView: View {
                         TabView(selection: tabBinding) {
                             ForEach(barTabs) { tab in
                                 tabRootView(for: tab)
-                                    .auroraBackgroundSupport()
                                     .tag(tab)
                                     .tabItem {
                                         Label(tab.displayTitle, systemImage: tab.systemImage)
@@ -124,7 +116,6 @@ public struct MainTabView: View {
                             }
 
                             tabRootView(for: .settings, isMoreRoot: true)
-                                .auroraBackgroundSupport()
                                 .tag(TabItem.settings)
                                 .tabItem {
                                     Label("More", systemImage: "ellipsis")
@@ -133,11 +124,9 @@ public struct MainTabView: View {
                         isHidden: isImmersiveMode
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
-                    .auroraBackgroundSupport()
                 }
-                .zIndex(1)
 
-                // Persistent MiniPlayer (zIndex 2 - above aurora)
+                // Persistent MiniPlayer (above tab bar)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
                     let isFloating: Bool = {
                         #if os(iOS)
@@ -162,7 +151,6 @@ public struct MainTabView: View {
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
-                    .zIndex(2)
                     // Use a slight delay on appearance to let sheet clear, immediate disappearance
                     .transition(.asymmetric(
                         insertion: .opacity.animation(.easeInOut.delay(0.1)),

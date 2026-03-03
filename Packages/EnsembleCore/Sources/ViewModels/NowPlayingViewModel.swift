@@ -4,6 +4,14 @@ import EnsemblePersistence
 import Nuke
 import SwiftUI
 
+#if os(iOS) || os(tvOS) || os(watchOS)
+import UIKit
+public typealias PlatformImage = UIImage
+#elseif os(macOS)
+import AppKit
+public typealias PlatformImage = NSImage
+#endif
+
 /// Rating states for the three-state heart button
 public enum TrackRating: Equatable {
     case none       // No rating (empty heart)
@@ -78,7 +86,7 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var showHistory: Bool = false
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
-    @Published public private(set) var artworkImage: UIImage?
+    @Published public private(set) var artworkImage: PlatformImage?
     @Published private var optimisticTrackRatings: [String: Int] = [:]
 
     private let playbackService: PlaybackServiceProtocol
