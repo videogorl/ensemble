@@ -48,11 +48,14 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     @Published public private(set) var isReauthenticationRequired = false
     @Published public private(set) var serverLibraryErrors: [String: String] = [:]
     @Published public private(set) var error: String?
+    /// Number of pending offline mutations waiting to be replayed when connectivity resumes.
+    @Published public private(set) var pendingMutationCount: Int = 0
 
     private let accountId: String
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
+    private let pendingMutationQueue: PendingMutationQueue
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
@@ -69,12 +72,22 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountId: String,
         accountManager: AccountManager,
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        pendingMutationQueue: PendingMutationQueue
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
+        self.pendingMutationQueue = pendingMutationQueue
+
+        // Mirror the global pending mutation count so the view can show sync status
+        pendingMutationQueue.$pendingCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                self?.pendingMutationCount = count
+            }
+            .store(in: &cancellables)
 
         accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)

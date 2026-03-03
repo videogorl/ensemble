@@ -101,6 +101,15 @@ public final class NetworkMonitor: ObservableObject {
 
     // MARK: - Testing Helpers
 
+    #if DEBUG
+    /// Simulate an offline or online state for manual testing from the Settings Developer section.
+    /// Only available in DEBUG builds.
+    public func simulateOffline(_ offline: Bool) {
+        let state: NetworkState = offline ? .offline : .online(.wifi)
+        injectNetworkStateForTesting(state, debounced: false)
+    }
+    #endif
+
     internal func injectNetworkStateForTesting(_ state: NetworkState, debounced: Bool = true) {
         if debounced {
             debounceStateUpdate(state: state)

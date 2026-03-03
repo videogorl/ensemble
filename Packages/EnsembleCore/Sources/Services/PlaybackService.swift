@@ -1841,11 +1841,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
                     let playbackBufferFull = item?.isPlaybackBufferFull == true
-                    let shouldForceImmediateResume = targetIsBuffered || likelyToKeepUp || playbackBufferFull
+                    // Local file playback doesn't use network buffering — always resume immediately
+                    let isLocalFile = self.currentTrack?.localFilePath != nil
+                    let shouldForceImmediateResume = isLocalFile || targetIsBuffered || likelyToKeepUp || playbackBufferFull
 
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "🎯 Seek completion: targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
+                        "🎯 Seek completion: localFile=\(isLocalFile), targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
                     )
                     #endif
 

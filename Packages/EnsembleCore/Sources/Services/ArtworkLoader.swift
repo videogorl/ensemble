@@ -8,6 +8,7 @@ public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
+    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int
     func invalidateURLCache() async
 }
 
@@ -192,6 +193,18 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
                 return url
             }
+
+            // Try playlist artwork cache
+            let playlistFilename = "\(key)_playlist.jpg"
+            let playlistCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(playlistFilename).path
+            if FileManager.default.fileExists(atPath: playlistCachePath) {
+                let url = URL(fileURLWithPath: playlistCachePath)
+                #if DEBUG
+                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(playlistFilename)")
+                #endif
+                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
+                return url
+            }
         }
 
         // Use network to fetch artwork
@@ -296,6 +309,49 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
         }
         
+        return downloadedCount
+    }
+    /// Pre-download playlist artwork for offline viewing using the composite thumb path
+    /// Returns the number of artworks successfully downloaded
+    public func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int = 500) async throws -> Int {
+        var downloadedCount = 0
+
+        for playlist in playlists {
+            // Playlists use compositePath for their server-generated composite artwork
+            guard let thumbPath = playlist.compositePath else { continue }
+            let ratingKey = playlist.ratingKey
+
+            // Skip if already cached
+            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
+               FileManager.default.fileExists(atPath: localPath) {
+                continue
+            }
+
+            // Get the artwork URL from the server
+            guard let artworkURL = try? await syncCoordinator.getArtworkURL(
+                path: thumbPath,
+                sourceKey: sourceKey,
+                size: size
+            ) else {
+                continue
+            }
+
+            // Download and cache the artwork
+            do {
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: artworkURL,
+                    ratingKey: ratingKey,
+                    type: .playlist
+                )
+                downloadedCount += 1
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("Failed to download artwork for playlist \(playlist.title): \(error)")
+                #endif
+                continue
+            }
+        }
+
         return downloadedCount
     }
 }

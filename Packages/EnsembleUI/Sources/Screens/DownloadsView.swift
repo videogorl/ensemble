@@ -155,28 +155,8 @@ public struct DownloadsView: View {
     @ViewBuilder
     private func destinationView(for item: DownloadedItemSummary) -> some View {
         switch item.kind {
-        case .album:
-            if let ratingKey = item.ratingKey {
-                AlbumDetailLoader(albumId: ratingKey, nowPlayingVM: nowPlayingVM)
-            } else {
-                unavailableDetailView
-            }
-        case .artist:
-            if let ratingKey = item.ratingKey {
-                ArtistDetailLoader(artistId: ratingKey, nowPlayingVM: nowPlayingVM)
-            } else {
-                unavailableDetailView
-            }
-        case .playlist:
-            if let ratingKey = item.ratingKey {
-                PlaylistDetailLoader(
-                    playlistId: ratingKey,
-                    playlistSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
-            } else {
-                unavailableDetailView
-            }
+        case .album, .artist, .playlist:
+            DownloadTargetDetailView(summary: item)
         case .library:
             OfflineServersView()
         }

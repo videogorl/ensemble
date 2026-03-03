@@ -431,6 +431,11 @@ public struct InfoCard: View {
 
     /// Resolve connection status with color
     private func resolveConnectionStatus() -> (text: String, color: Color)? {
+        // Device is offline — always reflect that regardless of cached server state
+        guard deps.networkMonitor.isConnected else {
+            return ("Offline", Color.red)
+        }
+
         guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
             return nil
         }

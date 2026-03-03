@@ -14,6 +14,9 @@ public struct SettingsView: View {
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
+    #if DEBUG
+    @AppStorage("debugSimulateOffline") private var debugSimulateOffline = false
+    #endif
 
     // Hardcoded support URL — safe to force-unwrap as a named constant (literal cannot fail)
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
@@ -182,6 +185,27 @@ public struct SettingsView: View {
                     }
                 }
             }
+
+            #if DEBUG
+            // Developer tools section (DEBUG builds only)
+            Section(header: Text("Developer").textCase(nil)) {
+                Toggle(isOn: $debugSimulateOffline) {
+                    HStack {
+                        Image(systemName: "wifi.slash")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Simulate No Connection")
+                            Text("Forces app into offline mode for testing")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .onChange(of: debugSimulateOffline) { simulating in
+                    DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
+                }
+            }
+            #endif
 
             // About section
             Section(header: Text("About").textCase(nil)) {

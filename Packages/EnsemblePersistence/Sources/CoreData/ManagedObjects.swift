@@ -385,3 +385,45 @@ extension CDHubItem {
         return NSFetchRequest<CDHubItem>(entityName: "CDHubItem")
     }
 }
+
+// MARK: - CDPendingMutation
+
+/// Persisted record for a server-side mutation that couldn't be sent while offline.
+/// Drained automatically when the device reconnects.
+@objc(CDPendingMutation)
+public class CDPendingMutation: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var type: String
+    @NSManaged public var payload: Data
+    @NSManaged public var createdAt: Date
+    @NSManaged public var retryCount: Int16
+    @NSManaged public var status: String
+    @NSManaged public var sourceCompositeKey: String?
+}
+
+extension CDPendingMutation {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDPendingMutation> {
+        return NSFetchRequest<CDPendingMutation>(entityName: "CDPendingMutation")
+    }
+
+    public enum MutationType: String {
+        case trackRating
+        case playlistAdd
+        case playlistRemove
+    }
+
+    public enum MutationStatus: String {
+        case pending
+        case failed
+    }
+
+    public var mutationType: MutationType {
+        get { MutationType(rawValue: type) ?? .trackRating }
+        set { type = newValue.rawValue }
+    }
+
+    public var mutationStatus: MutationStatus {
+        get { MutationStatus(rawValue: status) ?? .pending }
+        set { status = newValue.rawValue }
+    }
+}

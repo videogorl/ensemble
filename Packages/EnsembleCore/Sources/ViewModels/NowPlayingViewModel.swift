@@ -94,6 +94,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
+    private let pendingMutationQueue: PendingMutationQueue
     private var cancellables = Set<AnyCancellable>()
     
     // Artwork loading state
@@ -111,13 +112,15 @@ public final class NowPlayingViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         libraryRepository: LibraryRepositoryProtocol,
         navigationCoordinator: NavigationCoordinator,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        pendingMutationQueue: PendingMutationQueue
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
+        self.pendingMutationQueue = pendingMutationQueue
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -539,6 +542,30 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
+        // If offline, enqueue the mutation and show a deferred confirmation toast.
+        if syncCoordinator.isOffline, let playlistSourceKey = playlist.sourceCompositeKey {
+            let tracksBySource = Dictionary(grouping: tracks) { $0.sourceCompositeKey ?? playlistSourceKey }
+            for (sourceKey, sourceTracks) in tracksBySource {
+                let payload = PlaylistMutationPayload(
+                    playlistRatingKey: playlist.id,
+                    playlistSourceCompositeKey: playlistSourceKey,
+                    trackRatingKeys: sourceTracks.map(\.id),
+                    trackSourceCompositeKey: sourceKey
+                )
+                await pendingMutationQueue.enqueuePlaylistAdd(payload)
+            }
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "clock.arrow.circlepath",
+                    title: "Queued for \(playlist.title)",
+                    message: "Will be added when back online.",
+                    dedupeKey: "playlist-add-queued-\(playlist.id)"
+                )
+            )
+            return PlaylistMutationResult(addedCount: 0, skippedCount: 0)
+        }
+
         let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
         await MainActor.run {
             if result.skippedCount > 0 {
@@ -812,6 +839,28 @@ public final class NowPlayingViewModel: ObservableObject {
             optimisticTrackRatings[track.id] = optimisticRating
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
+
+            // If offline, keep the optimistic state and queue the mutation for later.
+            if syncCoordinator.isOffline {
+                if let sourceKey = track.sourceCompositeKey {
+                    let payload = TrackRatingMutationPayload(
+                        trackRatingKey: track.id,
+                        sourceCompositeKey: sourceKey,
+                        rating: plexRating
+                    )
+                    await pendingMutationQueue.enqueueTrackRating(payload)
+                }
+                toastCenter.show(
+                    ToastPayload(
+                        style: .info,
+                        iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
+                        title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
+                        message: track.title,
+                        dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
+                    )
+                )
+                return
+            }
 
             if let trackRatingMutationHandlerForTesting {
                 try await trackRatingMutationHandlerForTesting(track, plexRating)

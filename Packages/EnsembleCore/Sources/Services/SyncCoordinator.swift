@@ -1367,58 +1367,129 @@ public final class SyncCoordinator: ObservableObject {
     }
     
     // MARK: - Artwork Pre-Caching
-    
-    /// Cache artwork for all albums in a source
+
+    /// Cache artwork for all albums, artists, and playlists in a source
     private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            // Fetch all albums for this source
+            // --- Albums (progress 70–80%) ---
             let allAlbums = try await libraryRepository.fetchAlbums()
             let sourceAlbums = allAlbums.filter { $0.sourceCompositeKey == sourceId.compositeKey }
-            
+
             #if DEBUG
             EnsembleLogger.debug("📸 Pre-caching artwork for \(sourceAlbums.count) albums from source \(sourceId.compositeKey)")
             #endif
-            
-            var cachedCount = 0
+
+            var albumsCached = 0
             for (index, album) in sourceAlbums.enumerated() {
-                // Update progress (artwork caching is 10% of total, happens at 70-80%)
                 let artworkProgress = 0.7 + (0.1 * Double(index) / Double(max(sourceAlbums.count, 1)))
                 let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .syncing(progress: artworkProgress),
                     connectionState: currentConnectionState
                 )
-                
-                // Skip if already cached
+
                 if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
                    FileManager.default.fileExists(atPath: localPath) {
                     continue
                 }
-                
-                // Get artwork URL from provider
+
                 guard let thumbPath = album.thumbPath,
                       let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
                     continue
                 }
-                
-                // Download and cache
+
                 do {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: artworkURL,
-                        ratingKey: album.ratingKey,
-                        type: .album
+                        from: artworkURL, ratingKey: album.ratingKey, type: .album
                     )
-                    cachedCount += 1
+                    albumsCached += 1
                 } catch {
-                    // Continue with next album on error
                     #if DEBUG
                     EnsembleLogger.debug("Failed to cache artwork for album \(album.title): \(error)")
                     #endif
                 }
             }
-            
+
+            // --- Artists (progress 80–88%) ---
+            let allArtists = try await libraryRepository.fetchArtists()
+            let sourceArtists = allArtists.filter { $0.sourceCompositeKey == sourceId.compositeKey }
+
             #if DEBUG
-            EnsembleLogger.debug("✅ Cached \(cachedCount) album artworks")
+            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourceArtists.count) artists")
+            #endif
+
+            var artistsCached = 0
+            for (index, artist) in sourceArtists.enumerated() {
+                let artworkProgress = 0.8 + (0.08 * Double(index) / Double(max(sourceArtists.count, 1)))
+                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: artworkProgress),
+                    connectionState: currentConnectionState
+                )
+
+                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: artist),
+                   FileManager.default.fileExists(atPath: localPath) {
+                    continue
+                }
+
+                guard let thumbPath = artist.thumbPath,
+                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                    continue
+                }
+
+                do {
+                    try await artworkDownloadManager.downloadAndCacheArtwork(
+                        from: artworkURL, ratingKey: artist.ratingKey, type: .artist
+                    )
+                    artistsCached += 1
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug("Failed to cache artwork for artist \(artist.name): \(error)")
+                    #endif
+                }
+            }
+
+            // --- Playlists (progress 88–96%) ---
+            let sourcePlaylists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceId.compositeKey)
+
+            #if DEBUG
+            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourcePlaylists.count) playlists")
+            #endif
+
+            var playlistsCached = 0
+            for (index, playlist) in sourcePlaylists.enumerated() {
+                let artworkProgress = 0.88 + (0.08 * Double(index) / Double(max(sourcePlaylists.count, 1)))
+                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: artworkProgress),
+                    connectionState: currentConnectionState
+                )
+
+                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
+                   FileManager.default.fileExists(atPath: localPath) {
+                    continue
+                }
+
+                // Plex playlists use compositePath for their composite cover artwork
+                guard let thumbPath = playlist.compositePath,
+                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                    continue
+                }
+
+                do {
+                    try await artworkDownloadManager.downloadAndCacheArtwork(
+                        from: artworkURL, ratingKey: playlist.ratingKey, type: .playlist
+                    )
+                    playlistsCached += 1
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug("Failed to cache artwork for playlist \(playlist.title): \(error)")
+                    #endif
+                }
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug("✅ Cached artworks: \(albumsCached) albums, \(artistsCached) artists, \(playlistsCached) playlists")
             #endif
         } catch {
             #if DEBUG

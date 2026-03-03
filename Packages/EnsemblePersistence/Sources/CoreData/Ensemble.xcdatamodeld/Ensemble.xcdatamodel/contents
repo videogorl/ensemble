@@ -223,4 +223,18 @@
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
+    <entity name="CDPendingMutation" representedClassName="CDPendingMutation" syncable="YES">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="String"/>
+        <attribute name="payload" attributeType="Binary"/>
+        <attribute name="retryCount" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="status" attributeType="String" defaultValueString="pending"/>
+        <attribute name="type" attributeType="String"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
 </model>

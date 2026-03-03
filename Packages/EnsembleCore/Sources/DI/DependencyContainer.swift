@@ -48,6 +48,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaUserContextManager: SiriMediaUserContextManager
     public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     public let offlineDownloadService: OfflineDownloadService
+    public let pendingMutationQueue: PendingMutationQueue
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -69,6 +70,7 @@ public final class DependencyContainer: @unchecked Sendable {
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
         offlineDownloadTargetRepository = OfflineDownloadTargetRepository(coreDataStack: coreDataStack)
         artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
+        let pendingMutationRepo = PendingMutationRepository(coreDataStack: coreDataStack)
 
         // Multi-source management - initialize on main actor
         let keychainRef = keychain
@@ -213,6 +215,15 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
+        // Pending mutation queue — drains offline mutations when connectivity resumes
+        pendingMutationQueue = MainActor.assumeIsolated {
+            PendingMutationQueue(
+                repository: pendingMutationRepo,
+                networkMonitor: nm,
+                syncCoordinator: syncCoordinatorRef
+            )
+        }
+
         // Wire up artwork cache invalidation when server connections change.
         // Must be done after all properties are initialized.
         let syncRef = syncCoordinator
@@ -242,7 +253,8 @@ public final class DependencyContainer: @unchecked Sendable {
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
             navigationCoordinator: navigationCoordinator,
-            toastCenter: toastCenter
+            toastCenter: toastCenter,
+            pendingMutationQueue: pendingMutationQueue
         )
     }
 
@@ -305,6 +317,17 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
+    public func makeDownloadTargetDetailViewModel(summary: DownloadedItemSummary) -> DownloadTargetDetailViewModel {
+        DownloadTargetDetailViewModel(
+            summary: summary,
+            offlineDownloadTargetRepository: offlineDownloadTargetRepository,
+            downloadManager: downloadManager,
+            libraryRepository: libraryRepository,
+            offlineDownloadService: offlineDownloadService
+        )
+    }
+
+    @MainActor
     public func makeOfflineServersViewModel() -> OfflineServersViewModel {
         OfflineServersViewModel(
             accountManager: accountManager,
@@ -328,7 +351,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountId: accountId,
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            pendingMutationQueue: pendingMutationQueue
         )
     }
     
