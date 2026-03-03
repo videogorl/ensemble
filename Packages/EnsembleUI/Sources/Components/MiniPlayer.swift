@@ -223,13 +223,13 @@ public struct MiniPlayer: View {
                     // DO NOT REMOVE THIS - it prevents jarring swaps and flickering.
                     BlurredArtworkBackground(
                         image: viewModel.artworkImage,
-                        blurRadius: 50, // Increased blur for softer glass look
+                        blurRadius: 50,
                         contrast: 2.0,
                         saturation: 1.9,
                         brightness: colorScheme == .dark ? -0.1 : 0.05,
-                        opacity: 0.55, // Reduced so the aurora behind shows through
-                        topDimming: 0.45,
-                        bottomDimming: 0.3,
+                        opacity: 0.3, // Low opacity so the aurora behind shows through
+                        topDimming: 0.2, // Reduced from 0.45 — less black overlay
+                        bottomDimming: 0.15, // Reduced from 0.3
                         shouldIgnoreSafeArea: false,
                         overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
                     )

@@ -94,12 +94,18 @@ public struct AuroraVisualizationView: View {
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
             playbackState = state
-            updateVisibility(for: state)
+            // Animate visibility only when the playback state actively changes.
+            // This produces the desired fade-in when the user first presses play.
+            updateVisibility(for: state, animated: true)
         }
         .onAppear {
             frequencyBands = playbackService.frequencyBands
-            playbackState = playbackService.playbackState
-            updateVisibility(for: playbackState)
+            let currentState = playbackService.playbackState
+            playbackState = currentState
+            // Snap directly without animation: onAppear fires on tab switches too,
+            // and we don't want the aurora to fade in every time the user changes tabs.
+            // The animated fade is reserved for actual play/stop transitions via onReceive.
+            updateVisibility(for: currentState, animated: false)
         }
     }
 
@@ -107,20 +113,32 @@ public struct AuroraVisualizationView: View {
 
     /// Updates visibility based on playback state.
     /// Aurora stays visible when paused (with breathing) but hides when stopped.
-    private func updateVisibility(for state: PlaybackState) {
+    /// Pass animated: false (e.g. on onAppear) to snap without the fade transition.
+    private func updateVisibility(for state: PlaybackState, animated: Bool) {
         let newVisibility: Bool
         switch state {
         case .playing, .buffering, .loading, .paused:
             newVisibility = true
         case .stopped, .failed:
             newVisibility = false
+            // Reset band state so stale values don't flash when playback resumes
+            smoothedBands = Array(repeating: 0.0, count: bandCount)
+            peakHolds = Array(repeating: 0.0, count: bandCount)
+            peakDecayTimers = Array(repeating: 0.0, count: bandCount)
         }
 
-        if newVisibility != isVisible {
-            #if DEBUG
-            EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state))")
-            #endif
+        guard newVisibility != isVisible else { return }
+
+        #if DEBUG
+        EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated))")
+        #endif
+
+        if animated {
             isVisible = newVisibility
+        } else {
+            withAnimation(nil) {
+                isVisible = newVisibility
+            }
         }
     }
 
