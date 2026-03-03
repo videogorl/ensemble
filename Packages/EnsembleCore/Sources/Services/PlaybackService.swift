@@ -2945,6 +2945,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.removeAllItems()
         player?.insert(item, after: nil)
 
+        // Setup audio tap BEFORE playback starts (must be done before play() is called)
+        #if DEBUG
+        EnsembleLogger.debug("🎵 Setting up audio analyzer for player item")
+        #endif
+        audioAnalyzer.setupAudioTap(for: item)
+
         // Cancel loading state delay - we're about to play
         loadingStateTask?.cancel()
         loadingStateTask = nil
@@ -2972,12 +2978,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🎵 Starting playback")
         #endif
         player?.play()
-        
-        // Setup audio tap for frequency analysis
-        #if DEBUG
-        EnsembleLogger.debug("🎵 Setting up audio analyzer for player item")
-        #endif
-        audioAnalyzer.setupAudioTap(for: item)
 
         // Keep startup state as loading until AVPlayer confirms audio output via timeControlStatus.
         playbackState = .loading
