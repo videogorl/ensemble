@@ -37,7 +37,7 @@ public struct AuroraVisualizationView: View {
     private let minHeight: CGFloat = 25
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 30
+    private let poolHeight: CGFloat = 48
 
     /// Smoothing factor for band animations (lower = snappier response)
     private let smoothingFactor: Double = 1.5
@@ -236,7 +236,38 @@ public struct AuroraVisualizationView: View {
             }
         }
 
-        return bands
+        // Lateral blend: spread energy from active bands into their neighbors so the
+        // aurora reads as one connected curtain rather than isolated clusters.
+        // Applied as a partial mix (40% smoothed, 60% original) to preserve dynamic peaks.
+        return lateralBlend(bands: bands, sigma: 2.2, mix: 0.4)
+    }
+
+    /// Gaussian-weighted lateral blend across frequency bands.
+    /// Each band's output is a mix of its original value and a neighbor-weighted average,
+    /// which fills in gaps between active regions without flattening peaks.
+    private func lateralBlend(bands: [Double], sigma: Double, mix: Double) -> [Double] {
+        let count = bands.count
+        let kernelRadius = Int(ceil(sigma * 2.5))
+        var result = [Double](repeating: 0.0, count: count)
+
+        for i in 0..<count {
+            var weightedSum = 0.0
+            var totalWeight = 0.0
+            let lo = max(0, i - kernelRadius)
+            let hi = min(count - 1, i + kernelRadius)
+
+            for j in lo...hi {
+                let dist = Double(abs(i - j))
+                let weight = exp(-dist * dist / (2 * sigma * sigma))
+                weightedSum += bands[j] * weight
+                totalWeight += weight
+            }
+
+            let smoothed = weightedSum / totalWeight
+            result[i] = bands[i] * (1.0 - mix) + smoothed * mix
+        }
+
+        return result
     }
 
     /// Calculates gentle breathing animation value for a band when paused
@@ -383,11 +414,31 @@ public struct AuroraVisualizationView: View {
         }
     }
 
-    /// Draws the solid color pool at the very bottom
+    /// Draws the solid color pool at the very bottom.
+    /// Drawn in two passes: a wide blurred halo for soft spread, then a sharper core for brightness.
     private func drawBottomPool(context: GraphicsContext, size: CGSize) {
-        let poolOpacity = colorScheme == .dark ? 0.6 : 0.4
+        let poolOpacity = colorScheme == .dark ? 0.65 : 0.45
 
-        // Soft gradient pool at the bottom
+        // Wide halo pass — blurred so the pool bleeds softly upward into the bands
+        let haloHeight = poolHeight + 50
+        let haloRect = CGRect(x: 0, y: size.height - haloHeight, width: size.width, height: haloHeight)
+        let haloGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: accentColor.opacity(poolOpacity * 0.2), location: 0.45),
+            .init(color: accentColor.opacity(poolOpacity * 0.5), location: 0.75),
+            .init(color: accentColor.opacity(poolOpacity * 0.65), location: 1.0)
+        ])
+        var haloContext = context
+        haloContext.blendMode = .plusLighter
+        haloContext.addFilter(.blur(radius: 18))
+        haloContext.fill(
+            Path(haloRect),
+            with: .linearGradient(haloGradient,
+                startPoint: CGPoint(x: haloRect.midX, y: haloRect.minY),
+                endPoint: CGPoint(x: haloRect.midX, y: haloRect.maxY))
+        )
+
+        // Sharp core pass — unblurred, gives the pool a solid glowing base
         let poolRect = CGRect(
             x: 0,
             y: size.height - poolHeight - 20,
@@ -395,11 +446,11 @@ public struct AuroraVisualizationView: View {
             height: poolHeight + 20
         )
 
-        let poolGradient = Gradient(colors: [
-            .clear,
-            accentColor.opacity(poolOpacity * 0.25),
-            accentColor.opacity(poolOpacity * 0.5),
-            accentColor.opacity(poolOpacity * 0.7)
+        let poolGradient = Gradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: accentColor.opacity(poolOpacity * 0.3), location: 0.2),
+            .init(color: accentColor.opacity(poolOpacity * 0.6), location: 0.55),
+            .init(color: accentColor.opacity(poolOpacity * 0.85), location: 1.0)
         ])
 
         var poolContext = context
