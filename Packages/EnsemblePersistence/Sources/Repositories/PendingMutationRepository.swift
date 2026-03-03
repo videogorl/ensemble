@@ -3,9 +3,11 @@ import Foundation
 
 public protocol PendingMutationRepositoryProtocol: Sendable {
     func fetchPendingMutations() async throws -> [CDPendingMutation]
+    func fetchAllMutations() async throws -> [CDPendingMutation]
     func enqueueMutation(id: String, type: CDPendingMutation.MutationType, payload: Data, sourceCompositeKey: String?) async throws
     func incrementRetryCount(id: String) async throws
     func markFailed(id: String) async throws
+    func resetToRetry(id: String) async throws
     func deleteMutation(id: String) async throws
     func deleteAllMutations() async throws
     func countPendingMutations() async throws -> Int
@@ -26,6 +28,23 @@ public final class PendingMutationRepository: PendingMutationRepositoryProtocol,
                 let request = CDPendingMutation.fetchRequest()
                 request.predicate = NSPredicate(format: "status == %@", CDPendingMutation.MutationStatus.pending.rawValue)
                 request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+                do {
+                    let results = try context.fetch(request)
+                    continuation.resume(returning: results)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Fetch all mutations (pending + failed), ordered by creation date descending (newest first)
+    public func fetchAllMutations() async throws -> [CDPendingMutation] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDPendingMutation.fetchRequest()
+                request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
                 do {
                     let results = try context.fetch(request)
                     continuation.resume(returning: results)
@@ -96,6 +115,28 @@ public final class PendingMutationRepository: PendingMutationRepositoryProtocol,
                 do {
                     if let mutation = try context.fetch(request).first {
                         mutation.status = CDPendingMutation.MutationStatus.failed.rawValue
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Reset a failed mutation back to pending so it can be retried
+    public func resetToRetry(id: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let context = coreDataStack.newBackgroundContext()
+            context.perform {
+                let request = CDPendingMutation.fetchRequest()
+                request.predicate = NSPredicate(format: "id == %@", id)
+                request.fetchLimit = 1
+                do {
+                    if let mutation = try context.fetch(request).first {
+                        mutation.status = CDPendingMutation.MutationStatus.pending.rawValue
+                        mutation.retryCount = 0
                         try context.save()
                     }
                     continuation.resume()

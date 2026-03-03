@@ -23,20 +23,27 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var items: [DownloadedItemSummary] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
+    /// Per-target removal progress — mirrors OfflineDownloadService state
+    @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
+    /// Number of pending offline mutations (favorites, playlist adds) awaiting sync
+    @Published public private(set) var pendingMutationCount: Int = 0
 
     private let offlineDownloadService: OfflineDownloadService
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let pendingMutationQueue: PendingMutationQueue
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         offlineDownloadService: OfflineDownloadService,
         libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        pendingMutationQueue: PendingMutationQueue
     ) {
         self.offlineDownloadService = offlineDownloadService
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.pendingMutationQueue = pendingMutationQueue
 
         // Map snapshots to summaries immediately, then kick off async thumb resolution
         offlineDownloadService.$targets
@@ -49,6 +56,16 @@ public final class DownloadsViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Mirror removal progress from the service
+        offlineDownloadService.$removalInProgress
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$removalInProgress)
+
+        // Track pending mutation count for the "Pending Changes" entry point
+        pendingMutationQueue.$pendingCount
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$pendingMutationCount)
     }
 
     public func refresh() async {

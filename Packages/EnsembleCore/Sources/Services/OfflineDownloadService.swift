@@ -40,6 +40,13 @@ public enum QueueStatusReason: Equatable, Sendable {
     case paused
 }
 
+/// Tracks progress of a target removal operation (per-track file deletion)
+public struct RemovalProgress: Equatable {
+    public let targetTitle: String
+    public let completed: Int
+    public let total: Int
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
@@ -62,6 +69,8 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var isQueueRunning = false
     /// Current reason the queue is idle/paused — observed by detail views for status banners
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
+    /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
+    @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -440,11 +449,18 @@ public final class OfflineDownloadService: ObservableObject {
 
     private func disableTarget(key: String) async {
         do {
+            // Resolve title before deletion for progress UI
+            let targetTitle = (try? await targetRepository.fetchTarget(key: key))?.displayName ?? key
             let previousReferences = try await targetRepository.fetchTrackReferences(targetKey: key)
             try await targetRepository.deleteTarget(key: key)
 
+            let total = previousReferences.count
+            if total > 0 {
+                removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: 0, total: total)
+            }
+
             // Reference-counted cleanup: only remove a track file when no target still references it.
-            for reference in previousReferences {
+            for (index, reference) in previousReferences.enumerated() {
                 let count = try await targetRepository.membershipCount(for: reference)
                 if count == 0 {
                     try await downloadManager.deleteDownload(
@@ -452,7 +468,10 @@ public final class OfflineDownloadService: ObservableObject {
                         sourceCompositeKey: reference.trackSourceCompositeKey
                     )
                 }
+                removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: index + 1, total: total)
             }
+
+            removalInProgress.removeValue(forKey: key)
 
             await refreshTargetSnapshots()
             await refreshAllTargetProgresses()
@@ -460,6 +479,7 @@ public final class OfflineDownloadService: ObservableObject {
             // Notify track-displaying VMs so they re-fetch and reflect updated offline state
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
+            removalInProgress.removeValue(forKey: key)
             #if DEBUG
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
             #endif

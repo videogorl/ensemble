@@ -99,18 +99,34 @@ public struct DownloadsView: View {
                 Text("Enable entire synced libraries for offline playback.")
             }
 
+            // Pending Changes entry — only when there are queued mutations
+            if viewModel.pendingMutationCount > 0 {
+                Section {
+                    NavigationLink {
+                        PendingMutationsView()
+                    } label: {
+                        PendingChangesRow(count: viewModel.pendingMutationCount)
+                    }
+                }
+            }
+
             Section {
                 if viewModel.items.isEmpty {
                     Text("No offline items selected")
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(viewModel.items) { item in
-                        targetRow(for: item)
-                            .standardDeleteSwipeAction {
-                                Task {
-                                    await viewModel.removeDownloadTarget(key: item.key)
+                        if let progress = viewModel.removalInProgress[item.key] {
+                            // Show removal progress indicator instead of normal row
+                            RemovalProgressRow(progress: progress)
+                        } else {
+                            targetRow(for: item)
+                                .standardDeleteSwipeAction {
+                                    Task {
+                                        await viewModel.removeDownloadTarget(key: item.key)
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
             } header: {
@@ -350,5 +366,69 @@ private struct DownloadedItemRow: View {
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+/// Row for navigating to the Pending Mutations screen
+private struct PendingChangesRow: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock.arrow.circlepath")
+                .frame(width: 24)
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pending Changes")
+                    .font(.body)
+                Text("Offline edits waiting to sync")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Text("\(count)")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.orange)
+                .clipShape(Capsule())
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Shows a spinner + progress bar while a target is being removed
+private struct RemovalProgressRow: View {
+    let progress: RemovalProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Removing \(progress.targetTitle)...")
+                        .font(.body)
+                        .lineLimit(1)
+                    Text("\(progress.completed) of \(progress.total) tracks")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+
+            if progress.total > 0 {
+                ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                    .progressViewStyle(.linear)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

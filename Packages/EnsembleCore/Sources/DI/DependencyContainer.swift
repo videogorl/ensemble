@@ -311,7 +311,8 @@ public final class DependencyContainer: @unchecked Sendable {
         DownloadsViewModel(
             offlineDownloadService: offlineDownloadService,
             libraryRepository: libraryRepository,
-            playlistRepository: playlistRepository
+            playlistRepository: playlistRepository,
+            pendingMutationQueue: pendingMutationQueue
         )
     }
 
@@ -370,6 +371,16 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makePinnedViewModel() -> PinnedViewModel {
         PinnedViewModel(
             pinManager: pinManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository
+        )
+    }
+
+    @MainActor
+    public func makePendingMutationsViewModel() -> PendingMutationsViewModel {
+        PendingMutationsViewModel(
+            pendingMutationQueue: pendingMutationQueue,
+            repository: PendingMutationRepository(coreDataStack: coreDataStack),
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository
         )
