@@ -216,12 +216,18 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         // Pending mutation queue — drains offline mutations when connectivity resumes
-        pendingMutationQueue = MainActor.assumeIsolated {
+        let pendingMutationQueueRef = MainActor.assumeIsolated {
             PendingMutationQueue(
                 repository: pendingMutationRepo,
                 networkMonitor: nm,
                 syncCoordinator: syncCoordinatorRef
             )
+        }
+        pendingMutationQueue = pendingMutationQueueRef
+
+        // Wire pending mutation queue into PlaybackService for offline lock-screen rating support
+        MainActor.assumeIsolated {
+            playbackServiceRef.setPendingMutationQueue(pendingMutationQueueRef)
         }
 
         // Wire up artwork cache invalidation when server connections change.

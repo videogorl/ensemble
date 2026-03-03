@@ -936,11 +936,33 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.optimisticTrackRatings[track.id] = nextDisplayRating
             }
             
-            // Send to server
+            // Apply optimistic local update for immediate consistency with swipe-driven state.
             do {
-                // Apply optimistic local update for immediate consistency with swipe-driven state.
                 try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
                 applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
+
+                // If offline, queue the mutation for later sync
+                if syncCoordinator.isOffline {
+                    if let sourceKey = track.sourceCompositeKey {
+                        let payload = TrackRatingMutationPayload(
+                            trackRatingKey: track.id,
+                            sourceCompositeKey: sourceKey,
+                            rating: nextPlexRating
+                        )
+                        await pendingMutationQueue.enqueueTrackRating(payload)
+                    }
+                    toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: newRating.icon,
+                            title: "Rating saved — will sync when online",
+                            message: track.title,
+                            dedupeKey: "rating-toggle-queued-\(track.id)"
+                        )
+                    )
+                    await MainActor.run { self.isUpdatingRating = false }
+                    return
+                }
 
                 if let trackRatingMutationHandlerForTesting {
                     try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
@@ -950,7 +972,7 @@ public final class NowPlayingViewModel: ObservableObject {
                         rating: nextPlexRating
                     )
                 }
-                
+
                 // Refresh the track to get updated data
                 if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                     let refreshedTrack = Track(from: updatedTrack)
@@ -966,7 +988,7 @@ public final class NowPlayingViewModel: ObservableObject {
                         self.optimisticTrackRatings[track.id] = nextDisplayRating
                     }
                 }
-                
+
                 // Clear the updating flag
                 await MainActor.run {
                     self.isUpdatingRating = false
