@@ -221,6 +221,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var conservativeWaitCycles: Int = 0
     }
 
+    // MARK: - Seek Operation
+
+    /// Encapsulates an in-flight seek — replaces the six scattered pendingSeek* flags.
+    private final class SeekOperation {
+        let id: UInt64
+        let targetTime: TimeInterval
+        let trackID: String?
+        let shouldResume: Bool
+        let startedAt: Date
+
+        init(id: UInt64, targetTime: TimeInterval, trackID: String?, shouldResume: Bool) {
+            self.id = id
+            self.targetTime = targetTime
+            self.trackID = trackID
+            self.shouldResume = shouldResume
+            self.startedAt = Date()
+        }
+    }
+
+    // MARK: - Playback Source / Seek Mode
+
+    /// Where the audio data for the current track comes from.
+    private enum PlaybackSource {
+        case localFile      // Downloaded track on disk — instant seeks, never buffers
+        case networkStream  // Remote or LAN stream — may need to buffer
+    }
+
+    /// How to handle UI state during a seek.
+    private enum SeekMode {
+        case transparent  // Data available — player pauses internally but UI stays .playing
+        case buffering    // Data unavailable — show .buffering, engage stall recovery
+    }
+
     static let stallEscalationThreshold = 2
     static let stallEscalationWindow: TimeInterval = 30
     static let conservativeModeDuration: TimeInterval = 120
@@ -389,10 +422,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static func shouldRecordWaitingStallEvent(
         playbackState: PlaybackState,
         isPlaybackBufferEmpty: Bool,
-        pendingSeekTargetTime: TimeInterval?
+        hasActiveSeek: Bool
     ) -> Bool {
         guard playbackState == .playing else { return false }
-        guard pendingSeekTargetTime == nil else { return false }
+        guard !hasActiveSeek else { return false }
         return isPlaybackBufferEmpty
     }
 
@@ -401,14 +434,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isPlaybackLikelyToKeepUp: Bool,
         isPlaybackBufferFull: Bool,
         isPlaybackBufferEmpty: Bool,
-        pendingSeekTargetTime: TimeInterval?
+        hasActiveSeek: Bool
     ) -> (resumeImmediately: Bool, recordStallEvent: Bool)? {
         switch playbackState {
         case .playing, .buffering, .loading:
             if isPlaybackLikelyToKeepUp || isPlaybackBufferFull {
                 return (true, false)
             }
-            let shouldRecordStallEvent = pendingSeekTargetTime == nil && isPlaybackBufferEmpty
+            let shouldRecordStallEvent = !hasActiveSeek && isPlaybackBufferEmpty
             return (false, shouldRecordStallEvent)
         default:
             return nil
@@ -674,12 +707,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var unexpectedPauseCount = 0
     private var audioSessionInterruptionObserver: Any?
     private var audioSessionRouteChangeObserver: Any?
-    private var pendingSeekRequestID: UInt64?
-    private var pendingSeekTargetTime: TimeInterval?
-    private var pendingSeekTrackID: String?
-    private var pendingSeekStartedAt: Date?
-    private var pendingSeekShouldResume: Bool = false
-    private var seekRequestCounter: UInt64 = 0
+    private var activeSeek: SeekOperation?
+    private var seekCounter: UInt64 = 0
     private var adaptiveBufferingState = AdaptiveBufferingState()
     private var activeBufferingProfile = PlaybackBufferingProfile.cellularOrOther
     private var nowPlayingArtworkTask: Task<Void, Never>?
@@ -850,7 +879,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func handleItemChange(_ item: AVPlayerItem) {
         // Seeks should only apply to the previously active item. Clear stale seek gating
         // immediately when AVQueuePlayer advances to a different item.
-        clearPendingSeekState()
+        clearActiveSeek()
 
         // Find which track this item belongs to
         if let pair = playerItems.first(where: { $0.value === item }) {
@@ -1802,63 +1831,79 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         savePlaybackState()
 
         guard let player else {
-            clearPendingSeekState()
+            clearActiveSeek()
             return
         }
 
+        // Seeking on a non-ready item silently fails — update UI time optimistically and bail.
+        guard player.currentItem?.status == .readyToPlay else {
+            return
+        }
+
+        let source = currentPlaybackSource
+        let mode = seekMode(for: clampedTime, source: source)
         let shouldResumeAfterSeek = playbackState == .playing || playbackState == .buffering
         if shouldResumeAfterSeek {
             player.pause()
-            playbackState = .buffering
+            if mode == .buffering {
+                // Only show buffering when data is genuinely unavailable
+                playbackState = .buffering
+            }
+            // .transparent: player pauses internally for the seek, UI state stays .playing
         }
 
-        seekRequestCounter &+= 1
-        let requestID = seekRequestCounter
-        pendingSeekRequestID = requestID
-        pendingSeekTargetTime = clampedTime
-        pendingSeekTrackID = currentTrack?.id
-        pendingSeekStartedAt = Date()
-        pendingSeekShouldResume = shouldResumeAfterSeek
+        seekCounter &+= 1
+        let seekID = seekCounter
+        activeSeek = SeekOperation(
+            id: seekID,
+            targetTime: clampedTime,
+            trackID: currentTrack?.id,
+            shouldResume: shouldResumeAfterSeek
+        )
+
+        // Use zero tolerance for local files (free and exact); allow a small trailing tolerance
+        // for streams so AVPlayer can seek to a nearby keyframe, reducing seek latency.
+        let toleranceBefore = CMTime.zero
+        let toleranceAfter: CMTime = (source == .localFile)
+            ? .zero
+            : CMTime(seconds: 0.1, preferredTimescale: 1000)
 
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        player.seek(to: cmTime, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard self.pendingSeekRequestID == requestID else { return }
-                let seekTargetTime = self.pendingSeekTargetTime
-                let shouldResume = self.pendingSeekShouldResume
-                if shouldResume {
-                    let item = self.player?.currentItem
-                    let targetIsBuffered: Bool
-                    if let item, let seekTargetTime {
-                        targetIsBuffered = Self.contiguousBufferedRangeEnd(
-                            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
-                            playbackTime: seekTargetTime
-                        ) != nil
+                guard let self, self.activeSeek?.id == seekID else { return }
+
+                if self.activeSeek?.shouldResume == true {
+                    if mode == .transparent {
+                        // Data was available — resume without re-checking buffer conditions
+                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-transparent")
                     } else {
-                        targetIsBuffered = false
-                    }
+                        // Network seek — check whether the target ended up buffered
+                        let item = self.player?.currentItem
+                        let targetIsBuffered = item.flatMap { i in
+                            Self.contiguousBufferedRangeEnd(
+                                ranges: i.loadedTimeRanges.map { $0.timeRangeValue },
+                                playbackTime: clampedTime
+                            )
+                        } != nil
+                        let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
+                        let bufferFull = item?.isPlaybackBufferFull == true
 
-                    let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
-                    let playbackBufferFull = item?.isPlaybackBufferFull == true
-                    // Local file playback doesn't use network buffering — always resume immediately
-                    let isLocalFile = self.currentTrack?.localFilePath != nil
-                    let shouldForceImmediateResume = isLocalFile || targetIsBuffered || likelyToKeepUp || playbackBufferFull
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "🎯 Seek completion: source=\(source), targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(bufferFull)"
+                        )
+                        #endif
 
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "🎯 Seek completion: localFile=\(isLocalFile), targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
-                    )
-                    #endif
-
-                    if shouldForceImmediateResume {
-                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
-                    } else {
-                        self.playbackState = .buffering
-                        self.setupStallRecovery(recordStallEvent: false)
+                        if targetIsBuffered || likelyToKeepUp || bufferFull {
+                            self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
+                        } else {
+                            self.playbackState = .buffering
+                            self.setupStallRecovery(recordStallEvent: false)
+                        }
                     }
                 }
-                self.clearPendingSeekState()
+                self.clearActiveSeek()
             }
         }
     }
@@ -2703,12 +2748,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func seekCurrentItemForRecovery(to recoverySeekTime: TimeInterval) {
         guard let player else { return }
 
-        seekRequestCounter &+= 1
-        pendingSeekRequestID = seekRequestCounter
-        pendingSeekTargetTime = recoverySeekTime
-        pendingSeekTrackID = currentTrack?.id
-        pendingSeekStartedAt = Date()
-        pendingSeekShouldResume = false
+        seekCounter &+= 1
+        activeSeek = SeekOperation(
+            id: seekCounter,
+            targetTime: recoverySeekTime,
+            trackID: currentTrack?.id,
+            shouldResume: false
+        )
         currentTime = recoverySeekTime
 
         let targetTime = CMTime(seconds: recoverySeekTime, preferredTimescale: 1000)
@@ -2944,6 +2990,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         return .unknown(error)
+    }
+
+    /// Classifies the current track's data source for seek and buffering decisions.
+    private var currentPlaybackSource: PlaybackSource {
+        isCurrentPlaybackUsingLocalFile() ? .localFile : .networkStream
+    }
+
+    /// Determines whether a seek to `time` requires buffering or can be transparent.
+    /// For local files, seeks are always instant. For streams, checks whether
+    /// the target position is already in the loaded buffer.
+    private func seekMode(for time: TimeInterval, source: PlaybackSource) -> SeekMode {
+        guard source == .networkStream else { return .transparent }
+        guard let item = player?.currentItem else { return .buffering }
+        if item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull { return .transparent }
+        let inBuffer = Self.contiguousBufferedRangeEnd(
+            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+            playbackTime: time
+        ) != nil
+        return inBuffer ? .transparent : .buffering
     }
 
     /// Detect whether the currently active playback item is local-file backed.
@@ -3341,11 +3406,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         #endif
                         return
                     }
+                    if self.activeSeek != nil {
+                        // Normal to be empty mid-seek; the seek completion handler will resume.
+                        return
+                    }
                     #if DEBUG
                     EnsembleLogger.debug("⚠️ Playback buffer empty - switching to buffering state")
                     #endif
                     self.playbackState = .buffering
-                    self.setupStallRecovery(recordStallEvent: self.pendingSeekTargetTime == nil)
+                    self.setupStallRecovery(recordStallEvent: true)
                 }
             }
         }
@@ -3412,13 +3481,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             return
                         }
 
+                        if self.activeSeek != nil {
+                            // Intentional pause — AVPlayer repositioning for an in-flight seek.
+                            return
+                        }
+
                         let item = self.player?.currentItem
                         if let recoveryAction = Self.unexpectedPauseRecoveryAction(
                             playbackState: self.playbackState,
                             isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp == true,
                             isPlaybackBufferFull: item?.isPlaybackBufferFull == true,
                             isPlaybackBufferEmpty: item?.isPlaybackBufferEmpty == true,
-                            pendingSeekTargetTime: self.pendingSeekTargetTime
+                            hasActiveSeek: self.activeSeek != nil
                         ) {
                             let now = Date()
                             let isRapidPause = self.lastUnexpectedPauseAt.map { now.timeIntervalSince($0) < Self.minUnexpectedPauseInterval } ?? false
@@ -3466,6 +3540,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             return
                         }
 
+                        if self.activeSeek != nil {
+                            // AVPlayer repositioning for an in-flight seek — don't engage stall recovery.
+                            return
+                        }
+
+                        // Only engage stall recovery for genuine network data stalls.
+                        // .waitingForInitialData and .evaluatingBufferingRate are managed by AVFoundation.
+                        if #available(iOS 10.0, macOS 10.12, *) {
+                            guard self.player?.reasonForWaitingToPlay == .toMinimizeStalls else { return }
+                        }
+
                         if self.playbackState == .playing {
                             #if DEBUG
                             EnsembleLogger.debug("⏳ AVPlayer waiting to play (buffering)")
@@ -3476,7 +3561,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             let shouldRecordStallEvent = Self.shouldRecordWaitingStallEvent(
                                 playbackState: .playing,
                                 isPlaybackBufferEmpty: item.isPlaybackBufferEmpty,
-                                pendingSeekTargetTime: self.pendingSeekTargetTime
+                                hasActiveSeek: self.activeSeek != nil
                             )
                             self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
                         } else if self.playbackState == .loading {
@@ -3538,20 +3623,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] time in
             guard let self = self else { return }
 
-            if let pendingSeekTargetTime = self.pendingSeekTargetTime {
-                if self.pendingSeekTrackID != nil && self.pendingSeekTrackID != self.currentTrack?.id {
-                    // Track switched while seek was in flight; clear stale seek gate.
-                    self.clearPendingSeekState()
+            if let seek = self.activeSeek {
+                if seek.trackID != nil && seek.trackID != self.currentTrack?.id {
+                    // Track switched while seek was in flight; clear stale seek gating.
+                    self.clearActiveSeek()
                 } else {
                     let observedTime = time.seconds
-                    let elapsedSinceSeek = Date().timeIntervalSince(self.pendingSeekStartedAt ?? Date.distantPast)
+                    let elapsedSinceSeek = Date().timeIntervalSince(seek.startedAt)
                     if Self.shouldContinueSeekProgressGate(
                         observedTime: observedTime,
-                        pendingSeekTargetTime: pendingSeekTargetTime,
+                        pendingSeekTargetTime: seek.targetTime,
                         elapsedSinceSeek: elapsedSinceSeek,
                         playbackState: self.playbackState
                     ) {
-                        self.currentTime = pendingSeekTargetTime
+                        self.currentTime = seek.targetTime
                         self.updateBufferedProgress()
                         self.updateNowPlayingProgress()
                         return
@@ -3559,7 +3644,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     // Once observer time catches up (or the guard times out),
                     // clear synchronization and resume normal progress updates.
-                    self.clearPendingSeekState()
+                    self.clearActiveSeek()
                 }
             }
 
@@ -3594,12 +3679,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    private func clearPendingSeekState() {
-        pendingSeekRequestID = nil
-        pendingSeekTargetTime = nil
-        pendingSeekTrackID = nil
-        pendingSeekStartedAt = nil
-        pendingSeekShouldResume = false
+    private func clearActiveSeek() {
+        activeSeek = nil
     }
 
     private func removeCurrentItemNotificationObservers() {
@@ -4205,7 +4286,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.removeAllItems()
         clearPlayerItemCache()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
-        clearPendingSeekState()
+        clearActiveSeek()
 
         queue = []
         originalQueue = []
@@ -4382,7 +4463,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.removeAllItems()
         clearPlayerItemCache()
         bufferedProgress = 0
-        clearPendingSeekState()
+        clearActiveSeek()
     }
 
     private func updateBufferedProgress() {
