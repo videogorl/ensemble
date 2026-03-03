@@ -104,7 +104,7 @@ public struct MainTabView: View {
                         accentColor: settingsManager.accentColor.color
                     )
                     .ignoresSafeArea()
-                    .zIndex(0)
+                    .zIndex(-1)
                 }
                 
                 // Main content layer with TabView
@@ -134,6 +134,7 @@ public struct MainTabView: View {
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
                 }
+                .zIndex(0)
 
                 // Persistent MiniPlayer (above tab bar)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
@@ -160,6 +161,7 @@ public struct MainTabView: View {
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
+                    .zIndex(1)
                     // Use a slight delay on appearance to let sheet clear, immediate disappearance
                     .transition(.asymmetric(
                         insertion: .opacity.animation(.easeInOut.delay(0.1)),
