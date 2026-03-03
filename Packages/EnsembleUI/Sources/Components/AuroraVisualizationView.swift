@@ -31,7 +31,7 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 180
+    private let maxHeight: CGFloat = 200
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 25
@@ -43,13 +43,13 @@ public struct AuroraVisualizationView: View {
     private let smoothingFactor: Double = 2.0
     
     /// Attack smoothing (how fast bands rise) - increased for smoother transitions
-    private let attackFactor: Double = 0.9
+    private let attackFactor: Double = 0.8
     
     /// Decay smoothing (how fast bands fall) - increased for smoother transitions
-    private let decayFactor: Double = 0.9
+    private let decayFactor: Double = 0.8
 
     /// Peak hold time in seconds
-    private let peakHoldTime: Double = 0.25
+    private let peakHoldTime: Double = 0.10
     
     /// Peak decay rate per second
     private let peakDecayRate: Double = 1.5
@@ -79,12 +79,13 @@ public struct AuroraVisualizationView: View {
                         time: timeline.date.timeIntervalSinceReferenceDate
                     )
                 }
+                .frame(width: geometry.size.width + 80)
+                .frame(height: maxHeight + 40) // Slightly taller to allow for bottom overflow
+                .offset(x: -40, y: 15) // Offset down to hide the very bottom of the pool
             }
-            // Constrain the canvas to only the bottom area we need
-            .frame(height: maxHeight + 20) // Extra for glow overflow
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .opacity(isVisible ? 1 : 0)
+        .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
         .animation(.easeInOut(duration: 1.0), value: isVisible)
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -175,16 +176,16 @@ public struct AuroraVisualizationView: View {
 
         // Draw multiple soft glow passes for ethereal blur effect (back to front)
         // Wide, soft outer glow
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 60, opacity: 0.08)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 45, opacity: 0.12)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 60, opacity: 0.03)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 45, opacity: 0.05)
         
         // Mid-range glow for depth
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.18)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.22)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.12)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.18)
         
         // Tighter glow for definition
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.28)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.32)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.25)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.3)
         
         // Peak highlights (subtle)
         if isPlaying {
@@ -260,15 +261,25 @@ public struct AuroraVisualizationView: View {
         opacity: Double
     ) {
         let bandWidth = size.width / CGFloat(bandCount)
-        let baseOpacity = (colorScheme == .dark ? 0.6 : 0.4) * opacity
+        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
 
         for i in 0..<bandCount {
             let intensity = bands[i]
             
+            // Normalized position (0.0 to 1.0) for bell curve calculation
+            let normalizedPos = Double(i) / Double(bandCount - 1)
+            
+            // Bell curve factor (Gaussian-like) to make middle bands taller
+            // peak at 0.5, sigma of ~0.35 for a nice spread
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            
             // Apply curve to intensity for better visual range
             let curvedIntensity = pow(intensity, 0.6)
             
-            let height = minHeight + (maxHeight - minHeight) * CGFloat(curvedIntensity)
+            // Combined height factor (intensity * bell curve)
+            let heightFactor = curvedIntensity * bellFactor
+            
+            let height = minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)
 
             // Center the band and make it very wide for ethereal overlap
             let centerX = (CGFloat(i) + 0.5) * bandWidth
@@ -319,7 +330,11 @@ public struct AuroraVisualizationView: View {
             let peakIntensity = peaks[i]
             guard peakIntensity > 0.1 else { continue }
             
-            let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6))
+            // Apply same bell curve to peaks for consistency
+            let normalizedPos = Double(i) / Double(bandCount - 1)
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
+            
+            let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6) * bellFactor)
             let centerX = (CGFloat(i) + 0.5) * bandWidth
             let peakWidth = bandWidth * 2.0
             
