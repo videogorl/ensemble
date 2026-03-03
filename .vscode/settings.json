@@ -1,4 +1,5 @@
 {
+	"sweetpad.build.configuration": "Debug",
 	"workbench.colorTheme": "Monokai",
 	"workbench.preferredLightColorTheme": "Quiet Light",
 	"chat.tools.terminal.autoApprove": {
