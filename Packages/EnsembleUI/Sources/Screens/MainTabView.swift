@@ -132,7 +132,7 @@ public struct MainTabView: View {
                         playbackService: DependencyContainer.shared.playbackService,
                         accentColor: settingsManager.accentColor.color
                     )
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(.all, edges: [.top, .leading, .trailing])
                     .allowsHitTesting(false)
                     .zIndex(1)
                 }
