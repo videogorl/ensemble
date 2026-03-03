@@ -2974,6 +2974,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.play()
         
         // Setup audio tap for frequency analysis
+        #if DEBUG
+        EnsembleLogger.debug("🎵 Setting up audio analyzer for player item")
+        #endif
         audioAnalyzer.setupAudioTap(for: item)
 
         // Keep startup state as loading until AVPlayer confirms audio output via timeControlStatus.

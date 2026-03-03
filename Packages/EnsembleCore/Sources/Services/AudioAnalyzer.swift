@@ -198,21 +198,40 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     
     /// Process audio samples and extract frequency bands
     fileprivate func processAudioBuffer(_ bufferList: UnsafePointer<AudioBufferList>, frameCount: Int, sampleRate: Double) {
-        guard let fftSetup = fftSetup else { return }
+        guard let fftSetup = fftSetup else {
+            #if DEBUG
+            logger.error("⚠️ FFT setup is nil, cannot process audio")
+            #endif
+            return
+        }
         
         // Rate limit updates to ~30 fps
         let currentTime = CACurrentMediaTime()
         guard currentTime - lastUpdateTime >= updateInterval else { return }
         lastUpdateTime = currentTime
         
+        #if DEBUG
+        logger.debug("🎵 Processing audio buffer: \(frameCount) frames at \(Int(sampleRate))Hz")
+        #endif
+        
         // Get audio samples from first channel
         let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferList, count: 1)
-        guard let firstBuffer = audioBuffer.first?.mBuffers else { return }
+        guard let firstBuffer = audioBuffer.first?.mBuffers else {
+            #if DEBUG
+            logger.error("⚠️ No audio buffer available")
+            #endif
+            return
+        }
         
         let samples = firstBuffer.mData?.assumingMemoryBound(to: Float.self)
         let sampleCount = min(Int(firstBuffer.mDataByteSize) / MemoryLayout<Float>.size, fftSize)
         
-        guard let samples = samples, sampleCount > 0 else { return }
+        guard let samples = samples, sampleCount > 0 else {
+            #if DEBUG
+            logger.error("⚠️ No samples or sample count is 0")
+            #endif
+            return
+        }
         
         // Prepare FFT input
         var realParts = [Float](repeating: 0, count: fftSize / 2)
@@ -249,9 +268,17 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         // Extract frequency bands
         let bands = extractFrequencyBands(from: normalizedMagnitudes, sampleRate: sampleRate)
         
+        #if DEBUG
+        let avgBand = bands.reduce(0.0, +) / Double(bands.count)
+        logger.debug("🎵 Extracted \(bands.count) frequency bands, avg: \(String(format: "%.3f", avgBand))")
+        #endif
+        
         // Update on main thread
         Task { @MainActor in
             self.frequencyBands = bands
+            #if DEBUG
+            logger.debug("✅ Updated frequency bands on main thread")
+            #endif
         }
     }
     
@@ -344,6 +371,10 @@ private func tapProcess(
     numberFramesOut: UnsafeMutablePointer<CMItemCount>,
     flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
 ) {
+    #if DEBUG
+    logger.debug("🔊 tapProcess called with \(numberFrames) frames")
+    #endif
+    
     var timeRange = CMTimeRange()
     let status = MTAudioProcessingTapGetSourceAudio(
         tap,

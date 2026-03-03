@@ -77,6 +77,10 @@ public struct AuroraVisualizationView: View {
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
             frequencyBands = bands
+            #if DEBUG
+            let avgBand = bands.isEmpty ? 0.0 : bands.reduce(0.0, +) / Double(bands.count)
+            EnsembleLogger.debug("🌈 Aurora received \(bands.count) frequency bands, avg: \(String(format: "%.3f", avgBand))")
+            #endif
         }
         .onReceive(playbackService.waveformPublisher) { heights in
             waveformHeights = heights
@@ -159,11 +163,18 @@ public struct AuroraVisualizationView: View {
         if isPlaying && !frequencyBands.isEmpty {
             // Use real-time frequency data from audio analyzer
             // frequencyBands is already normalized to 0.0-1.0 range
+            #if DEBUG
+            let avgBand = frequencyBands.reduce(0.0, +) / Double(frequencyBands.count)
+            EnsembleLogger.debug("🌈 Using \(frequencyBands.count) frequency bands for aurora, avg: \(String(format: "%.3f", avgBand))")
+            #endif
             for i in 0..<min(bandCount, frequencyBands.count) {
                 bands[i] = max(0.08, min(1.0, frequencyBands[i]))
             }
         } else if isPlaying {
             // Fallback to loudness-based visualization if frequency data not available
+            #if DEBUG
+            EnsembleLogger.debug("🌈 No frequency data, using loudness fallback")
+            #endif
             let baseLoudness = sampleLoudness()
             let globalPulse = sin(time * 3.0) * 0.08 + sin(time * 5.5) * 0.05
 
