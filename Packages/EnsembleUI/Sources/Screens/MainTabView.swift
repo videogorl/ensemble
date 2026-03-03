@@ -6,47 +6,40 @@ import SwiftUI
 struct TabViewFactory {
     @MainActor
     @ViewBuilder
-    static func view(
+    static func viewContent(
         for tab: TabItem,
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
         searchVM: SearchViewModel,
-        settingsManager: SettingsManager,
         isMoreRoot: Bool = false
     ) -> some View {
-        AuroraBackgroundContainer(
-            playbackService: DependencyContainer.shared.playbackService,
-            accentColor: settingsManager.accentColor.color,
-            isEnabled: settingsManager.auroraVisualizationEnabled
-        ) {
-            if isMoreRoot {
-                MoreView(
-                    libraryVM: libraryVM,
-                    nowPlayingVM: nowPlayingVM
-                )
-            } else {
-                switch tab {
-                case .home:
-                    HomeView(nowPlayingVM: nowPlayingVM)
-                case .songs:
-                    SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                case .artists:
-                    ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                case .albums:
-                    AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                case .genres:
-                    GenresView(libraryVM: libraryVM)
-                case .playlists:
-                    PlaylistsView(nowPlayingVM: nowPlayingVM)
-                case .favorites:
-                    FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-                case .search:
-                    SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
-                case .downloads:
-                    DownloadsView(nowPlayingVM: nowPlayingVM)
-                case .settings:
-                    SettingsView()
-                }
+        if isMoreRoot {
+            MoreView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM
+            )
+        } else {
+            switch tab {
+            case .home:
+                HomeView(nowPlayingVM: nowPlayingVM)
+            case .songs:
+                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .artists:
+                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .albums:
+                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .genres:
+                GenresView(libraryVM: libraryVM)
+            case .playlists:
+                PlaylistsView(nowPlayingVM: nowPlayingVM)
+            case .favorites:
+                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            case .search:
+                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+            case .downloads:
+                DownloadsView(nowPlayingVM: nowPlayingVM)
+            case .settings:
+                SettingsView()
             }
         }
     }
@@ -104,6 +97,16 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
+                // Aurora visualization background (single instance for all tabs)
+                if settingsManager.auroraVisualizationEnabled {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        accentColor: settingsManager.accentColor.color
+                    )
+                    .ignoresSafeArea()
+                    .zIndex(0)
+                }
+                
                 // Main content layer with TabView
                 VStack(spacing: 0) {
                     // Connection status banner at top
@@ -270,29 +273,30 @@ public struct MainTabView: View {
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         if #available(iOS 16.0, macOS 13.0, *) {
             NavigationStack(path: pathBinding(for: tab)) {
-                TabViewFactory.view(
+                TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
                 searchVM: searchVM,
-                settingsManager: settingsManager,
                 isMoreRoot: isMoreRoot
             )
+            .auroraBackgroundSupport()
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     destinationView(for: destination)
+                        .auroraBackgroundSupport()
                 }
             }
         } else {
             NavigationView {
                 // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                TabViewFactory.view(
+                TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
                 searchVM: searchVM,
-                settingsManager: settingsManager,
                 isMoreRoot: isMoreRoot
             )
+            .auroraBackgroundSupport()
             .background(
                     NestedNavigationLink(
                         path: pathForTab(tab),
@@ -349,12 +353,11 @@ public struct MainTabView: View {
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
-            TabViewFactory.view(
+            TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
                 searchVM: searchVM,
-                settingsManager: settingsManager
             )
         }
     }
@@ -524,58 +527,58 @@ public struct SidebarView: View {
             switch selection {
             case .home:
                 NavigationStack(path: $navigationCoordinator.homePath) {
-                    TabViewFactory.view(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .songs:
                 NavigationStack {
-                    TabViewFactory.view(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .artists:
                 NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    TabViewFactory.view(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .albums:
                 NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    TabViewFactory.view(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .genres:
                 NavigationStack {
-                    TabViewFactory.view(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .playlists:
                 NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    TabViewFactory.view(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .favorites:
                 NavigationStack {
-                    TabViewFactory.view(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .search:
                 NavigationStack(path: $navigationCoordinator.searchPath) {
-                    TabViewFactory.view(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                             destinationView(for: destination)
                         }
                 }
             case .downloads:
                 NavigationStack {
-                    TabViewFactory.view(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .settings:
                 NavigationStack {
-                    TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM, settingsManager: settingsManager)
+                    TabViewFactory.viewContent(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
@@ -609,12 +612,11 @@ public struct SidebarView: View {
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
-            TabViewFactory.view(
+            TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                settingsManager: settingsManager
+                searchVM: searchVM
             )
         }
     }
