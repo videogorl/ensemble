@@ -3836,8 +3836,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func cleanup() {
-        // Stop audio analysis
-        audioAnalyzer.stopAnalysis()
+        // Stop audio analysis on main actor
+        Task { @MainActor in
+            self.audioAnalyzer.stopAnalysis()
+        }
         
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)

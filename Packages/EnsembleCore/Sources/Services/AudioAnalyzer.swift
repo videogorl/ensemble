@@ -19,17 +19,16 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
     
     /// Setup audio tap for an AVPlayerItem
-    func setupAudioTap(for playerItem: AVPlayerItem)
+    @MainActor func setupAudioTap(for playerItem: AVPlayerItem)
     
     /// Remove audio tap and stop analysis
-    func stopAnalysis()
+    @MainActor func stopAnalysis()
 }
 
 // MARK: - Audio Analyzer
 
 /// Real-time audio frequency analyzer using MTAudioProcessingTap and FFT
 /// Extracts 24 frequency bands from 60Hz to 16kHz for visualization
-@MainActor
 public final class AudioAnalyzer: AudioAnalyzerProtocol {
     
     // MARK: - Configuration
@@ -122,6 +121,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     
     // MARK: - Audio Tap
     
+    @MainActor
     public func setupAudioTap(for playerItem: AVPlayerItem) {
         stopAnalysis()
         
@@ -151,7 +151,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             process: tapProcess
         )
         
-        var tap: Unmanaged<MTAudioProcessingTap>?
+        var tap: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(
             kCFAllocatorDefault,
             &callbacks,
@@ -159,14 +159,12 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             &tap
         )
         
-        guard status == noErr, let unwrappedTap = tap else {
+        guard status == noErr, let audioTap = tap else {
             #if DEBUG
             logger.error("Failed to create audio processing tap: \(status)")
             #endif
             return
         }
-        
-        let audioTap = unwrappedTap.takeRetainedValue()
         
         // Create audio mix with the tap
         let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
@@ -184,13 +182,12 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         #endif
     }
     
+    @MainActor
     public func stopAnalysis() {
         audioMix = nil
         
         // Reset bands to silent
-        Task { @MainActor in
-            frequencyBands = Array(repeating: 0.0, count: bandCount)
-        }
+        frequencyBands = Array(repeating: 0.0, count: bandCount)
         
         #if DEBUG
         logger.debug("Audio analysis stopped")
