@@ -5,6 +5,28 @@ import UIKit
 import ObjectiveC
 #endif
 
+/// Applies aurora background transparency in dark mode only.
+/// In light mode the system grouped background is preserved so list row
+/// backgrounds remain visible against the near-white aurora backdrop.
+private struct AuroraBackgroundSupportModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        if colorScheme == .dark {
+            if #available(iOS 16.0, macOS 13.0, *) {
+                content
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+            } else {
+                content.background(Color.clear)
+            }
+        } else {
+            // Light mode: keep system backgrounds so list rows are distinguishable
+            content.background(Color.clear)
+        }
+    }
+}
+
 public extension View {
     /// Conditionally apply a modifier based on a condition
     @ViewBuilder
@@ -76,6 +98,14 @@ public extension View {
     /// Apply a wiggle animation to the view, useful for edit modes
     func wiggle(isWiggling: Bool) -> some View {
         self.modifier(WiggleModifier(isWiggling: isWiggling))
+    }
+
+    /// Makes the view's background transparent so the aurora visualization shows through.
+    /// In dark mode, hides the scroll content background so list rows are visible against
+    /// the dark aurora. In light mode, keeps the system background — the aurora backdrop
+    /// is near-white and hiding it would make list row backgrounds invisible.
+    func auroraBackgroundSupport() -> some View {
+        self.modifier(AuroraBackgroundSupportModifier())
     }
 }
 

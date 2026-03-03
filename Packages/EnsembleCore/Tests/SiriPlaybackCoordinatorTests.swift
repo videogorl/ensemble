@@ -51,6 +51,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isShuffleEnabled: Bool { shuffleSubject.value }
         var repeatMode: RepeatMode { repeatModeSubject.value }
         var waveformHeights: [Double] { waveformSubject.value }
+        var frequencyBands: [Double] { [] }
+        var isExternalPlaybackActive: Bool { false }
         var isAutoplayEnabled: Bool { autoplayEnabledSubject.value }
         var autoplayTracks: [Track] { autoplayTracksSubject.value }
         var isAutoplayActive: Bool { autoplayActiveSubject.value }
@@ -69,6 +71,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }
         var repeatModePublisher: AnyPublisher<RepeatMode, Never> { repeatModeSubject.eraseToAnyPublisher() }
         var waveformPublisher: AnyPublisher<[Double], Never> { waveformSubject.eraseToAnyPublisher() }
+        var frequencyBandsPublisher: AnyPublisher<[Double], Never> { Just([]).eraseToAnyPublisher() }
+        var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
         var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { autoplayEnabledSubject.eraseToAnyPublisher() }
         var autoplayTracksPublisher: AnyPublisher<[Track], Never> { autoplayTracksSubject.eraseToAnyPublisher() }
         var autoplayActivePublisher: AnyPublisher<Bool, Never> { autoplayActiveSubject.eraseToAnyPublisher() }

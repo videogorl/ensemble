@@ -194,6 +194,7 @@ Sources/
 |   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
+|   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results

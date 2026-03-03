@@ -165,6 +165,14 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Line limits:** `.lineLimit(1)` or `MarqueeText` for auto-scrolling long titles
 - **Information density:** Dense layouts without clutter
 
+### Aurora Visualization
+- **Aurora effect:** Animated gradient sectors at the bottom of the screen that pulse and grow based on current music loudness.
+- **Positioning:** Placed at the very bottom of the view hierarchy in `RootView`, behind all main navigation and content.
+- **Interactions:** Hidden on modal sheets (like `NowPlayingView`) to avoid visual clutter.
+- **Reactivity:** Uses `playbackService.waveformHeights` and `currentTime` to sample loudness in real-time.
+- **Customization:** Respects the user's chosen accent color and can be disabled in Settings → Appearance.
+- **Implementation:** Uses `TimelineView` and `Canvas` for performance; views above it must use `.auroraBackgroundSupport()` to be transparent.
+
 ## Loading & Error States
 
 ### Async Loading

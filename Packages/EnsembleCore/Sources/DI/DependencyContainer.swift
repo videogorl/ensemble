@@ -33,6 +33,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let networkMonitor: NetworkMonitor
     public let serverHealthChecker: ServerHealthChecker
+    public let audioAnalyzer: AudioAnalyzerProtocol
     public let playbackService: PlaybackService
     public let artworkLoader: ArtworkLoaderProtocol
     public let settingsManager: SettingsManager
@@ -138,11 +139,18 @@ public final class DependencyContainer: @unchecked Sendable {
         // Note: artworkLoader must be created before playbackService since it's a dependency
         let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
         artworkLoader = artworkLoaderRef
+        
+        // Audio analyzer for real-time frequency analysis
+        let audioAnalyzerRef = MainActor.assumeIsolated {
+            AudioAnalyzer()
+        }
+        audioAnalyzer = audioAnalyzerRef
 
         let playbackServiceRef = PlaybackService(
             syncCoordinator: syncCoordinator,
             networkMonitor: nm,
             artworkLoader: artworkLoaderRef,
+            audioAnalyzer: audioAnalyzerRef,
             downloadManager: downloadManagerRef
         )
         playbackService = playbackServiceRef
