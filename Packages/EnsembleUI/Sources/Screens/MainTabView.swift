@@ -97,16 +97,6 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
-                // Aurora visualization background (single instance for all tabs)
-                if settingsManager.auroraVisualizationEnabled {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        accentColor: settingsManager.accentColor.color
-                    )
-                    .ignoresSafeArea()
-                    .zIndex(-1)
-                }
-                
                 // Main content layer with TabView
                 VStack(spacing: 0) {
                     // Connection status banner at top
@@ -135,6 +125,17 @@ public struct MainTabView: View {
                     .tabViewStyle(sidebarAdaptableIfAvailable())
                 }
                 .zIndex(0)
+                
+                // Aurora visualization overlay (above content, passes touches through)
+                if settingsManager.auroraVisualizationEnabled {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        accentColor: settingsManager.accentColor.color
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .zIndex(1)
+                }
 
                 // Persistent MiniPlayer (above tab bar)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
@@ -161,7 +162,7 @@ public struct MainTabView: View {
                     .alignmentGuide(.bottom) { dimensions in
                         dimensions[.bottom] + miniPlayerBottomLift
                     }
-                    .zIndex(1)
+                    .zIndex(2)
                     // Use a slight delay on appearance to let sheet clear, immediate disappearance
                     .transition(.asymmetric(
                         insertion: .opacity.animation(.easeInOut.delay(0.1)),
