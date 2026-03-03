@@ -116,6 +116,7 @@ public struct MainTabView: View {
                         TabView(selection: tabBinding) {
                             ForEach(barTabs) { tab in
                                 tabRootView(for: tab)
+                                    .auroraBackgroundSupport()
                                     .tag(tab)
                                     .tabItem {
                                         Label(tab.displayTitle, systemImage: tab.systemImage)
@@ -123,6 +124,7 @@ public struct MainTabView: View {
                             }
 
                             tabRootView(for: .settings, isMoreRoot: true)
+                                .auroraBackgroundSupport()
                                 .tag(TabItem.settings)
                                 .tabItem {
                                     Label("More", systemImage: "ellipsis")
@@ -131,6 +133,7 @@ public struct MainTabView: View {
                         isHidden: isImmersiveMode
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
+                    .auroraBackgroundSupport()
                 }
                 .zIndex(1)
 
