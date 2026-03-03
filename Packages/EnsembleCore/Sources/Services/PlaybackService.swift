@@ -2922,7 +2922,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    @MainActor
     private func loadAndPlay(item: AVPlayerItem, track: Track) {
         #if DEBUG
         EnsembleLogger.debug("🎵🎵🎵 loadAndPlay() CALLED for track: \(track.title)")
