@@ -63,6 +63,16 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         offlineDownloadService.$queueStatusReason
             .receive(on: DispatchQueue.main)
             .assign(to: &$queueStatusReason)
+
+        // Re-load track rows whenever target snapshots change (fires after each download completes)
+        offlineDownloadService.$targets
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshots in
+                guard let self else { return }
+                guard snapshots.contains(where: { $0.key == self.summary.key }) else { return }
+                Task { await self.loadTrackRows() }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public
