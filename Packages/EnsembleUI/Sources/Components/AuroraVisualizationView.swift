@@ -86,7 +86,6 @@ public struct AuroraVisualizationView: View {
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
-        .animation(.easeInOut(duration: 1.0), value: isVisible)
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
@@ -134,11 +133,11 @@ public struct AuroraVisualizationView: View {
         #endif
 
         if animated {
-            isVisible = newVisibility
-        } else {
-            withAnimation(nil) {
+            withAnimation(.easeInOut(duration: 1.0)) {
                 isVisible = newVisibility
             }
+        } else {
+            isVisible = newVisibility
         }
     }
 
