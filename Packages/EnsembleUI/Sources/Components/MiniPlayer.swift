@@ -432,17 +432,19 @@ public struct PlaybackProgressBar: View {
                         .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08))
                         .frame(height: 8)
 
-                    // Filled portion
+                    // Filled portion with an overlay blend on top to make it pop.
+                    // Inverted from the color scheme: light overlay in dark mode (screens the
+                    // accent color brighter), dark overlay in light mode (multiplies it richer).
                     Rectangle()
                         .fill(Color.accentColor)
                         .frame(width: geometry.size.width * viewModel.progress, height: 5)
-
-                    // Color scheme overlay: darkens in dark mode, lightens in light mode
-                    // so the bar integrates with the OS surface rather than floating raw
-                    Rectangle()
-                        .fill(colorScheme == .dark
-                            ? Color.black.opacity(0.25)
-                            : Color.white.opacity(0.4))
+                        .overlay(
+                            Rectangle()
+                                .fill(colorScheme == .dark
+                                    ? Color.white.opacity(0.35)
+                                    : Color.black.opacity(0.25))
+                                .blendMode(.overlay)
+                        )
                 }
             }
         }
