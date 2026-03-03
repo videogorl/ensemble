@@ -1510,6 +1510,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
         
+        // Setup audio tap if not already set up (e.g., after state restoration)
+        if let currentItem = player?.currentItem, currentItem.audioMix == nil {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
+            #endif
+            Task { @MainActor in
+                audioAnalyzer.setupAudioTap(for: currentItem)
+            }
+        }
+        
         // Resume frequency analysis
         Task { @MainActor in
             audioAnalyzer.resumeUpdates()

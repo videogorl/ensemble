@@ -96,7 +96,16 @@ public struct MainTabView: View {
             }()
 
             let rootView = ZStack(alignment: .bottom) {
-                // Layer 1: Main content layer (TabView)
+                // Layer 0: Aurora visualization background
+                if settingsManager.auroraVisualizationEnabled {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        accentColor: settingsManager.accentColor.color
+                    )
+                    .zIndex(0)
+                }
+                
+                // Layer 1: Main content layer (TabView) - above aurora
                 VStack(spacing: 0) {
                     // Connection status banner at top
                     if !isImmersiveMode {
@@ -123,15 +132,7 @@ public struct MainTabView: View {
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
                 }
-
-                // Aurora visualization - positioned at bottom, above content but below MiniPlayer
-                if settingsManager.auroraVisualizationEnabled {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        accentColor: settingsManager.accentColor.color
-                    )
-                    .zIndex(1)
-                }
+                .zIndex(1)
 
                 // Persistent MiniPlayer (zIndex 2 - above aurora)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
