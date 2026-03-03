@@ -2,9 +2,9 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
-import os.lock
 
 #if DEBUG
+import os
 private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "AudioAnalyzer")
 #endif
 
@@ -76,12 +76,20 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     /// Mock data phase for animation
     private var mockDataPhase: Double = 0.0
     
-    /// Whether updates are paused (thread-safe via OSAllocatedUnfairLock)
-    private let isPausedLock = OSAllocatedUnfairLock()
+    /// Whether updates are paused (thread-safe via NSLock)
+    private let isPausedLock = NSLock()
     private var _isPaused: Bool = false
     private var isPaused: Bool {
-        get { isPausedLock.withLock { _isPaused } }
-        set { isPausedLock.withLock { _isPaused = newValue } }
+        get {
+            isPausedLock.lock()
+            defer { isPausedLock.unlock() }
+            return _isPaused
+        }
+        set {
+            isPausedLock.lock()
+            defer { isPausedLock.unlock() }
+            _isPaused = newValue
+        }
     }
     
     // MARK: - Init
