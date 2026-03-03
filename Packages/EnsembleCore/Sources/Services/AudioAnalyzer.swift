@@ -2,9 +2,9 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
+import os.lock
 
 #if DEBUG
-import os
 private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "AudioAnalyzer")
 #endif
 
@@ -76,8 +76,13 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     /// Mock data phase for animation
     private var mockDataPhase: Double = 0.0
     
-    /// Whether updates are paused
-    private var isPaused: Bool = false
+    /// Whether updates are paused (thread-safe via OSAllocatedUnfairLock)
+    private let isPausedLock = OSAllocatedUnfairLock()
+    private var _isPaused: Bool = false
+    private var isPaused: Bool {
+        get { isPausedLock.withLock { _isPaused } }
+        set { isPausedLock.withLock { _isPaused = newValue } }
+    }
     
     // MARK: - Init
     
@@ -503,7 +508,12 @@ private func tapProcess(
     
     // Get analyzer instance from client info
     let clientInfo = MTAudioProcessingTapGetStorage(tap)
-    guard clientInfo != nil else { return }
+    guard clientInfo != nil else {
+        #if DEBUG
+        logger.error("⚠️ Client info is nil")
+        #endif
+        return
+    }
     let analyzer = Unmanaged<AudioAnalyzer>.fromOpaque(clientInfo).takeUnretainedValue()
     
     // Get sample rate from audio buffer format (typical is 44.1kHz or 48kHz)
@@ -511,12 +521,14 @@ private func tapProcess(
     // Default to 44.1kHz if we can't determine format
     let sampleRate: Double = 44100.0
     
-    // Process the audio
-    Task { @MainActor in
-        analyzer.processAudioBuffer(
-            bufferListInOut,
-            frameCount: Int(numberFramesOut.pointee),
-            sampleRate: sampleRate
-        )
-    }
+    #if DEBUG
+    logger.debug("🔊 About to call processAudioBuffer with \(numberFramesOut.pointee) frames")
+    #endif
+    
+    // Process the audio directly (already on audio thread)
+    analyzer.processAudioBuffer(
+        bufferListInOut,
+        frameCount: Int(numberFramesOut.pointee),
+        sampleRate: sampleRate
+    )
 }
