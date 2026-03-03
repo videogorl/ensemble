@@ -389,7 +389,22 @@ private func tapInit(
     tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>
 ) {
     #if DEBUG
-    logger.debug("Audio tap initialized")
+    logger.debug("🔊 tapInit called, storing analyzer reference...")
+    #endif
+    
+    // Store the analyzer instance in tap storage so we can retrieve it in tapProcess
+    guard let clientInfo = clientInfo else {
+        #if DEBUG
+        logger.error("❌ clientInfo is nil in tapInit!")
+        #endif
+        return
+    }
+    
+    // Store the clientInfo pointer in the tap's storage
+    tapStorageOut.pointee = clientInfo
+    
+    #if DEBUG
+    logger.debug("✅ Audio tap initialized and analyzer stored")
     #endif
 }
 
