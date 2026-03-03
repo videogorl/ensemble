@@ -149,7 +149,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                 }
             }
 
-            // Sort: failed first, then downloading, paused, pending, completed — then alphabetically within each group
+            // Sort: downloading first, then pending, paused, failed, completed — then alphabetically within each group
             tracks = rows.sorted { lhs, rhs in
                 let lp = trackStatusSortPriority(lhs.status)
                 let rp = trackStatusSortPriority(rhs.status)
@@ -171,10 +171,10 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     private func trackStatusSortPriority(_ status: CDDownload.Status) -> Int {
         switch status {
-        case .failed: return 0
-        case .downloading: return 1
+        case .downloading: return 0
+        case .pending: return 1
         case .paused: return 2
-        case .pending: return 3
+        case .failed: return 3
         case .completed: return 4
         }
     }
