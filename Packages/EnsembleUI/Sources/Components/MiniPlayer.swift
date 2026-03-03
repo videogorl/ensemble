@@ -430,7 +430,7 @@ public struct PlaybackProgressBar: View {
                     // Track background
                     Rectangle()
                         .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08))
-                        .frame(height: 5)
+                        .frame(height: 8)
 
                     // Filled portion
                     Rectangle()
@@ -439,7 +439,7 @@ public struct PlaybackProgressBar: View {
                 }
             }
         }
-        .frame(height: 5)
+        .frame(height: 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
     }
