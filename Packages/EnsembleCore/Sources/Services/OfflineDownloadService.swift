@@ -259,9 +259,15 @@ public final class OfflineDownloadService: ObservableObject {
 
                 let status = download.downloadStatus
 
-                // Re-queue quality-mismatched completed downloads
+                // Re-queue quality-mismatched completed downloads (skip if already at best
+                // available quality for servers that don't support transcode)
                 if status == .completed,
                    let existing = download.quality, existing != desiredQuality {
+                    if desiredQuality != "original",
+                       existing == "original",
+                       isTranscodeUnsupported(forSourceCompositeKey: ref.trackSourceCompositeKey) {
+                        continue
+                    }
                     _ = try await downloadManager.createDownload(
                         forTrackRatingKey: ref.trackRatingKey,
                         sourceCompositeKey: ref.trackSourceCompositeKey,
@@ -358,8 +364,14 @@ public final class OfflineDownloadService: ObservableObject {
                 let currentQuality = download.quality ?? "original"
                 guard currentQuality != desiredQuality else { continue }
 
+                // Server doesn't support transcode — track is already at original
+                // (the best this server can provide), so nothing actionable here.
                 if desiredQuality != "original",
                    isTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey) {
+                    if currentQuality == "original" {
+                        // Already at the best available quality for this server — skip silently
+                        continue
+                    }
                     skippedUnsupportedCount += 1
                     continue
                 }
