@@ -2922,7 +2922,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
+    @MainActor
     private func loadAndPlay(item: AVPlayerItem, track: Track) {
+        #if DEBUG
+        EnsembleLogger.debug("🎵🎵🎵 loadAndPlay() CALLED for track: \(track.title)")
+        #endif
+        
         // Stop current observers but don't full cleanup
         statusObservation?.invalidate()
         statusObservation = nil
@@ -2954,6 +2959,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         player?.removeAllItems()
         player?.insert(item, after: nil)
+        
+        #if DEBUG
+        EnsembleLogger.debug("🎵 Player item inserted, about to setup audio analyzer")
+        #endif
 
         // Setup audio tap BEFORE playback starts (must be done before play() is called)
         #if DEBUG
