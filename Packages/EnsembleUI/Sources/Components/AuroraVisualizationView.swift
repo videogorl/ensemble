@@ -183,9 +183,9 @@ public struct AuroraVisualizationView: View {
         drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.12)
         drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.18)
         
-        // Tighter glow for definition
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.25)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.3)
+        // Tighter glow for definition — minimum blur of 8 to prevent hard band edges
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.25)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.28)
         
         // Peak highlights (subtle)
         if isPlaying {
@@ -287,14 +287,17 @@ public struct AuroraVisualizationView: View {
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
-            // Create vertical gradient: concentrated at bottom, fading up gradually
+            // Gradient fades transparent at the very bottom so bands "emerge" from the pool
+            // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
+            // Peak brightness sits slightly above the base, then fades upward to transparent.
             let intensityAlpha = max(0.3, curvedIntensity)
             let bandGradient = Gradient(stops: [
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.8), location: 0.1),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.3),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.35), location: 0.6),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.15), location: 0.8),
+                .init(color: accentColor.opacity(0), location: 0.0),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.2),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.45),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.25), location: 0.7),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.08), location: 0.88),
                 .init(color: accentColor.opacity(0), location: 1.0)
             ])
 
