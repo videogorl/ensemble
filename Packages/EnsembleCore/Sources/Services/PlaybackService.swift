@@ -2961,13 +2961,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         #if DEBUG
         EnsembleLogger.debug("🎵 Player item inserted, about to setup audio analyzer")
+        EnsembleLogger.debug("🎵 AudioAnalyzer instance: \(type(of: audioAnalyzer))")
+        EnsembleLogger.debug("🎵 PlayerItem: \(item)")
         #endif
 
         // Setup audio tap BEFORE playback starts (must be done before play() is called)
         #if DEBUG
-        EnsembleLogger.debug("🎵 Setting up audio analyzer for player item")
+        EnsembleLogger.debug("🎵 CALLING setupAudioTap NOW...")
         #endif
         audioAnalyzer.setupAudioTap(for: item)
+        #if DEBUG
+        EnsembleLogger.debug("🎵 setupAudioTap call COMPLETED")
+        #endif
 
         // Cancel loading state delay - we're about to play
         loadingStateTask?.cancel()
