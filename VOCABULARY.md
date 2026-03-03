@@ -559,6 +559,36 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## PendingMutationsView
+
+- **View name:** `PendingMutationsView`
+- **Canonical name:** PendingMutationsView
+- **Area:** Downloads
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Architecture
+
+A screen accessible from DownloadsView that displays pending and failed offline mutations (track ratings/loves, playlist adds) that could not be synced to the server. Provides retry and delete actions for each mutation.
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Title | text | Screen title | `Pending Mutations` |
+| Pending mutations section | region | Section listing mutations awaiting sync | `Section("Pending")` |
+| Failed mutations section | region | Section listing mutations that failed to sync | `Section("Failed")` |
+| Mutation item row | control | Row showing mutation type, target (track/playlist name), and timestamp | `PendingMutationRow` |
+| Mutation metadata label | text | Displays mutation type (e.g., "Marked as Loved", "Added to Playlist") and timestamp | `mutationDescription`, `formattedTimestamp` |
+| Retry button | action | Attempts to sync mutation to server | `retry()`, `attemptSyncMutation()` |
+| Delete button | action | Removes mutation from local queue without syncing | `delete()`, `removeMutation()` |
+| Mutation detail disclosure | action | Optional expansion to show mutation details (track info, playlist name, error message) | `DisclosureGroup` |
+| Offline state overlay | state | Dimmed overlay with message when device is offline | `Offline - mutations will sync when connection resumes` |
+| Empty state | state | Inline message when no pending or failed mutations exist | `All mutations synced` |
+| Loading state | state | Overlay spinner while loading mutations list | `loadingOverlay` |
+
+---
+
 ## AddPlexAccountView
 
 - **View name:** `AddPlexAccountView`

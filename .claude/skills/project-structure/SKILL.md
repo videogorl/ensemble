@@ -156,6 +156,7 @@ Sources/
 |   +-- NowPlayingViewModel.swift
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
 |   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
+|   +-- PendingMutationsViewModel.swift # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
@@ -234,6 +235,7 @@ Sources/
 |   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
+|   +-- PendingMutationsView.swift    # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PlaylistsView.swift           # Playlist grid
 |   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (`Servers` + target items)
 |   +-- OfflineServersView.swift      # Server-grouped sync-enabled library toggles for offline targets
