@@ -185,7 +185,7 @@ public final class PendingMutationsViewModel: ObservableObject {
 
     private func resolvePlaylistTitle(ratingKey: String, sourceCompositeKey: String) async -> String {
         if let playlist = try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) {
-            return playlist.title ?? ratingKey
+            return playlist.title
         }
         return ratingKey
     }
