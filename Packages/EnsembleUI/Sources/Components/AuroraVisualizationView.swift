@@ -194,6 +194,7 @@ public struct AuroraVisualizationView: View {
         
         drawBottomPool(context: context, size: size)
         drawSaturationGradient(context: context, size: size)
+        drawDarkeningGradient(context: context, size: size)
     }
 
     /// Calculates the intensity value for each frequency band
@@ -430,6 +431,27 @@ public struct AuroraVisualizationView: View {
                     .init(color: .clear, location: 0.0),
                     .init(color: .gray.opacity(0.15), location: 0.35),
                     .init(color: .gray.opacity(0.5), location: 1.0)
+                ]),
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+            )
+        )
+    }
+
+    /// Draws a darkening gradient: black at the bottom fading to clear at the top.
+    /// Grounds the aurora visually so it feels like it's rising from darkness.
+    private func drawDarkeningGradient(context: GraphicsContext, size: CGSize) {
+        var darkContext = context
+        darkContext.blendMode = .multiply
+
+        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        darkContext.fill(
+            Path(rect),
+            with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .black.opacity(0.15), location: 0.4),
+                    .init(color: .black.opacity(0.45), location: 1.0)
                 ]),
                 startPoint: CGPoint(x: rect.midX, y: rect.minY),
                 endPoint: CGPoint(x: rect.midX, y: rect.maxY)
