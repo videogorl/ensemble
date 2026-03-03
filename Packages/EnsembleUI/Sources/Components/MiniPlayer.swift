@@ -436,6 +436,13 @@ public struct PlaybackProgressBar: View {
                     Rectangle()
                         .fill(Color.accentColor)
                         .frame(width: geometry.size.width * viewModel.progress, height: 5)
+
+                    // Color scheme overlay: darkens in dark mode, lightens in light mode
+                    // so the bar integrates with the OS surface rather than floating raw
+                    Rectangle()
+                        .fill(colorScheme == .dark
+                            ? Color.black.opacity(0.25)
+                            : Color.white.opacity(0.4))
                 }
             }
         }
