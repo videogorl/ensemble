@@ -31,6 +31,15 @@ public struct OfflineDownloadQualityRefreshResult: Sendable {
     }
 }
 
+/// Describes why the download queue is currently idle or paused
+public enum QueueStatusReason: Equatable, Sendable {
+    case idle
+    case downloading
+    case waitingForWiFi
+    case offline
+    case paused
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     private enum DownloadProcessingError: LocalizedError {
@@ -49,6 +58,8 @@ public final class OfflineDownloadService: ObservableObject {
 
     @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
     @Published public private(set) var isQueueRunning = false
+    /// Current reason the queue is idle/paused — observed by detail views for status banners
+    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -218,6 +229,60 @@ public final class OfflineDownloadService: ObservableObject {
 
     public func removeTarget(key: String) async {
         await disableTarget(key: key)
+    }
+
+    /// Refresh a single target: reconcile memberships, re-queue quality-mismatched and failed downloads
+    public func refreshTarget(key: String) async {
+        do {
+            // Re-reconcile memberships (adds new tracks, drops orphans)
+            try await reconcileTarget(key: key)
+
+            // Re-queue completed downloads whose quality doesn't match the current setting
+            let desiredQuality = currentDownloadQuality()
+            let references = try await targetRepository.fetchTrackReferences(targetKey: key)
+            for ref in references {
+                guard let download = try? await downloadManager.fetchDownload(
+                    forTrackRatingKey: ref.trackRatingKey,
+                    sourceCompositeKey: ref.trackSourceCompositeKey
+                ) else { continue }
+
+                let status = download.downloadStatus
+
+                // Re-queue quality-mismatched completed downloads
+                if status == .completed,
+                   let existing = download.quality, existing != desiredQuality {
+                    _ = try await downloadManager.createDownload(
+                        forTrackRatingKey: ref.trackRatingKey,
+                        sourceCompositeKey: ref.trackSourceCompositeKey,
+                        quality: desiredQuality
+                    )
+                    continue
+                }
+
+                // Retry failed downloads
+                if status == .failed {
+                    try await downloadManager.deleteDownload(
+                        forTrackRatingKey: ref.trackRatingKey,
+                        sourceCompositeKey: ref.trackSourceCompositeKey
+                    )
+                    _ = try await downloadManager.createDownload(
+                        forTrackRatingKey: ref.trackRatingKey,
+                        sourceCompositeKey: ref.trackSourceCompositeKey,
+                        quality: desiredQuality
+                    )
+                }
+            }
+
+            await refreshAllTargetProgresses()
+            startQueueIfNeeded()
+
+            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ OfflineDownloadService: Failed refreshing target \(key): \(error.localizedDescription)")
+            #endif
+        }
     }
 
     public func handlePlaylistRefreshCompleted(serverSourceKey: String) async {
@@ -510,6 +575,8 @@ public final class OfflineDownloadService: ObservableObject {
 
                 guard canExecuteDownloads else {
                     isQueueRunning = false
+                    // Publish a descriptive reason so detail views can show a banner
+                    queueStatusReason = queueReasonForCurrentState()
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     continue
                 }
@@ -517,12 +584,14 @@ public final class OfflineDownloadService: ObservableObject {
                 let pendingDownloads = try await downloadManager.fetchPendingDownloads()
                 guard let nextDownload = pendingDownloads.first else {
                     isQueueRunning = false
+                    queueStatusReason = .idle
                     backgroundExecutionCoordinator.finishCurrentTask(success: true)
                     queueTask = nil
                     return
                 }
 
                 isQueueRunning = true
+                queueStatusReason = .downloading
                 await process(download: nextDownload)
 
                 // Keep BG progress updates coarse-grained to avoid update churn.
@@ -1054,6 +1123,20 @@ public final class OfflineDownloadService: ObservableObject {
             return true
         case .online(.cellular), .online(.other), .offline, .limited, .unknown:
             return false
+        }
+    }
+
+    /// Maps current network state to a user-facing queue pause reason
+    private func queueReasonForCurrentState() -> QueueStatusReason {
+        switch networkMonitor.networkState {
+        case .offline:
+            return .offline
+        case .online(.cellular), .online(.other):
+            return .waitingForWiFi
+        case .unknown, .limited:
+            return .offline
+        case .online(.wifi), .online(.wired):
+            return .idle
         }
     }
 

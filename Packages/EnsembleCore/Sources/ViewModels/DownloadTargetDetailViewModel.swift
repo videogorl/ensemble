@@ -1,4 +1,5 @@
 import Combine
+import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -19,6 +20,8 @@ public struct TrackDownloadRow: Identifiable {
     public let progress: Float
     public let fileSize: Int64
     public let errorMessage: String?
+    /// Quality string stored on the completed download (e.g. "original", "high", "medium", "low")
+    public let downloadedQuality: String?
 }
 
 /// ViewModel for the per-track download detail view of a single offline target
@@ -29,6 +32,8 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     /// Resolved thumb path for the target entity (album/artist/playlist artwork)
     @Published public private(set) var thumbPath: String?
+    /// Why the download queue is currently paused (observed from OfflineDownloadService)
+    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
 
     public let summary: DownloadedItemSummary
 
@@ -37,6 +42,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
+    private var cancellables = Set<AnyCancellable>()
 
     public init(
         summary: DownloadedItemSummary,
@@ -52,6 +58,11 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.offlineDownloadService = offlineDownloadService
+
+        // Observe queue status reason from the download service
+        offlineDownloadService.$queueStatusReason
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$queueStatusReason)
     }
 
     // MARK: - Public
@@ -86,6 +97,25 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     public var failedCount: Int {
         tracks.filter { $0.status == .failed }.count
+    }
+
+    /// Number of completed tracks whose quality doesn't match the current download quality setting
+    public var qualityMismatchCount: Int {
+        let desired = UserDefaults.standard.string(forKey: "downloadQuality") ?? "original"
+        return tracks.filter { row in
+            row.status == .completed && row.downloadedQuality != nil && row.downloadedQuality != desired
+        }.count
+    }
+
+    /// True when this target has actionable issues that a refresh could resolve
+    public var needsRefresh: Bool {
+        qualityMismatchCount > 0 || failedCount > 0
+    }
+
+    /// Re-reconcile the target, re-queue mismatched/failed downloads, and restart the queue
+    public func refreshTarget() async {
+        await offlineDownloadService.refreshTarget(key: summary.key)
+        await loadTrackRows()
     }
 
     // MARK: - Private
@@ -139,7 +169,8 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     status: status,
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
-                    errorMessage: download?.error
+                    errorMessage: download?.error,
+                    downloadedQuality: download?.quality
                 )
                 rows.append(row)
 

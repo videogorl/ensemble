@@ -11,6 +11,8 @@ public struct DownloadTargetDetailView: View {
     @Environment(\.dependencies) private var deps
     @State private var artworkImage: UIImage?
     @State private var currentArtworkPath: String?
+    @State private var isRefreshing = false
+    @AppStorage("downloadQuality") private var downloadQuality = "original"
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
@@ -40,9 +42,15 @@ public struct DownloadTargetDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
+                refreshTargetButton
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 retryAllButton
             }
             #else
+            ToolbarItem(placement: .automatic) {
+                refreshTargetButton
+            }
             ToolbarItem(placement: .automatic) {
                 retryAllButton
             }
@@ -161,6 +169,41 @@ public struct DownloadTargetDetailView: View {
         .disabled(viewModel.playableTracks.isEmpty)
     }
 
+    // MARK: - Queue Status Banner
+
+    @ViewBuilder
+    private var queueStatusBanner: some View {
+        let hasPendingTracks = viewModel.tracks.contains { $0.status == .pending || $0.status == .paused }
+        if hasPendingTracks {
+            switch viewModel.queueStatusReason {
+            case .waitingForWiFi:
+                queueBannerRow(
+                    icon: "wifi.slash",
+                    message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
+                )
+            case .offline:
+                queueBannerRow(
+                    icon: "wifi.slash",
+                    message: "Downloads paused \u{2014} no connection"
+                )
+            case .idle, .downloading, .paused:
+                EmptyView()
+            }
+        }
+    }
+
+    private func queueBannerRow(icon: String, message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(.secondary)
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+    }
+
     // MARK: - Track List
 
     @ViewBuilder
@@ -174,9 +217,11 @@ public struct DownloadTargetDetailView: View {
                 .font(.subheadline)
                 .padding(.top, 40)
         } else {
+            queueStatusBanner
+
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.tracks) { row in
-                    TrackDownloadRowView(row: row) {
+                    TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
                         Task { await viewModel.retryDownload(row: row) }
                     }
 
@@ -194,6 +239,36 @@ public struct DownloadTargetDetailView: View {
             .cornerRadius(12)
             .padding(.horizontal)
             .padding(.bottom, 140)  // mini player clearance
+        }
+    }
+
+    // MARK: - Refresh Target Button
+
+    @ViewBuilder
+    private var refreshTargetButton: some View {
+        if viewModel.needsRefresh {
+            Button {
+                Task {
+                    isRefreshing = true
+                    await viewModel.refreshTarget()
+                    isRefreshing = false
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: "arrow.triangle.2.circlepath",
+                            title: "Target Refreshed",
+                            message: "Re-queued mismatched and failed downloads."
+                        )
+                    )
+                }
+            } label: {
+                if isRefreshing {
+                    ProgressView()
+                } else {
+                    Label("Refresh Downloads", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            .disabled(isRefreshing)
         }
     }
 
@@ -283,7 +358,15 @@ public struct DownloadTargetDetailView: View {
 /// Single track row with artwork thumbnail, title, status chip, and optional retry button
 private struct TrackDownloadRowView: View {
     let row: TrackDownloadRow
+    let currentQuality: String
     let onRetry: () -> Void
+
+    /// Whether this completed download's quality doesn't match the current setting
+    private var isQualityMismatched: Bool {
+        row.status == .completed
+            && row.downloadedQuality != nil
+            && row.downloadedQuality != currentQuality
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -314,6 +397,13 @@ private struct TrackDownloadRowView: View {
                 }
 
                 Spacer()
+
+                // Quality mismatch indicator between title area and status chip
+                if isQualityMismatched {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
 
                 // Status chip or retry button
                 if row.status == .failed {
