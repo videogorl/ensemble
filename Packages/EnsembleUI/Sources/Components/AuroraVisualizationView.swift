@@ -2,9 +2,9 @@ import EnsembleCore
 import SwiftUI
 import Combine
 
-/// Aurora-style frequency visualization inspired by Zune 3.0.
-/// Displays soft, wispy blurred glow that rises from the bottom of the screen,
-/// reacting to music loudness like a frequency meter.
+/// Real-time frequency visualization with soft aurora-style glow.
+/// Displays 24 frequency bands (60Hz-16kHz) from live FFT analysis,
+/// rising from the bottom with blurred, overlapping wisps.
 @available(iOS 15.0, macOS 12.0, *)
 public struct AuroraVisualizationView: View {
     // MARK: - Dependencies
@@ -14,38 +14,51 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - State
 
-    @State private var waveformHeights: [Double] = []
     @State private var frequencyBands: [Double] = []
-    @State private var currentTime: TimeInterval = 0
     @State private var playbackState: PlaybackState = .stopped
     @State private var isVisible: Bool = false
     /// Smoothed band values for fluid animation
     @State private var smoothedBands: [Double] = Array(repeating: 0.0, count: 24)
+    /// Peak hold for each band (visual drama)
+    @State private var peakHolds: [Double] = Array(repeating: 0.0, count: 24)
+    @State private var peakDecayTimers: [Double] = Array(repeating: 0.0, count: 24)
 
     @Environment(\.colorScheme) private var colorScheme
 
     // MARK: - Configuration
 
-    /// Number of frequency bands (fewer = wider, softer)
+    /// Number of frequency bands (matches AudioAnalyzer)
     private let bandCount = 24
 
     /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 85
+    private let maxHeight: CGFloat = 120
 
     /// Minimum height of bands (always visible base)
-    private let minHeight: CGFloat = 8
+    private let minHeight: CGFloat = 12
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 2
+    private let poolHeight: CGFloat = 3
 
     /// Smoothing factor for band animations (lower = snappier response)
-    private let smoothingFactor: Double = 0.35
+    private let smoothingFactor: Double = 0.25
+    
+    /// Attack smoothing (how fast bands rise)
+    private let attackFactor: Double = 0.08
+    
+    /// Decay smoothing (how fast bands fall)
+    private let decayFactor: Double = 0.25
+
+    /// Peak hold time in seconds
+    private let peakHoldTime: Double = 0.8
+    
+    /// Peak decay rate per second
+    private let peakDecayRate: Double = 2.0
 
     /// Breathing animation speed when paused
     private let breathingSpeed: Double = 0.5
 
     /// Breathing amplitude (how much bands move when paused)
-    private let breathingAmplitude: Double = 0.2
+    private let breathingAmplitude: Double = 0.15
 
     // MARK: - Init
 
@@ -77,16 +90,6 @@ public struct AuroraVisualizationView: View {
         .allowsHitTesting(false)
         .onReceive(playbackService.frequencyBandsPublisher) { bands in
             frequencyBands = bands
-            #if DEBUG
-            let avgBand = bands.isEmpty ? 0.0 : bands.reduce(0.0, +) / Double(bands.count)
-            EnsembleLogger.debug("🌈 Aurora received \(bands.count) frequency bands, avg: \(String(format: "%.3f", avgBand))")
-            #endif
-        }
-        .onReceive(playbackService.waveformPublisher) { heights in
-            waveformHeights = heights
-        }
-        .onReceive(playbackService.currentTimePublisher) { time in
-            currentTime = time
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
             playbackState = state
@@ -94,8 +97,6 @@ public struct AuroraVisualizationView: View {
         }
         .onAppear {
             frequencyBands = playbackService.frequencyBands
-            waveformHeights = playbackService.waveformHeights
-            currentTime = playbackService.currentTime
             playbackState = playbackService.playbackState
             updateVisibility(for: playbackState)
         }
@@ -128,91 +129,106 @@ public struct AuroraVisualizationView: View {
     private func drawAurora(context: GraphicsContext, size: CGSize, time: Double) {
         let isPlaying = playbackState == .playing || playbackState == .buffering || playbackState == .loading
 
-        // Calculate target band values
+        // Calculate target band values from real-time frequency data
         let targetBands = calculateBandValues(time: time, isPlaying: isPlaying)
 
-        // Smooth the bands for fluid animation
+        // Smooth the bands with fast attack, slower decay for natural feel
         var newSmoothed = smoothedBands
+        var newPeakHolds = peakHolds
+        var newPeakTimers = peakDecayTimers
+        
+        let deltaTime: Double = 1.0 / 60.0 // Approximate frame delta
+        
         for i in 0..<bandCount {
             let target = targetBands[i]
             let current = smoothedBands[i]
-            // Fast attack, slightly slower decay for natural feel
-            let attackFactor = target > current ? 0.15 : smoothingFactor
-            let factor = isPlaying ? attackFactor : 0.85
-            newSmoothed[i] = current * factor + target * (1.0 - factor)
+            
+            // Attack/decay smoothing
+            if target > current {
+                // Fast attack on rising signal
+                newSmoothed[i] = current + (target - current) * (1.0 - attackFactor)
+            } else {
+                // Slower decay on falling signal
+                newSmoothed[i] = current + (target - current) * (1.0 - decayFactor)
+            }
+            
+            // Peak hold logic
+            if newSmoothed[i] > newPeakHolds[i] {
+                // New peak
+                newPeakHolds[i] = newSmoothed[i]
+                newPeakTimers[i] = peakHoldTime
+            } else if newPeakTimers[i] > 0 {
+                // Hold the peak
+                newPeakTimers[i] -= deltaTime
+            } else {
+                // Decay the peak
+                newPeakHolds[i] = max(newSmoothed[i], newPeakHolds[i] - peakDecayRate * deltaTime)
+            }
         }
 
         // Update state for next frame
         DispatchQueue.main.async {
             self.smoothedBands = newSmoothed
+            self.peakHolds = newPeakHolds
+            self.peakDecayTimers = newPeakTimers
         }
 
         // Draw multiple soft glow passes for blur effect (back to front)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 25, opacity: 0.15)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.25)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.35)
+        // Main glow layers
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 40, opacity: 0.1)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 20, opacity: 0.2)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.3)
+        
+        // Sharper core layer for definition
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 2, opacity: 0.4)
+        
+        // Peak highlights (subtle)
+        if isPlaying {
+            drawPeakLayer(context: context, size: size, peaks: newPeakHolds)
+        }
+        
         drawBottomPool(context: context, size: size)
     }
 
     /// Calculates the intensity value for each frequency band
     /// When playing: uses real-time frequency analysis from AudioAnalyzer
-    /// When paused: uses loudness-based breathing animation
+    /// When paused/stopped: uses gentle breathing animation
     private func calculateBandValues(time: Double, isPlaying: Bool) -> [Double] {
         var bands = [Double](repeating: 0.0, count: bandCount)
 
-        if isPlaying && !frequencyBands.isEmpty {
-            // Use real-time frequency data from audio analyzer
-            // frequencyBands is already normalized to 0.0-1.0 range
-            #if DEBUG
-            let avgBand = frequencyBands.reduce(0.0, +) / Double(frequencyBands.count)
-            EnsembleLogger.debug("🌈 Using \(frequencyBands.count) frequency bands for aurora, avg: \(String(format: "%.3f", avgBand))")
-            #endif
-            for i in 0..<min(bandCount, frequencyBands.count) {
-                bands[i] = max(0.08, min(1.0, frequencyBands[i]))
-            }
-        } else if isPlaying {
-            // Fallback to loudness-based visualization if frequency data not available
-            #if DEBUG
-            EnsembleLogger.debug("🌈 No frequency data, using loudness fallback")
-            #endif
-            let baseLoudness = sampleLoudness()
-            let globalPulse = sin(time * 3.0) * 0.08 + sin(time * 5.5) * 0.05
-
-            for i in 0..<bandCount {
-                let normalizedPosition = Double(i) / Double(bandCount - 1)
-                let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
-                let bandSeed = Double(i * 7919 % 100) / 100.0
-                let staticVariation = (bandSeed - 0.5) * 0.15
-                let intensity = (baseLoudness + globalPulse) * frequencyWeight + staticVariation
-                bands[i] = max(0.08, min(1.0, intensity))
+        if isPlaying {
+            if !frequencyBands.isEmpty {
+                // Use real-time frequency data from audio analyzer
+                // frequencyBands is already normalized to 0.0-1.0 range
+                for i in 0..<min(bandCount, frequencyBands.count) {
+                    // Apply slight boost to low frequencies for visual impact
+                    let normalizedPosition = Double(i) / Double(bandCount - 1)
+                    let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
+                    
+                    let rawValue = frequencyBands[i]
+                    let boosted = min(1.0, rawValue * bassBoost)
+                    
+                    // Keep minimum floor for visibility
+                    bands[i] = max(0.05, boosted)
+                }
+            } else {
+                // No frequency data yet, show minimal activity
+                for i in 0..<bandCount {
+                    bands[i] = 0.1
+                }
             }
         } else {
-            // Breathing animation when paused
-            let baseLoudness = sampleLoudness()
+            // Gentle breathing animation when paused
             for i in 0..<bandCount {
-                bands[i] = calculateBreathingValue(
-                    bandIndex: i,
-                    time: time,
-                    baseLoudness: baseLoudness
-                )
+                bands[i] = calculateBreathingValue(bandIndex: i, time: time)
             }
         }
 
         return bands
     }
 
-    /// Calculates frequency weighting to simulate bass-heavy response
-    private func calculateFrequencyWeight(_ normalizedPosition: Double) -> Double {
-        // Bell curve favoring lower-mid frequencies with gradual treble rolloff
-        let bassBoost = exp(-pow((normalizedPosition - 0.15) * 2.5, 2))
-        let midPresence = exp(-pow((normalizedPosition - 0.4) * 2.0, 2)) * 0.7
-        let trebleRolloff = 1.0 - normalizedPosition * 0.4
-
-        return (bassBoost + midPresence) * trebleRolloff * 0.8 + 0.2
-    }
-
-    /// Calculates breathing animation value for a band when paused
-    private func calculateBreathingValue(bandIndex: Int, time: Double, baseLoudness: Double) -> Double {
+    /// Calculates gentle breathing animation value for a band when paused
+    private func calculateBreathingValue(bandIndex: Int, time: Double) -> Double {
         let normalizedPosition = Double(bandIndex) / Double(bandCount - 1)
         let breathTime = time * breathingSpeed
 
@@ -222,13 +238,13 @@ public struct AuroraVisualizationView: View {
         let secondaryBreath = sin(breathTime * 1.3 + phaseOffset) * 0.3
         let tertiaryBreath = sin(breathTime * 2.1 + phaseOffset * 0.7) * 0.1
 
-        // Keep frequency shape when paused
-        let frequencyWeight = calculateFrequencyWeight(normalizedPosition)
+        // Bass-heavy shape even when paused
+        let bassShape = 1.0 + (1.0 - normalizedPosition) * 0.3
 
         let breathValue = (primaryBreath + secondaryBreath + tertiaryBreath) * breathingAmplitude
-        let baseValue = baseLoudness * 0.3 + 0.15
+        let baseValue = 0.15 * bassShape
 
-        return max(0.08, min(0.5, (baseValue + breathValue) * frequencyWeight))
+        return max(0.05, min(0.4, baseValue + breathValue))
     }
 
     /// Draws a soft glow layer with wide, overlapping bands
@@ -240,27 +256,33 @@ public struct AuroraVisualizationView: View {
         opacity: Double
     ) {
         let bandWidth = size.width / CGFloat(bandCount)
-        let baseOpacity = (colorScheme == .dark ? 0.5 : 0.35) * opacity
+        let baseOpacity = (colorScheme == .dark ? 0.6 : 0.4) * opacity
 
         for i in 0..<bandCount {
             let intensity = bands[i]
-            let height = minHeight + (maxHeight - minHeight) * CGFloat(intensity)
+            
+            // Apply curve to intensity for better visual range
+            let curvedIntensity = pow(intensity, 0.6)
+            
+            let height = minHeight + (maxHeight - minHeight) * CGFloat(curvedIntensity)
 
             // Center the band and make it wide for overlap
             let centerX = (CGFloat(i) + 0.5) * bandWidth
-            let glowWidth = bandWidth * 4 // Wide overlap for blending
+            let glowWidth = bandWidth * 3.5 // Wide overlap for blending
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
             // Create vertical gradient: concentrated at bottom, fading up
+            let intensityAlpha = max(0.3, curvedIntensity)
             let bandGradient = Gradient(stops: [
-                .init(color: accentColor.opacity(baseOpacity * intensity), location: 0.0),
-                .init(color: accentColor.opacity(baseOpacity * intensity * 0.7), location: 0.2),
-                .init(color: accentColor.opacity(baseOpacity * intensity * 0.3), location: 0.5),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.75), location: 0.15),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.5), location: 0.4),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.2), location: 0.7),
                 .init(color: accentColor.opacity(0), location: 1.0)
             ])
 
-            // Use ellipse for softer edges instead of rectangle
+            // Use ellipse for softer edges
             let glowRect = CGRect(
                 x: x,
                 y: y,
@@ -270,8 +292,6 @@ public struct AuroraVisualizationView: View {
 
             var bandContext = context
             bandContext.blendMode = .plusLighter
-
-            // Apply blur filter for soft glow
             bandContext.addFilter(.blur(radius: blur))
 
             bandContext.fill(
@@ -284,23 +304,58 @@ public struct AuroraVisualizationView: View {
             )
         }
     }
+    
+    /// Draws subtle peak hold indicators
+    private func drawPeakLayer(context: GraphicsContext, size: CGSize, peaks: [Double]) {
+        let bandWidth = size.width / CGFloat(bandCount)
+        let peakOpacity = (colorScheme == .dark ? 0.4 : 0.3)
+
+        for i in 0..<bandCount {
+            let peakIntensity = peaks[i]
+            guard peakIntensity > 0.1 else { continue }
+            
+            let peakHeight = minHeight + (maxHeight - minHeight) * CGFloat(pow(peakIntensity, 0.6))
+            let centerX = (CGFloat(i) + 0.5) * bandWidth
+            let peakWidth = bandWidth * 2.0
+            
+            let peakY = size.height - peakHeight - poolHeight
+            
+            // Small ellipse at peak position
+            let peakRect = CGRect(
+                x: centerX - peakWidth / 2,
+                y: peakY - 2,
+                width: peakWidth,
+                height: 4
+            )
+            
+            var peakContext = context
+            peakContext.blendMode = .plusLighter
+            peakContext.addFilter(.blur(radius: 4))
+            
+            peakContext.fill(
+                Path(ellipseIn: peakRect),
+                with: .color(accentColor.opacity(peakOpacity * peakIntensity))
+            )
+        }
+    }
 
     /// Draws the solid color pool at the very bottom
     private func drawBottomPool(context: GraphicsContext, size: CGSize) {
-        let poolOpacity = colorScheme == .dark ? 0.5 : 0.35
+        let poolOpacity = colorScheme == .dark ? 0.6 : 0.4
 
         // Soft gradient pool at the bottom
         let poolRect = CGRect(
             x: 0,
-            y: size.height - poolHeight - 15,
+            y: size.height - poolHeight - 20,
             width: size.width,
-            height: poolHeight + 15
+            height: poolHeight + 20
         )
 
         let poolGradient = Gradient(colors: [
             .clear,
-            accentColor.opacity(poolOpacity * 0.3),
-            accentColor.opacity(poolOpacity * 0.6)
+            accentColor.opacity(poolOpacity * 0.25),
+            accentColor.opacity(poolOpacity * 0.5),
+            accentColor.opacity(poolOpacity * 0.7)
         ])
 
         var poolContext = context
@@ -313,31 +368,5 @@ public struct AuroraVisualizationView: View {
                 endPoint: CGPoint(x: poolRect.midX, y: poolRect.maxY)
             )
         )
-    }
-
-    // MARK: - Loudness Sampling
-
-    /// Samples the current loudness from waveform data based on playback position
-    private func sampleLoudness() -> Double {
-        let currentDuration = playbackService.duration
-        guard !waveformHeights.isEmpty, currentDuration > 0 else {
-            return 0.3 // Default idle value
-        }
-
-        // Calculate position in waveform array
-        let progress = min(1.0, max(0.0, currentTime / currentDuration))
-        let floatIndex = progress * Double(waveformHeights.count - 1)
-
-        // Linear interpolation between adjacent samples
-        let lowerIndex = Int(floatIndex)
-        let upperIndex = min(lowerIndex + 1, waveformHeights.count - 1)
-        let fraction = floatIndex - Double(lowerIndex)
-
-        let lowerValue = waveformHeights[lowerIndex]
-        let upperValue = waveformHeights[upperIndex]
-
-        let interpolated = lowerValue + (upperValue - lowerValue) * fraction
-
-        return max(0.2, interpolated)
     }
 }
