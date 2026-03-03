@@ -193,6 +193,7 @@ public struct AuroraVisualizationView: View {
         }
         
         drawBottomPool(context: context, size: size)
+        drawSaturationGradient(context: context, size: size)
     }
 
     /// Calculates the intensity value for each frequency band
@@ -412,6 +413,28 @@ public struct AuroraVisualizationView: View {
                 with: .color(accentColor.opacity(peakOpacity * peakIntensity))
             )
         }
+    }
+
+    /// Draws a saturation gradient over the aurora: desaturated (~0.5) at the bottom,
+    /// fully saturated at the top. Uses the .saturation blend mode with a gray gradient —
+    /// gray has zero saturation so it reduces the destination's color intensity by its opacity.
+    private func drawSaturationGradient(context: GraphicsContext, size: CGSize) {
+        var satContext = context
+        satContext.blendMode = .saturation
+
+        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        satContext.fill(
+            Path(rect),
+            with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .gray.opacity(0.15), location: 0.35),
+                    .init(color: .gray.opacity(0.5), location: 1.0)
+                ]),
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+            )
+        )
     }
 
     /// Draws the solid color pool at the very bottom.
