@@ -2,6 +2,18 @@
   "version": "2.0.0",
   "tasks": [
 	{
+		"label": "Ensemble: Stream Logs",
+		"type": "shell",
+		"command": "xcrun simctl spawn booted log stream --predicate 'subsystem BEGINSWITH \"com.videogorl.ensemble\"' --level debug",
+		"isBackground": true,
+		"problemMatcher": [],
+		"presentation": {
+			"reveal": "always",
+			"panel": "new",
+			"label": "Ensemble Logs"
+		}
+	},
+	{
 		"label": "Agent A: Preview on main worktree",
 		"type": "shell",
 		"command": "cd ~/Developer/projects/ensemble.worktrees/agent-a && git checkout --detach && cd ~/Developer/projects/ensemble/ && git checkout ${input:branchNameAgentA}",
