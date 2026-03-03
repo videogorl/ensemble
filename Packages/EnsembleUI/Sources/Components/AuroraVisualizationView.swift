@@ -31,7 +31,7 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 200
+    private let maxHeight: CGFloat = 220
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 25
@@ -40,13 +40,13 @@ public struct AuroraVisualizationView: View {
     private let poolHeight: CGFloat = 30
 
     /// Smoothing factor for band animations (lower = snappier response)
-    private let smoothingFactor: Double = 2.0
+    private let smoothingFactor: Double = 1.5
     
     /// Attack smoothing (how fast bands rise) - increased for smoother transitions
-    private let attackFactor: Double = 0.8
+    private let attackFactor: Double = 0.7
     
     /// Decay smoothing (how fast bands fall) - increased for smoother transitions
-    private let decayFactor: Double = 0.8
+    private let decayFactor: Double = 0.7
 
     /// Peak hold time in seconds
     private let peakHoldTime: Double = 0.10
