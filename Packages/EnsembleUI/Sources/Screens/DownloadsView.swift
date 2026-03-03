@@ -156,7 +156,7 @@ public struct DownloadsView: View {
     private func destinationView(for item: DownloadedItemSummary) -> some View {
         switch item.kind {
         case .album, .artist, .playlist:
-            DownloadTargetDetailView(summary: item)
+            DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
         case .library:
             OfflineServersView()
         }
@@ -267,9 +267,15 @@ private struct DownloadedItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Image(systemName: iconName)
-                    .frame(width: 24)
-                    .foregroundColor(.secondary)
+                // Album art thumbnail (falls back to placeholder if not cached)
+                ArtworkView(
+                    path: nil,
+                    sourceKey: item.sourceCompositeKey,
+                    ratingKey: item.ratingKey,
+                    size: .thumbnail,
+                    cornerRadius: 6
+                )
+                .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
@@ -309,19 +315,6 @@ private struct DownloadedItemRow: View {
 
     private func trackLabel(for count: Int) -> String {
         count == 1 ? "track" : "tracks"
-    }
-
-    private var iconName: String {
-        switch item.kind {
-        case .album:
-            return "square.stack"
-        case .artist:
-            return "person.2"
-        case .playlist:
-            return "music.note.list"
-        case .library:
-            return "music.note.house"
-        }
     }
 
     private var statusText: String {

@@ -1,58 +1,41 @@
 import EnsembleCore
 import EnsemblePersistence
+import Nuke
 import SwiftUI
 
-/// Detail view for a single offline download target showing per-track status
+/// Detail view for a single offline download target showing per-track download status.
+/// Styled after MediaDetailView with blurred artwork background, Play/Shuffle buttons.
 public struct DownloadTargetDetailView: View {
     @StateObject private var viewModel: DownloadTargetDetailViewModel
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
+    @State private var artworkImage: UIImage?
+    @State private var currentArtworkPath: String?
 
-    public init(summary: DownloadedItemSummary) {
+    public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeDownloadTargetDetailViewModel(summary: summary)
         )
+        self.nowPlayingVM = nowPlayingVM
     }
 
     public var body: some View {
-        List {
-            // Summary header section
-            Section {
-                summaryHeaderView
-            }
+        ZStack(alignment: .top) {
+            // Blurred artwork background — fades out downward
+            backgroundGradient
+                .ignoresSafeArea()
 
-            // Track list section
-            Section {
-                if viewModel.isLoading && viewModel.tracks.isEmpty {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 12)
-                        Spacer()
-                    }
-                } else if viewModel.tracks.isEmpty {
-                    Text("No tracks found for this target.")
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
-                } else {
-                    ForEach(viewModel.tracks) { row in
-                        TrackDownloadRowView(row: row) {
-                            Task { await viewModel.retryDownload(row: row) }
-                        }
-                    }
+            ScrollView {
+                VStack(spacing: 0) {
+                    headerView
+                    actionButtons
+                    trackListSection
                 }
-            } header: {
-                Text("Tracks")
-                    .foregroundColor(.accentColor)
-                    .textCase(nil)
             }
         }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
         .navigationTitle(viewModel.summary.title)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
             #if os(iOS)
@@ -67,60 +50,151 @@ public struct DownloadTargetDetailView: View {
         }
         .task {
             await viewModel.refresh()
+            if let path = viewModel.thumbPath {
+                await loadArtworkImage(path: path)
+            }
+        }
+        .onChange(of: viewModel.thumbPath) { newPath in
+            guard let newPath, newPath != currentArtworkPath else { return }
+            Task { await loadArtworkImage(path: newPath) }
         }
         .refreshable {
             await viewModel.refresh()
         }
     }
 
-    // MARK: - Summary Header
+    // MARK: - Background
 
-    private var summaryHeaderView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: iconName(for: viewModel.summary.kind))
+    private var backgroundGradient: some View {
+        BlurredArtworkBackground(
+            image: artworkImage,
+            topDimming: 0.1,
+            bottomDimming: 0.4
+        )
+        .mask(
+            LinearGradient(
+                colors: [.white, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .frame(height: 500)
+    }
+
+    // MARK: - Header
+
+    private var headerView: some View {
+        VStack(spacing: 16) {
+            ArtworkView(
+                path: viewModel.thumbPath,
+                sourceKey: viewModel.summary.sourceCompositeKey,
+                ratingKey: viewModel.summary.ratingKey,
+                size: .medium,
+                cornerRadius: 12
+            )
+            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+
+            VStack(spacing: 8) {
+                Text(viewModel.summary.title)
                     .font(.title2)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+
+                Text(headerSubtitle)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
-                    .frame(width: 36)
+                    .multilineTextAlignment(.center)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(viewModel.summary.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(headerSubtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
+                // Progress info while downloading
+                if viewModel.summary.status != .completed && viewModel.summary.totalTrackCount > 0 {
+                    VStack(spacing: 4) {
+                        ProgressView(value: Double(viewModel.summary.progress))
+                            .progressViewStyle(.linear)
+                            .frame(maxWidth: 280)
 
-            // Overall progress bar (only while not fully complete)
-            if viewModel.summary.status != .completed && viewModel.summary.totalTrackCount > 0 {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: Double(viewModel.summary.progress))
-                        .progressViewStyle(.linear)
-
-                    HStack {
-                        Text("\(viewModel.summary.completedTrackCount) of \(viewModel.summary.totalTrackCount) tracks")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(statusLabel(for: viewModel.summary.status))
-                            .font(.caption2)
+                        Text("\(viewModel.summary.completedTrackCount) of \(viewModel.summary.totalTrackCount) tracks • \(statusLabel(for: viewModel.summary.status))")
+                            .font(.caption)
                             .foregroundColor(statusColor(for: viewModel.summary.status))
                     }
                 }
-            } else if viewModel.summary.status == .completed {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.caption)
-                    Text("\(viewModel.summary.completedTrackCount) tracks downloaded • \(formattedBytes(viewModel.summary.downloadedBytes))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
-        .padding(.vertical, 4)
+        .padding()
+    }
+
+    // MARK: - Action Buttons
+
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                nowPlayingVM.play(tracks: viewModel.playableTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Play")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+
+            Button {
+                nowPlayingVM.shufflePlay(tracks: viewModel.playableTracks)
+            } label: {
+                HStack {
+                    Image(systemName: "shuffle")
+                    Text("Shuffle")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.2))
+                .foregroundColor(.primary)
+                .cornerRadius(10)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom)
+        .disabled(viewModel.playableTracks.isEmpty)
+    }
+
+    // MARK: - Track List
+
+    @ViewBuilder
+    private var trackListSection: some View {
+        if viewModel.isLoading && viewModel.tracks.isEmpty {
+            ProgressView()
+                .padding(.top, 40)
+        } else if viewModel.tracks.isEmpty {
+            Text("No tracks found for this download.")
+                .foregroundColor(.secondary)
+                .font(.subheadline)
+                .padding(.top, 40)
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(viewModel.tracks) { row in
+                    TrackDownloadRowView(row: row) {
+                        Task { await viewModel.retryDownload(row: row) }
+                    }
+
+                    if row.id != viewModel.tracks.last?.id {
+                        Divider()
+                            .padding(.leading, 68)
+                    }
+                }
+            }
+            #if os(iOS)
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+            #else
+            .background(Color(NSColor.controlBackgroundColor))
+            #endif
+            .cornerRadius(12)
+            .padding(.horizontal)
+            .padding(.bottom, 140)  // mini player clearance
+        }
     }
 
     // MARK: - Retry All Button
@@ -136,24 +210,45 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
+    // MARK: - Artwork Loading
+
+    private func loadArtworkImage(path: String) async {
+        currentArtworkPath = path
+        guard let url = await deps.artworkLoader.artworkURLAsync(
+            for: path,
+            sourceKey: viewModel.summary.sourceCompositeKey,
+            ratingKey: viewModel.summary.ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            size: 600
+        ) else { return }
+
+        let request = ImageRequest(url: url)
+
+        // Synchronous cache hit
+        if let cached = ImagePipeline.shared.cache.cachedImage(for: request) {
+            artworkImage = cached.image
+            return
+        }
+
+        // Async load
+        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                artworkImage = uiImage
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private var headerSubtitle: String {
         let size = formattedBytes(viewModel.summary.downloadedBytes)
         let count = viewModel.summary.totalTrackCount
         if count > 0 {
-            return "\(count) \(count == 1 ? "track" : "tracks") • \(size)"
+            let noun = count == 1 ? "track" : "tracks"
+            return "\(count) \(noun) • \(size)"
         }
         return size
-    }
-
-    private func iconName(for kind: CDOfflineDownloadTarget.Kind) -> String {
-        switch kind {
-        case .album: return "square.stack"
-        case .artist: return "person.2"
-        case .playlist: return "music.note.list"
-        case .library: return "music.note.house"
-        }
     }
 
     private func statusLabel(for status: CDOfflineDownloadTarget.Status) -> String {
@@ -185,15 +280,27 @@ public struct DownloadTargetDetailView: View {
 
 // MARK: - Track Row
 
-/// Single track row showing title, status chip, progress, and a retry button for failures
+/// Single track row with artwork thumbnail, title, status chip, and optional retry button
 private struct TrackDownloadRowView: View {
     let row: TrackDownloadRow
     let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                // Track info
+            HStack(spacing: 12) {
+                // Artwork thumbnail
+                ArtworkView(
+                    path: row.thumbPath,
+                    sourceKey: row.sourceCompositeKey,
+                    ratingKey: row.trackRatingKey,
+                    fallbackPath: row.fallbackThumbPath,
+                    fallbackRatingKey: row.albumRatingKey,
+                    size: .tiny,
+                    cornerRadius: 4
+                )
+                .frame(width: 44, height: 44)
+
+                // Track title + artist
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
                         .font(.subheadline)
@@ -225,6 +332,7 @@ private struct TrackDownloadRowView: View {
             if row.status == .downloading {
                 ProgressView(value: Double(row.progress))
                     .progressViewStyle(.linear)
+                    .padding(.leading, 56)  // indent to align with text
             }
 
             // Error message for failed tracks
@@ -233,9 +341,11 @@ private struct TrackDownloadRowView: View {
                     .font(.caption2)
                     .foregroundColor(.red)
                     .lineLimit(2)
+                    .padding(.leading, 56)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder

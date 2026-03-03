@@ -4,11 +4,17 @@ import Foundation
 
 /// Per-track row model for the download target detail view
 public struct TrackDownloadRow: Identifiable {
-    public let id: String  // trackRatingKey + sourceCompositeKey
+    public let id: String  // membershipID
     public let trackRatingKey: String
     public let sourceCompositeKey: String
     public let title: String
     public let artistName: String?
+    /// Track-level thumb path (may be nil for most tracks — use fallbackThumbPath)
+    public let thumbPath: String?
+    /// Album artwork path used as fallback when track has no own thumb
+    public let fallbackThumbPath: String?
+    /// Album ratingKey for local artwork cache lookup
+    public let albumRatingKey: String?
     public let status: CDDownload.Status
     public let progress: Float
     public let fileSize: Int64
@@ -19,13 +25,17 @@ public struct TrackDownloadRow: Identifiable {
 @MainActor
 public final class DownloadTargetDetailViewModel: ObservableObject {
     @Published public private(set) var tracks: [TrackDownloadRow] = []
+    @Published public private(set) var playableTracks: [Track] = []
     @Published public private(set) var isLoading = false
+    /// Resolved thumb path for the target entity (album/artist/playlist artwork)
+    @Published public private(set) var thumbPath: String?
 
     public let summary: DownloadedItemSummary
 
     private let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
 
     public init(
@@ -33,12 +43,14 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol,
         downloadManager: DownloadManagerProtocol,
         libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
         offlineDownloadService: OfflineDownloadService
     ) {
         self.summary = summary
         self.offlineDownloadTargetRepository = offlineDownloadTargetRepository
         self.downloadManager = downloadManager
         self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
         self.offlineDownloadService = offlineDownloadService
     }
 
@@ -47,6 +59,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     public func refresh() async {
         isLoading = true
         defer { isLoading = false }
+        await resolveHeaderThumb()
         await loadTrackRows()
     }
 
@@ -77,19 +90,38 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     // MARK: - Private
 
+    /// Look up the entity (album/artist/playlist) from CoreData to resolve its artwork path
+    private func resolveHeaderThumb() async {
+        guard let ratingKey = summary.ratingKey else { return }
+        let sourceKey = summary.sourceCompositeKey
+        switch summary.kind {
+        case .album:
+            let album = try? await libraryRepository.fetchAlbum(ratingKey: ratingKey)
+            thumbPath = album?.thumbPath
+        case .artist:
+            let artist = try? await libraryRepository.fetchArtist(ratingKey: ratingKey)
+            thumbPath = artist?.thumbPath
+        case .playlist:
+            let playlist = try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
+            thumbPath = playlist?.compositePath
+        case .library:
+            thumbPath = nil
+        }
+    }
+
     private func loadTrackRows() async {
         do {
-            // Fetch the target's track membership list
             let references = try await offlineDownloadTargetRepository.fetchTrackReferences(targetKey: summary.key)
 
-            // Build rows by looking up each track's download record and metadata
             var rows: [TrackDownloadRow] = []
+            var resolved: [Track] = []
+
             for ref in references {
                 let download = try? await downloadManager.fetchDownload(
                     forTrackRatingKey: ref.trackRatingKey,
                     sourceCompositeKey: ref.trackSourceCompositeKey
                 )
-                let track = try? await libraryRepository.fetchTrack(
+                let cdTrack = try? await libraryRepository.fetchTrack(
                     ratingKey: ref.trackRatingKey,
                     sourceCompositeKey: ref.trackSourceCompositeKey
                 )
@@ -99,22 +131,36 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     id: ref.membershipID,
                     trackRatingKey: ref.trackRatingKey,
                     sourceCompositeKey: ref.trackSourceCompositeKey,
-                    title: track?.title ?? ref.trackRatingKey,
-                    artistName: track?.artistName,
+                    title: cdTrack?.title ?? ref.trackRatingKey,
+                    artistName: cdTrack?.artistName,
+                    thumbPath: cdTrack?.thumbPath,
+                    fallbackThumbPath: cdTrack?.album?.thumbPath,
+                    albumRatingKey: cdTrack?.album?.ratingKey,
                     status: status,
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
                     errorMessage: download?.error
                 )
                 rows.append(row)
+
+                // Collect playable (downloaded) tracks as full domain models
+                if let cdTrack, status == .completed {
+                    resolved.append(Track(from: cdTrack))
+                }
             }
 
-            // Sort: failed first, then downloading, pending, completed — then alphabetically
+            // Sort: failed first, then downloading, paused, pending, completed — then alphabetically within each group
             tracks = rows.sorted { lhs, rhs in
                 let lp = trackStatusSortPriority(lhs.status)
                 let rp = trackStatusSortPriority(rhs.status)
                 if lp != rp { return lp < rp }
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+
+            // Playable tracks ordered by disc+track number for natural playback
+            playableTracks = resolved.sorted {
+                if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
+                return $0.trackNumber < $1.trackNumber
             }
         } catch {
             #if DEBUG

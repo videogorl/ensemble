@@ -323,6 +323,7 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineDownloadTargetRepository: offlineDownloadTargetRepository,
             downloadManager: downloadManager,
             libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
             offlineDownloadService: offlineDownloadService
         )
     }
