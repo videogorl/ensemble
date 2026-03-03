@@ -259,18 +259,15 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     if let existing = try context.fetch(downloadRequest).first {
                         let normalizedQuality = Self.normalizedQuality(quality)
                         if existing.quality != normalizedQuality {
-                            if let filePath = existing.filePath {
-                                try? FileManager.default.removeItem(atPath: filePath)
-                            }
+                            // Keep the old file and localFilePath intact so the track remains
+                            // playable at old quality while the new download proceeds.
+                            // completeDownload() will update paths and clean up the old file.
                             existing.quality = normalizedQuality
-                            existing.filePath = nil
-                            existing.fileSize = 0
                             existing.progress = 0
                             existing.error = nil
                             existing.completedAt = nil
                             existing.status = CDDownload.Status.pending.rawValue
                             existing.startedAt = Date()
-                            existing.track?.localFilePath = nil
                             try context.save()
                         }
 
@@ -385,6 +382,13 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         continuation.resume()
                         return
                     }
+
+                    // If the previous download had a different file path (e.g. quality re-queue),
+                    // clean up the old file now that the new one is ready.
+                    if let oldPath = download.filePath, !oldPath.isEmpty, oldPath != filePath {
+                        try? FileManager.default.removeItem(atPath: oldPath)
+                    }
+
                     download.status = CDDownload.Status.completed.rawValue
                     download.progress = 1.0
                     download.filePath = filePath
