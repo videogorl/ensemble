@@ -224,6 +224,14 @@ public struct DownloadTargetDetailView: View {
                     TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
                         Task { await viewModel.retryDownload(row: row) }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Play from this track when it's completed
+                        guard row.status == .completed else { return }
+                        if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
+                            nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
+                        }
+                    }
 
                     if row.id != viewModel.tracks.last?.id {
                         Divider()
