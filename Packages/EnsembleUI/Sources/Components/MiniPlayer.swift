@@ -430,7 +430,7 @@ public struct PlaybackProgressBar: View {
                     // Track background
                     Rectangle()
                         .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08))
-                        .frame(height: 8)
+                        .frame(height: 10)
 
                     // Filled portion with an overlay blend on top to make it pop.
                     // Inverted from the color scheme: light overlay in dark mode (screens the
