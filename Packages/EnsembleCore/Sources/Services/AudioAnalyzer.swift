@@ -432,6 +432,11 @@ private func tapProcess(
     #endif
     
     var timeRange = CMTimeRange()
+    
+    #if DEBUG
+    logger.debug("🔊 Calling MTAudioProcessingTapGetSourceAudio...")
+    #endif
+    
     let status = MTAudioProcessingTapGetSourceAudio(
         tap,
         numberFrames,
@@ -441,22 +446,44 @@ private func tapProcess(
         numberFramesOut
     )
     
+    #if DEBUG
+    logger.debug("🔊 MTAudioProcessingTapGetSourceAudio returned status: \(status), frames out: \(numberFramesOut.pointee)")
+    #endif
+    
     guard status == noErr else {
         #if DEBUG
-        logger.error("Failed to get source audio: \(status)")
+        logger.error("❌ Failed to get source audio: \(status)")
         #endif
         return
     }
     
+    #if DEBUG
+    logger.debug("🔊 Getting analyzer from storage...")
+    #endif
+    
     // Get analyzer instance from client info
     let clientInfo = MTAudioProcessingTapGetStorage(tap)
+    
+    #if DEBUG
+    logger.debug("🔊 Client info: \(clientInfo != nil ? "valid" : "nil")")
+    #endif
+    
     guard clientInfo != nil else {
         #if DEBUG
-        logger.error("⚠️ Client info is nil")
+        logger.error("❌ Client info is nil")
         #endif
         return
     }
+    
+    #if DEBUG
+    logger.debug("🔊 Converting to analyzer instance...")
+    #endif
+    
     let analyzer = Unmanaged<AudioAnalyzer>.fromOpaque(clientInfo).takeUnretainedValue()
+    
+    #if DEBUG
+    logger.debug("🔊 Analyzer instance retrieved successfully")
+    #endif
     
     // Get sample rate from audio buffer format (typical is 44.1kHz or 48kHz)
     let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferListInOut, count: 1)
@@ -464,7 +491,7 @@ private func tapProcess(
     let sampleRate: Double = 44100.0
     
     #if DEBUG
-    logger.debug("🔊 About to call processAudioBuffer with \(numberFramesOut.pointee) frames")
+    logger.debug("🔊 About to call processAudioBuffer with \(numberFramesOut.pointee) frames at \(sampleRate)Hz")
     #endif
     
     // Process the audio directly (already on audio thread)
@@ -473,4 +500,8 @@ private func tapProcess(
         frameCount: Int(numberFramesOut.pointee),
         sampleRate: sampleRate
     )
+    
+    #if DEBUG
+    logger.debug("🔊 processAudioBuffer call completed")
+    #endif
 }
