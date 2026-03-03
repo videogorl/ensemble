@@ -267,9 +267,9 @@ private struct DownloadedItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                // Album art thumbnail (falls back to placeholder if not cached)
+                // Album art thumbnail — thumbPath is resolved asynchronously by the ViewModel
                 ArtworkView(
-                    path: nil,
+                    path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
                     size: .thumbnail,

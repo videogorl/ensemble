@@ -14,6 +14,8 @@ public struct DownloadedItemSummary: Identifiable {
     public let completedTrackCount: Int
     public let totalTrackCount: Int
     public let downloadedBytes: Int64
+    /// Resolved artwork path for display — populated asynchronously from library/playlist repositories
+    public var thumbPath: String?
 }
 
 @MainActor
@@ -23,14 +25,28 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var error: String?
 
     private let offlineDownloadService: OfflineDownloadService
+    private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
 
-    public init(offlineDownloadService: OfflineDownloadService) {
+    public init(
+        offlineDownloadService: OfflineDownloadService,
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol
+    ) {
         self.offlineDownloadService = offlineDownloadService
+        self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
 
+        // Map snapshots to summaries immediately, then kick off async thumb resolution
         offlineDownloadService.$targets
             .sink { [weak self] snapshots in
-                self?.items = Self.mapItems(from: snapshots)
+                guard let self else { return }
+                let mapped = Self.mapItems(from: snapshots)
+                self.items = mapped
+                Task { [weak self] in
+                    await self?.resolveThumbPaths()
+                }
             }
             .store(in: &cancellables)
     }
@@ -47,6 +63,8 @@ public final class DownloadsViewModel: ObservableObject {
         await refresh()
     }
 
+    // MARK: - Private
+
     private static func mapItems(from snapshots: [OfflineDownloadTargetSnapshot]) -> [DownloadedItemSummary] {
         snapshots
             .filter { $0.kind != .library }
@@ -62,7 +80,8 @@ public final class DownloadsViewModel: ObservableObject {
                     progress: $0.progress,
                     completedTrackCount: $0.completedTrackCount,
                     totalTrackCount: $0.totalTrackCount,
-                    downloadedBytes: $0.downloadedBytes
+                    downloadedBytes: $0.downloadedBytes,
+                    thumbPath: nil
                 )
             }
             .sorted { lhs, rhs in
@@ -73,6 +92,29 @@ public final class DownloadsViewModel: ObservableObject {
                 }
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             }
+    }
+
+    /// Resolves artwork thumb paths for all items from library/playlist repositories and updates the published list.
+    private func resolveThumbPaths() async {
+        var updated = items
+        for i in updated.indices {
+            updated[i].thumbPath = await resolveThumb(for: updated[i])
+        }
+        items = updated
+    }
+
+    private func resolveThumb(for item: DownloadedItemSummary) async -> String? {
+        guard let ratingKey = item.ratingKey, let sourceKey = item.sourceCompositeKey else { return nil }
+        switch item.kind {
+        case .album:
+            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey))?.thumbPath
+        case .artist:
+            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey))?.thumbPath
+        case .playlist:
+            return (try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.compositePath
+        case .library:
+            return nil
+        }
     }
 
     private static func statusPriority(_ status: CDOfflineDownloadTarget.Status) -> Int {
