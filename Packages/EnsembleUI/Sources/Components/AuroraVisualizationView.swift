@@ -31,31 +31,31 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the aurora (mini player ~60pt + 5pt margin)
-    private let maxHeight: CGFloat = 120
+    private let maxHeight: CGFloat = 180
 
     /// Minimum height of bands (always visible base)
-    private let minHeight: CGFloat = 12
+    private let minHeight: CGFloat = 25
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 3
+    private let poolHeight: CGFloat = 30
 
     /// Smoothing factor for band animations (lower = snappier response)
-    private let smoothingFactor: Double = 0.35
+    private let smoothingFactor: Double = 2.0
     
     /// Attack smoothing (how fast bands rise) - increased for smoother transitions
-    private let attackFactor: Double = 0.12
+    private let attackFactor: Double = 0.9
     
     /// Decay smoothing (how fast bands fall) - increased for smoother transitions
-    private let decayFactor: Double = 0.35
+    private let decayFactor: Double = 0.9
 
     /// Peak hold time in seconds
-    private let peakHoldTime: Double = 1.0
+    private let peakHoldTime: Double = 0.25
     
     /// Peak decay rate per second
     private let peakDecayRate: Double = 1.5
 
     /// Breathing animation speed when paused
-    private let breathingSpeed: Double = 0.5
+    private let breathingSpeed: Double = 0.75
 
     /// Breathing amplitude (how much bands move when paused)
     private let breathingAmplitude: Double = 0.15
@@ -188,7 +188,7 @@ public struct AuroraVisualizationView: View {
         
         // Peak highlights (subtle)
         if isPlaying {
-            drawPeakLayer(context: context, size: size, peaks: newPeakHolds)
+            // drawPeakLayer(context: context, size: size, peaks: newPeakHolds)
         }
         
         drawBottomPool(context: context, size: size)

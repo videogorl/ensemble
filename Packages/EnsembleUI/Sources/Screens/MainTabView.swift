@@ -126,17 +126,6 @@ public struct MainTabView: View {
                 }
                 .zIndex(0)
                 
-                // Aurora visualization overlay (above content, passes touches through)
-                if settingsManager.auroraVisualizationEnabled {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        accentColor: settingsManager.accentColor.color
-                    )
-                    .ignoresSafeArea(.all, edges: [.top, .leading, .trailing])
-                    .allowsHitTesting(false)
-                    .zIndex(1)
-                }
-
                 // Persistent MiniPlayer (above tab bar)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
                     let isFloating: Bool = {
@@ -274,43 +263,55 @@ public struct MainTabView: View {
     
     @ViewBuilder
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack(path: pathBinding(for: tab)) {
-                TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                isMoreRoot: isMoreRoot
-            )
-            .auroraBackgroundSupport()
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    destinationView(for: destination)
-                        .auroraBackgroundSupport()
-                }
-            }
-        } else {
-            NavigationView {
-                // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                TabViewFactory.viewContent(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                isMoreRoot: isMoreRoot
-            )
-            .auroraBackgroundSupport()
-            .background(
-                    NestedNavigationLink(
-                        path: pathForTab(tab),
-                        tab: tab,
-                        destinationBuilder: destinationView
+        Group {
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationStack(path: pathBinding(for: tab)) {
+                    TabViewFactory.viewContent(
+                        for: tab,
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM,
+                        searchVM: searchVM,
+                        isMoreRoot: isMoreRoot
                     )
-                )
+                    .auroraBackgroundSupport()
+                    .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                        destinationView(for: destination)
+                            .auroraBackgroundSupport()
+                    }
+                }
+            } else {
+                NavigationView {
+                    // iOS 15 Fallback: Support nested navigation by passing the remaining path
+                    TabViewFactory.viewContent(
+                        for: tab,
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM,
+                        searchVM: searchVM,
+                        isMoreRoot: isMoreRoot
+                    )
+                    .auroraBackgroundSupport()
+                    .background(
+                        NestedNavigationLink(
+                            path: pathForTab(tab),
+                            tab: tab,
+                            destinationBuilder: destinationView
+                        )
+                    )
+                }
+                #if os(iOS)
+                .navigationViewStyle(.stack)
+                #endif
             }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
+        }
+        .overlay(alignment: .bottom) {
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color
+                )
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+            }
         }
     }
 
@@ -598,6 +599,17 @@ public struct SidebarView: View {
             case .none:
                 Text("Select a section")
                     .foregroundColor(.secondary)
+            }
+        }
+        .auroraBackgroundSupport()
+        .overlay(alignment: .bottom) {
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color
+                )
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
             }
         }
         .miniPlayerBottomSpacing(64)
