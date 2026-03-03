@@ -20,6 +20,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         self.filterOptions = FilterPersistence.load(for: "Favorites")
 
         setupFilterPersistence()
+        observeDownloadChanges()
 
         // Initial load
         Task {
@@ -52,6 +53,19 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         isLoading = false
     }
     
+    // MARK: - Download Change Observation
+
+    private func observeDownloadChanges() {
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     public var filteredTracks: [Track] {
         var filtered = tracks
         

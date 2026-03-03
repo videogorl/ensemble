@@ -359,12 +359,26 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Re-fetch tracks when download state changes so offline dimming is accurate
+        observeDownloadChanges()
     }
-    
+
     private func setupFilterPersistence() {
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "PlaylistDetail") }
+            .store(in: &cancellables)
+    }
+
+    private func observeDownloadChanges() {
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
             .store(in: &cancellables)
     }
 

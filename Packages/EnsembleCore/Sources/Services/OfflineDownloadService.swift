@@ -42,6 +42,8 @@ public enum QueueStatusReason: Equatable, Sendable {
 
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
+    /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
+    public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
     private enum DownloadProcessingError: LocalizedError {
         case invalidHTTPStatus(Int)
         case emptyPayload(String)
@@ -386,6 +388,10 @@ public final class OfflineDownloadService: ObservableObject {
             )
             #endif
 
+            if requeuedCount > 0 {
+                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            }
+
             return OfflineDownloadQualityRefreshResult(
                 requeuedCount: requeuedCount,
                 skippedUnsupportedCount: skippedUnsupportedCount
@@ -423,6 +429,8 @@ public final class OfflineDownloadService: ObservableObject {
 
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+
+            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed enabling offline target \(key): \(error.localizedDescription)")
@@ -448,6 +456,9 @@ public final class OfflineDownloadService: ObservableObject {
 
             await refreshTargetSnapshots()
             await refreshAllTargetProgresses()
+
+            // Notify track-displaying VMs so they re-fetch and reflect updated offline state
+            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
