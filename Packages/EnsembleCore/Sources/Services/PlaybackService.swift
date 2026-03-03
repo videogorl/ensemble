@@ -1871,9 +1871,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
         player.seek(to: cmTime, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self, self.activeSeek?.id == seekID else { return }
+                // Use seekCounter (not activeSeek) for staleness: the time observer may have
+                // already cleared activeSeek to release the progress gate, but we still need
+                // to resume the player if no newer seek has started.
+                guard let self, self.seekCounter == seekID else { return }
 
-                if self.activeSeek?.shouldResume == true {
+                if shouldResumeAfterSeek {
                     if mode == .transparent {
                         // Data was available — resume without re-checking buffer conditions
                         self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-transparent")
