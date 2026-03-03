@@ -1103,6 +1103,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func handleAudioSessionInterruption(_ notification: Notification) {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
@@ -1141,10 +1142,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @unknown default:
             break
         }
+        #endif
     }
 
     @MainActor
     private func handleAudioSessionRouteChange(_ notification: Notification) {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         guard let userInfo = notification.userInfo,
               let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
@@ -1186,6 +1189,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         default:
             isRouteChangeInProgress = false
         }
+        #endif
     }
 
     // MARK: - Remote Commands
