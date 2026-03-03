@@ -3631,6 +3631,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        // Cancel any pending stall recovery — we're about to play, so it's no longer needed.
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
+
         if forceImmediate {
             if #available(iOS 10.0, macOS 10.12, *) {
                 player.playImmediately(atRate: 1.0)
@@ -3749,6 +3753,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func setupStallRecovery(recordStallEvent: Bool = true) {
         let now = Date()
+        #if DEBUG
+        let isLocal = isCurrentPlaybackUsingLocalFile()
+        EnsembleLogger.debug("⏰ setupStallRecovery: localFile=\(isLocal), recordStall=\(recordStallEvent), state=\(playbackState), timeout=\(activeBufferingProfile.stallRecoveryTimeout)s")
+        #endif
         if recordStallEvent {
             registerBufferingStallEvent(now: now)
         } else {
@@ -3773,10 +3781,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard playbackState == .buffering else { return }
 
         if isCurrentPlaybackUsingLocalFile() {
+            // Local files don't need network buffering — attempt immediate resume rather than failing.
+            // This handles edge cases where stall recovery fires during or after a seek on a downloaded track.
             #if DEBUG
-            EnsembleLogger.debug("⚠️ Local playback stalled; skipping streaming recovery loop")
+            EnsembleLogger.debug("⚠️ Local playback stall timeout — attempting immediate resume instead of failing")
             #endif
-            playbackState = .failed("Downloaded file playback stalled")
+            resumePlayerFromBuffering(forceImmediate: true, reason: "local-stall-recovery")
             return
         }
 
