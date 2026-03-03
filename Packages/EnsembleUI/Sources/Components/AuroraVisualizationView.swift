@@ -40,19 +40,19 @@ public struct AuroraVisualizationView: View {
     private let poolHeight: CGFloat = 3
 
     /// Smoothing factor for band animations (lower = snappier response)
-    private let smoothingFactor: Double = 0.25
+    private let smoothingFactor: Double = 0.35
     
-    /// Attack smoothing (how fast bands rise)
-    private let attackFactor: Double = 0.08
+    /// Attack smoothing (how fast bands rise) - increased for smoother transitions
+    private let attackFactor: Double = 0.12
     
-    /// Decay smoothing (how fast bands fall)
-    private let decayFactor: Double = 0.25
+    /// Decay smoothing (how fast bands fall) - increased for smoother transitions
+    private let decayFactor: Double = 0.35
 
     /// Peak hold time in seconds
-    private let peakHoldTime: Double = 0.8
+    private let peakHoldTime: Double = 1.0
     
     /// Peak decay rate per second
-    private let peakDecayRate: Double = 2.0
+    private let peakDecayRate: Double = 1.5
 
     /// Breathing animation speed when paused
     private let breathingSpeed: Double = 0.5
@@ -173,14 +173,18 @@ public struct AuroraVisualizationView: View {
             self.peakDecayTimers = newPeakTimers
         }
 
-        // Draw multiple soft glow passes for blur effect (back to front)
-        // Main glow layers
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 40, opacity: 0.1)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 20, opacity: 0.2)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.3)
+        // Draw multiple soft glow passes for ethereal blur effect (back to front)
+        // Wide, soft outer glow
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 60, opacity: 0.08)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 45, opacity: 0.12)
         
-        // Sharper core layer for definition
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 2, opacity: 0.4)
+        // Mid-range glow for depth
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.18)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.22)
+        
+        // Tighter glow for definition
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.28)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 4, opacity: 0.32)
         
         // Peak highlights (subtle)
         if isPlaying {
@@ -266,19 +270,20 @@ public struct AuroraVisualizationView: View {
             
             let height = minHeight + (maxHeight - minHeight) * CGFloat(curvedIntensity)
 
-            // Center the band and make it wide for overlap
+            // Center the band and make it very wide for ethereal overlap
             let centerX = (CGFloat(i) + 0.5) * bandWidth
-            let glowWidth = bandWidth * 3.5 // Wide overlap for blending
+            let glowWidth = bandWidth * 4.5 // Wider overlap for more ethereal blending
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
-            // Create vertical gradient: concentrated at bottom, fading up
+            // Create vertical gradient: concentrated at bottom, fading up gradually
             let intensityAlpha = max(0.3, curvedIntensity)
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.75), location: 0.15),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.5), location: 0.4),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.2), location: 0.7),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.8), location: 0.1),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.3),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.35), location: 0.6),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.15), location: 0.8),
                 .init(color: accentColor.opacity(0), location: 1.0)
             ])
 
