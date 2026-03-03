@@ -23,6 +23,12 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     
     /// Remove audio tap and stop analysis
     @MainActor func stopAnalysis()
+    
+    /// Pause frequency band updates (keeps tap alive but stops publishing)
+    @MainActor func pauseUpdates()
+    
+    /// Resume frequency band updates
+    @MainActor func resumeUpdates()
 }
 
 // MARK: - Audio Analyzer
@@ -63,6 +69,15 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     
     /// Frequency band edges (in Hz)
     private var bandEdges: [Double] = []
+    
+    /// Mock data generator timer (simulator only)
+    private var mockDataTimer: Timer?
+    
+    /// Mock data phase for animation
+    private var mockDataPhase: Double = 0.0
+    
+    /// Whether updates are paused
+    private var isPaused: Bool = false
     
     // MARK: - Init
     
@@ -125,6 +140,20 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     public func setupAudioTap(for playerItem: AVPlayerItem) {
         stopAnalysis()
         
+        #if DEBUG
+        logger.debug("🎵 setupAudioTap called for player item")
+        #endif
+        
+        #if targetEnvironment(simulator)
+        // MTAudioProcessingTap doesn't work reliably in iOS Simulator
+        // Use mock data generator for testing
+        #if DEBUG
+        logger.warning("⚠️ Running in simulator - using mock frequency data generator")
+        #endif
+        startMockDataGenerator()
+        return
+        #endif
+        
         guard let fftSetup = fftSetup else {
             #if DEBUG
             logger.error("Cannot setup audio tap: FFT not initialized")
@@ -178,13 +207,16 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         self.audioMix = audioMix
         
         #if DEBUG
-        logger.debug("Audio tap setup complete")
+        logger.debug("✅ Audio tap setup complete")
         #endif
     }
     
     @MainActor
     public func stopAnalysis() {
         audioMix = nil
+        mockDataTimer?.invalidate()
+        mockDataTimer = nil
+        isPaused = false
         
         // Reset bands to silent
         frequencyBands = Array(repeating: 0.0, count: bandCount)
@@ -194,10 +226,87 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         #endif
     }
     
+    @MainActor
+    public func pauseUpdates() {
+        isPaused = true
+        mockDataTimer?.invalidate()
+        mockDataTimer = nil
+        
+        #if DEBUG
+        logger.debug("Audio analysis paused")
+        #endif
+    }
+    
+    @MainActor
+    public func resumeUpdates() {
+        guard isPaused else { return }
+        isPaused = false
+        
+        #if targetEnvironment(simulator)
+        // Restart mock data generator
+        startMockDataGenerator()
+        #endif
+        
+        #if DEBUG
+        logger.debug("Audio analysis resumed")
+        #endif
+    }
+    
+    // MARK: - Mock Data Generator (Simulator Only)
+    
+    @MainActor
+    private func startMockDataGenerator() {
+        mockDataTimer?.invalidate()
+        mockDataPhase = 0.0
+        
+        mockDataTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.generateMockFrequencyBands()
+        }
+        
+        #if DEBUG
+        logger.debug("✅ Mock data generator started (simulator mode)")
+        #endif
+    }
+    
+    @MainActor
+    private func generateMockFrequencyBands() {
+        mockDataPhase += 0.1
+        
+        var bands = [Double](repeating: 0.0, count: bandCount)
+        
+        // Generate realistic-looking frequency spectrum
+        // Bass frequencies (0-7): higher energy
+        // Mid frequencies (8-15): moderate energy
+        // High frequencies (16-23): lower energy
+        for i in 0..<bandCount {
+            let normalizedPosition = Double(i) / Double(bandCount - 1)
+            
+            // Bass boost for lower frequencies
+            let bassBoost = exp(-normalizedPosition * 2.0)
+            
+            // Multiple sine waves at different speeds for organic movement
+            let wave1 = sin(mockDataPhase + Double(i) * 0.3)
+            let wave2 = sin(mockDataPhase * 1.5 + Double(i) * 0.2)
+            let wave3 = sin(mockDataPhase * 0.7 + Double(i) * 0.5)
+            
+            // Combine waves with bass boost
+            let amplitude = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2) * bassBoost
+            
+            // Normalize to 0.0-1.0 range with minimum floor
+            bands[i] = max(0.1, min(1.0, (amplitude + 1.0) / 2.0))
+        }
+        
+        frequencyBands = bands
+    }
+    
     // MARK: - Audio Processing
     
     /// Process audio samples and extract frequency bands
     fileprivate func processAudioBuffer(_ bufferList: UnsafePointer<AudioBufferList>, frameCount: Int, sampleRate: Double) {
+        // Skip processing if paused
+        guard !isPaused else { return }
+        
         guard let fftSetup = fftSetup else {
             #if DEBUG
             logger.error("⚠️ FFT setup is nil, cannot process audio")

@@ -1488,6 +1488,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.pause()
         playbackState = .paused
         updateNowPlayingInfo()
+        
+        // Pause frequency analysis
+        Task { @MainActor in
+            audioAnalyzer.pauseUpdates()
+        }
 
         // Report pause state to Plex
         if let track = currentTrack {
@@ -1504,6 +1509,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
+        
+        // Resume frequency analysis
+        Task { @MainActor in
+            audioAnalyzer.resumeUpdates()
+        }
         
         #if !os(macOS)
         // Ensure session is active before resuming, especially critical for background handovers.
