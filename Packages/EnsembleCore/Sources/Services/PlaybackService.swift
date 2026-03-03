@@ -721,6 +721,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
+    private var pendingMutationQueue: PendingMutationQueue?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
@@ -830,6 +831,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         cleanup()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
+    }
+
+    /// Wire the pending mutation queue after init to avoid circular DI dependencies
+    public func setPendingMutationQueue(_ queue: PendingMutationQueue) {
+        self.pendingMutationQueue = queue
     }
 
     private func setupPlayer() {
@@ -1344,6 +1350,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             do {
                 try await self.storeTrackRating(trackId: track.id, rating: newRating)
+
+                // If offline, queue the mutation for later sync
+                if self.syncCoordinator.isOffline {
+                    if let sourceKey = track.sourceCompositeKey, let queue = self.pendingMutationQueue {
+                        let plexRating: Int? = newRating == 0 ? nil : newRating
+                        let payload = TrackRatingMutationPayload(
+                            trackRatingKey: track.id,
+                            sourceCompositeKey: sourceKey,
+                            rating: plexRating
+                        )
+                        await queue.enqueueTrackRating(payload)
+                    }
+                    return
+                }
+
                 try await self.syncCoordinator.rateTrack(
                     track: track,
                     rating: newRating == 0 ? nil : newRating
@@ -1429,6 +1450,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
+            // Stop any currently playing audio before showing error state
+            stop()
             playbackState = .failed("No downloaded tracks available offline")
             return
         }
@@ -1467,6 +1490,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
+            stop()
             playbackState = .failed("No downloaded tracks available offline")
             return
         }
