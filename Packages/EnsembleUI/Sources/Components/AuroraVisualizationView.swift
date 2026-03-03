@@ -458,9 +458,11 @@ public struct AuroraVisualizationView: View {
     /// Draws a darkening gradient: scheme background color at the bottom fading to clear at the top.
     /// Grounds the aurora visually so it feels like it's rising from the surface.
     private func drawDarkeningGradient(context: GraphicsContext, size: CGSize) {
-        let baseColor: Color = colorScheme == .dark
-            ? .black
-            : Color(uiColor: .systemBackground)
+        #if canImport(UIKit)
+        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+        #else
+        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
+        #endif
 
         var darkContext = context
         darkContext.blendMode = .multiply
