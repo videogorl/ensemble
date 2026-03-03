@@ -206,15 +206,22 @@ public struct AuroraVisualizationView: View {
                 // Use real-time frequency data from audio analyzer
                 // frequencyBands is already normalized to 0.0-1.0 range
                 for i in 0..<min(bandCount, frequencyBands.count) {
-                    // Apply slight boost to low frequencies for visual impact
                     let normalizedPosition = Double(i) / Double(bandCount - 1)
+
+                    // Slight amplitude boost for low frequencies
                     let bassBoost = 1.0 + (1.0 - normalizedPosition) * 0.4
-                    
-                    let rawValue = frequencyBands[i]
-                    let boosted = min(1.0, rawValue * bassBoost)
-                    
-                    // Keep minimum floor for visibility
-                    bands[i] = max(0.05, boosted)
+                    let rawValue = min(1.0, frequencyBands[i] * bassBoost)
+
+                    // Per-band response curve: shapes how contrasty vs sensitive each range is.
+                    // Bass (0.0): exponent ~1.3 — contrasty, quiet bass stays low, loud bass pops.
+                    // Mids (0.5): exponent ~0.7 — gentle lift, keeps presence.
+                    // Highs (1.0): exponent ~0.45 — sensitive, brief transients register visibly.
+                    let exponent = bandResponseExponent(normalizedPosition: normalizedPosition)
+                    let shaped = pow(max(0.001, rawValue), exponent)
+
+                    // Lower floor for bass so quiet moments don't look "always on"
+                    let floor = 0.02 + normalizedPosition * 0.04
+                    bands[i] = max(floor, shaped)
                 }
             } else {
                 // No frequency data yet, show minimal activity
@@ -252,6 +259,22 @@ public struct AuroraVisualizationView: View {
         return max(0.05, min(0.4, baseValue + breathValue))
     }
 
+    /// Returns the gamma exponent used to shape each band's response curve.
+    /// Interpolates smoothly across the spectrum:
+    ///   Bass  (0.0) → 1.3  high contrast, quiet bass stays low
+    ///   Mids  (0.5) → 0.7  gentle lift, keeps presence
+    ///   Highs (1.0) → 0.45 sensitive, brief transients register visibly
+    private func bandResponseExponent(normalizedPosition: Double) -> Double {
+        // Smooth cubic Hermite interpolation through three control points
+        if normalizedPosition <= 0.5 {
+            let t = normalizedPosition * 2.0
+            return 1.3 + (0.7 - 1.3) * (t * t * (3 - 2 * t))
+        } else {
+            let t = (normalizedPosition - 0.5) * 2.0
+            return 0.7 + (0.45 - 0.7) * (t * t * (3 - 2 * t))
+        }
+    }
+
     /// Draws a soft glow layer with wide, overlapping bands
     private func drawSoftGlowLayer(
         context: GraphicsContext,
@@ -273,11 +296,9 @@ public struct AuroraVisualizationView: View {
             // peak at 0.5, sigma of ~0.35 for a nice spread
             let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.35, 2)))
             
-            // Apply curve to intensity for better visual range
-            let curvedIntensity = pow(intensity, 0.6)
-            
-            // Combined height factor (intensity * bell curve)
-            let heightFactor = curvedIntensity * bellFactor
+            // Bands are already shaped by bandResponseExponent in calculateBandValues,
+            // so use intensity directly here.
+            let heightFactor = intensity * bellFactor
             
             let height = minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)
 
@@ -290,7 +311,7 @@ public struct AuroraVisualizationView: View {
             // Gradient fades transparent at the very bottom so bands "emerge" from the pool
             // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
             // Peak brightness sits slightly above the base, then fades upward to transparent.
-            let intensityAlpha = max(0.3, curvedIntensity)
+            let intensityAlpha = max(0.3, intensity)
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(0), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
