@@ -473,8 +473,9 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Bulk downloads section | region | Top section containing server-level offline management entry | `Section("Bulk Downloads")` |
-| Servers row | control | Navigation row to server/library bulk offline toggles | `ServersRow`, `OfflineServersView` |
+| Libraries section | region | Section showing each sync-enabled library with toggle, download stats, and drill-in | `Section("Libraries")` |
+| Library row | control | Row with library icon, server:library title, track counts, size estimates, toggle, and navigation to LibraryDownloadDetailView | `libraryRow(for:)` |
+| Library toggle | control | Inline toggle to enable/disable library-wide offline download | `Toggle`, `setLibraryEnabled()` |
 | Items section | region | Section listing non-library offline targets (playlist/album/artist) | `Section("Items")` |
 | Downloaded item row | control | Offline target row with kind icon, title, status, counts, and size | `DownloadedItemRow` |
 | Item metadata label | text | Track count summary and downloaded storage for the target | `metadataText` |
@@ -537,6 +538,30 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Downloads section | region | Section that mirrors Settings > Audio Quality > Download Quality | `Section("Downloads")` |
 | Download quality selector | control | Menu picker for Original/High/Medium/Low quality | `Picker("Download Quality", selection: $downloadQuality)` |
 | Download quality footer | text | Clarifies this control matches Audio Quality settings | `This matches Settings > Audio Quality > Download Quality.` |
+| Cellular download toggle | control | Toggle to allow/disallow downloads over cellular data | `Toggle("Allow Downloading on Cellular")`, `allowCellularDownloads` |
+
+---
+
+## LibraryDownloadDetailView
+
+- **View name:** `LibraryDownloadDetailView`
+- **Canonical name:** LibraryDownloadDetailView
+- **Area:** Downloads
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Library icon header | visual | Generic library icon with accent color gradient background | `building.columns` |
+| Header subtitle | text | Track count and downloaded size summary | `headerSubtitle` |
+| Progress bar | indicator | Linear progress bar shown when not all tracks are complete | `ProgressView(.linear)` |
+| Play button | control | Plays all completed downloaded tracks | `nowPlayingVM.play(tracks:)` |
+| Shuffle button | control | Shuffles all completed downloaded tracks | `nowPlayingVM.shufflePlay(tracks:)` |
+| Track download row | control | Per-track row with artwork, title, status chip, retry | `TrackDownloadRowView` |
+| Queue status banner | indicator | Banner when downloads are paused due to network | `queueStatusBanner` |
+| Retry all button | control | Toolbar button to retry all failed downloads | `retryAllButton` |
 
 ---
 

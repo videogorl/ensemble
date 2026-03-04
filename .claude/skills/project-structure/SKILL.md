@@ -155,6 +155,8 @@ Sources/
 |   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
 |   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
+|   +-- DownloadTargetDetailViewModel.swift # Per-track detail for a single download target
+|   +-- LibraryDownloadDetailViewModel.swift # All downloads for a library (by sourceCompositeKey)
 |   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
 |   +-- PendingMutationsViewModel.swift # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
@@ -237,8 +239,10 @@ Sources/
 |   +-- NowPlayingView.swift          # Full-screen player
 |   +-- PendingMutationsView.swift    # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PlaylistsView.swift           # Playlist grid
-|   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (`Servers` + target items)
-|   +-- OfflineServersView.swift      # Server-grouped sync-enabled library toggles for offline targets
+|   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (quality, cellular toggle, remove all)
+|   +-- DownloadTargetDetailView.swift # Per-track detail for album/artist/playlist download target
+|   +-- LibraryDownloadDetailView.swift # All downloaded tracks in a library (by sourceCompositeKey)
+|   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors
