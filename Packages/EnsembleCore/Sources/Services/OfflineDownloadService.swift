@@ -750,62 +750,10 @@ public final class OfflineDownloadService: ObservableObject {
             let domainTrack = Track(from: track)
             let sizeEstimate = estimatedFileSize(durationMs: track.duration, quality: requestedQuality)
 
-            if requestedQuality != .original {
-                do {
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
-                    )
-                    #endif
-                    let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
-                        for: domainTrack,
-                        quality: requestedQuality
-                    )
-                    guard !queuePayload.data.isEmpty else {
-                        throw DownloadProcessingError.emptyPayload("download-queue")
-                    }
-
-                    let destinationURL = localFileURL(
-                        for: track,
-                        quality: requestedQuality,
-                        suggestedFilename: queuePayload.suggestedFilename,
-                        mimeType: queuePayload.mimeType,
-                        payload: queuePayload.data
-                    )
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        try? FileManager.default.removeItem(at: destinationURL)
-                    }
-                    try queuePayload.data.write(to: destinationURL, options: [.atomic])
-
-                    let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-                    let persistedFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
-                    guard persistedFileSize > 0 else {
-                        throw DownloadProcessingError.emptyPayload("download-queue")
-                    }
-
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=download-queue"
-                    )
-                    #endif
-
-                    try await downloadManager.completeDownload(
-                        download.objectID,
-                        filePath: destinationURL.path,
-                        fileSize: persistedFileSize,
-                        quality: requestedQuality.rawValue
-                    )
-                    await cacheArtworkForDownloadedTrack(track)
-                    await refreshAllTargetProgresses()
-                    return
-                } catch {
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "⚠️ Download queue transcode attempt failed for track=\(track.ratingKey): \(error.localizedDescription)"
-                    )
-                    #endif
-                }
-            }
+            // NOTE: The Plex download queue API (getOfflineDownloadQueueMedia) transcodes
+            // items serially on the server, which prevents concurrent downloads. We skip it
+            // and go straight to the universal streaming URL which transcodes on-the-fly and
+            // supports multiple simultaneous connections.
 
             var selectedURL: URL
             var selectedMode: String
