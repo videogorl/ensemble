@@ -259,15 +259,9 @@ public final class OfflineDownloadService: ObservableObject {
 
                 let status = download.downloadStatus
 
-                // Re-queue quality-mismatched completed downloads (skip if already at best
-                // available quality for servers that don't support transcode)
+                // Re-queue quality-mismatched completed downloads
                 if status == .completed,
                    let existing = download.quality, existing != desiredQuality {
-                    if desiredQuality != "original",
-                       existing == "original",
-                       isTranscodeUnsupported(forSourceCompositeKey: ref.trackSourceCompositeKey) {
-                        continue
-                    }
                     _ = try await downloadManager.createDownload(
                         forTrackRatingKey: ref.trackRatingKey,
                         sourceCompositeKey: ref.trackSourceCompositeKey,
@@ -353,7 +347,6 @@ public final class OfflineDownloadService: ObservableObject {
             let desiredQuality = currentDownloadQuality()
             let completedDownloads = try await downloadManager.fetchCompletedDownloads()
             var requeuedCount = 0
-            var skippedUnsupportedCount = 0
 
             for download in completedDownloads {
                 guard let track = download.track,
@@ -363,18 +356,6 @@ public final class OfflineDownloadService: ObservableObject {
 
                 let currentQuality = download.quality ?? "original"
                 guard currentQuality != desiredQuality else { continue }
-
-                // Server doesn't support transcode — track is already at original
-                // (the best this server can provide), so nothing actionable here.
-                if desiredQuality != "original",
-                   isTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey) {
-                    if currentQuality == "original" {
-                        // Already at the best available quality for this server — skip silently
-                        continue
-                    }
-                    skippedUnsupportedCount += 1
-                    continue
-                }
 
                 let reference = OfflineTrackReference(
                     trackRatingKey: track.ratingKey,
@@ -405,7 +386,7 @@ public final class OfflineDownloadService: ObservableObject {
 
             #if DEBUG
             EnsembleLogger.debug(
-                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) skippedUnsupported=\(skippedUnsupportedCount) targetQuality=\(desiredQuality)"
+                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) targetQuality=\(desiredQuality)"
             )
             #endif
 
@@ -415,7 +396,7 @@ public final class OfflineDownloadService: ObservableObject {
 
             return OfflineDownloadQualityRefreshResult(
                 requeuedCount: requeuedCount,
-                skippedUnsupportedCount: skippedUnsupportedCount
+                skippedUnsupportedCount: 0
             )
         } catch {
             #if DEBUG
