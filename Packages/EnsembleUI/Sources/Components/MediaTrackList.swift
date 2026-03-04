@@ -308,7 +308,9 @@ public struct MediaTrackList: UIViewRepresentable {
             !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id }
         
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
-        
+        let isOffline = !networkMonitor.isConnected
+        let offlineStateChanged = context.coordinator.isOffline != isOffline
+
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.groupedTracks = newGroupedTracks
@@ -328,8 +330,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
-        context.coordinator.isOffline = !networkMonitor.isConnected
-        
+        context.coordinator.isOffline = isOffline
+
         // Only reload if data actually changed
         if dataChanged {
             tableView.reloadData()
@@ -339,8 +341,8 @@ public struct MediaTrackList: UIViewRepresentable {
                 EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
-        } else if currentTrackChanged {
-            // Only update visible cells instead of full reload
+        } else if currentTrackChanged || offlineStateChanged {
+            // Reconfigure visible cells when the playing track or connectivity changes.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell) {
@@ -351,7 +353,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showArtwork: showArtwork,
                         showTrackNumber: showTrackNumbers,
                         isPlaying: isPlaying,
-                        isUnavailableOffline: context.coordinator.isOffline && !track.isDownloaded,
+                        isUnavailableOffline: isOffline && !track.isDownloaded,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
