@@ -47,6 +47,9 @@ public protocol DownloadManagerProtocol: Sendable {
     func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String?
 
     func getTotalDownloadSize() async throws -> Int64
+
+    /// Delete all download records and their associated files on disk.
+    func deleteAllDownloads() async throws
 }
 
 public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable {
@@ -526,6 +529,34 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let downloads = try context.fetch(request)
                     let totalSize = downloads.reduce(0) { $0 + $1.fileSize }
                     continuation.resume(returning: totalSize)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteAllDownloads() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDDownload.fetchRequest()
+                    let downloads = try context.fetch(request)
+
+                    // Remove downloaded files from disk
+                    for download in downloads {
+                        if let filePath = download.filePath, !filePath.isEmpty {
+                            try? FileManager.default.removeItem(atPath: filePath)
+                        }
+                        // Clear the track's local file path so it's no longer treated as offline
+                        download.track?.localFilePath = nil
+                        context.delete(download)
+                    }
+
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }

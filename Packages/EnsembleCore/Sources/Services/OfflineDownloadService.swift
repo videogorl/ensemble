@@ -252,6 +252,37 @@ public final class OfflineDownloadService: ObservableObject {
         await disableTarget(key: key)
     }
 
+    /// Remove all download targets, memberships, and downloaded files.
+    public func removeAllDownloads() async {
+        // Stop the download queue first
+        queueTask?.cancel()
+        queueTask = nil
+        isQueueRunning = false
+        queueStatusReason = .idle
+
+        do {
+            // Delete all targets and memberships from CoreData
+            try await targetRepository.deleteAllTargets()
+
+            // Delete all download records and files from disk
+            try await downloadManager.deleteAllDownloads()
+
+            // Clear local state
+            removalInProgress.removeAll()
+            targets.removeAll()
+
+            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+
+            #if DEBUG
+            EnsembleLogger.debug("🗑️ Removed all downloads, targets, and files")
+            #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to remove all downloads: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     /// Refresh a single target: reconcile memberships, re-queue quality-mismatched and failed downloads
     public func refreshTarget(key: String) async {
         do {

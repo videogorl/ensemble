@@ -80,8 +80,19 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
         await loadSizeEstimates()
     }
 
+    /// True when there are any download targets or downloaded files
+    public var hasDownloads: Bool {
+        !items.isEmpty
+    }
+
     public func removeDownload(key: String) async {
         await offlineDownloadService.removeTarget(key: key)
+    }
+
+    /// Remove all download targets, memberships, and files
+    public func removeAllDownloads() async {
+        await offlineDownloadService.removeAllDownloads()
+        sizeEstimates = nil
     }
 
     // MARK: - Size Estimation

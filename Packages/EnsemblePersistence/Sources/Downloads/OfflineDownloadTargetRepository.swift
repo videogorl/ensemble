@@ -38,6 +38,9 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
 
     func deleteTarget(key: String) async throws
 
+    /// Delete all targets and their memberships.
+    func deleteAllTargets() async throws
+
     func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership]
     func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference]
 
@@ -180,6 +183,35 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
                     request.fetchLimit = 1
                     if let target = try context.fetch(request).first {
                         context.delete(target)
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteAllTargets() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    // Delete all memberships
+                    let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
+                    let memberships = try context.fetch(membershipRequest)
+                    for membership in memberships {
+                        context.delete(membership)
+                    }
+
+                    // Delete all targets
+                    let targetRequest = CDOfflineDownloadTarget.fetchRequest()
+                    let targets = try context.fetch(targetRequest)
+                    for target in targets {
+                        context.delete(target)
+                    }
+
+                    if context.hasChanges {
                         try context.save()
                     }
                     continuation.resume()

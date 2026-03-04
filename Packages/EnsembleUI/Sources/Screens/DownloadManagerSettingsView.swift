@@ -5,6 +5,7 @@ public struct DownloadManagerSettingsView: View {
     @StateObject private var viewModel: DownloadManagerSettingsViewModel
     @Environment(\.dependencies) private var deps
     @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @State private var showRemoveAllConfirmation = false
 
     public init() {
         self._viewModel = StateObject(
@@ -50,12 +51,35 @@ public struct DownloadManagerSettingsView: View {
                     Text("Transcoded quality estimates are approximate. Original quality varies by source file.")
                 }
             }
+
+            // Remove all downloads button
+            if viewModel.hasDownloads {
+                Section {
+                    Button(role: .destructive) {
+                        showRemoveAllConfirmation = true
+                    } label: {
+                        Text("Remove All Downloads")
+                    }
+                } footer: {
+                    Text("Removes all downloaded files, targets, and queued items.")
+                }
+            }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
         #else
         .listStyle(.inset)
         #endif
+        .alert("Remove All Downloads?", isPresented: $showRemoveAllConfirmation) {
+            Button("Remove All", role: .destructive) {
+                Task {
+                    await viewModel.removeAllDownloads()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all downloaded files and remove all items marked for download. This cannot be undone.")
+        }
         .navigationTitle("Manage Downloads")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
