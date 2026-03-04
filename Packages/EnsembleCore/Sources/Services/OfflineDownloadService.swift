@@ -99,6 +99,9 @@ public final class OfflineDownloadService: ObservableObject {
     private var failedTracksByTargetKey: [String: Int] = [:]
 
     private static let unsupportedTranscodeServerDefaultsKey = "offlineTranscodeUnsupportedServerKeys"
+    /// Tracks whether the transcode profile fix (mp3→m4a) migration has been applied.
+    /// When true, the unsupported-server cache has been cleared so all servers retry with the fixed profile.
+    private static let transcodeProfileMigrationKey = "offlineTranscodeProfileV2Migrated"
 
     public init(
         downloadManager: DownloadManagerProtocol,
@@ -118,9 +121,19 @@ public final class OfflineDownloadService: ObservableObject {
         self.networkMonitor = networkMonitor
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
         self.artworkDownloadManager = artworkDownloadManager
-        self.unsupportedTranscodeServerKeys = Set(
-            UserDefaults.standard.stringArray(forKey: Self.unsupportedTranscodeServerDefaultsKey) ?? []
-        )
+
+        // One-time migration: clear the unsupported-server cache after the transcode
+        // profile was fixed (container=mp3→mp4). Servers that were wrongly blacklisted
+        // under the old profile should be retried with the corrected AAC/M4A profile.
+        if !UserDefaults.standard.bool(forKey: Self.transcodeProfileMigrationKey) {
+            UserDefaults.standard.removeObject(forKey: Self.unsupportedTranscodeServerDefaultsKey)
+            UserDefaults.standard.set(true, forKey: Self.transcodeProfileMigrationKey)
+            self.unsupportedTranscodeServerKeys = []
+        } else {
+            self.unsupportedTranscodeServerKeys = Set(
+                UserDefaults.standard.stringArray(forKey: Self.unsupportedTranscodeServerDefaultsKey) ?? []
+            )
+        }
 
         backgroundExecutionCoordinator.onExecutionRequested = { [weak self] in
             self?.startQueueIfNeeded()

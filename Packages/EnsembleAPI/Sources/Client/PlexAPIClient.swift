@@ -1149,9 +1149,9 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's universal transcode endpoint - use start.mp3 for direct audio stream
-        // (not .m3u8 which requires HLS playlist parsing)
-        components.path = "/music/:/transcode/universal/start.mp3"
+        // Use Plex's universal transcode endpoint with .m4a extension for AAC/M4A output.
+        // .m4a hints to the server that we want an M4A container (matches the client profile).
+        components.path = "/music/:/transcode/universal/start.m4a"
         
         let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
@@ -1239,7 +1239,9 @@ public actor PlexAPIClient {
     private func transcodeClientProfileExtra() -> String {
         // Request an explicit audio transcode target so PMS can resolve a profile
         // even when generic client matching would otherwise fail.
-        "add-transcode-target(type=musicProfile&context=streaming&protocol=http&container=mp3&audioCodec=aac)"
+        // container=mp4 + audioCodec=aac produces AAC audio in an M4A/MP4 container,
+        // which AVPlayer handles natively and offers better quality per bitrate than MP3.
+        "add-transcode-target(type=musicProfile&context=streaming&protocol=http&container=mp4&audioCodec=aac)"
     }
 
     private func transcodeStartPath(
@@ -1247,7 +1249,7 @@ public actor PlexAPIClient {
         useStartWithoutExtension: Bool
     ) -> String {
         let transcodeType = useAudioEndpoint ? "audio" : "music"
-        let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
+        let startComponent = useStartWithoutExtension ? "start" : "start.m4a"
         return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
     }
 
