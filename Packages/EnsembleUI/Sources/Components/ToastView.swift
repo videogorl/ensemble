@@ -165,7 +165,7 @@ private struct GlobalToastOverlayRootView: View {
     }
 
     private var baseBottomPadding: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 84 : 140
+        UIDevice.current.userInterfaceIdiom == .pad ? 74 : 130
     }
 }
 #endif

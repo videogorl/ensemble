@@ -274,6 +274,7 @@ public struct ArtistDetailView: View {
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
+    @State private var scrollOffset: CGFloat = 0
     @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     public init(
@@ -322,6 +323,19 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
                 }
+                // Track scroll offset for rubber-band stretch
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ScrollOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("artistScroll")).minY
+                        )
+                    }
+                )
+            }
+            .coordinateSpace(name: "artistScroll")
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                scrollOffset = value
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -434,7 +448,10 @@ public struct ArtistDetailView: View {
     private var heroBanner: some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.width // 1:1 square aspect ratio
-            
+            // Rubber-band stretch: when overscrolling (offset > 0), expand artwork
+            let overscroll = max(scrollOffset, 0)
+            let stretchHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+
             ZStack(alignment: .bottom) {
                 // Artist artwork masked to fade out at the bottom
                 ArtworkView(
@@ -443,7 +460,7 @@ public struct ArtistDetailView: View {
                     cornerRadius: 0
                 )
                 .aspectRatio(contentMode: .fill)
-                .frame(width: geometry.size.width, height: bannerHeight + geometry.safeAreaInsets.top)
+                .frame(width: geometry.size.width, height: stretchHeight)
                 .clipped()
                 .mask(
                     LinearGradient(
@@ -456,7 +473,8 @@ public struct ArtistDetailView: View {
                         endPoint: .bottom
                     )
                 )
-                .offset(y: -geometry.safeAreaInsets.top)
+                // Shift up to cover the safe area + overscroll gap
+                .offset(y: -(geometry.safeAreaInsets.top + overscroll))
 
                 // Artist info overlay
                 VStack(alignment: .leading, spacing: 8) {
@@ -588,17 +606,10 @@ public struct ArtistDetailView: View {
 
     private var favoritedTracksSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Favorited Tracks")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Spacer()
-
-                Image(systemName: "heart.fill")
-                    .foregroundColor(.red)
-            }
-            .padding(.horizontal)
+            Text("Favorited Tracks")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
 
             // Play / Shuffle buttons
             HStack(spacing: 12) {
@@ -634,40 +645,78 @@ public struct ArtistDetailView: View {
             }
             .padding(.horizontal)
 
-            // Track list
+            // Track list (UIKit table for consistent swipe actions and row height)
+            #if os(iOS)
+            let trackCount = viewModel.favoritedTracks.count
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+            MediaTrackList(
+                tracks: viewModel.favoritedTracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                groupByDisc: false,
+                currentTrackId: nowPlayingVM.currentTrack?.id,
+                onPlayNext: { track in
+                    nowPlayingVM.playNext(track)
+                },
+                onPlayLast: { track in
+                    nowPlayingVM.playLast(track)
+                },
+                onAddToPlaylist: { track in
+                    presentPlaylistPicker(with: [track])
+                },
+                onAddToRecentPlaylist: { track in
+                    addToRecentPlaylist(track)
+                },
+                onToggleFavorite: { track in
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
+                    }
+                },
+                onGoToAlbum: { track in
+                    if let albumId = track.albumRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onGoToArtist: nil, // Already in artist view
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
+                canAddToRecentPlaylist: { track in
+                    recentPlaylistTitle(for: track) != nil
+                },
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, index in
+                nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
+            }
+            .frame(height: height)
+            #else
+            // Basic fallback for macOS
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(viewModel.favoritedTracks.enumerated()), id: \.element.id) { index, track in
-                    TrackSwipeContainer(
+                    TrackRow(
                         track: track,
-                        nowPlayingVM: nowPlayingVM,
+                        showArtwork: true,
+                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                        onToggleFavorite: {
+                            Task {
+                                await nowPlayingVM.toggleTrackFavorite(track)
+                            }
+                        },
+                        onGoToAlbum: {
+                            if let albumId = track.albumRatingKey {
+                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            }
+                        },
+                        onGoToArtist: nil,
+                        isFavorited: nowPlayingVM.isTrackFavorited(track),
+                        recentPlaylistTitle: recentPlaylistTitle(for: track)
                     ) {
-                        TrackRow(
-                            track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                            onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                            onToggleFavorite: {
-                                Task {
-                                    await nowPlayingVM.toggleTrackFavorite(track)
-                                }
-                            },
-                            onGoToAlbum: {
-                                if let albumId = track.albumRatingKey {
-                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onGoToArtist: nil, // Already in artist view
-                            isFavorited: nowPlayingVM.isTrackFavorited(track),
-                            recentPlaylistTitle: recentPlaylistTitle(for: track)
-                        ) {
-                            nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
-                        }
+                        nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -678,6 +727,7 @@ public struct ArtistDetailView: View {
                     }
                 }
             }
+            #endif
         }
     }
 
@@ -711,5 +761,15 @@ public struct ArtistDetailView: View {
             sourceCompositeKey: target.sourceCompositeKey
         )
         return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
+    }
+}
+
+// MARK: - Scroll Offset Preference Key
+
+/// Captures the Y offset of scroll content for rubber-band stretch effects
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
