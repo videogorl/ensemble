@@ -1,4 +1,5 @@
 import Combine
+import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -134,92 +135,126 @@ public final class MutationCoordinator: ObservableObject {
 
     // MARK: - Unified Mutation API
 
-    /// Rate a track (or unrate with nil). Queues when offline.
+    /// Rate a track (or unrate with nil). Queues when offline or server unreachable.
     @discardableResult
     public func rateTrack(_ track: Track, rating: Int?) async throws -> MutationOutcome {
+        guard let sourceKey = track.sourceCompositeKey else { return .completed }
+
+        // Queue immediately if we know we're offline
         if syncCoordinator.isOffline {
-            guard let sourceKey = track.sourceCompositeKey else { return .completed }
             let payload = TrackRatingMutationPayload(
-                trackRatingKey: track.id,
-                sourceCompositeKey: sourceKey,
-                rating: rating
+                trackRatingKey: track.id, sourceCompositeKey: sourceKey, rating: rating
             )
             await enqueueMutation(type: .trackRating, payload: payload, sourceCompositeKey: sourceKey)
             return .queued
         }
 
-        try await syncCoordinator.rateTrack(track: track, rating: rating)
-        return .completed
+        // Try the server; queue on connection failure so the mutation isn't lost
+        do {
+            try await syncCoordinator.rateTrack(track: track, rating: rating)
+            return .completed
+        } catch where isConnectionFailure(error) {
+            let payload = TrackRatingMutationPayload(
+                trackRatingKey: track.id, sourceCompositeKey: sourceKey, rating: rating
+            )
+            await enqueueMutation(type: .trackRating, payload: payload, sourceCompositeKey: sourceKey)
+            return .queued
+        }
     }
 
-    /// Add tracks to a playlist. Queues when offline.
+    /// Add tracks to a playlist. Queues when offline or server unreachable.
     public func addTracksToPlaylist(
         _ tracks: [Track],
         playlist: Playlist
     ) async throws -> (PlaylistMutationResult?, MutationOutcome) {
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            return (nil, .completed)
+        }
+
         if syncCoordinator.isOffline {
-            guard let sourceKey = playlist.sourceCompositeKey else {
-                return (nil, .completed)
-            }
-            let trackKeys = tracks.map(\.id)
-            let trackSourceKey = tracks.first?.sourceCompositeKey ?? sourceKey
-            let payload = PlaylistMutationPayload(
-                playlistRatingKey: playlist.id,
-                playlistSourceCompositeKey: sourceKey,
-                trackRatingKeys: trackKeys,
-                trackSourceCompositeKey: trackSourceKey
-            )
+            let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
             await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
             return (nil, .queued)
         }
 
-        let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
-        return (result, .completed)
+        do {
+            let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+            return (result, .completed)
+        } catch where isConnectionFailure(error) {
+            let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
+            await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
+            return (nil, .queued)
+        }
     }
 
-    /// Rename a playlist. Queues when offline.
+    private func makePlaylistAddPayload(tracks: [Track], playlist: Playlist, sourceKey: String) -> PlaylistMutationPayload {
+        PlaylistMutationPayload(
+            playlistRatingKey: playlist.id,
+            playlistSourceCompositeKey: sourceKey,
+            trackRatingKeys: tracks.map(\.id),
+            trackSourceCompositeKey: tracks.first?.sourceCompositeKey ?? sourceKey
+        )
+    }
+
+    /// Rename a playlist. Queues when offline or server unreachable.
     @discardableResult
     public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome {
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            throw MutationError.unavailableOffline("Rename playlist")
+        }
+
         if syncCoordinator.isOffline {
-            guard let sourceKey = playlist.sourceCompositeKey else {
-                throw MutationError.unavailableOffline("Rename playlist")
-            }
             let payload = PlaylistRenameMutationPayload(
-                playlistRatingKey: playlist.id,
-                playlistSourceCompositeKey: sourceKey,
-                newTitle: newTitle
+                playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
             await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey)
             return .queued
         }
 
-        try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
-        return .completed
+        do {
+            try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
+            return .completed
+        } catch where isConnectionFailure(error) {
+            let payload = PlaylistRenameMutationPayload(
+                playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
+            )
+            await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey)
+            return .queued
+        }
     }
 
-    /// Delete a playlist. Queues when offline and purges any related queued mutations.
+    /// Delete a playlist. Queues when offline or server unreachable, and purges related queued mutations.
     @discardableResult
     public func deletePlaylist(_ playlist: Playlist) async throws -> MutationOutcome {
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            throw MutationError.unavailableOffline("Delete playlist")
+        }
+
         if syncCoordinator.isOffline {
-            guard let sourceKey = playlist.sourceCompositeKey else {
-                throw MutationError.unavailableOffline("Delete playlist")
-            }
-            // Purge any queued mutations for this playlist since they're now irrelevant
-            await purgePlaylistMutations(playlistRatingKey: playlist.id)
-            let payload = PlaylistDeleteMutationPayload(
-                playlistRatingKey: playlist.id,
-                playlistSourceCompositeKey: sourceKey
-            )
-            await enqueueMutation(type: .playlistDelete, payload: payload, sourceCompositeKey: sourceKey)
+            await enqueuePlaylistDelete(playlist: playlist, sourceKey: sourceKey)
             return .queued
         }
 
-        try await syncCoordinator.deletePlaylist(playlist)
-        return .completed
+        do {
+            try await syncCoordinator.deletePlaylist(playlist)
+            return .completed
+        } catch where isConnectionFailure(error) {
+            await enqueuePlaylistDelete(playlist: playlist, sourceKey: sourceKey)
+            return .queued
+        }
     }
 
-    /// Create a playlist. Throws `MutationError.unavailableOffline` when offline — cannot be queued
-    /// because no server ID exists yet.
+    /// Enqueue a playlist deletion and purge any now-irrelevant queued mutations for it
+    private func enqueuePlaylistDelete(playlist: Playlist, sourceKey: String) async {
+        await purgePlaylistMutations(playlistRatingKey: playlist.id)
+        let payload = PlaylistDeleteMutationPayload(
+            playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey
+        )
+        await enqueueMutation(type: .playlistDelete, payload: payload, sourceCompositeKey: sourceKey)
+    }
+
+    /// Create a playlist. Throws `MutationError.unavailableOffline` when offline or server
+    /// unreachable — cannot be queued because no server ID exists yet.
     public func createPlaylist(
         title: String,
         tracks: [Track],
@@ -228,16 +263,24 @@ public final class MutationCoordinator: ObservableObject {
         if syncCoordinator.isOffline {
             throw MutationError.unavailableOffline("Create playlist")
         }
-        return try await syncCoordinator.createPlaylist(title: title, tracks: tracks, serverSourceKey: serverSourceKey)
+        do {
+            return try await syncCoordinator.createPlaylist(title: title, tracks: tracks, serverSourceKey: serverSourceKey)
+        } catch where isConnectionFailure(error) {
+            throw MutationError.unavailableOffline("Create playlist")
+        }
     }
 
-    /// Replace playlist contents. Throws `MutationError.unavailableOffline` when offline —
-    /// multi-step clear+add is ordering-sensitive and risks data loss if queued.
+    /// Replace playlist contents. Throws `MutationError.unavailableOffline` when offline or
+    /// server unreachable — multi-step clear+add is ordering-sensitive and risks data loss if queued.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
         if syncCoordinator.isOffline {
             throw MutationError.unavailableOffline("Edit playlist tracks")
         }
-        try await syncCoordinator.replacePlaylistContents(playlist, with: orderedTracks)
+        do {
+            try await syncCoordinator.replacePlaylistContents(playlist, with: orderedTracks)
+        } catch where isConnectionFailure(error) {
+            throw MutationError.unavailableOffline("Edit playlist tracks")
+        }
     }
 
     /// Save the current queue as a playlist snapshot. Delegates to addTracksToPlaylist.
@@ -290,6 +333,39 @@ public final class MutationCoordinator: ObservableObject {
     /// Refresh the published pending count from the repository
     public func refreshCount() async {
         pendingCount = (try? await repository.countPendingMutations()) ?? 0
+    }
+
+    // MARK: - Server Failure Detection
+
+    /// Returns true if the error is a connection/transport failure (server unreachable,
+    /// timeout, connection reset) rather than a semantic API error (bad request, auth, etc.).
+    /// Connection failures are safe to queue for retry; semantic errors should propagate.
+    private func isConnectionFailure(_ error: Error) -> Bool {
+        // URLSession transport errors (connection refused, timeout, DNS, etc.)
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut,
+                 .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                 .secureConnectionFailed, .serverCertificateUntrusted,
+                 .internationalRoamingOff, .dataNotAllowed:
+                return true
+            default:
+                return false
+            }
+        }
+
+        // PlexAPIError wrapping a network error
+        if case PlexAPIError.networkError(let underlying) = error {
+            return isConnectionFailure(underlying)
+        }
+
+        // Server-side failures (5xx) indicate the server is up but struggling
+        if case PlexAPIError.httpError(let statusCode) = error,
+           (500...599).contains(statusCode) {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - Private Enqueue Helpers
