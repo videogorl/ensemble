@@ -686,6 +686,7 @@ public final class OfflineDownloadService: ObservableObject {
             let requestedQuality = streamingQuality(from: download.quality)
             var effectiveQuality = requestedQuality
             let domainTrack = Track(from: track)
+            let sizeEstimate = estimatedFileSize(durationMs: track.duration, quality: requestedQuality)
 
             if requestedQuality != .original {
                 do {
@@ -770,7 +771,7 @@ public final class OfflineDownloadService: ObservableObject {
                 "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
             )
             #endif
-            var (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID)
+            var (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
             if selectedMode == "universal",
                let httpResponse = response as? HTTPURLResponse,
                httpResponse.statusCode == 400 {
@@ -799,7 +800,7 @@ public final class OfflineDownloadService: ObservableObject {
                         "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
                     )
                     #endif
-                    (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID)
+                    (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
 
                     if let rejection = response as? HTTPURLResponse,
                        rejection.statusCode == 400 {
@@ -845,7 +846,7 @@ public final class OfflineDownloadService: ObservableObject {
                     "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
                 )
                 #endif
-                (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID)
+                (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
             }
 
             if let httpResponse = response as? HTTPURLResponse {
@@ -920,20 +921,27 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.
     /// Uses URLSession.bytes(from:) to stream data and compare bytes received against Content-Length.
+    /// Falls back to `estimatedSize` when Content-Length is absent (common for transcode streams).
     /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
     /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
     private func downloadWithProgress(
         from url: URL,
-        downloadID: NSManagedObjectID
+        downloadID: NSManagedObjectID,
+        estimatedSize: Int64 = -1
     ) async throws -> (URL, URLResponse) {
         let dm = downloadManager
+        let estimate = estimatedSize
 
         // Run the streaming I/O in a detached task to avoid blocking @MainActor.
         // withTaskCancellationHandler bridges parent cancellation to the detached task
         // so the download stops when the queue is paused/cancelled.
         let detachedTask = Task.detached { [dm] () -> (URL, URLResponse) in
             let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-            let expectedLength = response.expectedContentLength // -1 if unknown
+            // Use Content-Length if the server provides it, otherwise fall back to the
+            // bitrate-based estimate passed by the caller
+            let totalExpected = response.expectedContentLength > 0
+                ? response.expectedContentLength
+                : estimate
 
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
@@ -957,11 +965,11 @@ public final class OfflineDownloadService: ObservableObject {
                         bytesReceived += Int64(buffer.count)
                         buffer.removeAll(keepingCapacity: true)
 
-                        // Report progress when Content-Length is known, throttled to avoid churn
-                        if expectedLength > 0 {
+                        // Report progress when total size is known (or estimated), throttled
+                        if totalExpected > 0 {
                             let now = Date()
                             if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
-                                let progress = min(Float(bytesReceived) / Float(expectedLength), 0.99)
+                                let progress = min(Float(bytesReceived) / Float(totalExpected), 0.99)
                                 try? await dm.updateDownloadProgress(downloadID, progress: progress)
                                 lastProgressUpdate = now
                             }
@@ -988,6 +996,22 @@ public final class OfflineDownloadService: ObservableObject {
         } onCancel: {
             detachedTask.cancel()
         }
+    }
+
+    /// Estimates file size in bytes for a track at a given quality based on duration and bitrate.
+    /// Returns -1 for original quality since the original file size is unknown.
+    private func estimatedFileSize(durationMs: Int64, quality: StreamingQuality) -> Int64 {
+        guard quality != .original else { return -1 }
+        let durationSeconds = Double(durationMs) / 1000.0
+        let bitrateKbps: Double
+        switch quality {
+        case .high: bitrateKbps = 320
+        case .medium: bitrateKbps = 192
+        case .low: bitrateKbps = 128
+        case .original: return -1
+        }
+        // kbps = 1000 bits/s; bytes/s = kbps * 1000 / 8
+        return Int64(durationSeconds * bitrateKbps * 1000.0 / 8.0)
     }
 
     #if DEBUG
