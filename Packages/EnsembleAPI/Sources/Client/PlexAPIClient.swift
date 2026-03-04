@@ -1174,25 +1174,32 @@ public actor PlexAPIClient {
         // Add quality-specific parameters.
         switch quality {
         case .original:
-            // For original quality, don't add directPlay/directStream flags
-            // This forces the server to provide a compatible stream
-            // (it will transcode if needed for non-Plex Pass users)
+            // Original: server decides direct play / direct stream (flags already set above)
             break
-            
+
         case .high:
-            // Force transcode at 320 kbps
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-            
+
         case .medium:
-            // Force transcode at 192 kbps
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-            
+
         case .low:
-            // Force transcode at 128 kbps
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
+        }
+
+        // For non-original quality, override direct play/stream flags to force transcoding.
+        // transcodeClientQueryItems sets directPlay=1 by default (for streaming), but
+        // for reduced quality downloads we must disable direct play so the server transcodes.
+        if quality != .original {
+            queryItems.removeAll { $0.name == "directPlay" }
+            queryItems.removeAll { $0.name == "directStream" }
+            queryItems.removeAll { $0.name == "directStreamAudio" }
+            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
         }
         
         components.queryItems = queryItems

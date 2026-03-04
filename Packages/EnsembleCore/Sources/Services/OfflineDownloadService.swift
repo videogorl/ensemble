@@ -386,7 +386,37 @@ public final class OfflineDownloadService: ObservableObject {
                 requeuedCount += 1
             }
 
-            if requeuedCount > 0 {
+            // Also retry all failed downloads
+            let allDownloads = try await downloadManager.fetchDownloads()
+            var retriedCount = 0
+            for download in allDownloads where download.downloadStatus == .failed {
+                guard let track = download.track,
+                      let sourceCompositeKey = track.sourceCompositeKey else {
+                    continue
+                }
+
+                let reference = OfflineTrackReference(
+                    trackRatingKey: track.ratingKey,
+                    trackSourceCompositeKey: sourceCompositeKey
+                )
+                guard try await targetRepository.hasAnyMembership(for: reference) else {
+                    continue
+                }
+
+                try await downloadManager.deleteDownload(
+                    forTrackRatingKey: track.ratingKey,
+                    sourceCompositeKey: sourceCompositeKey
+                )
+                _ = try await downloadManager.createDownload(
+                    forTrackRatingKey: track.ratingKey,
+                    sourceCompositeKey: sourceCompositeKey,
+                    quality: desiredQuality
+                )
+                retriedCount += 1
+            }
+
+            let totalRequeued = requeuedCount + retriedCount
+            if totalRequeued > 0 {
                 await refreshAllTargetProgresses()
                 startQueueIfNeeded()
                 let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
@@ -397,22 +427,22 @@ public final class OfflineDownloadService: ObservableObject {
 
             #if DEBUG
             EnsembleLogger.debug(
-                "🔄 Re-queued completed downloads for quality refresh: count=\(requeuedCount) targetQuality=\(desiredQuality)"
+                "🔄 Refresh: re-queued \(requeuedCount) quality-mismatched + \(retriedCount) failed downloads (targetQuality=\(desiredQuality))"
             )
             #endif
 
-            if requeuedCount > 0 {
+            if totalRequeued > 0 {
                 NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
             }
 
             return OfflineDownloadQualityRefreshResult(
-                requeuedCount: requeuedCount,
+                requeuedCount: totalRequeued,
                 skippedUnsupportedCount: 0
             )
         } catch {
             #if DEBUG
             EnsembleLogger.debug(
-                "❌ Failed re-queueing completed downloads for quality refresh: \(error.localizedDescription)"
+                "❌ Failed re-queueing downloads for refresh: \(error.localizedDescription)"
             )
             #endif
             return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
