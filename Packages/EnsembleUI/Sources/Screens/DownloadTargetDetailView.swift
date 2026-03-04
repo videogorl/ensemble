@@ -103,10 +103,28 @@ public struct DownloadTargetDetailView: View {
             .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
 
             VStack(spacing: 8) {
-                Text(viewModel.summary.title)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .multilineTextAlignment(.center)
+                // Title links to the original item (album/artist/playlist)
+                if canLinkToOriginalItem {
+                    NavigationLink {
+                        originalItemDestination()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(viewModel.summary.title)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .multilineTextAlignment(.center)
+                            Image(systemName: "arrow.up.forward")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(viewModel.summary.title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                }
 
                 Text(headerSubtitle)
                     .font(.subheadline)
@@ -321,6 +339,35 @@ public struct DownloadTargetDetailView: View {
         if let uiImage = try? await ImagePipeline.shared.image(for: request) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 artworkImage = uiImage
+            }
+        }
+    }
+
+    // MARK: - Navigation to Original Item
+
+    /// Whether we can link to the original album/artist/playlist
+    private var canLinkToOriginalItem: Bool {
+        guard let _ = viewModel.summary.ratingKey else { return false }
+        return viewModel.summary.kind != .library
+    }
+
+    /// Resolves a detail loader view for the original album/artist/playlist
+    @ViewBuilder
+    private func originalItemDestination() -> some View {
+        if let ratingKey = viewModel.summary.ratingKey {
+            switch viewModel.summary.kind {
+            case .album:
+                AlbumDetailLoader(albumId: ratingKey, nowPlayingVM: nowPlayingVM)
+            case .artist:
+                ArtistDetailLoader(artistId: ratingKey, nowPlayingVM: nowPlayingVM)
+            case .playlist:
+                PlaylistDetailLoader(
+                    playlistId: ratingKey,
+                    playlistSourceKey: viewModel.summary.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            case .library:
+                EmptyView()
             }
         }
     }
