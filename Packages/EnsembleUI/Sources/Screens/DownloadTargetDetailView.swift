@@ -232,6 +232,7 @@ public struct DownloadTargetDetailView: View {
                             nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
                         }
                     }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
 
                     if row.id != viewModel.tracks.last?.id {
                         Divider()
@@ -239,6 +240,8 @@ public struct DownloadTargetDetailView: View {
                     }
                 }
             }
+            // Animate when tracks re-sort (e.g. completed tracks slide to bottom)
+            .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
             #if os(iOS)
             .background(Color(UIColor.secondarySystemGroupedBackground))
             #else
@@ -426,18 +429,6 @@ private struct TrackDownloadRowView: View {
                 }
             }
 
-            // Spinner while actively downloading
-            if row.status == .downloading {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Downloading…")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.leading, 56)
-            }
-
             // Error message for failed tracks
             if row.status == .failed, let error = row.errorMessage, !error.isEmpty {
                 Text(error)
@@ -453,13 +444,20 @@ private struct TrackDownloadRowView: View {
 
     @ViewBuilder
     private var statusChip: some View {
-        Text(chipLabel)
-            .font(.caption)
-            .foregroundColor(chipColor)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(chipColor.opacity(0.12))
-            .clipShape(Capsule())
+        HStack(spacing: 4) {
+            // Inline spinner for actively downloading tracks
+            if row.status == .downloading {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            Text(chipLabel)
+        }
+        .font(.caption)
+        .foregroundColor(chipColor)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(chipColor.opacity(0.12))
+        .clipShape(Capsule())
     }
 
     private var chipLabel: String {

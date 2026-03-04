@@ -634,6 +634,9 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Maximum number of downloads that run simultaneously
+    private static let maxConcurrentDownloads = 3
+
     private func runQueueLoop() async {
         while !Task.isCancelled {
             do {
@@ -648,7 +651,8 @@ public final class OfflineDownloadService: ObservableObject {
                 }
 
                 let pendingDownloads = try await downloadManager.fetchPendingDownloads()
-                guard let nextDownload = pendingDownloads.first else {
+                let batch = Array(pendingDownloads.prefix(Self.maxConcurrentDownloads))
+                guard !batch.isEmpty else {
                     isQueueRunning = false
                     queueStatusReason = .idle
                     backgroundExecutionCoordinator.finishCurrentTask(success: true)
@@ -658,7 +662,13 @@ public final class OfflineDownloadService: ObservableObject {
 
                 isQueueRunning = true
                 queueStatusReason = .downloading
-                await process(download: nextDownload)
+
+                // Process up to maxConcurrentDownloads in parallel
+                await withTaskGroup(of: Void.self) { group in
+                    for download in batch {
+                        group.addTask { await self.process(download: download) }
+                    }
+                }
 
                 // Keep BG progress updates coarse-grained to avoid update churn.
                 let completedCount = targets.reduce(0) { $0 + $1.completedTrackCount }
