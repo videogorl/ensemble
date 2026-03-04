@@ -140,7 +140,7 @@ public struct DownloadsView: View {
             }
             .opacity(0)
 
-            // Visible row content with toggle on the trailing edge
+            // Visible row content: label, toggle, then chevron on trailing edge
             HStack(spacing: 12) {
                 libraryRowLabel(for: library)
                 Spacer()
@@ -161,6 +161,11 @@ public struct DownloadsView: View {
                 )
                 .labelsHidden()
                 .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+
+                // Manual chevron since the hidden NavigationLink won't render one
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
         }
     }
