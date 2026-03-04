@@ -125,6 +125,38 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         qualityMismatchCount > 0 || failedCount > 0
     }
 
+    // MARK: - Live Target Stats (derived from tracks, updated reactively)
+
+    /// Live completed track count computed from current track rows
+    public var liveCompletedCount: Int {
+        tracks.filter { $0.status == .completed }.count
+    }
+
+    /// Live total track count from current track rows
+    public var liveTotalCount: Int {
+        tracks.count
+    }
+
+    /// Live overall progress (0.0–1.0) computed from track rows
+    public var liveProgress: Float {
+        guard !tracks.isEmpty else { return 0 }
+        return Float(liveCompletedCount) / Float(liveTotalCount)
+    }
+
+    /// Live downloaded bytes total from completed tracks
+    public var liveDownloadedBytes: Int64 {
+        tracks.filter { $0.status == .completed }.reduce(0) { $0 + $1.fileSize }
+    }
+
+    /// Live target-level status derived from individual track statuses
+    public var liveStatus: CDOfflineDownloadTarget.Status {
+        if tracks.contains(where: { $0.status == .failed }) { return .failed }
+        if liveCompletedCount >= liveTotalCount && liveTotalCount > 0 { return .completed }
+        if tracks.contains(where: { $0.status == .downloading }) { return .downloading }
+        if tracks.contains(where: { $0.status == .paused }) { return .paused }
+        return .pending
+    }
+
     /// Re-reconcile the target, re-queue mismatched/failed downloads, and restart the queue
     public func refreshTarget() async {
         await offlineDownloadService.refreshTarget(key: summary.key)

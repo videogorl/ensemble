@@ -113,16 +113,16 @@ public struct DownloadTargetDetailView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
-                // Progress info while downloading
-                if viewModel.summary.status != .completed && viewModel.summary.totalTrackCount > 0 {
+                // Progress info while downloading — uses live stats from track rows
+                if viewModel.liveStatus != .completed && viewModel.liveTotalCount > 0 {
                     VStack(spacing: 4) {
-                        ProgressView(value: Double(viewModel.summary.progress))
+                        ProgressView(value: Double(viewModel.liveProgress))
                             .progressViewStyle(.linear)
                             .frame(maxWidth: 280)
 
-                        Text("\(viewModel.summary.completedTrackCount) of \(viewModel.summary.totalTrackCount) tracks • \(statusLabel(for: viewModel.summary.status))")
+                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
                             .font(.caption)
-                            .foregroundColor(statusColor(for: viewModel.summary.status))
+                            .foregroundColor(statusColor(for: viewModel.liveStatus))
                     }
                 }
             }
@@ -325,8 +325,8 @@ public struct DownloadTargetDetailView: View {
     // MARK: - Helpers
 
     private var headerSubtitle: String {
-        let size = formattedBytes(viewModel.summary.downloadedBytes)
-        let count = viewModel.summary.totalTrackCount
+        let size = formattedBytes(viewModel.liveDownloadedBytes)
+        let count = viewModel.liveTotalCount
         if count > 0 {
             let noun = count == 1 ? "track" : "tracks"
             return "\(count) \(noun) • \(size)"
@@ -426,9 +426,9 @@ private struct TrackDownloadRowView: View {
                 }
             }
 
-            // Active download progress bar
+            // Active download progress bar (indeterminate — per-byte progress isn't available)
             if row.status == .downloading {
-                ProgressView(value: Double(row.progress))
+                ProgressView()
                     .progressViewStyle(.linear)
                     .padding(.leading, 56)  // indent to align with text
             }

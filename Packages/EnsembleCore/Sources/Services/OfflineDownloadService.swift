@@ -1289,7 +1289,9 @@ public final class OfflineDownloadService: ObservableObject {
                 status = .failed
             } else if completed >= total {
                 status = .completed
-            } else if downloading > 0 {
+            } else if downloading > 0 || (isQueueRunning && pending > 0) {
+                // Show "Downloading" when tracks are actively downloading OR when
+                // the queue is running with pending tracks (between track completions)
                 status = .downloading
             } else if !canExecuteDownloads && (pending > 0 || paused > 0) {
                 status = .paused
