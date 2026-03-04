@@ -29,6 +29,8 @@ public protocol DownloadManagerProtocol: Sendable {
     func fetchNextPendingDownload() async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
     func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
+    /// Fetch all downloads whose track belongs to the given library (by sourceCompositeKey)
+    func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload]
 
     func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload
     func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
@@ -247,6 +249,26 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let download = try context.fetch(request).first
                     continuation.resume(returning: download)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "track.sourceCompositeKey == %@",
+                    sourceCompositeKey
+                )
+                request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+                do {
+                    let downloads = try context.fetch(request)
+                    continuation.resume(returning: downloads)
                 } catch {
                     continuation.resume(throwing: error)
                 }
