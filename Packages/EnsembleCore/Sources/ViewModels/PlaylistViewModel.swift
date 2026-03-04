@@ -54,6 +54,16 @@ public final class PlaylistViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
+        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadPlaylists()
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -372,6 +382,9 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
+
+        // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
+        observePlaylistRefresh()
     }
 
     private func setupFilterPersistence() {
@@ -383,6 +396,18 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     private func observeDownloadChanges() {
         NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
+    private func observePlaylistRefresh() {
+        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in

@@ -1530,6 +1530,9 @@ public final class OfflineDownloadService: ObservableObject {
                 try await reconcileTarget(key: target.key)
             }
             await refreshTargetSnapshots()
+
+            // Start downloading any newly-queued tracks from the reconciliation
+            startQueueIfNeeded()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling source targets for \(sourceCompositeKey): \(error.localizedDescription)")
@@ -1548,6 +1551,9 @@ public final class OfflineDownloadService: ObservableObject {
                 try await reconcileTarget(key: target.key)
             }
             await refreshTargetSnapshots()
+
+            // Start downloading any newly-queued tracks from the reconciliation
+            startQueueIfNeeded()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed reconciling playlist targets for \(serverSourceKey): \(error.localizedDescription)")

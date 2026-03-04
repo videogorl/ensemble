@@ -49,6 +49,10 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
+    /// Posted after server playlists are refreshed (e.g. after a mutation).
+    /// The notification's `userInfo` contains `["serverSourceKey": String]`.
+    public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
+
     private enum NetworkTransition {
         case reconnect
         case interfaceSwitch(from: NetworkType, to: NetworkType)
@@ -1642,6 +1646,11 @@ public final class SyncCoordinator: ObservableObject {
             }
             if didRefresh {
                 onPlaylistRefreshCompleted?(serverSourceKey)
+                NotificationCenter.default.post(
+                    name: Self.playlistsDidRefresh,
+                    object: nil,
+                    userInfo: ["serverSourceKey": serverSourceKey]
+                )
             }
             return
         }
