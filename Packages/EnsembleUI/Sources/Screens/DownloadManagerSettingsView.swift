@@ -5,6 +5,7 @@ public struct DownloadManagerSettingsView: View {
     @StateObject private var viewModel: DownloadManagerSettingsViewModel
     @Environment(\.dependencies) private var deps
     @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @AppStorage("allowCellularDownloads") private var allowCellularDownloads = false
     @State private var showRemoveAllConfirmation = false
 
     public init() {
@@ -33,6 +34,13 @@ public struct DownloadManagerSettingsView: View {
                 } else {
                     Text("This matches Settings > Audio Quality > Download Quality.")
                 }
+            }
+
+            // Network policy
+            Section {
+                Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
+            } footer: {
+                Text("When enabled, downloads will proceed over cellular data. This may use significant data.")
             }
 
             // Size comparison across quality levels
@@ -92,6 +100,12 @@ public struct DownloadManagerSettingsView: View {
             // so we don't keep downloading at the old quality
             Task {
                 await deps.offlineDownloadService.cancelInProgressDownloads()
+            }
+        }
+        .onChange(of: allowCellularDownloads) { _ in
+            // Re-evaluate whether the queue should run based on new network policy
+            Task {
+                await deps.offlineDownloadService.reevaluateQueuePolicy()
             }
         }
     }

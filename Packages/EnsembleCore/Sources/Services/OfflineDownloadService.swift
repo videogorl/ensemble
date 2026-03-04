@@ -1276,7 +1276,9 @@ public final class OfflineDownloadService: ObservableObject {
         switch networkMonitor.networkState {
         case .online(.wifi), .online(.wired):
             return true
-        case .online(.cellular), .online(.other), .offline, .limited, .unknown:
+        case .online(.cellular):
+            return UserDefaults.standard.bool(forKey: "allowCellularDownloads")
+        case .online(.other), .offline, .limited, .unknown:
             return false
         }
     }
@@ -1286,12 +1288,27 @@ public final class OfflineDownloadService: ObservableObject {
         switch networkMonitor.networkState {
         case .offline:
             return .offline
-        case .online(.cellular), .online(.other):
+        case .online(.cellular):
+            if UserDefaults.standard.bool(forKey: "allowCellularDownloads") {
+                return .idle
+            }
+            return .waitingForWiFi
+        case .online(.other):
             return .waitingForWiFi
         case .unknown, .limited:
             return .offline
         case .online(.wifi), .online(.wired):
             return .idle
+        }
+    }
+
+    /// Re-evaluates network policy and restarts the queue if conditions now allow downloads.
+    /// Called when the user toggles the cellular download setting.
+    public func reevaluateQueuePolicy() async {
+        try? await applyNetworkPolicy()
+        queueStatusReason = queueReasonForCurrentState()
+        if canExecuteDownloads {
+            startQueueIfNeeded()
         }
     }
 
