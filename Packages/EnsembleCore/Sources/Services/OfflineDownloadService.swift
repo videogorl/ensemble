@@ -1011,6 +1011,15 @@ public final class OfflineDownloadService: ObservableObject {
         } catch {
             if Task.isCancelled {
                 try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
+            } else if isNetworkLossError(error) {
+                // Network dropped mid-transfer — pause so the download auto-resumes
+                // when connectivity returns, instead of marking as permanently failed
+                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⏸️ Offline download paused (network lost): track=\(track.ratingKey) source=\(sourceCompositeKey)"
+                )
+                #endif
             } else {
                 try? await downloadManager.failDownload(download.objectID, error: error.localizedDescription)
                 #if DEBUG
@@ -1350,6 +1359,22 @@ public final class OfflineDownloadService: ObservableObject {
         }
 
         return "m4a"
+    }
+
+    /// Returns true if the error indicates a network/connectivity loss rather than a server-side
+    /// or content error. Used to pause (not fail) downloads when connectivity drops mid-transfer.
+    private func isNetworkLossError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut,
+                 .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                 .dataNotAllowed, .internationalRoamingOff:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private var canExecuteDownloads: Bool {
