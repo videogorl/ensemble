@@ -1,4 +1,5 @@
 import Combine
+import CoreData
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
@@ -64,12 +65,14 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$queueStatusReason)
 
-        // Re-load track rows whenever target snapshots change (fires after each download completes)
-        offlineDownloadService.$targets
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshots in
+        // Re-load track rows when the view context merges background download changes.
+        // This fires AFTER CoreData merges background saves to the view context, ensuring
+        // loadTrackRows() reads up-to-date CDDownload records. Debounced to coalesce
+        // rapid successive track completions.
+        NotificationCenter.default.publisher(for: .NSManagedObjectContextObjectsDidChange, object: CoreDataStack.shared.viewContext)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
                 guard let self else { return }
-                guard snapshots.contains(where: { $0.key == self.summary.key }) else { return }
                 Task { await self.loadTrackRows() }
             }
             .store(in: &cancellables)
