@@ -75,15 +75,18 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     public let id: String
     public let track: Track
     public var source: QueueItemSource
+    /// The streaming quality active when this item was queued (nil for downloaded tracks)
+    public var streamingQuality: String?
 
-    public init(id: String, track: Track, source: QueueItemSource = .continuePlaying) {
+    public init(id: String, track: Track, source: QueueItemSource = .continuePlaying, streamingQuality: String? = nil) {
         self.id = id
         self.track = track
         self.source = source
+        self.streamingQuality = streamingQuality
     }
 
-    public init(track: Track, source: QueueItemSource = .continuePlaying) {
-        self.init(id: UUID().uuidString, track: track, source: source)
+    public init(track: Track, source: QueueItemSource = .continuePlaying, streamingQuality: String? = nil) {
+        self.init(id: UUID().uuidString, track: track, source: source, streamingQuality: streamingQuality)
     }
 }
 
@@ -1426,6 +1429,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    // MARK: - Queue Quality Stamping
+
+    /// Returns the current streaming quality setting for stamping on new queue items.
+    /// Downloaded tracks get nil (quality is determined by the file itself).
+    private func currentQueueQuality(for track: Track) -> String? {
+        // If the track has a local file, it plays from disk — quality is file-determined
+        if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
+            return nil
+        }
+        return UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+    }
+
+    /// Creates a QueueItem stamped with the current streaming quality
+    private func makeQueueItem(track: Track, source: QueueItemSource) -> QueueItem {
+        QueueItem(track: track, source: source, streamingQuality: currentQueueQuality(for: track))
+    }
+
     // MARK: - Playback Control
 
     public func play(track: Track) async {
@@ -1456,7 +1476,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         #endif
 
-        queue = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        queue = queueTracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = queue
         currentQueueIndex = playableQueue.startIndex
 
@@ -1495,7 +1515,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         #endif
 
-        let items = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        let items = queueTracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = items
 
         var shuffled = items
@@ -1934,7 +1954,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Insert a track to play immediately after the current track (Up Next section)
     public func playNext(_ track: Track) {
-        let item = QueueItem(track: track, source: .upNext)
+        let item = makeQueueItem(track: track, source: .upNext)
         let insertIndex = currentQueueIndex + 1
         if insertIndex <= queue.count {
             queue.insert(item, at: insertIndex)
@@ -1962,7 +1982,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Insert multiple tracks to play immediately after the current track, preserving order
     public func playNext(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        let items = tracks.map { QueueItem(track: $0, source: .upNext) }
+        let items = tracks.map { makeQueueItem(track: $0, source: .upNext) }
         let insertIndex = currentQueueIndex + 1
         if insertIndex <= queue.count {
             queue.insert(contentsOf: items, at: insertIndex)
@@ -1989,7 +2009,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Add a track to end of the "real" queue (before autoplay tracks)
     public func playLast(_ track: Track) {
-        let item = QueueItem(track: track, source: .continuePlaying)
+        let item = makeQueueItem(track: track, source: .continuePlaying)
         let insertIndex = autoplayStartIndex
         queue.insert(item, at: insertIndex)
         // Flatten any autoplay items that now precede this track
@@ -2008,7 +2028,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Add tracks to end of the "real" queue (before autoplay tracks)
     public func playLast(_ tracks: [Track]) {
-        let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        let items = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         let insertIndex = autoplayStartIndex
         queue.insert(contentsOf: items, at: insertIndex)
         flattenAutoplayItemsBeforeIndex(insertIndex)
@@ -2433,7 +2453,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 EnsembleLogger.debug("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
                 #endif
                 for track in uniqueNewTracks {
-                    let item = QueueItem(track: track, source: .autoplay)
+                    let item = makeQueueItem(track: track, source: .autoplay)
                     queue.append(item)
                     autoGeneratedTrackIds.insert(track.id)
                 }
@@ -2485,7 +2505,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if DEBUG
         EnsembleLogger.debug("🔄 Creating and shuffling queue...")
         #endif
-        var items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        var items = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         items.shuffle()
         #if DEBUG
         EnsembleLogger.debug("✅ Queue shuffled")

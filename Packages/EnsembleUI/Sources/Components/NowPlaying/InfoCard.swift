@@ -294,12 +294,15 @@ public struct InfoCard: View {
 
     /// Resolve playback quality with source-aware context.
     /// For downloaded tracks, this reads the persisted filename quality token and container.
-    /// For streaming playback, this reflects the currently selected streaming quality.
+    /// For streaming playback, this uses the quality captured when the track was queued,
+    /// falling back to the current setting for backwards compatibility.
     private func resolvePlaybackQuality() -> String {
         guard let track = viewModel.currentTrack else { return "—" }
         guard let localFilePath = track.localFilePath,
               FileManager.default.fileExists(atPath: localFilePath) else {
-            return "\(formatQuality(streamingQuality)) (Streaming)"
+            // Prefer the quality stamped on the queue item at queue time
+            let quality = viewModel.currentQueueItem?.streamingQuality ?? streamingQuality
+            return "\(formatQuality(quality)) (Streaming)"
         }
 
         let fileURL = URL(fileURLWithPath: localFilePath)

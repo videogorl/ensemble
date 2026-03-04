@@ -73,6 +73,12 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
+
+    /// The QueueItem currently playing (includes queued streaming quality)
+    public var currentQueueItem: QueueItem? {
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
+        return queue[currentQueueIndex]
+    }
     @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
