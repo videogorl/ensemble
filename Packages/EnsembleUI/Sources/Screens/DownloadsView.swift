@@ -59,18 +59,19 @@ public struct DownloadsView: View {
 
     private var downloadListView: some View {
         List {
-            Section {
-                NavigationLink {
-                    OfflineServersView()
-                } label: {
-                    ServersRow()
+            // Libraries section — shows each sync-enabled library with toggle + drill-in
+            if !viewModel.librarySummaries.isEmpty {
+                Section {
+                    ForEach(viewModel.librarySummaries) { library in
+                        libraryRow(for: library)
+                    }
+                } header: {
+                    Text("Libraries")
+                        .foregroundColor(.accentColor)
+                        .textCase(nil)
+                } footer: {
+                    Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
                 }
-            } header: {
-                Text("Bulk Downloads")
-                    .foregroundColor(.accentColor)
-                    .textCase(nil)
-            } footer: {
-                Text("Enable entire synced libraries for offline playback.")
             }
 
             // Pending Changes entry — only when there are queued mutations
@@ -119,6 +120,103 @@ public struct DownloadsView: View {
         .miniPlayerBottomSpacing(140)
     }
 
+    // MARK: - Library Row
+
+    @ViewBuilder
+    private func libraryRow(for library: LibraryDownloadSummary) -> some View {
+        // NavigationLink wraps the label area; Toggle is placed outside the link's
+        // tap area so they don't conflict. On iOS 15 we use a ZStack approach.
+        HStack(spacing: 0) {
+            NavigationLink {
+                LibraryDownloadDetailView(
+                    sourceCompositeKey: library.sourceCompositeKey,
+                    title: "\(library.serverName): \(library.libraryName)",
+                    nowPlayingVM: nowPlayingVM
+                )
+            } label: {
+                libraryRowLabel(for: library)
+            }
+
+            // Toggle to enable/disable library download
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) },
+                    set: { enabled in
+                        Task {
+                            await viewModel.setLibraryEnabled(
+                                sourceCompositeKey: library.sourceCompositeKey,
+                                title: library.libraryName,
+                                isEnabled: enabled
+                            )
+                        }
+                    }
+                )
+            )
+            .labelsHidden()
+            .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+        }
+    }
+
+    private func libraryRowLabel(for library: LibraryDownloadSummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                // Library icon
+                Image(systemName: "building.columns")
+                    .font(.title3)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 40, height: 40)
+                    #if os(iOS)
+                    .background(Color(UIColor.tertiarySystemGroupedBackground))
+                    #else
+                    .background(Color(NSColor.controlBackgroundColor))
+                    #endif
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(library.serverName): \(library.libraryName)")
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text(librarySubtitle(for: library))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            // Toggle-in-progress spinner
+            if viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey) {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Updating...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // Progress bar when downloading (has an active status and isn't complete)
+            if let status = library.status, status != .completed, library.downloadedTrackCount > 0 || status == .downloading || status == .pending {
+                ProgressView(value: Double(library.progress))
+                    .progressViewStyle(.linear)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func librarySubtitle(for library: LibraryDownloadSummary) -> String {
+        let downloadedSize = formatBytes(library.downloadedBytes)
+        let estimatedSize = formatBytes(library.estimatedTotalBytes)
+
+        if library.downloadedTrackCount > 0 {
+            return "\(library.downloadedTrackCount) / \(library.totalTrackCount) tracks \u{2022} \(downloadedSize) / ~\(estimatedSize)"
+        }
+        return "\(library.totalTrackCount) tracks \u{2022} ~\(estimatedSize) estimated"
+    }
+
+    // MARK: - Target Rows
+
     @ViewBuilder
     private func targetRow(for item: DownloadedItemSummary) -> some View {
         if isTargetNavigable(item) {
@@ -144,18 +242,7 @@ public struct DownloadsView: View {
 
     @ViewBuilder
     private func destinationView(for item: DownloadedItemSummary) -> some View {
-        switch item.kind {
-        case .album, .artist, .playlist:
-            DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
-        case .library:
-            OfflineServersView()
-        }
-    }
-
-    private var unavailableDetailView: some View {
-        Text("This item is no longer available")
-            .foregroundColor(.secondary)
-            .navigationTitle("Unavailable")
+        DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
     }
 
     private func refreshCompletedDownloadsForCurrentQuality() async {
@@ -274,26 +361,16 @@ public struct DownloadsView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
-}
 
-private struct ServersRow: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "server.rack")
-                .frame(width: 24)
-                .foregroundColor(.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Servers")
-                    .font(.body)
-                Text("Library-wide offline downloads")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
+
+// MARK: - Supporting Row Views
 
 private struct DownloadedItemRow: View {
     let item: DownloadedItemSummary
@@ -301,7 +378,7 @@ private struct DownloadedItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                // Album art thumbnail — thumbPath is resolved asynchronously by the ViewModel
+                // Album art thumbnail
                 ArtworkView(
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
@@ -347,11 +424,11 @@ private struct DownloadedItemRow: View {
         let size = formatBytes(item.downloadedBytes)
         if item.totalTrackCount > 0 {
             if item.status == .completed {
-                return "\(item.completedTrackCount) \(trackLabel(for: item.completedTrackCount)) • \(size)"
+                return "\(item.completedTrackCount) \(trackLabel(for: item.completedTrackCount)) \u{2022} \(size)"
             }
-            return "\(item.completedTrackCount) of \(item.totalTrackCount) \(trackLabel(for: item.totalTrackCount)) • \(size)"
+            return "\(item.completedTrackCount) of \(item.totalTrackCount) \(trackLabel(for: item.totalTrackCount)) \u{2022} \(size)"
         }
-        return "0 tracks • \(size)"
+        return "0 tracks \u{2022} \(size)"
     }
 
     private func trackLabel(for count: Int) -> String {
