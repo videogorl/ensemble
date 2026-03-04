@@ -582,6 +582,37 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    // MARK: - Queue Control
+
+    /// Pauses the download queue — cancels the current download task and marks
+    /// any actively downloading tracks as paused so they can be resumed later.
+    public func pauseQueue() async {
+        queueTask?.cancel()
+        queueTask = nil
+        isQueueRunning = false
+        queueStatusReason = .paused
+        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
+        await refreshAllTargetProgresses()
+    }
+
+    /// Resumes the download queue — unpauses tracks and restarts the queue loop.
+    public func resumeQueue() async {
+        try? await downloadManager.updateDownloads(withStatuses: [.paused], to: .pending)
+        await refreshAllTargetProgresses()
+        startQueueIfNeeded()
+    }
+
+    /// Stops all in-progress downloads immediately and re-queues them as pending.
+    /// Used when download quality changes to avoid continuing old-quality downloads.
+    public func cancelInProgressDownloads() async {
+        queueTask?.cancel()
+        queueTask = nil
+        isQueueRunning = false
+        queueStatusReason = .idle
+        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
+        await refreshAllTargetProgresses()
+    }
+
     // MARK: - Queue Execution
 
     private func startQueueIfNeeded() {

@@ -33,20 +33,7 @@ public struct DownloadsView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !viewModel.items.isEmpty {
-                    Button {
-                        Task {
-                            await refreshCompletedDownloadsForCurrentQuality()
-                        }
-                    } label: {
-                        if isRefreshingDownloadQuality {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .disabled(isRefreshingDownloadQuality)
-                }
+                queueControlButton
             }
             #else
             ToolbarItem(placement: .automatic) {
@@ -58,20 +45,7 @@ public struct DownloadsView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                if !viewModel.items.isEmpty {
-                    Button {
-                        Task {
-                            await refreshCompletedDownloadsForCurrentQuality()
-                        }
-                    } label: {
-                        if isRefreshingDownloadQuality {
-                            ProgressView()
-                        } else {
-                            Label("Update Quality", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .disabled(isRefreshingDownloadQuality)
-                }
+                queueControlButton
             }
             #endif
         }
@@ -242,6 +216,50 @@ public struct DownloadsView: View {
             return "low (128 kbps)"
         default:
             return "original"
+        }
+    }
+
+    /// Whether any download target has tracks needing a quality refresh or retry
+    private var anyItemNeedsRefresh: Bool {
+        viewModel.items.contains { $0.needsRefresh }
+    }
+
+    /// Whether any items have non-completed tracks (pending/downloading/paused)
+    private var hasActiveDownloads: Bool {
+        viewModel.items.contains { $0.status != .completed }
+    }
+
+    /// Toolbar button that switches between refresh, pause, and resume states
+    @ViewBuilder
+    private var queueControlButton: some View {
+        if !viewModel.items.isEmpty {
+            if anyItemNeedsRefresh {
+                // Refresh mode — re-queue mismatched/failed tracks
+                Button {
+                    Task { await refreshCompletedDownloadsForCurrentQuality() }
+                } label: {
+                    if isRefreshingDownloadQuality {
+                        ProgressView()
+                    } else {
+                        Label("Refresh Downloads", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+                .disabled(isRefreshingDownloadQuality)
+            } else if viewModel.isQueueRunning {
+                // Pause mode — queue is actively downloading
+                Button {
+                    Task { await viewModel.pauseQueue() }
+                } label: {
+                    Label("Pause Downloads", systemImage: "pause.fill")
+                }
+            } else if hasActiveDownloads {
+                // Resume mode — downloads are paused with tracks remaining
+                Button {
+                    Task { await viewModel.resumeQueue() }
+                } label: {
+                    Label("Resume Downloads", systemImage: "play.fill")
+                }
+            }
         }
     }
 

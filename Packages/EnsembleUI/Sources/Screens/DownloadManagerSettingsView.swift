@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct DownloadManagerSettingsView: View {
     @StateObject private var viewModel: DownloadManagerSettingsViewModel
+    @Environment(\.dependencies) private var deps
     @AppStorage("downloadQuality") private var downloadQuality = "original"
 
     public init() {
@@ -61,6 +62,13 @@ public struct DownloadManagerSettingsView: View {
         #endif
         .task {
             await viewModel.refresh()
+        }
+        .onChange(of: downloadQuality) { _ in
+            // Stop any in-progress downloads immediately when quality changes
+            // so we don't keep downloading at the old quality
+            Task {
+                await deps.offlineDownloadService.cancelInProgressDownloads()
+            }
         }
     }
 

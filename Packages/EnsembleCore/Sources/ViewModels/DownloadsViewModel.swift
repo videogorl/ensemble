@@ -29,6 +29,8 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
     /// Number of pending offline mutations (favorites, playlist adds) awaiting sync
     @Published public private(set) var pendingMutationCount: Int = 0
+    /// Whether the download queue is actively processing tracks
+    @Published public private(set) var isQueueRunning = false
 
     private let offlineDownloadService: OfflineDownloadService
     private let libraryRepository: LibraryRepositoryProtocol
@@ -68,6 +70,11 @@ public final class DownloadsViewModel: ObservableObject {
         pendingMutationQueue.$pendingCount
             .receive(on: DispatchQueue.main)
             .assign(to: &$pendingMutationCount)
+
+        // Mirror queue running state for pause/resume UI
+        offlineDownloadService.$isQueueRunning
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isQueueRunning)
     }
 
     public func refresh() async {
@@ -80,6 +87,16 @@ public final class DownloadsViewModel: ObservableObject {
     public func removeDownloadTarget(key: String) async {
         await offlineDownloadService.removeTarget(key: key)
         await refresh()
+    }
+
+    /// Pauses the download queue — active downloads are stopped and marked paused.
+    public func pauseQueue() async {
+        await offlineDownloadService.pauseQueue()
+    }
+
+    /// Resumes a paused download queue.
+    public func resumeQueue() async {
+        await offlineDownloadService.resumeQueue()
     }
 
     // MARK: - Private
