@@ -324,7 +324,11 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     public func makeDownloadManagerSettingsViewModel() -> DownloadManagerSettingsViewModel {
-        DownloadManagerSettingsViewModel(offlineDownloadService: offlineDownloadService)
+        DownloadManagerSettingsViewModel(
+            offlineDownloadService: offlineDownloadService,
+            targetRepository: offlineDownloadTargetRepository,
+            downloadManager: downloadManager
+        )
     }
 
     @MainActor

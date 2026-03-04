@@ -45,6 +45,9 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
 
     func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool
     func membershipCount(for reference: OfflineTrackReference) async throws -> Int
+
+    /// Returns the total duration (in milliseconds) of all unique tracks across all download targets.
+    func totalTrackDurationMs() async throws -> Int64
 }
 
 public final class OfflineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
@@ -302,6 +305,37 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         )
         request.fetchLimit = 1
         return try context.fetch(request).first
+    }
+
+    public func totalTrackDurationMs() async throws -> Int64 {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                do {
+                    // Get distinct track ratingKey+source pairs to avoid counting shared tracks multiple times
+                    let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
+                    let memberships = try context.fetch(membershipRequest)
+
+                    var seenTrackKeys = Set<String>()
+                    var totalDuration: Int64 = 0
+
+                    for membership in memberships {
+                        let trackKey = "\(membership.trackSourceCompositeKey)|\(membership.trackRatingKey)"
+                        guard !seenTrackKeys.contains(trackKey) else { continue }
+                        seenTrackKeys.insert(trackKey)
+
+                        // Look up the track's duration
+                        if let track = membership.track {
+                            totalDuration += track.duration
+                        }
+                    }
+
+                    continuation.resume(returning: totalDuration)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private func membershipID(targetKey: String, reference: OfflineTrackReference) -> String {

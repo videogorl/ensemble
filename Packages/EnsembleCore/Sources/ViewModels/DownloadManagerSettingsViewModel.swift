@@ -14,15 +14,51 @@ public struct DownloadManagerItem: Identifiable {
     public let totalTrackCount: Int
 }
 
+/// Estimated download sizes per quality level for all offline targets
+public struct QualitySizeEstimates {
+    public let actualBytes: Int64      // Current on-disk usage
+    public let highBytes: Int64        // 320 kbps AAC estimate
+    public let mediumBytes: Int64      // 192 kbps AAC estimate
+    public let lowBytes: Int64         // 128 kbps AAC estimate
+
+    /// Formatted display string for a given quality key
+    public func formattedSize(for quality: String) -> String {
+        let bytes: Int64
+        switch quality {
+        case "high": bytes = highBytes
+        case "medium": bytes = mediumBytes
+        case "low": bytes = lowBytes
+        default: bytes = actualBytes
+        }
+        return Self.formatBytes(bytes)
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
 @MainActor
 public final class DownloadManagerSettingsViewModel: ObservableObject {
     @Published public private(set) var items: [DownloadManagerItem] = []
+    @Published public private(set) var sizeEstimates: QualitySizeEstimates?
 
     private let offlineDownloadService: OfflineDownloadService
+    private let targetRepository: OfflineDownloadTargetRepositoryProtocol
+    private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
 
-    public init(offlineDownloadService: OfflineDownloadService) {
+    public init(
+        offlineDownloadService: OfflineDownloadService,
+        targetRepository: OfflineDownloadTargetRepositoryProtocol,
+        downloadManager: DownloadManagerProtocol
+    ) {
         self.offlineDownloadService = offlineDownloadService
+        self.targetRepository = targetRepository
+        self.downloadManager = downloadManager
 
         offlineDownloadService.$targets
             .sink { [weak self] snapshots in
@@ -41,11 +77,37 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
 
     public func refresh() async {
         await offlineDownloadService.refreshState()
+        await loadSizeEstimates()
     }
 
     public func removeDownload(key: String) async {
         await offlineDownloadService.removeTarget(key: key)
     }
+
+    // MARK: - Size Estimation
+
+    /// Computes estimated download sizes for each quality level based on total track duration
+    private func loadSizeEstimates() async {
+        do {
+            let totalDurationMs = try await targetRepository.totalTrackDurationMs()
+            let actualBytes = try await downloadManager.getTotalDownloadSize()
+            let durationSeconds = Double(totalDurationMs) / 1000.0
+
+            // AAC bitrate estimates: kbps * 1000 / 8 = bytes per second
+            sizeEstimates = QualitySizeEstimates(
+                actualBytes: actualBytes,
+                highBytes: Int64(durationSeconds * 320_000 / 8),
+                mediumBytes: Int64(durationSeconds * 192_000 / 8),
+                lowBytes: Int64(durationSeconds * 128_000 / 8)
+            )
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to load size estimates: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    // MARK: - Private
 
     private static func mapItem(from snapshot: OfflineDownloadTargetSnapshot) -> DownloadManagerItem {
         let subtitle: String?
