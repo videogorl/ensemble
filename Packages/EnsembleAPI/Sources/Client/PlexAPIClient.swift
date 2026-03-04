@@ -1098,11 +1098,20 @@ public actor PlexAPIClient {
             // transcoding. Keep `audioBitrate` for older server compatibility.
             URLQueryItem(name: "musicBitrate", value: bitrate),
             URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "offset", value: "0"), // Start from beginning
+            // Target codec tells PMS what to transcode to
+            URLQueryItem(name: "audioCodec", value: "aac"),
+            URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
         queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
+        // Force transcoding — disable direct play/stream so PMS doesn't skip transcode
+        queryItems.removeAll { $0.name == "directPlay" }
+        queryItems.removeAll { $0.name == "directStream" }
+        queryItems.removeAll { $0.name == "directStreamAudio" }
+        queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
+        queryItems.append(URLQueryItem(name: "directStream", value: "0"))
+        queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
         components.queryItems = queryItems
 
         guard let url = components.url else {
@@ -1149,28 +1158,28 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's universal transcode endpoint with .m4a extension for AAC/M4A output.
-        // .m4a hints to the server that we want an M4A container (matches the client profile).
-        components.path = "/music/:/transcode/universal/start.m4a"
-        
+        // Use Plex's universal transcode endpoint. The extension doesn't determine the output
+        // format — that's controlled by the audioCodec query parameter and profile extra.
+        components.path = "/music/:/transcode/universal/start.mp3"
+
         let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
             // Path to the media item
             URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
-            
+
             // Protocol for streaming - http for simple progressive download
             URLQueryItem(name: "protocol", value: "http"),
-            
+
             // Media type
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
-            
+
             // Authentication
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
         queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
-        
+
         // Add quality-specific parameters.
         switch quality {
         case .original:
@@ -1190,9 +1199,9 @@ public actor PlexAPIClient {
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
         }
 
-        // For non-original quality, override direct play/stream flags to force transcoding.
-        // transcodeClientQueryItems sets directPlay=1 by default (for streaming), but
-        // for reduced quality downloads we must disable direct play so the server transcodes.
+        // For non-original quality, force transcoding by disabling direct play/stream
+        // and specifying the target audio codec. Without an explicit audioCodec param
+        // PMS may silently fall back to serving the original file.
         if quality != .original {
             queryItems.removeAll { $0.name == "directPlay" }
             queryItems.removeAll { $0.name == "directStream" }
@@ -1200,6 +1209,9 @@ public actor PlexAPIClient {
             queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
             queryItems.append(URLQueryItem(name: "directStream", value: "0"))
             queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
+            // Tell PMS what codec to transcode to — this is required for PMS
+            // to actually start a transcode session instead of direct playing
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
         
         components.queryItems = queryItems
@@ -1237,11 +1249,13 @@ public actor PlexAPIClient {
     }
 
     private func transcodeClientProfileExtra() -> String {
-        // Request an explicit audio transcode target so PMS can resolve a profile
-        // even when generic client matching would otherwise fail.
-        // container=mp4 + audioCodec=aac produces AAC audio in an M4A/MP4 container,
-        // which AVPlayer handles natively and offers better quality per bitrate than MP3.
-        "add-transcode-target(type=musicProfile&context=streaming&protocol=http&container=mp4&audioCodec=aac)"
+        // Tell PMS what audio codecs we can accept for transcoded output.
+        // add-transcode-target-codec declares supported output codecs for the musicProfile.
+        // We declare both AAC (preferred, better quality/bitrate) and MP3 (widely supported fallback).
+        [
+            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)",
+            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
+        ].joined(separator: "+")
     }
 
     private func transcodeStartPath(
@@ -1249,7 +1263,7 @@ public actor PlexAPIClient {
         useStartWithoutExtension: Bool
     ) -> String {
         let transcodeType = useAudioEndpoint ? "audio" : "music"
-        let startComponent = useStartWithoutExtension ? "start" : "start.m4a"
+        let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
         return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
     }
 

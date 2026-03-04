@@ -730,7 +730,7 @@ public final class OfflineDownloadService: ObservableObject {
                     await selfRef.process(download: nextDownload)
                 }
                 // Bridge cancellation so pause/cancel stops the download
-                try await withTaskCancellationHandler {
+                await withTaskCancellationHandler {
                     await detachedProcess.value
                 } onCancel: {
                     detachedProcess.cancel()
@@ -995,8 +995,16 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             #if DEBUG
+            // Diagnostic: log Content-Type and file magic bytes to verify transcode actually happened
+            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+            var magicBytesHex = "?"
+            if let handle = FileHandle(forReadingAtPath: destinationURL.path),
+               let header = try? handle.read(upToCount: 12) {
+                magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
+                try? handle.close()
+            }
             EnsembleLogger.debug(
-                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode)"
+                "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
             )
             #endif
 
