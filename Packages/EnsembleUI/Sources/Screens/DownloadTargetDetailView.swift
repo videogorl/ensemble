@@ -426,11 +426,17 @@ private struct TrackDownloadRowView: View {
                 }
             }
 
-            // Active download progress bar (indeterminate — per-byte progress isn't available)
+            // Active download progress bar — determinate when byte-level progress is known
             if row.status == .downloading {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .padding(.leading, 56)  // indent to align with text
+                if row.progress > 0 {
+                    ProgressView(value: Double(row.progress))
+                        .progressViewStyle(.linear)
+                        .padding(.leading, 56)  // indent to align with text
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .padding(.leading, 56)
+                }
             }
 
             // Error message for failed tracks
