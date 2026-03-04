@@ -113,9 +113,10 @@ public struct DownloadTargetDetailView: View {
                                 .font(.title2)
                                 .fontWeight(.bold)
                                 .multilineTextAlignment(.center)
+                                .foregroundColor(.accentColor)
                             Image(systemName: "arrow.up.forward")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.accentColor)
                         }
                     }
                     .buttonStyle(.plain)
