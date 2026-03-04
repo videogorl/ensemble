@@ -516,6 +516,21 @@ public final class OfflineDownloadService: ObservableObject {
             // Resolve title before deletion for progress UI
             let targetTitle = (try? await targetRepository.fetchTarget(key: key))?.displayName ?? key
             let previousReferences = try await targetRepository.fetchTrackReferences(targetKey: key)
+
+            // Pre-compute which tracks are only referenced by this target BEFORE
+            // deleting it. Querying after the delete is unreliable because the
+            // cascade-deleted memberships are saved on a background context and the
+            // view context may not have merged yet, causing membershipCount to return
+            // stale (non-zero) values and skipping the file cleanup.
+            var orphanedReferences = Set<OfflineTrackReference>()
+            for reference in previousReferences {
+                let count = try await targetRepository.membershipCount(for: reference)
+                // Count of 1 means only this target references the track
+                if count <= 1 {
+                    orphanedReferences.insert(reference)
+                }
+            }
+
             try await targetRepository.deleteTarget(key: key)
 
             let total = previousReferences.count
@@ -523,10 +538,9 @@ public final class OfflineDownloadService: ObservableObject {
                 removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: 0, total: total)
             }
 
-            // Reference-counted cleanup: only remove a track file when no target still references it.
+            // Reference-counted cleanup: remove track files that no other target references.
             for (index, reference) in previousReferences.enumerated() {
-                let count = try await targetRepository.membershipCount(for: reference)
-                if count == 0 {
+                if orphanedReferences.contains(reference) {
                     try await downloadManager.deleteDownload(
                         forTrackRatingKey: reference.trackRatingKey,
                         sourceCompositeKey: reference.trackSourceCompositeKey
