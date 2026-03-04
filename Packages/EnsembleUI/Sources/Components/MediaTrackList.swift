@@ -303,10 +303,14 @@ public struct MediaTrackList: UIViewRepresentable {
     public func updateUIView(_ tableView: UITableView, context: Context) {
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
         
-        // Check if data actually changed
+        // Check if track list structure changed (additions/removals/reordering)
         let dataChanged = context.coordinator.tracks.count != tracks.count ||
             !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id }
-        
+
+        // Check if any track's download state changed (localFilePath set or cleared)
+        let downloadStateChanged = !dataChanged &&
+            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
+
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
         let isOffline = !networkMonitor.isConnected
         let offlineStateChanged = context.coordinator.isOffline != isOffline
@@ -341,8 +345,8 @@ public struct MediaTrackList: UIViewRepresentable {
                 EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
-        } else if currentTrackChanged || offlineStateChanged {
-            // Reconfigure visible cells when the playing track or connectivity changes.
+        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged {
+            // Reconfigure visible cells when the playing track, connectivity, or download state changes.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell) {
