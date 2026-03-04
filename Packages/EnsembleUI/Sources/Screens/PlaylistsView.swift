@@ -231,6 +231,7 @@ public struct PlaylistsView: View {
                         } label: {
                             Label("New Playlist", systemImage: "plus")
                         }
+                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -260,6 +261,7 @@ public struct PlaylistsView: View {
                         } label: {
                             Label("New Playlist", systemImage: "plus")
                         }
+                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
