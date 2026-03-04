@@ -98,11 +98,6 @@ public final class OfflineDownloadService: ObservableObject {
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
 
-    private static let unsupportedTranscodeServerDefaultsKey = "offlineTranscodeUnsupportedServerKeys"
-    /// Tracks whether the transcode profile fix (mp3→m4a) migration has been applied.
-    /// When true, the unsupported-server cache has been cleared so all servers retry with the fixed profile.
-    private static let transcodeProfileMigrationKey = "offlineTranscodeProfileV2Migrated"
-
     public init(
         downloadManager: DownloadManagerProtocol,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
@@ -122,18 +117,11 @@ public final class OfflineDownloadService: ObservableObject {
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
         self.artworkDownloadManager = artworkDownloadManager
 
-        // One-time migration: clear the unsupported-server cache after the transcode
-        // profile was fixed (container=mp3→mp4). Servers that were wrongly blacklisted
-        // under the old profile should be retried with the corrected AAC/M4A profile.
-        if !UserDefaults.standard.bool(forKey: Self.transcodeProfileMigrationKey) {
-            UserDefaults.standard.removeObject(forKey: Self.unsupportedTranscodeServerDefaultsKey)
-            UserDefaults.standard.set(true, forKey: Self.transcodeProfileMigrationKey)
-            self.unsupportedTranscodeServerKeys = []
-        } else {
-            self.unsupportedTranscodeServerKeys = Set(
-                UserDefaults.standard.stringArray(forKey: Self.unsupportedTranscodeServerDefaultsKey) ?? []
-            )
-        }
+        // Clean up the legacy persistent blacklist — it was too aggressive (a single 400
+        // permanently blocked transcoding for a server). The blacklist is now session-scoped
+        // (in-memory only) so servers are retried on each app launch.
+        UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
+        UserDefaults.standard.removeObject(forKey: "offlineTranscodeProfileV2Migrated")
 
         backgroundExecutionCoordinator.onExecutionRequested = { [weak self] in
             self?.startQueueIfNeeded()
@@ -1220,18 +1208,14 @@ public final class OfflineDownloadService: ObservableObject {
         guard let serverSourceKey = serverSourceKey(fromSourceCompositeKey: sourceCompositeKey) else {
             return
         }
+        // Session-scoped only — server will be retried on next app launch.
         guard unsupportedTranscodeServerKeys.insert(serverSourceKey).inserted else {
             return
         }
 
-        UserDefaults.standard.set(
-            Array(unsupportedTranscodeServerKeys).sorted(),
-            forKey: Self.unsupportedTranscodeServerDefaultsKey
-        )
-
         #if DEBUG
         EnsembleLogger.debug(
-            "⚠️ Marked server as offline-transcode-unsupported: \(serverSourceKey)"
+            "⚠️ Marked server as offline-transcode-unsupported (session-only): \(serverSourceKey)"
         )
         #endif
     }
