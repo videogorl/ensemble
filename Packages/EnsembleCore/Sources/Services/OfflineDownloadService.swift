@@ -921,57 +921,72 @@ public final class OfflineDownloadService: ObservableObject {
     /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.
     /// Uses URLSession.bytes(from:) to stream data and compare bytes received against Content-Length.
     /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
+    /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
     private func downloadWithProgress(
         from url: URL,
         downloadID: NSManagedObjectID
     ) async throws -> (URL, URLResponse) {
-        let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-        let expectedLength = response.expectedContentLength // -1 if unknown
+        let dm = downloadManager
 
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+        // Run the streaming I/O in a detached task to avoid blocking @MainActor.
+        // withTaskCancellationHandler bridges parent cancellation to the detached task
+        // so the download stops when the queue is paused/cancelled.
+        let detachedTask = Task.detached { [dm] () -> (URL, URLResponse) in
+            let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
+            let expectedLength = response.expectedContentLength // -1 if unknown
 
-        do {
-            let fileHandle = try FileHandle(forWritingTo: tempURL)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+            FileManager.default.createFile(atPath: tempURL.path, contents: nil)
 
-            var bytesReceived: Int64 = 0
-            var buffer = Data()
-            let flushThreshold = 65_536 // 64KB chunks
-            var lastProgressUpdate = Date.distantPast
-            let progressInterval: TimeInterval = 1.0
+            do {
+                let fileHandle = try FileHandle(forWritingTo: tempURL)
 
-            for try await byte in asyncBytes {
-                buffer.append(byte)
+                var bytesReceived: Int64 = 0
+                var buffer = Data()
+                let flushThreshold = 65_536 // 64KB chunks
+                var lastProgressUpdate = Date.distantPast
+                let progressInterval: TimeInterval = 1.0
 
-                if buffer.count >= flushThreshold {
-                    fileHandle.write(buffer)
-                    bytesReceived += Int64(buffer.count)
-                    buffer.removeAll(keepingCapacity: true)
+                for try await byte in asyncBytes {
+                    try Task.checkCancellation()
+                    buffer.append(byte)
 
-                    // Report progress when Content-Length is known, throttled to avoid churn
-                    if expectedLength > 0 {
-                        let now = Date()
-                        if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
-                            let progress = min(Float(bytesReceived) / Float(expectedLength), 0.99)
-                            try? await downloadManager.updateDownloadProgress(downloadID, progress: progress)
-                            lastProgressUpdate = now
+                    if buffer.count >= flushThreshold {
+                        fileHandle.write(buffer)
+                        bytesReceived += Int64(buffer.count)
+                        buffer.removeAll(keepingCapacity: true)
+
+                        // Report progress when Content-Length is known, throttled to avoid churn
+                        if expectedLength > 0 {
+                            let now = Date()
+                            if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
+                                let progress = min(Float(bytesReceived) / Float(expectedLength), 0.99)
+                                try? await dm.updateDownloadProgress(downloadID, progress: progress)
+                                lastProgressUpdate = now
+                            }
                         }
                     }
                 }
-            }
 
-            // Flush remaining bytes
-            if !buffer.isEmpty {
-                fileHandle.write(buffer)
-            }
-            try fileHandle.close()
+                // Flush remaining bytes
+                if !buffer.isEmpty {
+                    fileHandle.write(buffer)
+                }
+                try fileHandle.close()
 
-            return (tempURL, response)
-        } catch {
-            // Clean up partial temp file on failure
-            try? FileManager.default.removeItem(at: tempURL)
-            throw error
+                return (tempURL, response)
+            } catch {
+                // Clean up partial temp file on failure
+                try? FileManager.default.removeItem(at: tempURL)
+                throw error
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            try await detachedTask.value
+        } onCancel: {
+            detachedTask.cancel()
         }
     }
 
