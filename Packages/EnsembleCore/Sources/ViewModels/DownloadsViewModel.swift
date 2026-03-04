@@ -14,6 +14,8 @@ public struct DownloadedItemSummary: Identifiable {
     public let completedTrackCount: Int
     public let totalTrackCount: Int
     public let downloadedBytes: Int64
+    /// True when this target has quality-mismatched or failed tracks that a refresh could fix
+    public let needsRefresh: Bool
     /// Resolved artwork path for display — populated asynchronously from library/playlist repositories
     public var thumbPath: String?
 }
@@ -98,6 +100,7 @@ public final class DownloadsViewModel: ObservableObject {
                     completedTrackCount: $0.completedTrackCount,
                     totalTrackCount: $0.totalTrackCount,
                     downloadedBytes: $0.downloadedBytes,
+                    needsRefresh: $0.needsRefresh,
                     thumbPath: nil
                 )
             }

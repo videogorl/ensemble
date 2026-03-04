@@ -305,6 +305,13 @@ private struct DownloadedItemRow: View {
 
                 Spacer()
 
+                // Refresh indicator when target has quality-mismatched or failed tracks
+                if item.needsRefresh {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+
                 Text(statusText)
                     .font(.caption)
                     .foregroundColor(statusColor)

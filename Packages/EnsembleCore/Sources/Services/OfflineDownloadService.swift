@@ -15,9 +15,18 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     public let completedTrackCount: Int
     public let downloadedBytes: Int64
     public let progress: Float
+    /// Number of completed tracks whose download quality differs from the current setting
+    public let qualityMismatchCount: Int
+    /// Number of tracks in a failed state
+    public let failedTrackCount: Int
 
     public var isComplete: Bool {
         totalTrackCount > 0 && completedTrackCount >= totalTrackCount
+    }
+
+    /// True when this target has actionable issues a refresh could resolve
+    public var needsRefresh: Bool {
+        qualityMismatchCount > 0 || failedTrackCount > 0
     }
 }
 
@@ -86,6 +95,8 @@ public final class OfflineDownloadService: ObservableObject {
     private var lastObservedSyncBySource: [String: Date] = [:]
     private var unsupportedTranscodeServerKeys: Set<String> = []
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
+    private var qualityMismatchByTargetKey: [String: Int] = [:]
+    private var failedTracksByTargetKey: [String: Int] = [:]
 
     private static let unsupportedTranscodeServerDefaultsKey = "offlineTranscodeUnsupportedServerKeys"
 
@@ -1171,6 +1182,8 @@ public final class OfflineDownloadService: ObservableObject {
             let fetched = try await targetRepository.fetchTargets()
             let existingTargetKeys = Set(fetched.map(\.key))
             downloadedBytesByTargetKey = downloadedBytesByTargetKey.filter { existingTargetKeys.contains($0.key) }
+            qualityMismatchByTargetKey = qualityMismatchByTargetKey.filter { existingTargetKeys.contains($0.key) }
+            failedTracksByTargetKey = failedTracksByTargetKey.filter { existingTargetKeys.contains($0.key) }
             targets = fetched.map {
                 OfflineDownloadTargetSnapshot(
                     id: $0.key,
@@ -1183,7 +1196,9 @@ public final class OfflineDownloadService: ObservableObject {
                     totalTrackCount: Int($0.totalTrackCount),
                     completedTrackCount: Int($0.completedTrackCount),
                     downloadedBytes: downloadedBytesByTargetKey[$0.key] ?? 0,
-                    progress: $0.progress
+                    progress: $0.progress,
+                    qualityMismatchCount: qualityMismatchByTargetKey[$0.key] ?? 0,
+                    failedTrackCount: failedTracksByTargetKey[$0.key] ?? 0
                 )
             }
         } catch {
@@ -1212,6 +1227,8 @@ public final class OfflineDownloadService: ObservableObject {
             let references = try await targetRepository.fetchTrackReferences(targetKey: targetKey)
             guard !references.isEmpty else {
                 downloadedBytesByTargetKey[targetKey] = 0
+                qualityMismatchByTargetKey[targetKey] = 0
+                failedTracksByTargetKey[targetKey] = 0
                 try await targetRepository.updateTarget(
                     key: targetKey,
                     status: .completed,
@@ -1223,11 +1240,13 @@ public final class OfflineDownloadService: ObservableObject {
                 return
             }
 
+            let desiredQuality = currentDownloadQuality()
             var completed = 0
             var downloading = 0
             var pending = 0
             var paused = 0
             var failed = 0
+            var qualityMismatch = 0
             var firstFailure: String?
             var downloadedBytes: Int64 = 0
 
@@ -1244,6 +1263,10 @@ public final class OfflineDownloadService: ObservableObject {
                 case .completed:
                     completed += 1
                     downloadedBytes += max(download.fileSize, 0)
+                    // Track quality mismatches for the refresh indicator
+                    if let quality = download.quality, quality != desiredQuality {
+                        qualityMismatch += 1
+                    }
                 case .downloading:
                     downloading += 1
                 case .pending:
@@ -1283,6 +1306,8 @@ public final class OfflineDownloadService: ObservableObject {
                 lastError: firstFailure
             )
             downloadedBytesByTargetKey[targetKey] = downloadedBytes
+            qualityMismatchByTargetKey[targetKey] = qualityMismatch
+            failedTracksByTargetKey[targetKey] = failed
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
