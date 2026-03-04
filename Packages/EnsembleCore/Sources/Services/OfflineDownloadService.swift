@@ -638,39 +638,47 @@ public final class OfflineDownloadService: ObservableObject {
     private static let maxConcurrentDownloads = 3
 
     private func runQueueLoop() async {
+        // Spawn N independent workers that each pull the next pending download
+        // when they finish. This keeps all slots busy without batch-and-wait.
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<Self.maxConcurrentDownloads {
+                group.addTask { await self.workerLoop() }
+            }
+        }
+
+        // All workers exited — queue is drained or cancelled
+        isQueueRunning = false
+        queueStatusReason = .idle
+        backgroundExecutionCoordinator.finishCurrentTask(success: true)
+        queueTask = nil
+    }
+
+    /// Single download worker — loops pulling the next pending download until
+    /// the queue is empty or the task is cancelled.
+    private func workerLoop() async {
         while !Task.isCancelled {
             do {
+                // Wait for network availability
                 try await applyNetworkPolicy()
 
                 guard canExecuteDownloads else {
                     isQueueRunning = false
-                    // Publish a descriptive reason so detail views can show a banner
                     queueStatusReason = queueReasonForCurrentState()
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     continue
                 }
 
-                let pendingDownloads = try await downloadManager.fetchPendingDownloads()
-                let batch = Array(pendingDownloads.prefix(Self.maxConcurrentDownloads))
-                guard !batch.isEmpty else {
-                    isQueueRunning = false
-                    queueStatusReason = .idle
-                    backgroundExecutionCoordinator.finishCurrentTask(success: true)
-                    queueTask = nil
+                // Claim a single pending download
+                guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
+                    // No more work for this worker
                     return
                 }
 
                 isQueueRunning = true
                 queueStatusReason = .downloading
+                await process(download: nextDownload)
 
-                // Process up to maxConcurrentDownloads in parallel
-                await withTaskGroup(of: Void.self) { group in
-                    for download in batch {
-                        group.addTask { await self.process(download: download) }
-                    }
-                }
-
-                // Keep BG progress updates coarse-grained to avoid update churn.
+                // Update background execution progress
                 let completedCount = targets.reduce(0) { $0 + $1.completedTrackCount }
                 let totalCount = targets.reduce(0) { $0 + $1.totalTrackCount }
                 backgroundExecutionCoordinator.setProgress(
@@ -679,14 +687,11 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             } catch {
                 #if DEBUG
-                EnsembleLogger.debug("❌ Offline queue iteration failed: \(error.localizedDescription)")
+                EnsembleLogger.debug("❌ Offline queue worker failed: \(error.localizedDescription)")
                 #endif
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
-
-        isQueueRunning = false
-        queueTask = nil
     }
 
     private func applyNetworkPolicy() async throws {

@@ -24,6 +24,9 @@ public enum DownloadError: Error, LocalizedError {
 public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads() async throws -> [CDDownload]
     func fetchPendingDownloads() async throws -> [CDDownload]
+    /// Atomically claim the next pending download by setting its status to `.downloading`.
+    /// Returns nil when no pending downloads remain.
+    func fetchNextPendingDownload() async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
     func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
 
@@ -176,6 +179,33 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchNextPendingDownload() async throws -> CDDownload? {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "status == %@",
+                    CDDownload.Status.pending.rawValue
+                )
+                request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: true)]
+                request.fetchLimit = 1
+                do {
+                    guard let download = try context.fetch(request).first else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    // Claim it so other workers don't pick the same one
+                    download.status = CDDownload.Status.downloading.rawValue
+                    try context.save()
+                    continuation.resume(returning: download)
                 } catch {
                     continuation.resume(throwing: error)
                 }
