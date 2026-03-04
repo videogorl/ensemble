@@ -98,6 +98,10 @@ public final class OfflineDownloadService: ObservableObject {
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
 
+    /// Debounced notification task so individual download completions don't
+    /// spam `downloadsDidChange` during bulk queue processing.
+    private var downloadChangeNotificationTask: Task<Void, Never>?
+
     public init(
         downloadManager: DownloadManagerProtocol,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
@@ -937,6 +941,11 @@ public final class OfflineDownloadService: ObservableObject {
             )
             await cacheArtworkForDownloadedTrack(track)
             await refreshAllTargetProgresses()
+
+            // Notify track-displaying VMs so they re-fetch and reflect updated
+            // offline state (e.g. dimming). Debounced to avoid spamming during
+            // bulk queue processing.
+            scheduleDownloadChangeNotification()
         } catch {
             if Task.isCancelled {
                 try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
@@ -1112,6 +1121,7 @@ public final class OfflineDownloadService: ObservableObject {
         )
         await cacheArtworkForDownloadedTrack(track)
         await refreshAllTargetProgresses()
+        scheduleDownloadChangeNotification()
         return true
     }
 
@@ -1437,6 +1447,22 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     // MARK: - Sync / Network Reconciliation
+
+    /// Schedules a debounced `downloadsDidChange` notification so detail views
+    /// re-fetch tracks after individual downloads complete without flooding during
+    /// bulk queue processing.
+    private func scheduleDownloadChangeNotification() {
+        downloadChangeNotificationTask?.cancel()
+        downloadChangeNotificationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(
+                name: OfflineDownloadService.downloadsDidChange,
+                object: nil
+            )
+            self?.downloadChangeNotificationTask = nil
+        }
+    }
 
     private func observeNetworkState() {
         networkMonitor.$networkState
