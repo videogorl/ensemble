@@ -48,7 +48,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaUserContextManager: SiriMediaUserContextManager
     public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     public let offlineDownloadService: OfflineDownloadService
-    public let pendingMutationQueue: PendingMutationQueue
+    public let mutationCoordinator: MutationCoordinator
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -215,19 +215,19 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
-        // Pending mutation queue — drains offline mutations when connectivity resumes
-        let pendingMutationQueueRef = MainActor.assumeIsolated {
-            PendingMutationQueue(
+        // Mutation coordinator — unified mutation routing with offline queue support
+        let mutationCoordinatorRef = MainActor.assumeIsolated {
+            MutationCoordinator(
                 repository: pendingMutationRepo,
                 networkMonitor: nm,
                 syncCoordinator: syncCoordinatorRef
             )
         }
-        pendingMutationQueue = pendingMutationQueueRef
+        mutationCoordinator = mutationCoordinatorRef
 
-        // Wire pending mutation queue into PlaybackService for offline lock-screen rating support
+        // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
         MainActor.assumeIsolated {
-            playbackServiceRef.setPendingMutationQueue(pendingMutationQueueRef)
+            playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
         }
 
         // Wire up artwork cache invalidation when server connections change.
@@ -260,7 +260,7 @@ public final class DependencyContainer: @unchecked Sendable {
             libraryRepository: libraryRepository,
             navigationCoordinator: navigationCoordinator,
             toastCenter: toastCenter,
-            pendingMutationQueue: pendingMutationQueue
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -286,7 +286,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makePlaylistViewModel() -> PlaylistViewModel {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -296,7 +297,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playlist: playlist,
             playlistRepository: playlistRepository,
             libraryRepository: libraryRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -318,7 +320,7 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineDownloadService: offlineDownloadService,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            pendingMutationQueue: pendingMutationQueue
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -368,10 +370,10 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator,
-            pendingMutationQueue: pendingMutationQueue
+            mutationCoordinator: mutationCoordinator
         )
     }
-    
+
     @MainActor
     public func makeFavoritesViewModel() -> FavoritesViewModel {
         FavoritesViewModel(libraryRepository: libraryRepository)
@@ -389,7 +391,7 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     public func makePendingMutationsViewModel() -> PendingMutationsViewModel {
         PendingMutationsViewModel(
-            pendingMutationQueue: pendingMutationQueue,
+            mutationCoordinator: mutationCoordinator,
             repository: PendingMutationRepository(coreDataStack: coreDataStack),
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository

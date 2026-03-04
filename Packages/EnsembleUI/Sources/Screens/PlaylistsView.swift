@@ -696,17 +696,19 @@ public struct PlaylistsView: View {
 
         Task {
             do {
-                try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
-                await viewModel.awaitRenamedPlaylistMaterialization(
-                    for: playlist.id,
-                    expectedTitle: trimmed
-                )
+                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+                if outcome == .completed {
+                    await viewModel.awaitRenamedPlaylistMaterialization(
+                        for: playlist.id,
+                        expectedTitle: trimmed
+                    )
+                }
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     ToastPayload(
-                        style: .success,
-                        iconSystemName: "pencil.circle.fill",
-                        title: "Renamed playlist",
+                        style: outcome == .queued ? .info : .success,
+                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
                         dedupeKey: "playlist-rename-success-\(playlist.id)"
                     )
                 )

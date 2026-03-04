@@ -18,25 +18,25 @@ public final class PendingMutationsViewModel: ObservableObject {
     @Published public private(set) var rows: [PendingMutationRow] = []
     @Published public private(set) var isLoading = false
 
-    private let pendingMutationQueue: PendingMutationQueue
+    private let mutationCoordinator: MutationCoordinator
     private let repository: PendingMutationRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        pendingMutationQueue: PendingMutationQueue,
+        mutationCoordinator: MutationCoordinator,
         repository: PendingMutationRepositoryProtocol,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol
     ) {
-        self.pendingMutationQueue = pendingMutationQueue
+        self.mutationCoordinator = mutationCoordinator
         self.repository = repository
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
 
         // Refresh rows whenever the queue count changes (drain/enqueue events)
-        pendingMutationQueue.$pendingCount
+        mutationCoordinator.$pendingCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -80,8 +80,8 @@ public final class PendingMutationsViewModel: ObservableObject {
     public func retryMutation(id: String) async {
         do {
             try await repository.resetToRetry(id: id)
-            await pendingMutationQueue.refreshCount()
-            await pendingMutationQueue.drainQueue()
+            await mutationCoordinator.refreshCount()
+            await mutationCoordinator.drainQueue()
             await loadMutations()
         } catch {
             #if DEBUG
@@ -94,7 +94,7 @@ public final class PendingMutationsViewModel: ObservableObject {
     public func deleteMutation(id: String) async {
         do {
             try await repository.deleteMutation(id: id)
-            await pendingMutationQueue.refreshCount()
+            await mutationCoordinator.refreshCount()
             await loadMutations()
         } catch {
             #if DEBUG
@@ -109,7 +109,7 @@ public final class PendingMutationsViewModel: ObservableObject {
         for id in failedIDs {
             try? await repository.deleteMutation(id: id)
         }
-        await pendingMutationQueue.refreshCount()
+        await mutationCoordinator.refreshCount()
         await loadMutations()
     }
 
@@ -128,6 +128,10 @@ public final class PendingMutationsViewModel: ObservableObject {
             return await describePlaylistAdd(mutation)
         case .playlistRemove:
             return await describePlaylistRemove(mutation)
+        case .playlistRename:
+            return await describePlaylistRename(mutation)
+        case .playlistDelete:
+            return await describePlaylistDelete(mutation)
         }
     }
 
@@ -172,6 +176,30 @@ public final class PendingMutationsViewModel: ObservableObject {
             sourceCompositeKey: payload.playlistSourceCompositeKey
         )
         return "Remove tracks from \(playlistTitle)"
+    }
+
+    private func describePlaylistRename(_ mutation: CDPendingMutation) async -> String {
+        guard let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: mutation.payload) else {
+            return "Rename playlist"
+        }
+
+        let playlistTitle = await resolvePlaylistTitle(
+            ratingKey: payload.playlistRatingKey,
+            sourceCompositeKey: payload.playlistSourceCompositeKey
+        )
+        return "Rename \(playlistTitle) to \"\(payload.newTitle)\""
+    }
+
+    private func describePlaylistDelete(_ mutation: CDPendingMutation) async -> String {
+        guard let payload = try? JSONDecoder().decode(PlaylistDeleteMutationPayload.self, from: mutation.payload) else {
+            return "Delete playlist"
+        }
+
+        let playlistTitle = await resolvePlaylistTitle(
+            ratingKey: payload.playlistRatingKey,
+            sourceCompositeKey: payload.playlistSourceCompositeKey
+        )
+        return "Delete \(playlistTitle)"
     }
 
     // MARK: - Title Resolution

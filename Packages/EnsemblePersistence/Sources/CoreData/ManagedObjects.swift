@@ -410,6 +410,8 @@ extension CDPendingMutation {
         case trackRating
         case playlistAdd
         case playlistRemove
+        case playlistRename
+        case playlistDelete
     }
 
     public enum MutationStatus: String {

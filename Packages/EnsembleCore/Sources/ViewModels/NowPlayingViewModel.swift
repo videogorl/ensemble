@@ -94,7 +94,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
-    private let pendingMutationQueue: PendingMutationQueue
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     
     // Artwork loading state
@@ -113,14 +113,14 @@ public final class NowPlayingViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
-        pendingMutationQueue: PendingMutationQueue
+        mutationCoordinator: MutationCoordinator
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
-        self.pendingMutationQueue = pendingMutationQueue
+        self.mutationCoordinator = mutationCoordinator
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -542,18 +542,9 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        // If offline, enqueue the mutation and show a deferred confirmation toast.
-        if syncCoordinator.isOffline, let playlistSourceKey = playlist.sourceCompositeKey {
-            let tracksBySource = Dictionary(grouping: tracks) { $0.sourceCompositeKey ?? playlistSourceKey }
-            for (sourceKey, sourceTracks) in tracksBySource {
-                let payload = PlaylistMutationPayload(
-                    playlistRatingKey: playlist.id,
-                    playlistSourceCompositeKey: playlistSourceKey,
-                    trackRatingKeys: sourceTracks.map(\.id),
-                    trackSourceCompositeKey: sourceKey
-                )
-                await pendingMutationQueue.enqueuePlaylistAdd(payload)
-            }
+        // Route through MutationCoordinator — handles offline queuing automatically
+        let (resultOrNil, outcome) = try await mutationCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+        if outcome == .queued {
             toastCenter.show(
                 ToastPayload(
                     style: .info,
@@ -566,7 +557,7 @@ public final class NowPlayingViewModel: ObservableObject {
             return PlaylistMutationResult(addedCount: 0, skippedCount: 0)
         }
 
-        let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+        let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
         await MainActor.run {
             if result.skippedCount > 0 {
                 self.toastCenter.show(
@@ -614,7 +605,7 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = try await syncCoordinator.createPlaylist(
+        let result = try await mutationCoordinator.createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
@@ -840,32 +831,23 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
 
-            // If offline, keep the optimistic state and queue the mutation for later.
-            if syncCoordinator.isOffline {
-                if let sourceKey = track.sourceCompositeKey {
-                    let payload = TrackRatingMutationPayload(
-                        trackRatingKey: track.id,
-                        sourceCompositeKey: sourceKey,
-                        rating: plexRating
-                    )
-                    await pendingMutationQueue.enqueueTrackRating(payload)
-                }
-                toastCenter.show(
-                    ToastPayload(
-                        style: .info,
-                        iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
-                        title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
-                        message: track.title,
-                        dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
-                    )
-                )
-                return
-            }
-
+            // Route through MutationCoordinator — handles offline queuing automatically
             if let trackRatingMutationHandlerForTesting {
                 try await trackRatingMutationHandlerForTesting(track, plexRating)
             } else {
-                try await syncCoordinator.rateTrack(track: track, rating: plexRating)
+                let outcome = try await mutationCoordinator.rateTrack(track, rating: plexRating)
+                if outcome == .queued {
+                    toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
+                            title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
+                            message: track.title,
+                            dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
+                        )
+                    )
+                    return
+                }
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -941,36 +923,24 @@ public final class NowPlayingViewModel: ObservableObject {
                 try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
                 applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
 
-                // If offline, queue the mutation for later sync
-                if syncCoordinator.isOffline {
-                    if let sourceKey = track.sourceCompositeKey {
-                        let payload = TrackRatingMutationPayload(
-                            trackRatingKey: track.id,
-                            sourceCompositeKey: sourceKey,
-                            rating: nextPlexRating
-                        )
-                        await pendingMutationQueue.enqueueTrackRating(payload)
-                    }
-                    toastCenter.show(
-                        ToastPayload(
-                            style: .info,
-                            iconSystemName: newRating.icon,
-                            title: "Rating saved — will sync when online",
-                            message: track.title,
-                            dedupeKey: "rating-toggle-queued-\(track.id)"
-                        )
-                    )
-                    await MainActor.run { self.isUpdatingRating = false }
-                    return
-                }
-
+                // Route through MutationCoordinator — handles offline queuing automatically
                 if let trackRatingMutationHandlerForTesting {
                     try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
                 } else {
-                    try await syncCoordinator.rateTrack(
-                        track: track,
-                        rating: nextPlexRating
-                    )
+                    let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
+                    if outcome == .queued {
+                        toastCenter.show(
+                            ToastPayload(
+                                style: .info,
+                                iconSystemName: newRating.icon,
+                                title: "Rating saved — will sync when online",
+                                message: track.title,
+                                dedupeKey: "rating-toggle-queued-\(track.id)"
+                            )
+                        )
+                        await MainActor.run { self.isUpdatingRating = false }
+                        return
+                    }
                 }
 
                 // Refresh the track to get updated data

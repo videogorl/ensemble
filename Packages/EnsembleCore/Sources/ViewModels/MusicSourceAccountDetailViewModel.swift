@@ -55,7 +55,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
-    private let pendingMutationQueue: PendingMutationQueue
+    private let mutationCoordinator: MutationCoordinator
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
@@ -73,16 +73,16 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountManager: AccountManager,
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
         syncCoordinator: SyncCoordinator,
-        pendingMutationQueue: PendingMutationQueue
+        mutationCoordinator: MutationCoordinator
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
-        self.pendingMutationQueue = pendingMutationQueue
+        self.mutationCoordinator = mutationCoordinator
 
         // Mirror the global pending mutation count so the view can show sync status
-        pendingMutationQueue.$pendingCount
+        mutationCoordinator.$pendingCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] count in
                 self?.pendingMutationCount = count

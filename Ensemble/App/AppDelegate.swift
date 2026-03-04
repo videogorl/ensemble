@@ -581,7 +581,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Drain any pending offline mutations now that connectivity may have resumed.
             // The queue also drains automatically when isConnected transitions to true,
             // but an explicit call here handles the case where connectivity never dropped.
-            await DependencyContainer.shared.pendingMutationQueue.drainQueue()
+            await DependencyContainer.shared.mutationCoordinator.drainQueue()
 
             // Update Siri media user context in case library changed while backgrounded
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()

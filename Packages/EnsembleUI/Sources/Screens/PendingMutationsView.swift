@@ -157,6 +157,10 @@ private struct MutationRowView: View {
             return "text.badge.plus"
         case .playlistRemove:
             return "text.badge.minus"
+        case .playlistRename:
+            return "pencil"
+        case .playlistDelete:
+            return "trash"
         }
     }
 

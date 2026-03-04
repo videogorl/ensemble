@@ -18,16 +18,19 @@ public final class PlaylistViewModel: ObservableObject {
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
+        self.mutationCoordinator = mutationCoordinator
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -97,7 +100,11 @@ public final class PlaylistViewModel: ObservableObject {
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
         do {
-            try await syncCoordinator.deletePlaylist(playlist)
+            let outcome = try await mutationCoordinator.deletePlaylist(playlist)
+            if outcome == .queued {
+                // Optimistically remove from list while queued
+                playlists.removeAll { $0.id == playlist.id }
+            }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -115,7 +122,7 @@ public final class PlaylistViewModel: ObservableObject {
         addOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
 
         do {
-            _ = try await syncCoordinator.createPlaylist(
+            _ = try await mutationCoordinator.createPlaylist(
                 title: trimmed,
                 tracks: [],
                 serverSourceKey: serverSourceKey
@@ -342,6 +349,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
 
@@ -349,12 +357,14 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator
     ) {
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
         
         // Save filter options when they change
@@ -476,8 +486,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         do {
-            try await syncCoordinator.renamePlaylist(playlist, to: trimmed)
-            await loadTracks()
+            let outcome = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+            if outcome == .completed {
+                await loadTracks()
+            }
+            // If queued, keep the optimistic rename and it will sync when back online
             return true
         } catch {
             playlist = previousPlaylist
@@ -488,7 +501,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     public func deletePlaylist() async -> Bool {
         do {
-            try await syncCoordinator.deletePlaylist(playlist)
+            try await mutationCoordinator.deletePlaylist(playlist)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -520,7 +533,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         applyEditedTracksLocally(editedTracks)
 
         do {
-            try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)

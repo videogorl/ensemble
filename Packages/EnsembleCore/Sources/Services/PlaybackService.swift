@@ -721,7 +721,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
-    private var pendingMutationQueue: PendingMutationQueue?
+    private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
@@ -833,9 +833,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         accountSourcesObservation = nil
     }
 
-    /// Wire the pending mutation queue after init to avoid circular DI dependencies
-    public func setPendingMutationQueue(_ queue: PendingMutationQueue) {
-        self.pendingMutationQueue = queue
+    /// Wire the mutation coordinator after init to avoid circular DI dependencies
+    public func setMutationCoordinator(_ coordinator: MutationCoordinator) {
+        self.mutationCoordinator = coordinator
     }
 
     private func setupPlayer() {
@@ -1351,24 +1351,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             do {
                 try await self.storeTrackRating(trackId: track.id, rating: newRating)
 
-                // If offline, queue the mutation for later sync
-                if self.syncCoordinator.isOffline {
-                    if let sourceKey = track.sourceCompositeKey, let queue = self.pendingMutationQueue {
-                        let plexRating: Int? = newRating == 0 ? nil : newRating
-                        let payload = TrackRatingMutationPayload(
-                            trackRatingKey: track.id,
-                            sourceCompositeKey: sourceKey,
-                            rating: plexRating
-                        )
-                        await queue.enqueueTrackRating(payload)
-                    }
-                    return
-                }
-
-                try await self.syncCoordinator.rateTrack(
-                    track: track,
-                    rating: newRating == 0 ? nil : newRating
-                )
+                // Route through MutationCoordinator — handles offline queuing automatically
+                let plexRating: Int? = newRating == 0 ? nil : newRating
+                _ = try await self.mutationCoordinator?.rateTrack(track, rating: plexRating)
             } catch {
                 self.applyTrackRatingLocally(trackId: track.id, rating: previousRating)
                 self.updateNowPlayingInfo()

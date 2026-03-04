@@ -35,19 +35,19 @@ public final class DownloadsViewModel: ObservableObject {
     private let offlineDownloadService: OfflineDownloadService
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let pendingMutationQueue: PendingMutationQueue
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         offlineDownloadService: OfflineDownloadService,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        pendingMutationQueue: PendingMutationQueue
+        mutationCoordinator: MutationCoordinator
     ) {
         self.offlineDownloadService = offlineDownloadService
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
-        self.pendingMutationQueue = pendingMutationQueue
+        self.mutationCoordinator = mutationCoordinator
 
         // Map snapshots to summaries immediately, then kick off async thumb resolution
         offlineDownloadService.$targets
@@ -67,7 +67,7 @@ public final class DownloadsViewModel: ObservableObject {
             .assign(to: &$removalInProgress)
 
         // Track pending mutation count for the "Pending Changes" entry point
-        pendingMutationQueue.$pendingCount
+        mutationCoordinator.$pendingCount
             .receive(on: DispatchQueue.main)
             .assign(to: &$pendingMutationCount)
 
