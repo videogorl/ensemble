@@ -655,10 +655,12 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Single download worker — loops pulling the next pending download until
     /// the queue is empty or the task is cancelled.
+    /// Runs the actual download in a detached task so multiple workers execute
+    /// their network I/O truly in parallel instead of serializing on @MainActor.
     private func workerLoop() async {
         while !Task.isCancelled {
             do {
-                // Wait for network availability
+                // Wait for network availability (lightweight main-actor check)
                 try await applyNetworkPolicy()
 
                 guard canExecuteDownloads else {
@@ -668,7 +670,7 @@ public final class OfflineDownloadService: ObservableObject {
                     continue
                 }
 
-                // Claim a single pending download
+                // Claim a single pending download (atomic, sets status to .downloading)
                 guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
                     // No more work for this worker
                     return
@@ -676,7 +678,20 @@ public final class OfflineDownloadService: ObservableObject {
 
                 isQueueRunning = true
                 queueStatusReason = .downloading
-                await process(download: nextDownload)
+
+                // Run process() in a detached task so it doesn't serialize on @MainActor.
+                // The detached task hops to main actor only when calling @MainActor services,
+                // but network I/O runs fully in parallel across workers.
+                let selfRef = self
+                let detachedProcess = Task.detached {
+                    await selfRef.process(download: nextDownload)
+                }
+                // Bridge cancellation so pause/cancel stops the download
+                try await withTaskCancellationHandler {
+                    await detachedProcess.value
+                } onCancel: {
+                    detachedProcess.cancel()
+                }
 
                 // Update background execution progress
                 let completedCount = targets.reduce(0) { $0 + $1.completedTrackCount }
@@ -686,6 +701,7 @@ public final class OfflineDownloadService: ObservableObject {
                     totalUnitCount: totalCount
                 )
             } catch {
+                if Task.isCancelled { return }
                 #if DEBUG
                 EnsembleLogger.debug("❌ Offline queue worker failed: \(error.localizedDescription)")
                 #endif
