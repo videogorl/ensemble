@@ -93,7 +93,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
-    private var unsupportedTranscodeServerKeys: Set<String> = []
+
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
     private var qualityMismatchByTargetKey: [String: Int] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
@@ -117,9 +117,7 @@ public final class OfflineDownloadService: ObservableObject {
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
         self.artworkDownloadManager = artworkDownloadManager
 
-        // Clean up the legacy persistent blacklist — it was too aggressive (a single 400
-        // permanently blocked transcoding for a server). The blacklist is now session-scoped
-        // (in-memory only) so servers are retried on each app launch.
+        // Clean up legacy keys from the old transcode blacklist approach.
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeProfileV2Migrated")
 
@@ -781,113 +779,55 @@ public final class OfflineDownloadService: ObservableObject {
             let domainTrack = Track(from: track)
             let sizeEstimate = estimatedFileSize(durationMs: track.duration, quality: requestedQuality)
 
-            // Try the universal streaming URL first — it supports concurrent connections
-            // since each request transcodes on-the-fly independently. The download queue API
-            // is used as a last-resort fallback since it processes items serially on the server.
+            // Strategy for non-original quality downloads:
+            // 1. Use the Plex download queue API (server transcodes, we download the result)
+            // 2. Fall back to direct original download if the queue fails
+            //
+            // The universal transcode endpoint (`start.mp3`) is not a valid Plex API path —
+            // it only supports HLS (`start.m3u8`) for streaming, not direct file downloads.
+            // The download queue is the proper mechanism (what Plexamp uses for offline sync).
 
             var selectedURL: URL
             var selectedMode: String
 
-            if requestedQuality != .original,
-               isTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey) {
-                selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
-                selectedMode = "direct-original-known-unsupported"
-                effectiveQuality = .original
-                #if DEBUG
-                EnsembleLogger.debug(
-                    "⚠️ Skipping offline transcode attempts for server with known unsupported transcode capability: source=\(sourceCompositeKey)"
-                )
-                #endif
-            } else {
-                selectedURL = try await syncCoordinator.getOfflineDownloadURL(
-                    for: domainTrack,
-                    quality: requestedQuality
-                )
-                selectedMode = "universal"
+            if requestedQuality != .original {
+                // Try the download queue for transcoded downloads.
+                do {
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
+                    )
+                    #endif
+                    let completed = try await completeViaDownloadQueue(
+                        download: download,
+                        track: track,
+                        domainTrack: domainTrack,
+                        quality: requestedQuality,
+                        mode: "download-queue"
+                    )
+                    if completed { return }
+                } catch {
+                    // Download queue failed — fall through to direct original download.
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⚠️ Download queue failed for track=\(track.ratingKey): \(error.localizedDescription); falling back to direct original"
+                    )
+                    #endif
+                    effectiveQuality = .original
+                }
             }
+
+            // Original quality or download queue failed — download the original file directly.
+            selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
+            selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
+            effectiveQuality = .original
 
             #if DEBUG
             EnsembleLogger.debug(
                 "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
             )
             #endif
-            var (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
-            if selectedMode == "universal",
-               let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 400 {
-                #if DEBUG
-                EnsembleLogger.debug(
-                    "⚠️ Offline universal URL rejected (400), retrying fallback transcode URL for track=\(track.ratingKey)"
-                )
-                logRejectedDownloadResponse(
-                    response: httpResponse,
-                    temporaryURL: temporaryURL,
-                    stage: "universal",
-                    trackRatingKey: track.ratingKey
-                )
-                #endif
-                try? FileManager.default.removeItem(at: temporaryURL)
-
-                let fallbackAttempts = await transcodeFallbackAttempts(
-                    for: domainTrack,
-                    quality: requestedQuality
-                )
-                for attempt in fallbackAttempts {
-                    selectedURL = attempt.url
-                    selectedMode = attempt.mode
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
-                    )
-                    #endif
-                    (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
-
-                    if let rejection = response as? HTTPURLResponse,
-                       rejection.statusCode == 400 {
-                        #if DEBUG
-                        logRejectedDownloadResponse(
-                            response: rejection,
-                            temporaryURL: temporaryURL,
-                            stage: selectedMode,
-                            trackRatingKey: track.ratingKey
-                        )
-                        #endif
-                        try? FileManager.default.removeItem(at: temporaryURL)
-                        continue
-                    }
-                    break
-                }
-            }
-
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode),
-               selectedMode != "direct-original-fallback" {
-                if httpResponse.statusCode == 400, requestedQuality != .original {
-                    markTranscodeUnsupported(forSourceCompositeKey: sourceCompositeKey)
-                }
-                #if DEBUG
-                EnsembleLogger.debug(
-                    "⚠️ Offline transcode rejected (status=\(httpResponse.statusCode)) for quality=\(requestedQuality.rawValue); falling back to direct original download for track=\(track.ratingKey)"
-                )
-                logRejectedDownloadResponse(
-                    response: httpResponse,
-                    temporaryURL: temporaryURL,
-                    stage: selectedMode,
-                    trackRatingKey: track.ratingKey
-                )
-                #endif
-                try? FileManager.default.removeItem(at: temporaryURL)
-
-                selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
-                selectedMode = "direct-original-fallback"
-                effectiveQuality = .original
-                #if DEBUG
-                EnsembleLogger.debug(
-                    "⬇️ Offline download attempt: track=\(track.ratingKey) stage=\(selectedMode) url=\(selectedURL)"
-                )
-                #endif
-                (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
-            }
+            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: download.objectID, estimatedSize: sizeEstimate)
 
             if let httpResponse = response as? HTTPURLResponse {
                 #if DEBUG
@@ -907,58 +847,6 @@ public final class OfflineDownloadService: ObservableObject {
                     }
                     #endif
                     try? FileManager.default.removeItem(at: temporaryURL)
-
-                    // Last resort: try the Plex download queue API (serialized on server
-                    // but may be the only path that works for this server configuration)
-                    if requestedQuality != .original {
-                        #if DEBUG
-                        EnsembleLogger.debug(
-                            "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue-fallback quality=\(requestedQuality.rawValue)"
-                        )
-                        #endif
-                        let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
-                            for: domainTrack,
-                            quality: requestedQuality
-                        )
-                        guard !queuePayload.data.isEmpty else {
-                            throw DownloadProcessingError.emptyPayload("download-queue-fallback")
-                        }
-
-                        let destinationURL = localFileURL(
-                            for: track,
-                            quality: requestedQuality,
-                            suggestedFilename: queuePayload.suggestedFilename,
-                            mimeType: queuePayload.mimeType,
-                            payload: queuePayload.data
-                        )
-                        if FileManager.default.fileExists(atPath: destinationURL.path) {
-                            try? FileManager.default.removeItem(at: destinationURL)
-                        }
-                        try queuePayload.data.write(to: destinationURL, options: [.atomic])
-
-                        let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-                        let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
-                        guard queueFileSize > 0 else {
-                            throw DownloadProcessingError.emptyPayload("download-queue-fallback")
-                        }
-
-                        #if DEBUG
-                        EnsembleLogger.debug(
-                            "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=download-queue-fallback"
-                        )
-                        #endif
-
-                        try await downloadManager.completeDownload(
-                            download.objectID,
-                            filePath: destinationURL.path,
-                            fileSize: queueFileSize,
-                            quality: requestedQuality.rawValue
-                        )
-                        await cacheArtworkForDownloadedTrack(track)
-                        await refreshAllTargetProgresses()
-                        return
-                    }
-
                     throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
                 }
             }
@@ -1123,107 +1011,63 @@ public final class OfflineDownloadService: ObservableObject {
         return Int64(durationSeconds * bitrateKbps * 1000.0 / 8.0)
     }
 
-    #if DEBUG
-    private func logRejectedDownloadResponse(
-        response: HTTPURLResponse,
-        temporaryURL: URL,
-        stage: String,
-        trackRatingKey: String
-    ) {
-        EnsembleLogger.debug(
-            "⬇️ Offline download intermediate rejection: track=\(trackRatingKey) stage=\(stage) status=\(response.statusCode)"
+    /// Download a transcoded track via the Plex download queue API.
+    /// Returns `true` if the download completed successfully, `false` if the payload was empty.
+    private func completeViaDownloadQueue(
+        download: CDDownload,
+        track: CDTrack,
+        domainTrack: Track,
+        quality: StreamingQuality,
+        mode: String
+    ) async throws -> Bool {
+        let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
+            for: domainTrack,
+            quality: quality
         )
-
-        if let plexError = response.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
-            EnsembleLogger.debug("⬇️ Offline download intermediate X-Plex-Error: \(plexError)")
-        }
-
-        if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
-            let preview = String(decoding: data.prefix(200), as: UTF8.self)
-                .replacingOccurrences(of: "\n", with: " ")
-            EnsembleLogger.debug("⬇️ Offline download intermediate body (preview): \(preview)")
-        }
-    }
-    #endif
-
-    private func transcodeFallbackAttempts(
-        for track: Track,
-        quality: StreamingQuality
-    ) async -> [(mode: String, url: URL)] {
-        let candidates: [(
-            mode: String,
-            preferStreamKeyPath: Bool,
-            useAbsolutePathParameter: Bool,
-            useAudioEndpoint: Bool,
-            useStartWithoutExtension: Bool
-        )] = [
-            ("transcode-fallback-music-metadata", false, false, false, false),
-            ("transcode-fallback-music-part", true, false, false, false),
-            ("transcode-fallback-music-metadata-absolute", false, true, false, false),
-            ("transcode-fallback-music-part-absolute", true, true, false, false),
-            ("transcode-fallback-audio-metadata", false, false, true, false),
-            ("transcode-fallback-audio-part", true, false, true, false),
-            ("transcode-fallback-audio-metadata-absolute", false, true, true, false),
-            ("transcode-fallback-audio-part-absolute", true, true, true, false),
-            ("transcode-fallback-music-start-metadata", false, false, false, true),
-            ("transcode-fallback-audio-start-metadata", false, false, true, true)
-        ]
-
-        var attempts: [(mode: String, url: URL)] = []
-        var seen = Set<String>()
-
-        for candidate in candidates {
-            do {
-                let url = try await syncCoordinator.getOfflineDownloadFallbackURL(
-                    for: track,
-                    quality: quality,
-                    preferStreamKeyPath: candidate.preferStreamKeyPath,
-                    useAbsolutePathParameter: candidate.useAbsolutePathParameter,
-                    useAudioEndpoint: candidate.useAudioEndpoint,
-                    useStartWithoutExtension: candidate.useStartWithoutExtension
-                )
-                if seen.insert(url.absoluteString).inserted {
-                    attempts.append((candidate.mode, url))
-                }
-            } catch {
-                #if DEBUG
-                EnsembleLogger.debug(
-                    "⚠️ Failed building transcode fallback URL (mode=\(candidate.mode)): \(error.localizedDescription)"
-                )
-                #endif
-            }
-        }
-
-        return attempts
-    }
-
-    private func isTranscodeUnsupported(forSourceCompositeKey sourceCompositeKey: String) -> Bool {
-        guard let serverSourceKey = serverSourceKey(fromSourceCompositeKey: sourceCompositeKey) else {
+        guard !queuePayload.data.isEmpty else {
             return false
         }
-        return unsupportedTranscodeServerKeys.contains(serverSourceKey)
-    }
 
-    private func markTranscodeUnsupported(forSourceCompositeKey sourceCompositeKey: String) {
-        guard let serverSourceKey = serverSourceKey(fromSourceCompositeKey: sourceCompositeKey) else {
-            return
+        let destinationURL = localFileURL(
+            for: track,
+            quality: quality,
+            suggestedFilename: queuePayload.suggestedFilename,
+            mimeType: queuePayload.mimeType,
+            payload: queuePayload.data
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try? FileManager.default.removeItem(at: destinationURL)
         }
-        // Session-scoped only — server will be retried on next app launch.
-        guard unsupportedTranscodeServerKeys.insert(serverSourceKey).inserted else {
-            return
+        try queuePayload.data.write(to: destinationURL, options: [.atomic])
+
+        let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+        let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
+        guard queueFileSize > 0 else {
+            return false
         }
 
         #if DEBUG
+        // Log magic bytes for format verification
+        var magicBytesHex = "?"
+        if let handle = FileHandle(forReadingAtPath: destinationURL.path),
+           let header = try? handle.read(upToCount: 12) {
+            magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
+            try? handle.close()
+        }
         EnsembleLogger.debug(
-            "⚠️ Marked server as offline-transcode-unsupported (session-only): \(serverSourceKey)"
+            "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
         )
         #endif
-    }
 
-    private func serverSourceKey(fromSourceCompositeKey sourceCompositeKey: String) -> String? {
-        let components = sourceCompositeKey.split(separator: ":")
-        guard components.count >= 4 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
+        try await downloadManager.completeDownload(
+            download.objectID,
+            filePath: destinationURL.path,
+            fileSize: queueFileSize,
+            quality: quality.rawValue
+        )
+        await cacheArtworkForDownloadedTrack(track)
+        await refreshAllTargetProgresses()
+        return true
     }
 
     private func localFileURL(for track: CDTrack, quality: StreamingQuality, response: URLResponse) -> URL {
