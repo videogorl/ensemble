@@ -750,10 +750,9 @@ public final class OfflineDownloadService: ObservableObject {
             let domainTrack = Track(from: track)
             let sizeEstimate = estimatedFileSize(durationMs: track.duration, quality: requestedQuality)
 
-            // NOTE: The Plex download queue API (getOfflineDownloadQueueMedia) transcodes
-            // items serially on the server, which prevents concurrent downloads. We skip it
-            // and go straight to the universal streaming URL which transcodes on-the-fly and
-            // supports multiple simultaneous connections.
+            // Try the universal streaming URL first — it supports concurrent connections
+            // since each request transcodes on-the-fly independently. The download queue API
+            // is used as a last-resort fallback since it processes items serially on the server.
 
             var selectedURL: URL
             var selectedMode: String
@@ -868,7 +867,7 @@ public final class OfflineDownloadService: ObservableObject {
                     EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
                 }
                 #endif
-                guard (200...299).contains(httpResponse.statusCode) else {
+                if !(200...299).contains(httpResponse.statusCode) {
                     #if DEBUG
                     if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
                         let preview = String(decoding: data.prefix(200), as: UTF8.self)
@@ -877,6 +876,58 @@ public final class OfflineDownloadService: ObservableObject {
                     }
                     #endif
                     try? FileManager.default.removeItem(at: temporaryURL)
+
+                    // Last resort: try the Plex download queue API (serialized on server
+                    // but may be the only path that works for this server configuration)
+                    if requestedQuality != .original {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⬇️ Offline download attempt: track=\(track.ratingKey) stage=download-queue-fallback quality=\(requestedQuality.rawValue)"
+                        )
+                        #endif
+                        let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
+                            for: domainTrack,
+                            quality: requestedQuality
+                        )
+                        guard !queuePayload.data.isEmpty else {
+                            throw DownloadProcessingError.emptyPayload("download-queue-fallback")
+                        }
+
+                        let destinationURL = localFileURL(
+                            for: track,
+                            quality: requestedQuality,
+                            suggestedFilename: queuePayload.suggestedFilename,
+                            mimeType: queuePayload.mimeType,
+                            payload: queuePayload.data
+                        )
+                        if FileManager.default.fileExists(atPath: destinationURL.path) {
+                            try? FileManager.default.removeItem(at: destinationURL)
+                        }
+                        try queuePayload.data.write(to: destinationURL, options: [.atomic])
+
+                        let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+                        let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
+                        guard queueFileSize > 0 else {
+                            throw DownloadProcessingError.emptyPayload("download-queue-fallback")
+                        }
+
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "✅ Offline download stored: track=\(track.ratingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=download-queue-fallback"
+                        )
+                        #endif
+
+                        try await downloadManager.completeDownload(
+                            download.objectID,
+                            filePath: destinationURL.path,
+                            fileSize: queueFileSize,
+                            quality: requestedQuality.rawValue
+                        )
+                        await cacheArtworkForDownloadedTrack(track)
+                        await refreshAllTargetProgresses()
+                        return
+                    }
+
                     throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
                 }
             }
