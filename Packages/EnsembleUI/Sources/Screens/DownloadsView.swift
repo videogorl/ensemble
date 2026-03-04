@@ -124,34 +124,11 @@ public struct DownloadsView: View {
 
     @ViewBuilder
     private func libraryRow(for library: LibraryDownloadSummary) -> some View {
-        // Label area is the row content; toggle + chevron sit on the trailing edge.
-        // NavigationLink is hidden and triggered via the chevron button.
-        HStack(spacing: 12) {
-            // Main label content
-            libraryRowLabel(for: library)
-
-            Spacer()
-
-            // Toggle to enable/disable library download
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) },
-                    set: { enabled in
-                        Task {
-                            await viewModel.setLibraryEnabled(
-                                sourceCompositeKey: library.sourceCompositeKey,
-                                title: library.libraryName,
-                                isEnabled: enabled
-                            )
-                        }
-                    }
-                )
-            )
-            .labelsHidden()
-            .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
-
-            // Chevron for drill-in navigation (right of toggle)
+        // Hidden NavigationLink provides drill-in without rendering a second chevron.
+        // The visible row uses a ZStack overlay so the toggle stays interactive
+        // while tapping anywhere else navigates.
+        ZStack(alignment: .trailing) {
+            // Invisible NavigationLink fills the row for tap-to-navigate
             NavigationLink {
                 LibraryDownloadDetailView(
                     sourceCompositeKey: library.sourceCompositeKey,
@@ -159,9 +136,31 @@ public struct DownloadsView: View {
                     nowPlayingVM: nowPlayingVM
                 )
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
+                EmptyView()
+            }
+            .opacity(0)
+
+            // Visible row content with toggle on the trailing edge
+            HStack(spacing: 12) {
+                libraryRowLabel(for: library)
+                Spacer()
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) },
+                        set: { enabled in
+                            Task {
+                                await viewModel.setLibraryEnabled(
+                                    sourceCompositeKey: library.sourceCompositeKey,
+                                    title: library.libraryName,
+                                    isEnabled: enabled
+                                )
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
             }
         }
     }
