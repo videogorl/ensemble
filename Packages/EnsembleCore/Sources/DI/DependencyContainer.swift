@@ -320,7 +320,23 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineDownloadService: offlineDownloadService,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            accountManager: accountManager,
+            downloadManager: downloadManager
+        )
+    }
+
+    @MainActor
+    public func makeLibraryDownloadDetailViewModel(
+        sourceCompositeKey: String,
+        title: String
+    ) -> LibraryDownloadDetailViewModel {
+        LibraryDownloadDetailViewModel(
+            sourceCompositeKey: sourceCompositeKey,
+            title: title,
+            downloadManager: downloadManager,
+            libraryRepository: libraryRepository,
+            offlineDownloadService: offlineDownloadService
         )
     }
 

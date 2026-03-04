@@ -2,6 +2,26 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+// MARK: - Library Download Summary
+
+/// Aggregated download info for a single sync-enabled library
+public struct LibraryDownloadSummary: Identifiable {
+    public let id: String  // sourceCompositeKey
+    public let sourceCompositeKey: String
+    public let serverName: String
+    public let libraryName: String
+    /// Whether a library-level download target exists
+    public let isEnabled: Bool
+    public let downloadedTrackCount: Int
+    public let totalTrackCount: Int
+    public let downloadedBytes: Int64
+    public let estimatedTotalBytes: Int64
+    public let status: CDOfflineDownloadTarget.Status?
+    public let progress: Float
+}
+
+// MARK: - Downloaded Item Summary
+
 public struct DownloadedItemSummary: Identifiable {
     public let id: String
     public let key: String
@@ -31,23 +51,33 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var pendingMutationCount: Int = 0
     /// Whether the download queue is actively processing tracks
     @Published public private(set) var isQueueRunning = false
+    /// Aggregated download stats for each sync-enabled library
+    @Published public private(set) var librarySummaries: [LibraryDownloadSummary] = []
+    /// Library sourceCompositeKeys currently toggling (for spinner feedback)
+    @Published public private(set) var libraryTogglesInProgress: Set<String> = []
 
     private let offlineDownloadService: OfflineDownloadService
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let mutationCoordinator: MutationCoordinator
+    private let accountManager: AccountManager
+    private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         offlineDownloadService: OfflineDownloadService,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        accountManager: AccountManager,
+        downloadManager: DownloadManagerProtocol
     ) {
         self.offlineDownloadService = offlineDownloadService
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.mutationCoordinator = mutationCoordinator
+        self.accountManager = accountManager
+        self.downloadManager = downloadManager
 
         // Map snapshots to summaries immediately, then kick off async thumb resolution
         offlineDownloadService.$targets
@@ -75,6 +105,17 @@ public final class DownloadsViewModel: ObservableObject {
         offlineDownloadService.$isQueueRunning
             .receive(on: DispatchQueue.main)
             .assign(to: &$isQueueRunning)
+
+        // Rebuild library summaries when targets or accounts change
+        offlineDownloadService.$targets
+            .combineLatest(accountManager.$plexAccounts)
+            .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                Task { [weak self] in
+                    await self?.rebuildLibrarySummaries()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     public func refresh() async {
@@ -97,6 +138,111 @@ public final class DownloadsViewModel: ObservableObject {
     /// Resumes a paused download queue.
     public func resumeQueue() async {
         await offlineDownloadService.resumeQueue()
+    }
+
+    /// Whether a library-level download target exists for the given sourceCompositeKey
+    public func isLibraryEnabled(sourceCompositeKey: String) -> Bool {
+        offlineDownloadService.isLibraryDownloadEnabled(sourceCompositeKey: sourceCompositeKey)
+    }
+
+    /// Toggle library-level download on or off
+    public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
+        libraryTogglesInProgress.insert(sourceCompositeKey)
+        await offlineDownloadService.setLibraryDownloadEnabled(
+            sourceCompositeKey: sourceCompositeKey,
+            displayName: title,
+            isEnabled: isEnabled
+        )
+        libraryTogglesInProgress.remove(sourceCompositeKey)
+        await rebuildLibrarySummaries()
+    }
+
+    // MARK: - Library Summaries
+
+    /// Rebuilds aggregated download stats for each sync-enabled library
+    private func rebuildLibrarySummaries() async {
+        var summaries: [LibraryDownloadSummary] = []
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                let enabledLibraries = server.libraries.filter { $0.isEnabled }
+                for library in enabledLibraries {
+                    let sourceCompositeKey = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ).compositeKey
+
+                    let isEnabled = offlineDownloadService.isLibraryDownloadEnabled(
+                        sourceCompositeKey: sourceCompositeKey
+                    )
+
+                    // Fetch download counts for this library
+                    let downloads = (try? await downloadManager.fetchDownloads(forSourceCompositeKey: sourceCompositeKey)) ?? []
+                    let completedDownloads = downloads.filter { $0.downloadStatus == .completed }
+                    let downloadedBytes = completedDownloads.reduce(Int64(0)) { $0 + $1.fileSize }
+
+                    // Total track count from library cache
+                    let allTracks = (try? await libraryRepository.fetchTracks(forSource: sourceCompositeKey)) ?? []
+                    let totalTrackCount = allTracks.count
+
+                    // Estimate total size: sum of duration * bitrate for current quality
+                    let totalDurationMs = allTracks.reduce(Int64(0)) { $0 + $1.duration }
+                    let durationSeconds = Double(totalDurationMs) / 1000.0
+                    let downloadQuality = UserDefaults.standard.string(forKey: "downloadQuality") ?? "original"
+                    let estimatedTotalBytes = Self.estimateBytes(durationSeconds: durationSeconds, quality: downloadQuality, actualBytes: downloadedBytes)
+
+                    // Determine status from library-level target snapshot
+                    let targetSnapshot = offlineDownloadService.targets.first {
+                        $0.kind == .library && $0.sourceCompositeKey == sourceCompositeKey
+                    }
+
+                    // Compute progress
+                    let progress: Float
+                    if totalTrackCount > 0 {
+                        progress = Float(completedDownloads.count) / Float(totalTrackCount)
+                    } else {
+                        progress = 0
+                    }
+
+                    summaries.append(LibraryDownloadSummary(
+                        id: sourceCompositeKey,
+                        sourceCompositeKey: sourceCompositeKey,
+                        serverName: server.name,
+                        libraryName: library.title,
+                        isEnabled: isEnabled,
+                        downloadedTrackCount: completedDownloads.count,
+                        totalTrackCount: totalTrackCount,
+                        downloadedBytes: downloadedBytes,
+                        estimatedTotalBytes: estimatedTotalBytes,
+                        status: targetSnapshot?.status,
+                        progress: progress
+                    ))
+                }
+            }
+        }
+
+        librarySummaries = summaries.sorted {
+            let lhs = "\($0.serverName): \($0.libraryName)"
+            let rhs = "\($1.serverName): \($1.libraryName)"
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+    }
+
+    /// Estimate total bytes for a quality level given total track duration
+    private static func estimateBytes(durationSeconds: Double, quality: String, actualBytes: Int64) -> Int64 {
+        switch quality {
+        case "high":
+            return Int64(durationSeconds * 320_000 / 8)
+        case "medium":
+            return Int64(durationSeconds * 192_000 / 8)
+        case "low":
+            return Int64(durationSeconds * 128_000 / 8)
+        default:
+            // Original quality — use actual downloaded bytes as best estimate
+            return actualBytes
+        }
     }
 
     // MARK: - Private
