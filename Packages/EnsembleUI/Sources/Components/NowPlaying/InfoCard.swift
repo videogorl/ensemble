@@ -141,8 +141,12 @@ public struct InfoCard: View {
             }
             .padding(.bottom, 4)
 
-            // Quality setting
-            infoRow(label: "Quality", value: formatQuality(streamingQuality))
+            if viewModel.currentTrack != nil {
+                infoRow(label: "Source", value: resolvePlaybackSource())
+            }
+
+            // Actual playback quality for the current source.
+            infoRow(label: "Playback Quality", value: resolvePlaybackQuality())
 
             // Server name
             if let serverName = resolveServerName() {
@@ -187,28 +191,37 @@ public struct InfoCard: View {
         isTappable: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        HStack {
+        HStack(alignment: .top, spacing: 12) {
             Text(label)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            Spacer()
+                .frame(minWidth: 72, alignment: .leading)
+
             if isTappable, let action = action {
                 Button(action: action) {
-                    HStack(spacing: 4) {
+                    HStack(alignment: .top, spacing: 4) {
                         Text(value)
                             .font(.subheadline)
                             .foregroundColor(.primary)
-                            .lineLimit(1)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                         Image(systemName: "chevron.right")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .padding(.top, 2)
                     }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+                .buttonStyle(.plain)
             } else {
                 Text(value)
                     .font(.subheadline)
                     .foregroundColor(.primary)
-                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
@@ -264,6 +277,69 @@ public struct InfoCard: View {
             return "Limited"
         case .unknown:
             return "Unknown"
+        }
+    }
+
+    /// Resolve whether current playback is from a downloaded local file or streaming.
+    private func resolvePlaybackSource() -> String {
+        guard let track = viewModel.currentTrack else { return "—" }
+        guard let localFilePath = track.localFilePath else { return "Streaming" }
+        return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
+    }
+
+    /// Resolve playback quality with source-aware context.
+    /// For downloaded tracks, this reads the persisted filename quality token and container.
+    /// For streaming playback, this reflects the currently selected streaming quality.
+    private func resolvePlaybackQuality() -> String {
+        guard let track = viewModel.currentTrack else { return "—" }
+        guard let localFilePath = track.localFilePath,
+              FileManager.default.fileExists(atPath: localFilePath) else {
+            return "\(formatQuality(streamingQuality)) (Streaming)"
+        }
+
+        let fileURL = URL(fileURLWithPath: localFilePath)
+        let offlineQuality = extractOfflineQualityToken(from: fileURL)
+        let container = formatContainer(fileExtension: fileURL.pathExtension)
+
+        switch (offlineQuality, container) {
+        case let (.some(quality), .some(container)):
+            return "\(formatQuality(quality)) • \(container) (Downloaded)"
+        case let (.some(quality), .none):
+            return "\(formatQuality(quality)) (Downloaded)"
+        case let (.none, .some(container)):
+            return "\(container) (Downloaded)"
+        case (.none, .none):
+            return "Downloaded"
+        }
+    }
+
+    private func extractOfflineQualityToken(from fileURL: URL) -> String? {
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        guard let token = stem.split(separator: "_").last?.lowercased() else {
+            return nil
+        }
+        switch token {
+        case "original", "high", "medium", "low":
+            return token
+        default:
+            return nil
+        }
+    }
+
+    private func formatContainer(fileExtension: String) -> String? {
+        let normalized = fileExtension.lowercased()
+        guard !normalized.isEmpty else { return nil }
+        switch normalized {
+        case "m4a":
+            return "AAC"
+        case "mp3":
+            return "MP3"
+        case "flac":
+            return "FLAC"
+        case "aac":
+            return "AAC"
+        default:
+            return normalized.uppercased()
         }
     }
 
@@ -355,6 +431,11 @@ public struct InfoCard: View {
 
     /// Resolve connection status with color
     private func resolveConnectionStatus() -> (text: String, color: Color)? {
+        // Device is offline — always reflect that regardless of cached server state
+        guard deps.networkMonitor.isConnected else {
+            return ("Offline", Color.red)
+        }
+
         guard let serverKey = extractServerKey(from: viewModel.currentTrack?.sourceCompositeKey) else {
             return nil
         }

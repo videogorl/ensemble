@@ -20,10 +20,15 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Feature Completeness Gaps
 
-### Offline Playback Infrastructure Exists But Not Wired Up
-- `DownloadManager` handles track file downloads
-- `DownloadsView` shows download queue
-- **Missing:** Wire up audio file downloads to `PlaybackService` for true offline playback
+### BG Continued Processing Is Best-Effort (iOS 26+)
+- `OfflineBackgroundExecutionCoordinator` submits `BGContinuedProcessingTaskRequest` for user-initiated bulk offline work.
+- The OS may reject queued requests, cancel queued work if the app is removed from switcher, or expire active tasks.
+- **Current behavior:** `OfflineDownloadService` treats BG execution as an accelerator only; persistent queue state remains source of truth and resumes in normal foreground/background opportunities.
+
+### Offline Transcode Availability Varies by Plex Server
+- Some Plex server configurations reject all `/music|audio/:/transcode/universal/*` download requests with HTTP `400` even when direct `/library/parts/...` access succeeds.
+- **Current behavior:** `OfflineDownloadService` treats this as a server capability limitation, marks the server as `offline-transcode-unsupported`, and skips repeated transcode attempts by downloading original quality directly.
+- **User impact:** Download quality settings (`high/medium/low`) may not be attainable for affected servers; downloaded files remain original quality.
 
 ### Artwork Pre-Caching Not Automatic
 - `ArtworkLoader.predownloadArtwork()` methods exist

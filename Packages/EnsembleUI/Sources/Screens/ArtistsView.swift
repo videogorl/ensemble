@@ -354,6 +354,7 @@ public struct ArtistDetailView: View {
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
         let isPinned = pinManager.isPinned(id: viewModel.artist.id)
+        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
         return Menu {
             Button {
                 if isPinned {
@@ -372,6 +373,20 @@ public struct ArtistDetailView: View {
                 } else {
                     Label("Pin to Pins", systemImage: "pin.fill")
                 }
+            }
+
+            Button {
+                Task {
+                    await dependencies.offlineDownloadService.setArtistDownloadEnabled(
+                        viewModel.artist,
+                        isEnabled: !isDownloaded
+                    )
+                }
+            } label: {
+                Label(
+                    isDownloaded ? "Remove Download" : "Download",
+                    systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                )
             }
         } label: {
             Image(systemName: "ellipsis.circle")

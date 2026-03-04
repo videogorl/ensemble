@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import EnsembleAPI
+import EnsemblePersistence
 import Foundation
 import MediaPlayer
 import Nuke
@@ -220,6 +221,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var conservativeWaitCycles: Int = 0
     }
 
+    // MARK: - Seek Operation
+
+    /// Encapsulates an in-flight seek — replaces the six scattered pendingSeek* flags.
+    private final class SeekOperation {
+        let id: UInt64
+        let targetTime: TimeInterval
+        let trackID: String?
+        let shouldResume: Bool
+        let startedAt: Date
+
+        init(id: UInt64, targetTime: TimeInterval, trackID: String?, shouldResume: Bool) {
+            self.id = id
+            self.targetTime = targetTime
+            self.trackID = trackID
+            self.shouldResume = shouldResume
+            self.startedAt = Date()
+        }
+    }
+
+    // MARK: - Playback Source / Seek Mode
+
+    /// Where the audio data for the current track comes from.
+    private enum PlaybackSource {
+        case localFile      // Downloaded track on disk — instant seeks, never buffers
+        case networkStream  // Remote or LAN stream — may need to buffer
+    }
+
+    /// How to handle UI state during a seek.
+    private enum SeekMode {
+        case transparent  // Data available — player pauses internally but UI stays .playing
+        case buffering    // Data unavailable — show .buffering, engage stall recovery
+    }
+
     static let stallEscalationThreshold = 2
     static let stallEscalationWindow: TimeInterval = 30
     static let conservativeModeDuration: TimeInterval = 120
@@ -388,10 +422,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static func shouldRecordWaitingStallEvent(
         playbackState: PlaybackState,
         isPlaybackBufferEmpty: Bool,
-        pendingSeekTargetTime: TimeInterval?
+        hasActiveSeek: Bool
     ) -> Bool {
         guard playbackState == .playing else { return false }
-        guard pendingSeekTargetTime == nil else { return false }
+        guard !hasActiveSeek else { return false }
         return isPlaybackBufferEmpty
     }
 
@@ -400,14 +434,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isPlaybackLikelyToKeepUp: Bool,
         isPlaybackBufferFull: Bool,
         isPlaybackBufferEmpty: Bool,
-        pendingSeekTargetTime: TimeInterval?
+        hasActiveSeek: Bool
     ) -> (resumeImmediately: Bool, recordStallEvent: Bool)? {
         switch playbackState {
         case .playing, .buffering, .loading:
             if isPlaybackLikelyToKeepUp || isPlaybackBufferFull {
                 return (true, false)
             }
-            let shouldRecordStallEvent = pendingSeekTargetTime == nil && isPlaybackBufferEmpty
+            let shouldRecordStallEvent = !hasActiveSeek && isPlaybackBufferEmpty
             return (false, shouldRecordStallEvent)
         default:
             return nil
@@ -468,6 +502,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return true
         }
         return enabledSourceCompositeKeys.contains(sourceCompositeKey)
+    }
+
+    static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
+        lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
     }
 
     static func pruneQueueForEnabledSources(
@@ -669,12 +707,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var unexpectedPauseCount = 0
     private var audioSessionInterruptionObserver: Any?
     private var audioSessionRouteChangeObserver: Any?
-    private var pendingSeekRequestID: UInt64?
-    private var pendingSeekTargetTime: TimeInterval?
-    private var pendingSeekTrackID: String?
-    private var pendingSeekStartedAt: Date?
-    private var pendingSeekShouldResume: Bool = false
-    private var seekRequestCounter: UInt64 = 0
+    private var activeSeek: SeekOperation?
+    private var seekCounter: UInt64 = 0
     private var adaptiveBufferingState = AdaptiveBufferingState()
     private var activeBufferingProfile = PlaybackBufferingProfile.cellularOrOther
     private var nowPlayingArtworkTask: Task<Void, Never>?
@@ -686,6 +720,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let networkMonitor: NetworkMonitor
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
+    private let downloadManager: DownloadManagerProtocol
+    private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
@@ -769,11 +805,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Initialization
 
-    public init(syncCoordinator: SyncCoordinator, networkMonitor: NetworkMonitor, artworkLoader: ArtworkLoaderProtocol, audioAnalyzer: AudioAnalyzerProtocol) {
+    public init(
+        syncCoordinator: SyncCoordinator,
+        networkMonitor: NetworkMonitor,
+        artworkLoader: ArtworkLoaderProtocol,
+        audioAnalyzer: AudioAnalyzerProtocol,
+        downloadManager: DownloadManagerProtocol
+    ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
+        self.downloadManager = downloadManager
         super.init()
         setupAudioSession()
         setupRemoteCommands()
@@ -788,6 +831,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         cleanup()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
+    }
+
+    /// Wire the mutation coordinator after init to avoid circular DI dependencies
+    public func setMutationCoordinator(_ coordinator: MutationCoordinator) {
+        self.mutationCoordinator = coordinator
     }
 
     private func setupPlayer() {
@@ -837,7 +885,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func handleItemChange(_ item: AVPlayerItem) {
         // Seeks should only apply to the previously active item. Clear stale seek gating
         // immediately when AVQueuePlayer advances to a different item.
-        clearPendingSeekState()
+        clearActiveSeek()
 
         // Find which track this item belongs to
         if let pair = playerItems.first(where: { $0.value === item }) {
@@ -1302,10 +1350,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             do {
                 try await self.storeTrackRating(trackId: track.id, rating: newRating)
-                try await self.syncCoordinator.rateTrack(
-                    track: track,
-                    rating: newRating == 0 ? nil : newRating
-                )
+
+                // Route through MutationCoordinator — handles offline queuing automatically
+                let plexRating: Int? = newRating == 0 ? nil : newRating
+                _ = try await self.mutationCoordinator?.rateTrack(track, rating: plexRating)
             } catch {
                 self.applyTrackRatingLocally(trackId: track.id, rating: previousRating)
                 self.updateNowPlayingInfo()
@@ -1386,6 +1434,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
+        guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
+            // Stop any currently playing audio before showing error state
+            stop()
+            playbackState = .failed("No downloaded tracks available offline")
+            return
+        }
+        let queueTracks = playableQueue.tracks
 
         // Disable shuffle on regular play
         if isShuffleEnabled {
@@ -1393,9 +1448,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
         }
 
-        queue = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        #if DEBUG
+        if playableQueue.skippedCount > 0 {
+            EnsembleLogger.debug(
+                "🎵 Offline queue filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
+            )
+        }
+        #endif
+
+        queue = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
         originalQueue = queue
-        currentQueueIndex = index
+        currentQueueIndex = playableQueue.startIndex
 
         // Clear history and cache for fresh session
         playbackHistory.removeAll()
@@ -1411,6 +1474,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+        guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
+            stop()
+            playbackState = .failed("No downloaded tracks available offline")
+            return
+        }
+        let queueTracks = playableQueue.tracks
 
         // Enable shuffle
         if !isShuffleEnabled {
@@ -1418,7 +1487,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             UserDefaults.standard.set(true, forKey: "isShuffleEnabled")
         }
 
-        let items = tracks.map { QueueItem(track: $0, source: .continuePlaying) }
+        #if DEBUG
+        if playableQueue.skippedCount > 0 {
+            EnsembleLogger.debug(
+                "🎵 Offline shuffle filter applied: requested=\(tracks.count), playable=\(queueTracks.count), skipped=\(playableQueue.skippedCount)"
+            )
+        }
+        #endif
+
+        let items = queueTracks.map { QueueItem(track: $0, source: .continuePlaying) }
         originalQueue = items
 
         var shuffled = items
@@ -1437,6 +1514,79 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Check queue population after starting new playback
         await checkAndRefreshAutoplayQueue()
+    }
+
+    private func resolvePlayableQueue(
+        tracks: [Track],
+        preferredStartIndex: Int
+    ) async -> (tracks: [Track], startIndex: Int, skippedCount: Int)? {
+        guard !tracks.isEmpty else { return nil }
+        let clampedStartIndex = min(max(preferredStartIndex, 0), tracks.count - 1)
+        let isOfflineConstrained = await MainActor.run {
+            !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+        }
+
+        // When streaming is available, keep queue behavior unchanged.
+        guard isOfflineConstrained else {
+            return (tracks: tracks, startIndex: clampedStartIndex, skippedCount: 0)
+        }
+
+        var playableTracks: [Track] = []
+        var originalPlayableIndices: [Int] = []
+        playableTracks.reserveCapacity(tracks.count)
+        originalPlayableIndices.reserveCapacity(tracks.count)
+
+        for (index, track) in tracks.enumerated() {
+            if let offlineTrack = await resolveOfflinePlayableTrack(track) {
+                playableTracks.append(offlineTrack)
+                originalPlayableIndices.append(index)
+            }
+        }
+
+        guard !playableTracks.isEmpty else { return nil }
+
+        let resolvedStartIndex: Int
+        if let indexAtOrAfterSelection = originalPlayableIndices.firstIndex(where: { $0 >= clampedStartIndex }) {
+            resolvedStartIndex = indexAtOrAfterSelection
+        } else if let indexBeforeSelection = originalPlayableIndices.lastIndex(where: { $0 <= clampedStartIndex }) {
+            resolvedStartIndex = indexBeforeSelection
+        } else {
+            resolvedStartIndex = 0
+        }
+
+        return (
+            tracks: playableTracks,
+            startIndex: resolvedStartIndex,
+            skippedCount: tracks.count - playableTracks.count
+        )
+    }
+
+    private func resolveOfflinePlayableTrack(_ track: Track) async -> Track? {
+        if let localFilePath = track.localFilePath,
+           FileManager.default.fileExists(atPath: localFilePath) {
+            return track
+        }
+
+        do {
+            if let persistedPath = try await downloadManager.getLocalFilePath(
+                forTrackRatingKey: track.id,
+                sourceCompositeKey: track.sourceCompositeKey
+            ),
+                FileManager.default.fileExists(atPath: persistedPath) {
+                if persistedPath == track.localFilePath {
+                    return track
+                }
+                return trackWithLocalFilePath(track, localFilePath: persistedPath)
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⚠️ Failed resolving offline playable track \(track.id): \(error.localizedDescription)"
+            )
+            #endif
+        }
+
+        return nil
     }
 
     public func playQueueIndex(_ index: Int) async {
@@ -1690,61 +1840,82 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         savePlaybackState()
 
         guard let player else {
-            clearPendingSeekState()
+            clearActiveSeek()
             return
         }
 
+        // Seeking on a non-ready item silently fails — update UI time optimistically and bail.
+        guard player.currentItem?.status == .readyToPlay else {
+            return
+        }
+
+        let source = currentPlaybackSource
+        let mode = seekMode(for: clampedTime, source: source)
         let shouldResumeAfterSeek = playbackState == .playing || playbackState == .buffering
         if shouldResumeAfterSeek {
             player.pause()
-            playbackState = .buffering
+            if mode == .buffering {
+                // Only show buffering when data is genuinely unavailable
+                playbackState = .buffering
+            }
+            // .transparent: player pauses internally for the seek, UI state stays .playing
         }
 
-        seekRequestCounter &+= 1
-        let requestID = seekRequestCounter
-        pendingSeekRequestID = requestID
-        pendingSeekTargetTime = clampedTime
-        pendingSeekTrackID = currentTrack?.id
-        pendingSeekStartedAt = Date()
-        pendingSeekShouldResume = shouldResumeAfterSeek
+        seekCounter &+= 1
+        let seekID = seekCounter
+        activeSeek = SeekOperation(
+            id: seekID,
+            targetTime: clampedTime,
+            trackID: currentTrack?.id,
+            shouldResume: shouldResumeAfterSeek
+        )
+
+        // Use zero tolerance for local files (free and exact); allow a small trailing tolerance
+        // for streams so AVPlayer can seek to a nearby keyframe, reducing seek latency.
+        let toleranceBefore = CMTime.zero
+        let toleranceAfter: CMTime = (source == .localFile)
+            ? .zero
+            : CMTime(seconds: 0.1, preferredTimescale: 1000)
 
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        player.seek(to: cmTime, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                guard self.pendingSeekRequestID == requestID else { return }
-                let seekTargetTime = self.pendingSeekTargetTime
-                let shouldResume = self.pendingSeekShouldResume
-                if shouldResume {
-                    let item = self.player?.currentItem
-                    let targetIsBuffered: Bool
-                    if let item, let seekTargetTime {
-                        targetIsBuffered = Self.contiguousBufferedRangeEnd(
-                            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
-                            playbackTime: seekTargetTime
-                        ) != nil
+                // Use seekCounter (not activeSeek) for staleness: the time observer may have
+                // already cleared activeSeek to release the progress gate, but we still need
+                // to resume the player if no newer seek has started.
+                guard let self, self.seekCounter == seekID else { return }
+
+                if shouldResumeAfterSeek {
+                    if mode == .transparent {
+                        // Data was available — resume without re-checking buffer conditions
+                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-transparent")
                     } else {
-                        targetIsBuffered = false
-                    }
+                        // Network seek — check whether the target ended up buffered
+                        let item = self.player?.currentItem
+                        let targetIsBuffered = item.flatMap { i in
+                            Self.contiguousBufferedRangeEnd(
+                                ranges: i.loadedTimeRanges.map { $0.timeRangeValue },
+                                playbackTime: clampedTime
+                            )
+                        } != nil
+                        let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
+                        let bufferFull = item?.isPlaybackBufferFull == true
 
-                    let likelyToKeepUp = item?.isPlaybackLikelyToKeepUp == true
-                    let playbackBufferFull = item?.isPlaybackBufferFull == true
-                    let shouldForceImmediateResume = targetIsBuffered || likelyToKeepUp || playbackBufferFull
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "🎯 Seek completion: source=\(source), targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(bufferFull)"
+                        )
+                        #endif
 
-                    #if DEBUG
-                    EnsembleLogger.debug(
-                        "🎯 Seek completion: targetBuffered=\(targetIsBuffered), likelyToKeepUp=\(likelyToKeepUp), bufferFull=\(playbackBufferFull), immediateResume=\(shouldForceImmediateResume)"
-                    )
-                    #endif
-
-                    if shouldForceImmediateResume {
-                        self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
-                    } else {
-                        self.playbackState = .buffering
-                        self.setupStallRecovery(recordStallEvent: false)
+                        if targetIsBuffered || likelyToKeepUp || bufferFull {
+                            self.resumePlayerFromBuffering(forceImmediate: true, reason: "seek-completion")
+                        } else {
+                            self.playbackState = .buffering
+                            self.setupStallRecovery(recordStallEvent: false)
+                        }
                     }
                 }
-                self.clearPendingSeekState()
+                self.clearActiveSeek()
             }
         }
     }
@@ -2434,7 +2605,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        let track = queue[currentQueueIndex].track
+        let queuedTrack = queue[currentQueueIndex].track
+        let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
         let recoverySeekTime = validatedRecoverySeekTime(startTime, for: track)
 
         #if DEBUG
@@ -2588,12 +2760,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func seekCurrentItemForRecovery(to recoverySeekTime: TimeInterval) {
         guard let player else { return }
 
-        seekRequestCounter &+= 1
-        pendingSeekRequestID = seekRequestCounter
-        pendingSeekTargetTime = recoverySeekTime
-        pendingSeekTrackID = currentTrack?.id
-        pendingSeekStartedAt = Date()
-        pendingSeekShouldResume = false
+        seekCounter &+= 1
+        activeSeek = SeekOperation(
+            id: seekCounter,
+            targetTime: recoverySeekTime,
+            trackID: currentTrack?.id,
+            shouldResume: false
+        )
         currentTime = recoverySeekTime
 
         let targetTime = CMTime(seconds: recoverySeekTime, preferredTimescale: 1000)
@@ -2676,13 +2849,42 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("   🎵 Using streaming quality: \(quality.rawValue)")
         #endif
 
-        // If we have a local file, use it regardless of network state
-        if let localPath = track.localFilePath, FileManager.default.fileExists(atPath: localPath) {
+        // If we have a local file, use it regardless of network state.
+        if let localPath = track.localFilePath {
+            if FileManager.default.fileExists(atPath: localPath) {
+                let localPlaybackURL = preparedLocalPlaybackURL(forPath: localPath)
+                if isClearlyInvalidLocalPayload(localPlaybackURL) {
+                    #if DEBUG
+                    EnsembleLogger.debug("   ⚠️ Local file payload appears invalid; falling back to stream setup: \(localPlaybackURL.path)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    EnsembleLogger.debug("   ✅ Using local file: \(localPlaybackURL.path)")
+                    #endif
+                    return AVPlayerItem(url: localPlaybackURL)
+                }
+
+                // If an extension-normalized alias exists but is invalid, remove it and
+                // try the original path before falling back to streaming.
+                if localPlaybackURL.path != localPath {
+                    try? FileManager.default.removeItem(at: localPlaybackURL)
+                    let originalURL = URL(fileURLWithPath: localPath)
+                    if !isClearlyInvalidLocalPayload(originalURL) {
+                        #if DEBUG
+                        EnsembleLogger.debug("   ✅ Using local file (original): \(originalURL.path)")
+                        #endif
+                        return AVPlayerItem(url: originalURL)
+                    }
+                }
+
+                #if DEBUG
+                EnsembleLogger.debug("   ⚠️ Local file was present but unreadable; continuing with stream fallback")
+                #endif
+            }
+
             #if DEBUG
-            EnsembleLogger.debug("   ✅ Using local file: \(localPath)")
+            EnsembleLogger.debug("   ⚠️ localFilePath set but file missing on disk: \(localPath)")
             #endif
-            let url = URL(fileURLWithPath: localPath)
-            return AVPlayerItem(url: url)
         }
 
         // Avoid failing fast on cold Siri launches where NWPathMonitor may still be
@@ -2802,6 +3004,114 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return .unknown(error)
     }
 
+    /// Classifies the current track's data source for seek and buffering decisions.
+    private var currentPlaybackSource: PlaybackSource {
+        isCurrentPlaybackUsingLocalFile() ? .localFile : .networkStream
+    }
+
+    /// Determines whether a seek to `time` requires buffering or can be transparent.
+    /// For local files, seeks are always instant. For streams, checks whether
+    /// the target position is already in the loaded buffer.
+    private func seekMode(for time: TimeInterval, source: PlaybackSource) -> SeekMode {
+        guard source == .networkStream else { return .transparent }
+        guard let item = player?.currentItem else { return .buffering }
+        if item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull { return .transparent }
+        let inBuffer = Self.contiguousBufferedRangeEnd(
+            ranges: item.loadedTimeRanges.map { $0.timeRangeValue },
+            playbackTime: time
+        ) != nil
+        return inBuffer ? .transparent : .buffering
+    }
+
+    /// Detect whether the currently active playback item is local-file backed.
+    /// Local playback should avoid streaming-oriented stall recovery.
+    private func isCurrentPlaybackUsingLocalFile() -> Bool {
+        if let localPath = currentTrack?.localFilePath,
+           FileManager.default.fileExists(atPath: localPath) {
+            return true
+        }
+
+        if let urlAsset = player?.currentItem?.asset as? AVURLAsset {
+            return urlAsset.url.isFileURL
+        }
+
+        return false
+    }
+
+    /// Normalize local playback URL so container/extension mismatches do not prevent decode.
+    /// Some servers return MPEG data via queue flow without a filename extension.
+    private func preparedLocalPlaybackURL(forPath path: String) -> URL {
+        let originalURL = URL(fileURLWithPath: path)
+        guard originalURL.pathExtension.lowercased() == "m4a" else { return originalURL }
+        guard sniffedAudioContainer(for: originalURL) == "mp3" else { return originalURL }
+
+        let mp3URL = originalURL.deletingPathExtension().appendingPathExtension("mp3")
+        if FileManager.default.fileExists(atPath: mp3URL.path) {
+            if sniffedAudioContainer(for: mp3URL) == "mp3", !isClearlyInvalidLocalPayload(mp3URL) {
+                return mp3URL
+            }
+            try? FileManager.default.removeItem(at: mp3URL)
+        }
+
+        do {
+            try FileManager.default.linkItem(at: originalURL, to: mp3URL)
+            return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
+        } catch {
+            do {
+                try FileManager.default.copyItem(at: originalURL, to: mp3URL)
+                return isClearlyInvalidLocalPayload(mp3URL) ? originalURL : mp3URL
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Failed creating mp3 alias for local playback: \(error.localizedDescription)")
+                #endif
+                return originalURL
+            }
+        }
+    }
+
+    private func sniffedAudioContainer(for fileURL: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 12), !header.isEmpty else {
+            return nil
+        }
+
+        if header.starts(with: Data([0x49, 0x44, 0x33])) { // ID3
+            return "mp3"
+        }
+        if header.starts(with: Data([0x66, 0x4C, 0x61, 0x43])) { // fLaC
+            return "flac"
+        }
+        if header.starts(with: Data([0xFF, 0xFB])) || header.starts(with: Data([0xFF, 0xF3])) || header.starts(with: Data([0xFF, 0xF2])) {
+            return "mp3"
+        }
+        if header.count >= 8 && header.subdata(in: 4..<8) == Data([0x66, 0x74, 0x79, 0x70]) {
+            return "m4a"
+        }
+        return nil
+    }
+
+    private func isClearlyInvalidLocalPayload(_ fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return true }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 64), !header.isEmpty else {
+            return true
+        }
+
+        let leadingText = String(decoding: header, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if leadingText.hasPrefix("<html")
+            || leadingText.hasPrefix("<!doctype html")
+            || leadingText.hasPrefix("<?xml")
+            || leadingText.contains("<h1>400 bad request</h1>")
+            || leadingText.contains("<h1>404 not found</h1>") {
+            return true
+        }
+
+        return false
+    }
+
     static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
         guard domain == NSURLErrorDomain else { return false }
         switch errorCode {
@@ -2901,7 +3211,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var cacheMisses = 0
 
         for index in targetIndices {
-            let track = queue[index].track
+            let queuedTrack = queue[index].track
+            let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
             do {
                 let item: AVPlayerItem
                 let cachedItem = getCachedPlayerItem(for: track.id)
@@ -3101,11 +3412,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackBufferEmpty && self.playbackState == .playing {
+                    if self.isCurrentPlaybackUsingLocalFile() {
+                        #if DEBUG
+                        EnsembleLogger.debug("ℹ️ Ignoring buffer-empty transition for local playback item")
+                        #endif
+                        return
+                    }
+                    if self.activeSeek != nil {
+                        // Normal to be empty mid-seek; the seek completion handler will resume.
+                        return
+                    }
                     #if DEBUG
                     EnsembleLogger.debug("⚠️ Playback buffer empty - switching to buffering state")
                     #endif
                     self.playbackState = .buffering
-                    self.setupStallRecovery(recordStallEvent: self.pendingSeekTargetTime == nil)
+                    self.setupStallRecovery(recordStallEvent: true)
                 }
             }
         }
@@ -3165,13 +3486,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             return
                         }
 
+                        if self.isCurrentPlaybackUsingLocalFile() {
+                            #if DEBUG
+                            EnsembleLogger.debug("ℹ️ Ignoring unexpected pause recovery for local playback item")
+                            #endif
+                            return
+                        }
+
+                        if self.activeSeek != nil {
+                            // Intentional pause — AVPlayer repositioning for an in-flight seek.
+                            return
+                        }
+
                         let item = self.player?.currentItem
                         if let recoveryAction = Self.unexpectedPauseRecoveryAction(
                             playbackState: self.playbackState,
                             isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp == true,
                             isPlaybackBufferFull: item?.isPlaybackBufferFull == true,
                             isPlaybackBufferEmpty: item?.isPlaybackBufferEmpty == true,
-                            pendingSeekTargetTime: self.pendingSeekTargetTime
+                            hasActiveSeek: self.activeSeek != nil
                         ) {
                             let now = Date()
                             let isRapidPause = self.lastUnexpectedPauseAt.map { now.timeIntervalSince($0) < Self.minUnexpectedPauseInterval } ?? false
@@ -3212,6 +3545,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     case .waitingToPlayAtSpecifiedRate:
                         // Player is waiting to play (buffering, seeking, or loading)
+                        if self.isCurrentPlaybackUsingLocalFile() {
+                            #if DEBUG
+                            EnsembleLogger.debug("ℹ️ Ignoring waiting-to-play transition for local playback item")
+                            #endif
+                            return
+                        }
+
+                        if self.activeSeek != nil {
+                            // AVPlayer repositioning for an in-flight seek — don't engage stall recovery.
+                            return
+                        }
+
+                        // Only engage stall recovery for genuine network data stalls.
+                        // .waitingForInitialData and .evaluatingBufferingRate are managed by AVFoundation.
+                        if #available(iOS 10.0, macOS 10.12, *) {
+                            guard self.player?.reasonForWaitingToPlay == .toMinimizeStalls else { return }
+                        }
+
                         if self.playbackState == .playing {
                             #if DEBUG
                             EnsembleLogger.debug("⏳ AVPlayer waiting to play (buffering)")
@@ -3222,7 +3573,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             let shouldRecordStallEvent = Self.shouldRecordWaitingStallEvent(
                                 playbackState: .playing,
                                 isPlaybackBufferEmpty: item.isPlaybackBufferEmpty,
-                                pendingSeekTargetTime: self.pendingSeekTargetTime
+                                hasActiveSeek: self.activeSeek != nil
                             )
                             self.setupStallRecovery(recordStallEvent: shouldRecordStallEvent)
                         } else if self.playbackState == .loading {
@@ -3284,20 +3635,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] time in
             guard let self = self else { return }
 
-            if let pendingSeekTargetTime = self.pendingSeekTargetTime {
-                if self.pendingSeekTrackID != nil && self.pendingSeekTrackID != self.currentTrack?.id {
-                    // Track switched while seek was in flight; clear stale seek gate.
-                    self.clearPendingSeekState()
+            if let seek = self.activeSeek {
+                if seek.trackID != nil && seek.trackID != self.currentTrack?.id {
+                    // Track switched while seek was in flight; clear stale seek gating.
+                    self.clearActiveSeek()
                 } else {
                     let observedTime = time.seconds
-                    let elapsedSinceSeek = Date().timeIntervalSince(self.pendingSeekStartedAt ?? Date.distantPast)
+                    let elapsedSinceSeek = Date().timeIntervalSince(seek.startedAt)
                     if Self.shouldContinueSeekProgressGate(
                         observedTime: observedTime,
-                        pendingSeekTargetTime: pendingSeekTargetTime,
+                        pendingSeekTargetTime: seek.targetTime,
                         elapsedSinceSeek: elapsedSinceSeek,
                         playbackState: self.playbackState
                     ) {
-                        self.currentTime = pendingSeekTargetTime
+                        self.currentTime = seek.targetTime
                         self.updateBufferedProgress()
                         self.updateNowPlayingProgress()
                         return
@@ -3305,7 +3656,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     // Once observer time catches up (or the guard times out),
                     // clear synchronization and resume normal progress updates.
-                    self.clearPendingSeekState()
+                    self.clearActiveSeek()
                 }
             }
 
@@ -3340,12 +3691,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    private func clearPendingSeekState() {
-        pendingSeekRequestID = nil
-        pendingSeekTargetTime = nil
-        pendingSeekTrackID = nil
-        pendingSeekStartedAt = nil
-        pendingSeekShouldResume = false
+    private func clearActiveSeek() {
+        activeSeek = nil
     }
 
     private func removeCurrentItemNotificationObservers() {
@@ -3376,6 +3723,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #endif
             return
         }
+
+        // Cancel any pending stall recovery — we're about to play, so it's no longer needed.
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
 
         if forceImmediate {
             if #available(iOS 10.0, macOS 10.12, *) {
@@ -3495,6 +3846,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func setupStallRecovery(recordStallEvent: Bool = true) {
         let now = Date()
+        #if DEBUG
+        let isLocal = isCurrentPlaybackUsingLocalFile()
+        EnsembleLogger.debug("⏰ setupStallRecovery: localFile=\(isLocal), recordStall=\(recordStallEvent), state=\(playbackState), timeout=\(activeBufferingProfile.stallRecoveryTimeout)s")
+        #endif
         if recordStallEvent {
             registerBufferingStallEvent(now: now)
         } else {
@@ -3517,6 +3872,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleStallRecoveryTimeout() async {
         guard playbackState == .buffering else { return }
+
+        if isCurrentPlaybackUsingLocalFile() {
+            // Local files don't need network buffering — attempt immediate resume rather than failing.
+            // This handles edge cases where stall recovery fires during or after a seek on a downloaded track.
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Local playback stall timeout — attempting immediate resume instead of failing")
+            #endif
+            resumePlayerFromBuffering(forceImmediate: true, reason: "local-stall-recovery")
+            return
+        }
 
         // End-of-queue often presents as "waiting" with no current item.
         // Treat this as completion instead of retrying the same track.
@@ -3933,7 +4298,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.removeAllItems()
         clearPlayerItemCache()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
-        clearPendingSeekState()
+        clearActiveSeek()
 
         queue = []
         originalQueue = []
@@ -3979,6 +4344,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // If playback failed due to network, try to recover.
             if case .failed = playbackState {
+                if isCurrentPlaybackUsingLocalFile() {
+                    #if DEBUG
+                    EnsembleLogger.debug("ℹ️ Skipping reconnect retry for local playback failure")
+                    #endif
+                    return
+                }
                 #if DEBUG
                 EnsembleLogger.debug("🔄 Network back - attempting to resume playback")
                 #endif
@@ -4104,7 +4475,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.removeAllItems()
         clearPlayerItemCache()
         bufferedProgress = 0
-        clearPendingSeekState()
+        clearActiveSeek()
     }
 
     private func updateBufferedProgress() {
@@ -4228,6 +4599,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func trackWithRating(_ track: Track, rating: Int) -> Track {
+        trackWith(track, rating: rating)
+    }
+
+    private func trackWithLocalFilePath(_ track: Track, localFilePath: String?) -> Track {
+        trackWith(track, localFilePath: localFilePath, useLocalFilePathOverride: true)
+    }
+
+    private func trackWith(
+        _ track: Track,
+        rating: Int? = nil,
+        localFilePath: String? = nil,
+        useLocalFilePathOverride: Bool = false
+    ) -> Track {
         Track(
             id: track.id,
             key: track.key,
@@ -4244,11 +4628,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             fallbackRatingKey: track.fallbackRatingKey,
             streamKey: track.streamKey,
             streamId: track.streamId,
-            localFilePath: track.localFilePath,
+            localFilePath: useLocalFilePathOverride ? localFilePath : track.localFilePath,
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
-            rating: rating,
+            rating: rating ?? track.rating,
             playCount: track.playCount,
             sourceCompositeKey: track.sourceCompositeKey
         )
@@ -4373,12 +4757,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queue = items
         originalQueue = items
         currentQueueIndex = index
-        currentTrack = items[index].track
+        let track = await resolveTrackForPlaybackIfNeeded(items[index].track)
+        currentTrack = track
         currentTime = 0
         waveformHeights = []  // Clear old waveform immediately
 
         // Load the player item but don't start playback
-        let track = items[index].track
         generateWaveform(for: track.id)
         playbackState = .loading
         
@@ -4390,6 +4774,90 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("❌ Failed to prepare track during restore: \(error)")
             #endif
             playbackState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func resolveTrackForPlaybackIfNeeded(_ track: Track) async -> Track {
+        let fileManager = FileManager.default
+
+        if let localPath = track.localFilePath,
+           fileManager.fileExists(atPath: localPath) {
+            return track
+        }
+
+        do {
+            if let persistedPath = try await downloadManager.getLocalFilePath(
+                forTrackRatingKey: track.id,
+                sourceCompositeKey: track.sourceCompositeKey
+            ) {
+                if fileManager.fileExists(atPath: persistedPath) {
+                    guard persistedPath != track.localFilePath else {
+                        return track
+                    }
+
+                    let resolvedTrack = trackWithLocalFilePath(track, localFilePath: persistedPath)
+                    applyTrackRefresh(resolvedTrack, replacing: track)
+
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "💾 Resolved local download for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none")"
+                    )
+                    #endif
+
+                    return resolvedTrack
+                }
+
+                #if DEBUG
+                EnsembleLogger.debug(
+                    "⚠️ Persisted download path missing on disk during playback resolve: \(persistedPath)"
+                )
+                #endif
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug(
+                "⚠️ Failed to resolve persisted download path for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none") error=\(error.localizedDescription)"
+            )
+            #endif
+        }
+
+        guard track.localFilePath != nil else { return track }
+
+        let clearedTrack = trackWithLocalFilePath(track, localFilePath: nil)
+        applyTrackRefresh(clearedTrack, replacing: track)
+        return clearedTrack
+    }
+
+    private func applyTrackRefresh(_ refreshedTrack: Track, replacing originalTrack: Track) {
+        guard refreshedTrack.localFilePath != originalTrack.localFilePath else { return }
+
+        var queueChanged = false
+        for index in queue.indices where Self.isSameTrackIdentity(queue[index].track, originalTrack) {
+            let existing = queue[index]
+            queue[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            queueChanged = true
+        }
+
+        var originalQueueChanged = false
+        for index in originalQueue.indices where Self.isSameTrackIdentity(originalQueue[index].track, originalTrack) {
+            let existing = originalQueue[index]
+            originalQueue[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            originalQueueChanged = true
+        }
+
+        var historyChanged = false
+        for index in playbackHistory.indices where Self.isSameTrackIdentity(playbackHistory[index].track, originalTrack) {
+            let existing = playbackHistory[index]
+            playbackHistory[index] = QueueItem(id: existing.id, track: refreshedTrack, source: existing.source)
+            historyChanged = true
+        }
+
+        if let currentTrack, Self.isSameTrackIdentity(currentTrack, originalTrack) {
+            self.currentTrack = refreshedTrack
+        }
+
+        if queueChanged || originalQueueChanged || historyChanged {
+            savePlaybackState()
         }
     }
     

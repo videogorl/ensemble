@@ -96,6 +96,7 @@ public class TrackTableViewCell: UITableViewCell {
         showArtwork: Bool,
         showTrackNumber: Bool,
         isPlaying: Bool,
+        isUnavailableOffline: Bool,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         titleLabel.text = track.title
@@ -140,6 +141,8 @@ public class TrackTableViewCell: UITableViewCell {
                 trackNumberLabel.text = "\(track.trackNumber)"
             }
         }
+
+        contentView.alpha = isUnavailableOffline ? 0.45 : 1
         
         // Load artwork if needed
         if showArtwork {
@@ -228,6 +231,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let recentPlaylistTitle: String?
     
     @Environment(\.dependencies) private var dependencies
+    @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     
     public init(
         tracks: [Track],
@@ -299,12 +303,18 @@ public struct MediaTrackList: UIViewRepresentable {
     public func updateUIView(_ tableView: UITableView, context: Context) {
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
         
-        // Check if data actually changed
+        // Check if track list structure changed (additions/removals/reordering)
         let dataChanged = context.coordinator.tracks.count != tracks.count ||
             !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id }
-        
+
+        // Check if any track's download state changed (localFilePath set or cleared)
+        let downloadStateChanged = !dataChanged &&
+            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
+
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
-        
+        let isOffline = !networkMonitor.isConnected
+        let offlineStateChanged = context.coordinator.isOffline != isOffline
+
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.groupedTracks = newGroupedTracks
@@ -324,7 +334,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
-        
+        context.coordinator.isOffline = isOffline
+
         // Only reload if data actually changed
         if dataChanged {
             tableView.reloadData()
@@ -334,8 +345,8 @@ public struct MediaTrackList: UIViewRepresentable {
                 EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
-        } else if currentTrackChanged {
-            // Only update visible cells instead of full reload
+        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged {
+            // Reconfigure visible cells when the playing track, connectivity, or download state changes.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell) {
@@ -346,6 +357,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showArtwork: showArtwork,
                         showTrackNumber: showTrackNumbers,
                         isPlaying: isPlaying,
+                        isUnavailableOffline: isOffline && !track.isDownloaded,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
@@ -372,7 +384,8 @@ public struct MediaTrackList: UIViewRepresentable {
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             artworkLoader: dependencies.artworkLoader,
-            toastCenter: dependencies.toastCenter
+            toastCenter: dependencies.toastCenter,
+            isOffline: !networkMonitor.isConnected
         )
     }
     
@@ -407,6 +420,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
+        var isOffline: Bool
         
         init(
             tracks: [Track],
@@ -426,7 +440,8 @@ public struct MediaTrackList: UIViewRepresentable {
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             artworkLoader: ArtworkLoaderProtocol,
-            toastCenter: ToastCenter
+            toastCenter: ToastCenter,
+            isOffline: Bool
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
@@ -446,6 +461,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
+            self.isOffline = isOffline
         }
         
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -465,6 +481,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 showArtwork: showArtwork,
                 showTrackNumber: showTrackNumbers,
                 isPlaying: isPlaying,
+                isUnavailableOffline: isOffline && !track.isDownloaded,
                 artworkLoader: artworkLoader
             )
             return cell
@@ -507,6 +524,21 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+
+            if isOffline && !track.isDownloaded {
+                Task { @MainActor in
+                    toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "wifi.slash",
+                            title: "Not available offline",
+                            message: "Download this track before going offline.",
+                            dedupeKey: "table-offline-track-blocked-\(track.id)"
+                        )
+                    )
+                }
+                return
+            }
             
             // Find the global index in the full track list
             let globalIndex = tracks.firstIndex(where: { $0.id == track.id }) ?? 0

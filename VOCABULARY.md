@@ -98,7 +98,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Added row | text | Date track was added to library | `track.dateAdded` |
 | Section divider | indicator | Visual separator between metadata and streaming sections | `Divider()` |
 | Streaming header | text | "Streaming" section header | |
-| Quality row | text | Current streaming quality setting | `streamingQuality` |
+| Playback Quality row | text | Effective playback quality and format (`Downloaded` uses file token/container; `Streaming` uses selected streaming quality) | `resolvePlaybackQuality()` |
+| Source row | text | Playback source indicator (`Downloaded` vs `Streaming`) | `resolvePlaybackSource()` |
 | Server row | text | Name of the connected Plex server | `resolveServerName()` |
 | Connection row | text | Connection URL with type (Local/Remote/Relay) | `resolveConnectionInfo()` |
 | Status row | indicator | Connection status with colored dot | `resolveConnectionStatus()` |
@@ -218,6 +219,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Compact artist row | control | Condensed artist result with artwork | `CompactArtistRow` |
 | Compact album row | control | Condensed album result with artwork | `CompactAlbumRow` |
 | Compact playlist row | control | Condensed playlist result with artwork | `CompactPlaylistRow` |
+| Search result context menu | menu | Long-press menu for album/artist/playlist result actions | `albumContextMenu`, `artistContextMenu`, `playlistSearchContextMenu` |
+| Download action | action | Toggle offline target for album/artist/playlist from result menus | `Download`, `Remove Download` |
 | Empty state | state | Message when no results match query | (needs confirmation) |
 | No sources message | indicator | Prompt to connect music sources | `hasAnySources` |
 
@@ -349,6 +352,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Bio section | region | Expandable artist biography text | `bioSection` |
 | Read more button | control | Expand truncated bio text | `isBioExpanded` |
 | Pin menu | menu | Toolbar overflow menu with pin/unpin action | `artistPinMenuButton` |
+| Artist download action | action | Toggle artist offline target from toolbar menu | `Download`, `Remove Download` |
 
 ---
 
@@ -373,6 +377,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Delete confirmation dialog | menu | Alert confirming playlist deletion | `Delete Playlist?` |
 | Rename dialog | menu | Alert with text field to rename playlist | `Rename Playlist` |
 | Playlist context menu | menu | Long-press menu with play, shuffle, pin, edit, delete | `playlistContextMenu` |
+| Playlist download action | action | Toggle playlist offline target from context menu | `Download`, `Remove Download` |
 | Delete swipe action | gesture | Swipe-to-delete for non-smart playlists | `standardDeleteSwipeAction` |
 | Cover flow view | region | Landscape-only 3D playlist browsing mode | `CoverFlowView` |
 | Loading state | state | Spinner during initial playlist load | `loadingView` |
@@ -468,19 +473,19 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Downloaded section | region | Section grouping completed downloads | `Section("Downloaded")` |
-| Downloading section | region | Section grouping in-progress downloads | `Section("Downloading")` |
-| Failed section | region | Section grouping failed downloads | `Section("Failed")` |
-| Download row | control | Completed download with artwork, title, file size | `DownloadRow` |
-| Download progress row | control | Active download with progress bar | `DownloadProgressRow` |
-| Progress bar | indicator | Linear progress indicator for active downloads | `ProgressView(.linear)` |
-| Progress percentage | text | Download completion percentage | `download.progress` |
-| File size label | text | Size of downloaded file in MB | `formatBytes` |
-| Delete swipe action | gesture | Swipe-to-delete for completed/failed downloads | `swipeActions` |
-| Failed indicator | indicator | Red exclamation for failed downloads | `exclamationmark.circle.fill` |
-| Total size label | text | Toolbar text showing total download size | `totalSize` |
-| Loading state | state | Spinner during initial download list load | `loadingView` |
-| Empty state | state | Message when no downloads | `emptyView` |
+| Libraries section | region | Section showing each sync-enabled library with toggle, download stats, and drill-in | `Section("Libraries")` |
+| Library row | control | Row with library icon, server:library title, track counts, size estimates, toggle, and navigation to LibraryDownloadDetailView | `libraryRow(for:)` |
+| Library toggle | control | Inline toggle to enable/disable library-wide offline download | `Toggle`, `setLibraryEnabled()` |
+| Items section | region | Section listing non-library offline targets (playlist/album/artist) | `Section("Items")` |
+| Downloaded item row | control | Offline target row with kind icon, title, status, counts, and size | `DownloadedItemRow` |
+| Item metadata label | text | Track count summary and downloaded storage for the target | `metadataText` |
+| Item progress bar | indicator | Linear progress for targets that are not complete | `ProgressView(.linear)` |
+| Item detail navigation | action | Opens album/artist/playlist detail when target has valid ID | `destinationView(for:)` |
+| Remove target swipe action | gesture | Swipe-to-remove offline target | `standardDeleteSwipeAction` |
+| Manage downloads settings button | control | Toolbar button opening Manage Downloads quality controls | `slider.horizontal.3`, `DownloadManagerSettingsView` |
+| Update quality action | action | Toolbar action that requeues completed downloads whose stored quality differs from Settings > Audio Quality > Download Quality; shows warning when server only supports original offline quality | `arrow.triangle.2.circlepath`, `refreshCompletedDownloadsForCurrentQuality()` |
+| Loading state | state | Overlay spinner while loading first target snapshot | `loadingOverlay` |
+| Empty state | state | Inline message when no playlist/album/artist targets exist | `No offline items selected` |
 
 ---
 
@@ -507,7 +512,6 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Connection security link | control | Navigation to connection policy settings | `Connection Security` |
 | Track swipe actions link | control | Navigation to swipe action customization | `Track Swipe Actions` |
 | Storage section | region | Section with storage management | `Section("Storage")` |
-| Manage downloads link | control | Navigation to downloads management | `Manage Downloads` |
 | Clear all data button | action | Destructive button to clear library data | `Clear All Library Data` |
 | Reset section | region | Section with account reset options | `Section("Reset")` |
 | Remove all accounts button | action | Destructive button to remove all accounts | `Remove All Accounts` |
@@ -516,6 +520,97 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Help & support link | control | External link to support website | `Help & Support` |
 | Remove account dialog | menu | Confirmation alert for account removal | `Remove Account` |
 | Clear data dialog | menu | Confirmation alert for clearing library data | `Clear All Library Data` |
+
+---
+
+## DownloadManagerSettingsView
+
+- **View name:** `DownloadManagerSettingsView`
+- **Canonical name:** DownloadManagerSettingsView
+- **Area:** Downloads
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Downloads section | region | Section that mirrors Settings > Audio Quality > Download Quality | `Section("Downloads")` |
+| Download quality selector | control | Menu picker for Original/High/Medium/Low quality | `Picker("Download Quality", selection: $downloadQuality)` |
+| Download quality footer | text | Clarifies this control matches Audio Quality settings | `This matches Settings > Audio Quality > Download Quality.` |
+| Cellular download toggle | control | Toggle to allow/disallow downloads over cellular data | `Toggle("Allow Downloading on Cellular")`, `allowCellularDownloads` |
+
+---
+
+## LibraryDownloadDetailView
+
+- **View name:** `LibraryDownloadDetailView`
+- **Canonical name:** LibraryDownloadDetailView
+- **Area:** Downloads
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Library icon header | visual | Generic library icon with accent color gradient background | `building.columns` |
+| Header subtitle | text | Track count and downloaded size summary | `headerSubtitle` |
+| Progress bar | indicator | Linear progress bar shown when not all tracks are complete | `ProgressView(.linear)` |
+| Play button | control | Plays all completed downloaded tracks | `nowPlayingVM.play(tracks:)` |
+| Shuffle button | control | Shuffles all completed downloaded tracks | `nowPlayingVM.shufflePlay(tracks:)` |
+| Track download row | control | Per-track row with artwork, title, status chip, retry | `TrackDownloadRowView` |
+| Queue status banner | indicator | Banner when downloads are paused due to network | `queueStatusBanner` |
+| Retry all button | control | Toolbar button to retry all failed downloads | `retryAllButton` |
+
+---
+
+## OfflineServersView
+
+- **View name:** `OfflineServersView`
+- **Canonical name:** OfflineServersView
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Server section | region | Section per server with account subtitle | `OfflineServerSection` |
+| Library toggle row | control | Toggle enabling/disabling library-wide offline target | `Toggle`, `setLibraryEnabled` |
+| Library source key label | text | Secondary source identifier label below library title | `library.sourceCompositeKey` |
+| Empty state | state | Message shown when no libraries are sync-enabled | `No enabled libraries` |
+
+---
+
+## PendingMutationsView
+
+- **View name:** `PendingMutationsView`
+- **Canonical name:** PendingMutationsView
+- **Area:** Downloads
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Architecture
+
+A screen accessible from DownloadsView that displays pending and failed offline mutations (track ratings/loves, playlist adds) that could not be synced to the server. Provides retry and delete actions for each mutation.
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Title | text | Screen title | `Pending Mutations` |
+| Pending mutations section | region | Section listing mutations awaiting sync | `Section("Pending")` |
+| Failed mutations section | region | Section listing mutations that failed to sync | `Section("Failed")` |
+| Mutation item row | control | Row showing mutation type, target (track/playlist name), and timestamp | `PendingMutationRow` |
+| Mutation metadata label | text | Displays mutation type (e.g., "Marked as Loved", "Added to Playlist") and timestamp | `mutationDescription`, `formattedTimestamp` |
+| Retry button | action | Attempts to sync mutation to server | `retry()`, `attemptSyncMutation()` |
+| Delete button | action | Removes mutation from local queue without syncing | `delete()`, `removeMutation()` |
+| Mutation detail disclosure | action | Optional expansion to show mutation details (track info, playlist name, error message) | `DisclosureGroup` |
+| Offline state overlay | state | Dimmed overlay with message when device is offline | `Offline - mutations will sync when connection resumes` |
+| Empty state | state | Inline message when no pending or failed mutations exist | `All mutations synced` |
+| Loading state | state | Overlay spinner while loading mutations list | `loadingOverlay` |
 
 ---
 
@@ -630,6 +725,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Add to playlist action | action | Open playlist picker sheet | `Add to Playlist...` |
 | Add to recent playlist action | action | Quick-add to last used playlist | `Add to [playlist]` |
 | Favorite toggle | action | Toggle track favorite status | `Favorite`, `Unfavorite` |
+| Offline unavailable state | state | Row appears dimmed when offline and track is not downloaded | `isUnavailableOffline` |
+| Offline blocked toast | indicator | Toast shown when tapping unavailable track while offline | `Not available offline` |
 
 ---
 

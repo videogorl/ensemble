@@ -93,6 +93,53 @@ public struct PlexLibrarySelection: Sendable {
 }
 
 public actor PlexAPIClient {
+    private enum DownloadQueueError: LocalizedError {
+        case queueNotAvailable
+        case itemProcessingTimedOut
+        case itemFailed(String)
+        case invalidQueueResponse
+        case mediaFetchFailed(statusCode: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .queueNotAvailable:
+                return "Download queue not available on this server"
+            case .itemProcessingTimedOut:
+                return "Download queue item timed out while processing"
+            case .itemFailed(let reason):
+                return "Download queue item failed: \(reason)"
+            case .invalidQueueResponse:
+                return "Invalid download queue response"
+            case .mediaFetchFailed(let statusCode):
+                return "Download queue media fetch failed with status \(statusCode)"
+            }
+        }
+    }
+
+    private struct DownloadQueueEnvelope: Decodable {
+        let MediaContainer: DownloadQueueMediaContainer
+    }
+
+    private struct DownloadQueueMediaContainer: Decodable {
+        let DownloadQueue: [DownloadQueueRecord]?
+        let AddedQueueItems: [DownloadQueueAddedItem]?
+        let DownloadQueueItem: [DownloadQueueItemRecord]?
+    }
+
+    private struct DownloadQueueRecord: Decodable {
+        let id: Int
+    }
+
+    private struct DownloadQueueAddedItem: Decodable {
+        let id: Int
+    }
+
+    private struct DownloadQueueItemRecord: Decodable {
+        let id: Int
+        let status: String
+        let error: String?
+    }
+
     private let session: URLSession
     private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
@@ -927,9 +974,73 @@ public actor PlexAPIClient {
         return url
     }
 
-    /// Generate transcode streaming URL using the documented Plex audio transcode endpoint
-    /// This should work for all account types
+    /// Generate transcode streaming URL using Plex's universal transcode endpoint.
+    /// Accepts a rating key (e.g. "8257") or a full library path (e.g. "/library/metadata/8257").
     public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
+        try await getTranscodeStreamURL(
+            trackKey: trackKey,
+            quality: quality,
+            useAbsolutePathParameter: false,
+            useAudioEndpoint: false,
+            useStartWithoutExtension: false
+        )
+    }
+
+    /// Download transcoded media using Plex's download queue flow.
+    /// This "primes" server-side transcode before media retrieval and is closer
+    /// to the flow used by first-party offline clients.
+    public func downloadTranscodedMediaViaQueue(
+        trackRatingKey: String,
+        quality: StreamingQuality
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+        guard quality != .original else {
+            throw DownloadQueueError.queueNotAvailable
+        }
+
+        let queueId = try await getOrCreateDownloadQueueID()
+        let metadataKey = "/library/metadata/\(trackRatingKey)"
+        let itemId = try await addDownloadQueueItem(
+            queueId: queueId,
+            metadataKey: metadataKey,
+            quality: quality
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug(
+            "⬇️ DownloadQueue enqueued: queue=\(queueId) item=\(itemId) track=\(trackRatingKey) quality=\(quality.rawValue)"
+        )
+        #endif
+
+        let timeoutDeadline = Date().addingTimeInterval(120)
+        while Date() < timeoutDeadline {
+            let item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
+            switch item.status {
+            case "available":
+                let media = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                return media
+            case "error":
+                throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
+            case "expired":
+                try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            case "deciding", "waiting", "processing":
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            default:
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+
+        throw DownloadQueueError.itemProcessingTimedOut
+    }
+
+    /// Generate a transcode URL with endpoint and path-shape fallbacks.
+    public func getTranscodeStreamURL(
+        trackKey: String,
+        quality: StreamingQuality,
+        useAbsolutePathParameter: Bool,
+        useAudioEndpoint: Bool,
+        useStartWithoutExtension: Bool
+    ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
         #endif
@@ -938,8 +1049,10 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's audio transcode endpoint
-        components.path = "/audio/:/transcode"
+        components.path = transcodeStartPath(
+            useAudioEndpoint: useAudioEndpoint,
+            useStartWithoutExtension: useStartWithoutExtension
+        )
         
         // Map quality to bitrate
         let bitrate: String
@@ -954,25 +1067,79 @@ public actor PlexAPIClient {
             bitrate = "128"
         }
         
-        components.queryItems = [
+        let normalizedPath: String
+        if trackKey.hasPrefix("/library/") {
+            normalizedPath = trackKey
+        } else if trackKey.allSatisfy({ $0.isNumber }) {
+            normalizedPath = "/library/metadata/\(trackKey)"
+        } else if trackKey.hasPrefix("/") {
+            normalizedPath = trackKey
+        } else {
+            normalizedPath = "/\(trackKey)"
+        }
+        let transcodePath: String
+        if useAbsolutePathParameter {
+            guard let baseURL = URL(string: currentServerURL),
+                  let absolutePathURL = URL(string: normalizedPath, relativeTo: baseURL)?.absoluteURL else {
+                throw PlexAPIError.invalidURL
+            }
+            transcodePath = absolutePathURL.absoluteString
+        } else {
+            transcodePath = normalizedPath
+        }
+
+        let sessionId = UUID().uuidString
+        var queryItems = [
             URLQueryItem(name: "protocol", value: "http"),
-            URLQueryItem(name: "path", value: trackKey), // e.g. /library/parts/123/456.mp3
-            URLQueryItem(name: "audioCodec", value: "aac"),
+            URLQueryItem(name: "path", value: transcodePath),
+            URLQueryItem(name: "mediaIndex", value: "0"),
+            URLQueryItem(name: "partIndex", value: "0"),
+            // `musicBitrate` is the canonical query parameter for audio-only
+            // transcoding. Keep `audioBitrate` for older server compatibility.
+            URLQueryItem(name: "musicBitrate", value: bitrate),
             URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "offset", value: "0"), // Start from beginning
+            // Target codec tells PMS what to transcode to
+            URLQueryItem(name: "audioCodec", value: "aac"),
+            URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
+        // Force transcoding — disable direct play/stream so PMS doesn't skip transcode
+        queryItems.removeAll { $0.name == "directPlay" }
+        queryItems.removeAll { $0.name == "directStream" }
+        queryItems.removeAll { $0.name == "directStreamAudio" }
+        queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
+        queryItems.append(URLQueryItem(name: "directStream", value: "0"))
+        queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
+        components.queryItems = queryItems
+
         guard let url = components.url else {
             throw PlexAPIError.invalidURL
         }
         
         #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL normalized path: \(normalizedPath)")
         EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
         #endif
-        
+
         return url
+    }
+
+    /// Generate a transcode URL with optional absolute-path parameter fallback.
+    /// Some PMS builds reject relative `/library/...` path values for transcode requests.
+    public func getTranscodeStreamURL(
+        trackKey: String,
+        quality: StreamingQuality,
+        useAbsolutePathParameter: Bool
+    ) async throws -> URL {
+        try await getTranscodeStreamURL(
+            trackKey: trackKey,
+            quality: quality,
+            useAbsolutePathParameter: useAbsolutePathParameter,
+            useAudioEndpoint: false,
+            useStartWithoutExtension: false
+        )
     }
     
     /// Generate streaming URL for a track using universal transcode endpoint
@@ -991,50 +1158,59 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's universal transcode endpoint - use start.mp3 for direct audio stream
-        // (not .m3u8 which requires HLS playlist parsing)
+        // Use Plex's universal transcode endpoint. The extension doesn't determine the output
+        // format — that's controlled by the audioCodec query parameter and profile extra.
         components.path = "/music/:/transcode/universal/start.mp3"
-        
+
+        let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
             // Path to the media item
             URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
-            
+
             // Protocol for streaming - http for simple progressive download
             URLQueryItem(name: "protocol", value: "http"),
-            
+
             // Media type
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
-            
+
             // Authentication
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier),
-            
-            // Session tracking (required for transcode)
-            URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId ?? UUID().uuidString)
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        
-        // Add quality-specific parameters
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
+
+        // Add quality-specific parameters.
         switch quality {
         case .original:
-            // For original quality, don't add directPlay/directStream flags
-            // This forces the server to provide a compatible stream
-            // (it will transcode if needed for non-Plex Pass users)
+            // Original: server decides direct play / direct stream (flags already set above)
             break
-            
+
         case .high:
-            // Force transcode at 320 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
-            
+
         case .medium:
-            // Force transcode at 192 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
-            
+
         case .low:
-            // Force transcode at 128 kbps
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
+        }
+
+        // For non-original quality, force transcoding by disabling direct play/stream
+        // and specifying the target audio codec. Without an explicit audioCodec param
+        // PMS may silently fall back to serving the original file.
+        if quality != .original {
+            queryItems.removeAll { $0.name == "directPlay" }
+            queryItems.removeAll { $0.name == "directStream" }
+            queryItems.removeAll { $0.name == "directStreamAudio" }
+            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
+            // Tell PMS what codec to transcode to — this is required for PMS
+            // to actually start a transcode session instead of direct playing
             queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
         
@@ -1049,6 +1225,150 @@ public actor PlexAPIClient {
         #endif
         
         return url
+    }
+
+    private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {
+        [
+            // Session identity and broad client metadata improve compatibility on
+            // servers that enforce transcode profile matching.
+            URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId),
+            URLQueryItem(name: "transcodeSessionId", value: sessionId),
+            // Some server versions key transcode sessions off `session`.
+            URLQueryItem(name: "session", value: sessionId),
+            URLQueryItem(name: "X-Plex-Product", value: productName),
+            URLQueryItem(name: "X-Plex-Platform", value: platformName),
+            URLQueryItem(name: "X-Plex-Device", value: deviceName),
+            URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
+            URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
+            URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
+            URLQueryItem(name: "directPlay", value: "1"),
+            URLQueryItem(name: "directStream", value: "1"),
+            URLQueryItem(name: "directStreamAudio", value: "1"),
+            URLQueryItem(name: "hasMDE", value: "1")
+        ]
+    }
+
+    private func transcodeClientProfileExtra() -> String {
+        // Tell PMS what audio codecs we can accept for transcoded output.
+        // add-transcode-target-codec declares supported output codecs for the musicProfile.
+        // We declare both AAC (preferred, better quality/bitrate) and MP3 (widely supported fallback).
+        [
+            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)",
+            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
+        ].joined(separator: "+")
+    }
+
+    private func transcodeStartPath(
+        useAudioEndpoint: Bool,
+        useStartWithoutExtension: Bool
+    ) -> String {
+        let transcodeType = useAudioEndpoint ? "audio" : "music"
+        let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
+        return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
+    }
+
+    private func getOrCreateDownloadQueueID() async throws -> Int {
+        let data = try await serverRequestPOST(path: "/downloadQueue")
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let queueId = decoded.MediaContainer.DownloadQueue?.first?.id else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return queueId
+    }
+
+    private func addDownloadQueueItem(
+        queueId: Int,
+        metadataKey: String,
+        quality: StreamingQuality
+    ) async throws -> Int {
+        let bitrate = downloadQueueBitrate(for: quality)
+        var query: [String: String] = [
+            "keys": metadataKey,
+            "path": metadataKey,
+            "protocol": "http",
+            "mediaIndex": "0",
+            "partIndex": "0",
+            "directPlay": "0",
+            "directStream": "0",
+            "directStreamAudio": "0",
+            "hasMDE": "1"
+        ]
+        if let bitrate {
+            query["musicBitrate"] = bitrate
+            query["audioBitrate"] = bitrate
+        }
+
+        let data = try await serverRequestPOST(path: "/downloadQueue/\(queueId)/add", query: query)
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let itemId = decoded.MediaContainer.AddedQueueItems?.first?.id else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return itemId
+    }
+
+    private func getDownloadQueueItem(queueId: Int, itemId: Int) async throws -> DownloadQueueItemRecord {
+        let data = try await serverRequest(path: "/downloadQueue/\(queueId)/items/\(itemId)")
+        let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
+        guard let item = decoded.MediaContainer.DownloadQueueItem?.first else {
+            throw DownloadQueueError.invalidQueueResponse
+        }
+        return item
+    }
+
+    private func restartDownloadQueueItem(queueId: Int, itemId: Int) async throws {
+        _ = try await serverRequestPOST(path: "/downloadQueue/\(queueId)/items/\(itemId)/restart")
+    }
+
+    private func fetchDownloadQueueMedia(
+        queueId: Int,
+        itemId: Int
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline {
+            let request = try makeServerRequest(
+                url: currentServerURL,
+                method: "GET",
+                path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
+            )
+            let (data, response) = try await performRequestAllowingNon2xx(request)
+
+            if response.statusCode == 200 {
+                let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
+                    .flatMap { contentDisposition -> String? in
+                        let marker = "filename="
+                        guard let range = contentDisposition.range(of: marker) else { return nil }
+                        let filename = contentDisposition[range.upperBound...]
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                        return filename.isEmpty ? nil : String(filename)
+                    }
+                let mimeType = response.value(forHTTPHeaderField: "Content-Type")
+                return (data, suggestedFilename, mimeType)
+            }
+
+            if response.statusCode == 503 {
+                let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
+                    .flatMap(Int.init) ?? 1
+                try? await Task.sleep(nanoseconds: UInt64(max(retryAfter, 1)) * 1_000_000_000)
+                continue
+            }
+
+            throw DownloadQueueError.mediaFetchFailed(statusCode: response.statusCode)
+        }
+
+        throw DownloadQueueError.itemProcessingTimedOut
+    }
+
+    private func downloadQueueBitrate(for quality: StreamingQuality) -> String? {
+        switch quality {
+        case .high:
+            return "320"
+        case .medium:
+            return "192"
+        case .low:
+            return "128"
+        case .original:
+            return nil
+        }
     }
     
     /// Generate streaming URL for a track (legacy direct file access)
@@ -1719,6 +2039,24 @@ public actor PlexAPIClient {
                 throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
             }
 
+            return (data, httpResponse)
+        } catch let error as PlexAPIError {
+            throw error
+        } catch {
+            throw PlexAPIError.networkError(error)
+        }
+    }
+
+    private func performRequestAllowingNon2xx(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw PlexAPIError.invalidResponse
+            }
             return (data, httpResponse)
         } catch let error as PlexAPIError {
             throw error

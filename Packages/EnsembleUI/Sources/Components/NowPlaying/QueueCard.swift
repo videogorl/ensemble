@@ -255,23 +255,14 @@ public struct QueueCard: View {
                     .foregroundColor(viewModel.repeatMode.isActive ? .accentColor : .primary.opacity(0.7))
             }
             
-            // Autoplay (using Settings icon, not sparkles)
+            // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
             Button(action: viewModel.toggleAutoplay) {
-                ZStack {
-                    // Use same icon as in SettingsView (not sparkles)
-                    Image(systemName: autoplayIcon)
-                        .font(.title3)
-                        .foregroundColor(autoplayColor)
-                    
-                    // Cross-through indicator when disabled due to network
-                    if isAutoplayDisabledDueToNetwork {
-                        Image(systemName: "slash.circle")
-                            .font(.caption)
-                            .foregroundColor(.red.opacity(0.8))
-                            .offset(x: 8, y: -8)
-                    }
-                }
+                Image(systemName: autoplayIcon)
+                    .font(.title3)
+                    .foregroundColor(autoplayColor)
             }
+            .disabled(!deps.networkMonitor.isConnected)
+            .opacity(!deps.networkMonitor.isConnected ? 0.25 : 1.0)
         }
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
     }
@@ -281,15 +272,7 @@ public struct QueueCard: View {
     }
     
     private var autoplayColor: Color {
-        if isAutoplayDisabledDueToNetwork {
-            return .primary.opacity(0.4)
-        }
-        return viewModel.isAutoplayEnabled ? .accentColor : .primary.opacity(0.7)
-    }
-    
-    private var isAutoplayDisabledDueToNetwork: Bool {
-        // Check if autoplay is functionally disabled due to network state
-        !deps.networkMonitor.isConnected && viewModel.isAutoplayEnabled
+        viewModel.isAutoplayEnabled ? .accentColor : .primary.opacity(0.7)
     }
     
     // MARK: - Helper Methods

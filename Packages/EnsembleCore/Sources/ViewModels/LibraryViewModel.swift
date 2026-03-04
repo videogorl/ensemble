@@ -132,6 +132,9 @@ public final class LibraryViewModel: ObservableObject {
         // Keep cached filtered collections in sync with their inputs
         setupComputedPipelines()
         setupVisibilityObservation()
+
+        // Re-fetch library when download state changes so offline dimming is accurate
+        observeDownloadChanges()
     }
 
     /// Wires Combine pipelines that keep the cached filtered collections up to date.
@@ -210,6 +213,17 @@ public final class LibraryViewModel: ObservableObject {
         $genresFilterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "Genres") }
+            .store(in: &cancellables)
+    }
+
+    private func observeDownloadChanges() {
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadLibrary()
+                }
+            }
             .store(in: &cancellables)
     }
 

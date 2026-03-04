@@ -37,6 +37,8 @@ public final class NetworkMonitor: ObservableObject {
 
     private var monitor: (any NetworkPathMonitoring)?
     private var isMonitoring = false
+    /// When true, NWPathMonitor updates are ignored so the simulated state sticks
+    private var isSimulatingOffline = false
     private var debounceTask: Task<Void, Never>?
 
     internal private(set) var monitorGeneration = 0
@@ -79,6 +81,7 @@ public final class NetworkMonitor: ObservableObject {
 
         #if DEBUG
         EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring (generation \(monitorGeneration))")
+        restoreDebugSimulationIfNeeded()
         #endif
     }
 
@@ -101,6 +104,26 @@ public final class NetworkMonitor: ObservableObject {
 
     // MARK: - Testing Helpers
 
+    #if DEBUG
+    /// Simulate an offline or online state for manual testing from the Settings Developer section.
+    /// Sets a flag so NWPathMonitor updates don't overwrite the simulated state.
+    public func simulateOffline(_ offline: Bool) {
+        isSimulatingOffline = offline
+        let state: NetworkState = offline ? .offline : .online(.wifi)
+        injectNetworkStateForTesting(state, debounced: false)
+    }
+
+    /// Re-apply debug simulation on cold start if the toggle was left on.
+    /// Called from `startMonitoring()` after the monitor is up.
+    public func restoreDebugSimulationIfNeeded() {
+        let persisted = UserDefaults.standard.bool(forKey: "debugSimulateOffline")
+        if persisted {
+            EnsembleLogger.debug("📡 NetworkMonitor: Restoring debug offline simulation from cold start")
+            simulateOffline(true)
+        }
+    }
+    #endif
+
     internal func injectNetworkStateForTesting(_ state: NetworkState, debounced: Bool = true) {
         if debounced {
             debounceStateUpdate(state: state)
@@ -112,7 +135,9 @@ public final class NetworkMonitor: ObservableObject {
     // MARK: - Private Methods
 
     /// Debounce network state updates to avoid rapid changes.
+    /// Ignored when offline simulation is active so the monitor doesn't overwrite the simulated state.
     private func debounceStateUpdate(path: NWPath) {
+        guard !isSimulatingOffline else { return }
         debounceStateUpdate(state: networkState(from: path))
     }
 

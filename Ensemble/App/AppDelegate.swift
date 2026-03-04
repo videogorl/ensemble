@@ -46,6 +46,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register for Darwin notification from Siri extension
         registerForSiriPendingPlaybackNotification()
 
+        // Register optional iOS 26+ continued processing handler for offline downloads.
+        DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
+
         // Load accounts synchronously before any Siri/playback code runs.
         // This is critical for cold launches from Siri where the coordinator
         // needs accounts loaded before RootView.task has a chance to run.
@@ -571,10 +574,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Route foreground refresh through SyncCoordinator to coalesce
             // with network state transitions and cooldown/staleness guards.
             await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-            
+
             // Restart periodic sync timers
             DependencyContainer.shared.syncCoordinator.startPeriodicSync()
-            
+
+            // Drain any pending offline mutations now that connectivity may have resumed.
+            // The queue also drains automatically when isConnected transitions to true,
+            // but an explicit call here handles the case where connectivity never dropped.
+            await DependencyContainer.shared.mutationCoordinator.drainQueue()
+
             // Update Siri media user context in case library changed while backgrounded
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }

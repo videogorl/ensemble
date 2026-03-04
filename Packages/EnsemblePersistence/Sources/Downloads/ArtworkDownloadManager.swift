@@ -22,6 +22,7 @@ public enum ArtworkType {
     case album
     case artist
     case track
+    case playlist
 }
 
 public protocol ArtworkDownloadManagerProtocol: Sendable {
@@ -29,6 +30,7 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int
     func getLocalArtworkPath(for album: CDAlbum) async throws -> String?
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
+    func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
@@ -90,10 +92,20 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let ratingKey = artist.ratingKey
         let filename = "\(ratingKey)_artist.jpg"
         let localPath = Self.artworkDirectory.appendingPathComponent(filename).path
-        
+
         return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
     }
-    
+
+    // MARK: - Playlist Artwork
+
+    public func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? {
+        let ratingKey = playlist.ratingKey
+        let filename = "\(ratingKey)_playlist.jpg"
+        let localPath = Self.artworkDirectory.appendingPathComponent(filename).path
+
+        return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
+    }
+
     // MARK: - Private Download Methods
     
     /// Download artwork from URL and cache it locally
@@ -108,6 +120,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         case .album: typeString = "album"
         case .artist: typeString = "artist"
         case .track: typeString = "track"
+        case .playlist: typeString = "playlist"
         }
         
         let filename = "\(ratingKey)_\(typeString).jpg"

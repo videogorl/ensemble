@@ -5,6 +5,7 @@ import SwiftUI
 public struct MusicSourceAccountDetailView: View {
     @StateObject private var viewModel: MusicSourceAccountDetailViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
     @State private var showingRemoveSourceAlert = false
 
     public init(accountId: String) {
@@ -63,6 +64,31 @@ public struct MusicSourceAccountDetailView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                }
+            }
+
+            // Pending offline mutations banner
+            if viewModel.pendingMutationCount > 0 {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: deps.networkMonitor.isConnected ? "arrow.clockwise" : "clock.arrow.circlepath")
+                            .foregroundColor(deps.networkMonitor.isConnected ? .accentColor : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            let count = viewModel.pendingMutationCount
+                            let noun = count == 1 ? "change" : "changes"
+                            if deps.networkMonitor.isConnected {
+                                Text("Syncing \(count) pending \(noun)…")
+                                    .font(.subheadline)
+                            } else {
+                                Text("\(count) pending \(noun)")
+                                    .font(.subheadline)
+                                Text("Will sync when back online")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
 

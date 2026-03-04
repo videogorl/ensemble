@@ -49,6 +49,10 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
+    /// Posted after server playlists are refreshed (e.g. after a mutation).
+    /// The notification's `userInfo` contains `["serverSourceKey": String]`.
+    public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
+
     private enum NetworkTransition {
         case reconnect
         case interfaceSwitch(from: NetworkType, to: NetworkType)
@@ -111,6 +115,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
     public var onConnectionsRefreshed: (() async -> Void)?
+    /// Signal fired when a server-level playlist refresh completes.
+    public var onPlaylistRefreshCompleted: ((String) -> Void)?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -632,6 +638,7 @@ public final class SyncCoordinator: ObservableObject {
                     to: playlistRepository,
                     progressHandler: { _ in }
                 )
+                onPlaylistRefreshCompleted?("plex:\(sourceId.accountId):\(sourceId.serverId)")
             } catch {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ Failed to sync playlists for server \(serverKey): \(error.localizedDescription)")
@@ -1092,10 +1099,10 @@ public final class SyncCoordinator: ObservableObject {
            let provider = syncProviders[sourceKey] {
             // Parse the composite key to extract serverId
             let components = sourceKey.split(separator: ":")
-            if components.count >= 3 {
-                let accountId = String(components[0])
-                let serverId = String(components[1])
-                let libraryId = String(components[2])
+            if components.count >= 4 {
+                let accountId = String(components[1])
+                let serverId = String(components[2])
+                let libraryId = String(components[3])
                 
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
@@ -1124,6 +1131,103 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("❌ No providers available")
         #endif
         throw PlexAPIError.noServerSelected
+    }
+
+    /// Get a quality-aware universal stream URL for offline downloading.
+    /// Playback should continue using direct stream URLs for AVPlayer compatibility.
+    public func getOfflineDownloadURL(for track: Track, quality: StreamingQuality) async throws -> URL {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
+            throw PlexAPIError.invalidResponse
+        }
+
+        return try await apiClient.getUniversalStreamURL(for: plexTrack, quality: quality)
+    }
+
+    /// Attempt a server-primed offline transcode through the download queue API.
+    /// Returns media payload and optional suggested filename when successful.
+    public func getOfflineDownloadQueueMedia(
+        for track: Track,
+        quality: StreamingQuality
+    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        return try await apiClient.downloadTranscodedMediaViaQueue(
+            trackRatingKey: track.id,
+            quality: quality
+        )
+    }
+
+    /// Get a quality-aware fallback URL for offline downloading using Plex's audio transcode endpoint.
+    /// This is used when universal offline URLs are rejected by certain server configurations.
+    public func getOfflineDownloadFallbackURL(
+        for track: Track,
+        quality: StreamingQuality,
+        preferStreamKeyPath: Bool = false,
+        useAbsolutePathParameter: Bool = false,
+        useAudioEndpoint: Bool = false,
+        useStartWithoutExtension: Bool = false
+    ) async throws -> URL {
+        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 4 else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        guard let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let transcodeTrackKey: String
+        if preferStreamKeyPath,
+           let streamKey = track.streamKey,
+           !streamKey.isEmpty {
+            // Some servers are stricter about path shape for transcode start and
+            // only accept part paths instead of metadata paths.
+            transcodeTrackKey = streamKey
+        } else {
+            transcodeTrackKey = "/library/metadata/\(track.id)"
+        }
+
+        return try await apiClient.getTranscodeStreamURL(
+            trackKey: transcodeTrackKey,
+            quality: quality,
+            useAbsolutePathParameter: useAbsolutePathParameter,
+            useAudioEndpoint: useAudioEndpoint,
+            useStartWithoutExtension: useStartWithoutExtension
+        )
     }
 
     /// Get artwork URL, routing to the correct provider
@@ -1267,58 +1371,129 @@ public final class SyncCoordinator: ObservableObject {
     }
     
     // MARK: - Artwork Pre-Caching
-    
-    /// Cache artwork for all albums in a source
+
+    /// Cache artwork for all albums, artists, and playlists in a source
     private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            // Fetch all albums for this source
+            // --- Albums (progress 70–80%) ---
             let allAlbums = try await libraryRepository.fetchAlbums()
             let sourceAlbums = allAlbums.filter { $0.sourceCompositeKey == sourceId.compositeKey }
-            
+
             #if DEBUG
             EnsembleLogger.debug("📸 Pre-caching artwork for \(sourceAlbums.count) albums from source \(sourceId.compositeKey)")
             #endif
-            
-            var cachedCount = 0
+
+            var albumsCached = 0
             for (index, album) in sourceAlbums.enumerated() {
-                // Update progress (artwork caching is 10% of total, happens at 70-80%)
                 let artworkProgress = 0.7 + (0.1 * Double(index) / Double(max(sourceAlbums.count, 1)))
                 let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
                 sourceStatuses[sourceId] = MusicSourceStatus(
                     syncStatus: .syncing(progress: artworkProgress),
                     connectionState: currentConnectionState
                 )
-                
-                // Skip if already cached
+
                 if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
                    FileManager.default.fileExists(atPath: localPath) {
                     continue
                 }
-                
-                // Get artwork URL from provider
+
                 guard let thumbPath = album.thumbPath,
                       let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
                     continue
                 }
-                
-                // Download and cache
+
                 do {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: artworkURL,
-                        ratingKey: album.ratingKey,
-                        type: .album
+                        from: artworkURL, ratingKey: album.ratingKey, type: .album
                     )
-                    cachedCount += 1
+                    albumsCached += 1
                 } catch {
-                    // Continue with next album on error
                     #if DEBUG
                     EnsembleLogger.debug("Failed to cache artwork for album \(album.title): \(error)")
                     #endif
                 }
             }
-            
+
+            // --- Artists (progress 80–88%) ---
+            let allArtists = try await libraryRepository.fetchArtists()
+            let sourceArtists = allArtists.filter { $0.sourceCompositeKey == sourceId.compositeKey }
+
             #if DEBUG
-            EnsembleLogger.debug("✅ Cached \(cachedCount) album artworks")
+            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourceArtists.count) artists")
+            #endif
+
+            var artistsCached = 0
+            for (index, artist) in sourceArtists.enumerated() {
+                let artworkProgress = 0.8 + (0.08 * Double(index) / Double(max(sourceArtists.count, 1)))
+                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: artworkProgress),
+                    connectionState: currentConnectionState
+                )
+
+                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: artist),
+                   FileManager.default.fileExists(atPath: localPath) {
+                    continue
+                }
+
+                guard let thumbPath = artist.thumbPath,
+                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                    continue
+                }
+
+                do {
+                    try await artworkDownloadManager.downloadAndCacheArtwork(
+                        from: artworkURL, ratingKey: artist.ratingKey, type: .artist
+                    )
+                    artistsCached += 1
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug("Failed to cache artwork for artist \(artist.name): \(error)")
+                    #endif
+                }
+            }
+
+            // --- Playlists (progress 88–96%) ---
+            let sourcePlaylists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceId.compositeKey)
+
+            #if DEBUG
+            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourcePlaylists.count) playlists")
+            #endif
+
+            var playlistsCached = 0
+            for (index, playlist) in sourcePlaylists.enumerated() {
+                let artworkProgress = 0.88 + (0.08 * Double(index) / Double(max(sourcePlaylists.count, 1)))
+                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
+                sourceStatuses[sourceId] = MusicSourceStatus(
+                    syncStatus: .syncing(progress: artworkProgress),
+                    connectionState: currentConnectionState
+                )
+
+                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
+                   FileManager.default.fileExists(atPath: localPath) {
+                    continue
+                }
+
+                // Plex playlists use compositePath for their composite cover artwork
+                guard let thumbPath = playlist.compositePath,
+                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                    continue
+                }
+
+                do {
+                    try await artworkDownloadManager.downloadAndCacheArtwork(
+                        from: artworkURL, ratingKey: playlist.ratingKey, type: .playlist
+                    )
+                    playlistsCached += 1
+                } catch {
+                    #if DEBUG
+                    EnsembleLogger.debug("Failed to cache artwork for playlist \(playlist.title): \(error)")
+                    #endif
+                }
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug("✅ Cached artworks: \(albumsCached) albums, \(artistsCached) artists, \(playlistsCached) playlists")
             #endif
         } catch {
             #if DEBUG
@@ -1454,17 +1629,28 @@ public final class SyncCoordinator: ObservableObject {
         for (_, provider) in syncProviders where
             provider.sourceIdentifier.accountId == parsed.accountId &&
             provider.sourceIdentifier.serverId == parsed.serverId {
+            var didRefresh = false
             do {
                 try await provider.syncPlaylistsIncremental(to: playlistRepository, progressHandler: { _ in })
+                didRefresh = true
             } catch {
                 // Fall back to full sync if incremental fails for any reason.
                 do {
                     try await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
+                    didRefresh = true
                 } catch {
                     #if DEBUG
                     EnsembleLogger.debug("⚠️ Failed to refresh playlists for \(serverSourceKey): \(error.localizedDescription)")
                     #endif
                 }
+            }
+            if didRefresh {
+                onPlaylistRefreshCompleted?(serverSourceKey)
+                NotificationCenter.default.post(
+                    name: Self.playlistsDidRefresh,
+                    object: nil,
+                    userInfo: ["serverSourceKey": serverSourceKey]
+                )
             }
             return
         }

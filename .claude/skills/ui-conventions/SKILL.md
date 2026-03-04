@@ -36,6 +36,14 @@ See **`VOCABULARY.md`** at the project root for canonical names of all Views and
 - **Detail destination:** tapping an account opens `MusicSourceAccountDetailView` with server headings and library checklists.
 - **Sync controls location:** per-library status and manual sync actions live in account detail; do not add standalone Sync Panel entry points.
 
+### Offline Manager Navigation
+- Offline management lives in **Settings only** (`Manage Downloads`), not in the tab-level `DownloadsView`.
+- `Manage Downloads` opens `DownloadManagerSettingsView` with:
+  - default `Servers` entry for library-wide offline toggles
+  - itemized album/artist/playlist target rows with progress/status
+- `Servers` opens `OfflineServersView` grouped by server headings.
+- Show only sync-enabled libraries in `OfflineServersView`.
+
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
@@ -132,10 +140,17 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
-- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
-- Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
-- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
-- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
+- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Download/Remove Download`, `Pin/Unpin`
+- Artist menu: `Play`, `Shuffle`, `Radio`, `Download/Remove Download`, `Pin/Unpin`
+- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Download/Remove Download`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
+- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Download/Remove Download`, `Pin/Unpin` (non-destructive only)
+
+### Offline Row Behavior
+- When app/network state is offline, rows for tracks that are not downloaded should:
+  - render dimmed (reduced opacity)
+  - block primary tap playback
+  - show a warning toast (`Not available offline`)
+- Apply this behavior consistently in `TrackRow`, `MediaTrackList`, and compact search rows.
 
 ## Visual Design
 

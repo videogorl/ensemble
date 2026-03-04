@@ -31,11 +31,15 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
         func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
         func fetchTracks() async throws -> [CDTrack] { [] }
+        func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
+        func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
+        func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
         func fetchTrack(ratingKey: String) async throws -> CDTrack? { nil }
+        func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? { nil }
         func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, rating: Int?, playCount: Int?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
         func fetchGenres() async throws -> [CDGenre] { [] }
         func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre { throw MockError.unimplemented }
@@ -76,9 +80,22 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
+        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
         func clearArtworkCache() async throws {}
         func getArtworkCacheSize() async throws -> Int64 { 0 }
+    }
+
+    private final class MockPendingMutationRepository: PendingMutationRepositoryProtocol, @unchecked Sendable {
+        func fetchPendingMutations() async throws -> [CDPendingMutation] { [] }
+        func fetchAllMutations() async throws -> [CDPendingMutation] { [] }
+        func enqueueMutation(id: String, type: CDPendingMutation.MutationType, payload: Data, sourceCompositeKey: String?) async throws {}
+        func incrementRetryCount(id: String) async throws {}
+        func markFailed(id: String) async throws {}
+        func resetToRetry(id: String) async throws {}
+        func deleteMutation(id: String) async throws {}
+        func deleteAllMutations() async throws {}
+        func countPendingMutations() async throws -> Int { 0 }
     }
 
     private enum MockError: Error {
@@ -107,13 +124,23 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
 
         let networkMonitor = NetworkMonitor()
+        let networkMonitorRef = networkMonitor
         return SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository(),
             artworkDownloadManager: MockArtworkDownloadManager(),
-            networkMonitor: networkMonitor,
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+            networkMonitor: networkMonitorRef,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitorRef)
+        )
+    }
+
+    private func makeMutationCoordinator(syncCoordinator: SyncCoordinator) -> MutationCoordinator {
+        let nm = NetworkMonitor()
+        return MutationCoordinator(
+            repository: MockPendingMutationRepository(),
+            networkMonitor: nm,
+            syncCoordinator: syncCoordinator
         )
     }
 
@@ -141,7 +168,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             playlist: playlist,
             playlistRepository: MockPlaylistRepository(),
             libraryRepository: MockLibraryRepository(),
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
 
         let didDelete = await viewModel.deletePlaylist()
@@ -170,7 +198,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             playlist: smartPlaylist,
             playlistRepository: MockPlaylistRepository(),
             libraryRepository: MockLibraryRepository(),
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
 
         let didDelete = await viewModel.deletePlaylist()

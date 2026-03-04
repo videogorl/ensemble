@@ -133,6 +133,8 @@ public struct ArtistGrid: View {
 
     @ViewBuilder
     private func artistContextMenu(_ artist: Artist) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+
         Button {
             withArtistTracks(artist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -155,6 +157,17 @@ public struct ArtistGrid: View {
             }
         } label: {
             Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: artist.id)

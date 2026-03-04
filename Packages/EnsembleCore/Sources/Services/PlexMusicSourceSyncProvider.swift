@@ -442,20 +442,15 @@ public func getStreamURL(
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
-        
-        // Use direct file URLs for streaming
-        // Note: Plex transcode endpoints don't exist on all servers
-        // Direct file access should work on local networks even without Plex Pass
-        
-        // If we have a cached stream key, use it directly
-        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+
+        // Playback path uses direct stream URLs for maximum AVPlayer compatibility.
+        if let trackStreamKey, !trackStreamKey.isEmpty {
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
+            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(trackStreamKey)")
             #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
         }
-        
-        // Otherwise fetch track metadata to get the stream key
+
         #if DEBUG
         EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
         #endif
@@ -466,10 +461,6 @@ public func getStreamURL(
             #endif
             throw PlexAPIError.invalidURL
         }
-        
-        #if DEBUG
-        EnsembleLogger.debug("✅ PlexProvider: Got stream key from metadata: \(streamKey)")
-        #endif
         return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 

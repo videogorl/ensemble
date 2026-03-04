@@ -82,6 +82,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
+        let mutationCoordinator: MutationCoordinator
         let libraryRepository: LibraryRepository
         let playlistRepository: PlaylistRepository
         let discoveryService: MockDiscoveryService
@@ -505,7 +506,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountId: account.id,
             accountManager: harness.accountManager,
             accountDiscoveryService: gatedDiscovery,
-            syncCoordinator: harness.syncCoordinator
+            syncCoordinator: harness.syncCoordinator,
+            mutationCoordinator: harness.mutationCoordinator
         )
 
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
@@ -546,10 +548,16 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         let discoveryService = MockDiscoveryService()
+        let mutationCoordinator = MutationCoordinator(
+            repository: PendingMutationRepository(coreDataStack: stack),
+            networkMonitor: networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
 
         return Harness(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             discoveryService: discoveryService
@@ -561,7 +569,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountId: accountId,
             accountManager: harness.accountManager,
             accountDiscoveryService: harness.discoveryService,
-            syncCoordinator: harness.syncCoordinator
+            syncCoordinator: harness.syncCoordinator,
+            mutationCoordinator: harness.mutationCoordinator
         )
     }
 

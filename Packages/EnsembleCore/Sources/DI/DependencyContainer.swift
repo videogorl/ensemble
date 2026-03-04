@@ -26,6 +26,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubRepository: HubRepositoryProtocol
     public let moodRepository: MoodRepositoryProtocol
     public let downloadManager: DownloadManagerProtocol
+    public let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
     // MARK: - Services
@@ -45,6 +46,9 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaIndexStore: SiriMediaIndexStore
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
     public let siriMediaUserContextManager: SiriMediaUserContextManager
+    public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    public let offlineDownloadService: OfflineDownloadService
+    public let mutationCoordinator: MutationCoordinator
 
     // MARK: - Legacy (kept for add-account flow)
 
@@ -64,12 +68,16 @@ public final class DependencyContainer: @unchecked Sendable {
         hubRepository = HubRepository()
         moodRepository = MoodRepository(coreDataStack: coreDataStack)
         downloadManager = DownloadManager(coreDataStack: coreDataStack)
+        offlineDownloadTargetRepository = OfflineDownloadTargetRepository(coreDataStack: coreDataStack)
         artworkDownloadManager = ArtworkDownloadManager(coreDataStack: coreDataStack)
+        let pendingMutationRepo = PendingMutationRepository(coreDataStack: coreDataStack)
 
         // Multi-source management - initialize on main actor
         let keychainRef = keychain
         let libraryRef = libraryRepository
         let playlistRef = playlistRepository
+        let downloadManagerRef = downloadManager
+        let offlineTargetRepoRef = offlineDownloadTargetRepository
         let artworkDownloadRef = artworkDownloadManager
 
         let am = MainActor.assumeIsolated {
@@ -100,6 +108,34 @@ public final class DependencyContainer: @unchecked Sendable {
                 serverHealthChecker: shc
             )
         }
+        let syncCoordinatorRef = syncCoordinator
+
+        let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {
+            OfflineBackgroundExecutionCoordinator()
+        }
+        offlineBackgroundExecutionCoordinator = offlineBackgroundCoordinatorRef
+
+        let offlineServiceRef = MainActor.assumeIsolated {
+            OfflineDownloadService(
+                downloadManager: downloadManagerRef,
+                targetRepository: offlineTargetRepoRef,
+                libraryRepository: libraryRef,
+                playlistRepository: playlistRef,
+                syncCoordinator: syncCoordinatorRef,
+                networkMonitor: nm,
+                backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
+                artworkDownloadManager: artworkDownloadRef
+            )
+        }
+        offlineDownloadService = offlineServiceRef
+
+        MainActor.assumeIsolated {
+            syncCoordinatorRef.onPlaylistRefreshCompleted = { [weak offlineServiceRef] serverSourceKey in
+                Task { @MainActor in
+                    await offlineServiceRef?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+                }
+            }
+        }
 
         // Services using sync coordinator
         // Note: artworkLoader must be created before playbackService since it's a dependency
@@ -116,7 +152,8 @@ public final class DependencyContainer: @unchecked Sendable {
             syncCoordinator: syncCoordinator,
             networkMonitor: nm,
             artworkLoader: artworkLoaderRef,
-            audioAnalyzer: audioAnalyzerRef
+            audioAnalyzer: audioAnalyzerRef,
+            downloadManager: downloadManagerRef
         )
         playbackService = playbackServiceRef
         siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -178,6 +215,21 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
+        // Mutation coordinator — unified mutation routing with offline queue support
+        let mutationCoordinatorRef = MainActor.assumeIsolated {
+            MutationCoordinator(
+                repository: pendingMutationRepo,
+                networkMonitor: nm,
+                syncCoordinator: syncCoordinatorRef
+            )
+        }
+        mutationCoordinator = mutationCoordinatorRef
+
+        // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
+        MainActor.assumeIsolated {
+            playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
+        }
+
         // Wire up artwork cache invalidation when server connections change.
         // Must be done after all properties are initialized.
         let syncRef = syncCoordinator
@@ -207,7 +259,8 @@ public final class DependencyContainer: @unchecked Sendable {
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
             navigationCoordinator: navigationCoordinator,
-            toastCenter: toastCenter
+            toastCenter: toastCenter,
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -233,7 +286,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makePlaylistViewModel() -> PlaylistViewModel {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -243,7 +297,8 @@ public final class DependencyContainer: @unchecked Sendable {
             playlist: playlist,
             playlistRepository: playlistRepository,
             libraryRepository: libraryRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
 
@@ -261,7 +316,57 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     public func makeDownloadsViewModel() -> DownloadsViewModel {
-        DownloadsViewModel(downloadManager: downloadManager)
+        DownloadsViewModel(
+            offlineDownloadService: offlineDownloadService,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            mutationCoordinator: mutationCoordinator,
+            accountManager: accountManager,
+            downloadManager: downloadManager
+        )
+    }
+
+    @MainActor
+    public func makeLibraryDownloadDetailViewModel(
+        sourceCompositeKey: String,
+        title: String
+    ) -> LibraryDownloadDetailViewModel {
+        LibraryDownloadDetailViewModel(
+            sourceCompositeKey: sourceCompositeKey,
+            title: title,
+            downloadManager: downloadManager,
+            libraryRepository: libraryRepository,
+            offlineDownloadService: offlineDownloadService
+        )
+    }
+
+    @MainActor
+    public func makeDownloadManagerSettingsViewModel() -> DownloadManagerSettingsViewModel {
+        DownloadManagerSettingsViewModel(
+            offlineDownloadService: offlineDownloadService,
+            targetRepository: offlineDownloadTargetRepository,
+            downloadManager: downloadManager
+        )
+    }
+
+    @MainActor
+    public func makeDownloadTargetDetailViewModel(summary: DownloadedItemSummary) -> DownloadTargetDetailViewModel {
+        DownloadTargetDetailViewModel(
+            summary: summary,
+            offlineDownloadTargetRepository: offlineDownloadTargetRepository,
+            downloadManager: downloadManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            offlineDownloadService: offlineDownloadService
+        )
+    }
+
+    @MainActor
+    public func makeOfflineServersViewModel() -> OfflineServersViewModel {
+        OfflineServersViewModel(
+            accountManager: accountManager,
+            offlineDownloadService: offlineDownloadService
+        )
     }
 
     @MainActor
@@ -280,10 +385,11 @@ public final class DependencyContainer: @unchecked Sendable {
             accountId: accountId,
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator
         )
     }
-    
+
     @MainActor
     public func makeFavoritesViewModel() -> FavoritesViewModel {
         FavoritesViewModel(libraryRepository: libraryRepository)
@@ -293,6 +399,16 @@ public final class DependencyContainer: @unchecked Sendable {
     public func makePinnedViewModel() -> PinnedViewModel {
         PinnedViewModel(
             pinManager: pinManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository
+        )
+    }
+
+    @MainActor
+    public func makePendingMutationsViewModel() -> PendingMutationsViewModel {
+        PendingMutationsViewModel(
+            mutationCoordinator: mutationCoordinator,
+            repository: PendingMutationRepository(coreDataStack: coreDataStack),
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository
         )

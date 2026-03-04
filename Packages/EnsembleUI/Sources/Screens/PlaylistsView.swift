@@ -231,6 +231,7 @@ public struct PlaylistsView: View {
                         } label: {
                             Label("New Playlist", systemImage: "plus")
                         }
+                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -260,6 +261,7 @@ public struct PlaylistsView: View {
                         } label: {
                             Label("New Playlist", systemImage: "plus")
                         }
+                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -559,6 +561,8 @@ public struct PlaylistsView: View {
 
     @ViewBuilder
     private func playlistContextMenu(_ playlist: Playlist) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+
         Button {
             withPlaylistTracks(playlist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -589,6 +593,17 @@ public struct PlaylistsView: View {
             }
         } label: {
             Label("Play Last", systemImage: "text.append")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: playlist.id)
@@ -683,17 +698,19 @@ public struct PlaylistsView: View {
 
         Task {
             do {
-                try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
-                await viewModel.awaitRenamedPlaylistMaterialization(
-                    for: playlist.id,
-                    expectedTitle: trimmed
-                )
+                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+                if outcome == .completed {
+                    await viewModel.awaitRenamedPlaylistMaterialization(
+                        for: playlist.id,
+                        expectedTitle: trimmed
+                    )
+                }
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     ToastPayload(
-                        style: .success,
-                        iconSystemName: "pencil.circle.fill",
-                        title: "Renamed playlist",
+                        style: outcome == .queued ? .info : .success,
+                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
                         dedupeKey: "playlist-rename-success-\(playlist.id)"
                     )
                 )

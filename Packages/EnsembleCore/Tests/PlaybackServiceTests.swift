@@ -204,7 +204,7 @@ final class PlaybackServiceTests: XCTestCase {
             PlaybackService.shouldRecordWaitingStallEvent(
                 playbackState: .playing,
                 isPlaybackBufferEmpty: true,
-                pendingSeekTargetTime: nil
+                hasActiveSeek: false
             )
         )
 
@@ -212,7 +212,7 @@ final class PlaybackServiceTests: XCTestCase {
             PlaybackService.shouldRecordWaitingStallEvent(
                 playbackState: .loading,
                 isPlaybackBufferEmpty: true,
-                pendingSeekTargetTime: nil
+                hasActiveSeek: false
             )
         )
 
@@ -220,7 +220,7 @@ final class PlaybackServiceTests: XCTestCase {
             PlaybackService.shouldRecordWaitingStallEvent(
                 playbackState: .playing,
                 isPlaybackBufferEmpty: false,
-                pendingSeekTargetTime: nil
+                hasActiveSeek: false
             )
         )
 
@@ -228,7 +228,7 @@ final class PlaybackServiceTests: XCTestCase {
             PlaybackService.shouldRecordWaitingStallEvent(
                 playbackState: .playing,
                 isPlaybackBufferEmpty: true,
-                pendingSeekTargetTime: 42
+                hasActiveSeek: true
             )
         )
     }
@@ -239,7 +239,7 @@ final class PlaybackServiceTests: XCTestCase {
             isPlaybackLikelyToKeepUp: true,
             isPlaybackBufferFull: false,
             isPlaybackBufferEmpty: false,
-            pendingSeekTargetTime: nil
+            hasActiveSeek: false
         )
 
         XCTAssertEqual(action?.resumeImmediately, true)
@@ -252,7 +252,7 @@ final class PlaybackServiceTests: XCTestCase {
             isPlaybackLikelyToKeepUp: false,
             isPlaybackBufferFull: false,
             isPlaybackBufferEmpty: true,
-            pendingSeekTargetTime: nil
+            hasActiveSeek: false
         )
 
         XCTAssertEqual(action?.resumeImmediately, false)

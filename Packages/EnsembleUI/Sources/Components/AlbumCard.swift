@@ -98,6 +98,8 @@ public struct AlbumGrid: View {
 
     @ViewBuilder
     private func albumContextMenu(_ album: Album) -> some View {
+        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+
         Button {
             withAlbumTracks(album) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -144,6 +146,17 @@ public struct AlbumGrid: View {
             }
         } label: {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+            )
         }
 
         if let artistId = album.artistRatingKey {
