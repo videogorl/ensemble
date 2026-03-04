@@ -275,6 +275,7 @@ public final class OfflineDownloadService: ObservableObject {
             removalInProgress.removeAll()
             targets.removeAll()
 
+            CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
 
             #if DEBUG
@@ -466,6 +467,7 @@ public final class OfflineDownloadService: ObservableObject {
             #endif
 
             if totalRequeued > 0 {
+                CoreDataStack.shared.refreshViewContext()
                 NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
             }
 
@@ -507,6 +509,7 @@ public final class OfflineDownloadService: ObservableObject {
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
 
+            CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
             #if DEBUG
@@ -559,6 +562,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
 
             // Notify track-displaying VMs so they re-fetch and reflect updated offline state
+            CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
         } catch {
             removalInProgress.removeValue(forKey: key)
@@ -1450,12 +1454,16 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Schedules a debounced `downloadsDidChange` notification so detail views
     /// re-fetch tracks after individual downloads complete without flooding during
-    /// bulk queue processing.
+    /// bulk queue processing. Refreshes the view context first so managed objects
+    /// reflect the latest background-context saves (e.g. CDTrack.localFilePath).
     private func scheduleDownloadChangeNotification() {
         downloadChangeNotificationTask?.cancel()
         downloadChangeNotificationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
             guard !Task.isCancelled else { return }
+            // Force-refault all view context objects so the next fetch reads
+            // the latest store data (localFilePath, download status, etc.).
+            CoreDataStack.shared.refreshViewContext()
             NotificationCenter.default.post(
                 name: OfflineDownloadService.downloadsDidChange,
                 object: nil

@@ -386,7 +386,21 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    await self?.loadTracks()
+                    guard let self else { return }
+                    #if DEBUG
+                    let beforePaths = self.tracks.map { "\($0.id):\($0.localFilePath ?? "nil")" }
+                    #endif
+                    await self.loadTracks()
+                    #if DEBUG
+                    let afterPaths = self.tracks.map { "\($0.id):\($0.localFilePath ?? "nil")" }
+                    let changed = zip(beforePaths, afterPaths).filter { $0 != $1 }
+                    EnsembleLogger.debug("🔔 PlaylistDetailVM downloadsDidChange: \(changed.count) tracks changed localFilePath")
+                    if !changed.isEmpty {
+                        for (before, after) in changed {
+                            EnsembleLogger.debug("   \(before) → \(after)")
+                        }
+                    }
+                    #endif
                 }
             }
             .store(in: &cancellables)
