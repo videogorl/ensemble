@@ -426,17 +426,16 @@ private struct TrackDownloadRowView: View {
                 }
             }
 
-            // Active download progress bar — determinate when byte-level progress is known
+            // Spinner while actively downloading
             if row.status == .downloading {
-                if row.progress > 0 {
-                    ProgressView(value: Double(row.progress))
-                        .progressViewStyle(.linear)
-                        .padding(.leading, 56)  // indent to align with text
-                } else {
+                HStack(spacing: 6) {
                     ProgressView()
-                        .progressViewStyle(.linear)
-                        .padding(.leading, 56)
+                        .controlSize(.small)
+                    Text("Downloading…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
+                .padding(.leading, 56)
             }
 
             // Error message for failed tracks
