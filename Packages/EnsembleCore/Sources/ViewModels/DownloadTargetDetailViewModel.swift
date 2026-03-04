@@ -23,6 +23,12 @@ public struct TrackDownloadRow: Identifiable {
     public let errorMessage: String?
     /// Quality string stored on the completed download (e.g. "original", "high", "medium", "low")
     public let downloadedQuality: String?
+    /// Disc number from track metadata (for sort ordering)
+    public let discNumber: Int32
+    /// Track number from track metadata (for sort ordering)
+    public let trackNumber: Int32
+    /// Index within parent container (used for playlist ordering)
+    public let index: Int
 }
 
 /// ViewModel for the per-track download detail view of a single offline target
@@ -191,7 +197,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
             var rows: [TrackDownloadRow] = []
             var resolved: [Track] = []
 
-            for ref in references {
+            for (index, ref) in references.enumerated() {
                 let download = try? await downloadManager.fetchDownload(
                     forTrackRatingKey: ref.trackRatingKey,
                     sourceCompositeKey: ref.trackSourceCompositeKey
@@ -215,7 +221,10 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
                     errorMessage: download?.error,
-                    downloadedQuality: download?.quality
+                    downloadedQuality: download?.quality,
+                    discNumber: cdTrack?.discNumber ?? 0,
+                    trackNumber: cdTrack?.trackNumber ?? 0,
+                    index: index
                 )
                 rows.append(row)
 
@@ -225,15 +234,16 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                 }
             }
 
-            // Sort: downloading first, then pending, paused, failed, completed — then alphabetically within each group
+            // Sort completed tracks by metadata order; in-progress/pending/failed float to top by status
             tracks = rows.sorted { lhs, rhs in
                 let lp = trackStatusSortPriority(lhs.status)
                 let rp = trackStatusSortPriority(rhs.status)
                 if lp != rp { return lp < rp }
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                // Within same status, sort by metadata order
+                return metadataOrder(lhs, rhs)
             }
 
-            // Playable tracks ordered by disc+track number for natural playback
+            // Playable tracks ordered by metadata order for natural playback
             playableTracks = resolved.sorted {
                 if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
                 return $0.trackNumber < $1.trackNumber
@@ -242,6 +252,18 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("❌ DownloadTargetDetailViewModel: Failed to load tracks: \(error)")
             #endif
+        }
+    }
+
+    /// Sort by metadata order: playlist targets use index, album/artist use disc+track number
+    private func metadataOrder(_ lhs: TrackDownloadRow, _ rhs: TrackDownloadRow) -> Bool {
+        switch summary.kind {
+        case .playlist:
+            return lhs.index < rhs.index
+        case .album, .artist, .library:
+            if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
+            if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
     }
 

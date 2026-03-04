@@ -125,15 +125,15 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
             var rows: [TrackDownloadRow] = []
             var resolved: [Track] = []
 
-            for download in downloads {
+            for (index, download) in downloads.enumerated() {
                 guard let track = download.track else { continue }
 
                 let status = download.downloadStatus
                 let row = TrackDownloadRow(
                     id: download.objectID.uriRepresentation().absoluteString,
-                    trackRatingKey: track.ratingKey ?? "",
+                    trackRatingKey: track.ratingKey,
                     sourceCompositeKey: track.sourceCompositeKey ?? sourceCompositeKey,
-                    title: track.title ?? "Unknown Track",
+                    title: track.title,
                     artistName: track.artistName,
                     thumbPath: track.thumbPath,
                     fallbackThumbPath: track.album?.thumbPath,
@@ -142,7 +142,10 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
                     progress: download.progress,
                     fileSize: download.fileSize,
                     errorMessage: download.error,
-                    downloadedQuality: download.quality
+                    downloadedQuality: download.quality,
+                    discNumber: track.discNumber,
+                    trackNumber: track.trackNumber,
+                    index: index
                 )
                 rows.append(row)
 
@@ -152,11 +155,13 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
                 }
             }
 
-            // Sort: downloading first, then pending, paused, failed, completed
+            // Sort completed tracks by disc/track number; in-progress/pending/failed float to top
             tracks = rows.sorted { lhs, rhs in
                 let lp = trackStatusSortPriority(lhs.status)
                 let rp = trackStatusSortPriority(rhs.status)
                 if lp != rp { return lp < rp }
+                if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
+                if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             }
 

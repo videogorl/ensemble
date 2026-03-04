@@ -47,7 +47,7 @@ public struct DownloadManagerSettingsView: View {
             if let estimates = viewModel.sizeEstimates {
                 Section {
                     sizeRow(label: "Current on disk", size: estimates.actualBytes)
-                    sizeRow(label: "Original", size: estimates.actualBytes, note: "varies by file")
+                    sizeRow(label: "Original", size: estimates.highBytes, note: "> \(formatBytes(estimates.highBytes))")
                     sizeRow(label: "High (320 kbps)", size: estimates.highBytes)
                     sizeRow(label: "Medium (192 kbps)", size: estimates.mediumBytes)
                     sizeRow(label: "Low (128 kbps)", size: estimates.lowBytes)
@@ -56,7 +56,7 @@ public struct DownloadManagerSettingsView: View {
                         .foregroundColor(.accentColor)
                         .textCase(nil)
                 } footer: {
-                    Text("Transcoded quality estimates are approximate. Original quality varies by source file.")
+                    Text("Estimates are based on downloaded content. Original quality varies by source file.")
                 }
             }
 
@@ -78,6 +78,7 @@ public struct DownloadManagerSettingsView: View {
         #else
         .listStyle(.inset)
         #endif
+        .miniPlayerBottomSpacing(140)
         .alert("Remove All Downloads?", isPresented: $showRemoveAllConfirmation) {
             Button("Remove All", role: .destructive) {
                 Task {

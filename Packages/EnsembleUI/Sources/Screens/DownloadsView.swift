@@ -124,18 +124,13 @@ public struct DownloadsView: View {
 
     @ViewBuilder
     private func libraryRow(for library: LibraryDownloadSummary) -> some View {
-        // NavigationLink wraps the label area; Toggle is placed outside the link's
-        // tap area so they don't conflict. On iOS 15 we use a ZStack approach.
-        HStack(spacing: 0) {
-            NavigationLink {
-                LibraryDownloadDetailView(
-                    sourceCompositeKey: library.sourceCompositeKey,
-                    title: "\(library.serverName): \(library.libraryName)",
-                    nowPlayingVM: nowPlayingVM
-                )
-            } label: {
-                libraryRowLabel(for: library)
-            }
+        // Label area is the row content; toggle + chevron sit on the trailing edge.
+        // NavigationLink is hidden and triggered via the chevron button.
+        HStack(spacing: 12) {
+            // Main label content
+            libraryRowLabel(for: library)
+
+            Spacer()
 
             // Toggle to enable/disable library download
             Toggle(
@@ -155,6 +150,19 @@ public struct DownloadsView: View {
             )
             .labelsHidden()
             .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+
+            // Chevron for drill-in navigation (right of toggle)
+            NavigationLink {
+                LibraryDownloadDetailView(
+                    sourceCompositeKey: library.sourceCompositeKey,
+                    title: "\(library.serverName): \(library.libraryName)",
+                    nowPlayingVM: nowPlayingVM
+                )
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -178,7 +186,14 @@ public struct DownloadsView: View {
                         .font(.body)
                         .lineLimit(1)
 
-                    Text(librarySubtitle(for: library))
+                    // Track count line
+                    Text(libraryTrackCountText(for: library))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+
+                    // Size line
+                    Text(librarySizeText(for: library))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -205,14 +220,21 @@ public struct DownloadsView: View {
         .padding(.vertical, 4)
     }
 
-    private func librarySubtitle(for library: LibraryDownloadSummary) -> String {
+    private func libraryTrackCountText(for library: LibraryDownloadSummary) -> String {
+        if library.downloadedTrackCount > 0 {
+            return "\(library.downloadedTrackCount) of \(library.totalTrackCount) tracks downloaded"
+        }
+        return "\(library.totalTrackCount) tracks"
+    }
+
+    private func librarySizeText(for library: LibraryDownloadSummary) -> String {
         let downloadedSize = formatBytes(library.downloadedBytes)
         let estimatedSize = formatBytes(library.estimatedTotalBytes)
 
         if library.downloadedTrackCount > 0 {
-            return "\(library.downloadedTrackCount) / \(library.totalTrackCount) tracks \u{2022} \(downloadedSize) / ~\(estimatedSize)"
+            return "\(downloadedSize) / ~\(estimatedSize)"
         }
-        return "\(library.totalTrackCount) tracks \u{2022} ~\(estimatedSize) estimated"
+        return "~\(estimatedSize) estimated"
     }
 
     // MARK: - Target Rows
@@ -378,13 +400,13 @@ private struct DownloadedItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                // Album art thumbnail
+                // Album/artist art thumbnail (circle for artists)
                 ArtworkView(
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
                     size: .thumbnail,
-                    cornerRadius: 6
+                    cornerRadius: item.kind == .artist ? 24 : 6
                 )
                 .frame(width: 48, height: 48)
 

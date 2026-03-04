@@ -23,14 +23,13 @@ public struct QualitySizeEstimates {
 
     /// Formatted display string for a given quality key
     public func formattedSize(for quality: String) -> String {
-        let bytes: Int64
         switch quality {
-        case "high": bytes = highBytes
-        case "medium": bytes = mediumBytes
-        case "low": bytes = lowBytes
-        default: bytes = actualBytes
+        case "high": return Self.formatBytes(highBytes)
+        case "medium": return Self.formatBytes(mediumBytes)
+        case "low": return Self.formatBytes(lowBytes)
+        case "original": return "> \(Self.formatBytes(highBytes))"
+        default: return Self.formatBytes(actualBytes)
         }
-        return Self.formatBytes(bytes)
     }
 
     private static func formatBytes(_ bytes: Int64) -> String {
@@ -97,7 +96,8 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
 
     // MARK: - Size Estimation
 
-    /// Computes estimated download sizes for each quality level based on total track duration
+    /// Computes estimated download sizes for each quality level based on total duration
+    /// of already-downloaded tracks (not the whole library).
     private func loadSizeEstimates() async {
         do {
             let totalDurationMs = try await targetRepository.totalTrackDurationMs()
