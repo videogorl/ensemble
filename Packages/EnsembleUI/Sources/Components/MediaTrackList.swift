@@ -11,6 +11,7 @@ public class TrackTableViewCell: UITableViewCell {
     private let artworkImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let downloadIcon = UIImageView()
     private let durationLabel = UILabel()
     private let playingIndicator = UIImageView()
     private let trackNumberLabel = UILabel()
@@ -52,6 +53,13 @@ public class TrackTableViewCell: UITableViewCell {
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(subtitleLabel)
         
+        downloadIcon.image = UIImage(systemName: "arrow.down.circle.fill")
+        downloadIcon.tintColor = .secondaryLabel
+        downloadIcon.contentMode = .scaleAspectFit
+        downloadIcon.translatesAutoresizingMaskIntoConstraints = false
+        downloadIcon.isHidden = true
+        contentView.addSubview(downloadIcon)
+
         durationLabel.font = .systemFont(ofSize: 14, weight: .regular)
         durationLabel.textColor = .secondaryLabel
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -75,11 +83,17 @@ public class TrackTableViewCell: UITableViewCell {
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
             
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
-            
+            titleLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -6),
+
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -8),
-            
+            subtitleLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -6),
+
+            // Download icon sits just left of the duration label
+            downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -4),
+            downloadIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            downloadIcon.widthAnchor.constraint(equalToConstant: 14),
+            downloadIcon.heightAnchor.constraint(equalToConstant: 14),
+
             durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
@@ -127,6 +141,7 @@ public class TrackTableViewCell: UITableViewCell {
         durationLabel.text = track.formattedDuration
         durationLabel.isHidden = isPlaying
         playingIndicator.isHidden = !isPlaying
+        downloadIcon.isHidden = !track.isDownloaded
         
         // Show/hide artwork
         artworkImageView.isHidden = !showArtwork
