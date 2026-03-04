@@ -43,6 +43,31 @@ public struct RootView: View {
             tabBarAppearance.configureWithDefaultBackground()
         }
 
+        // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
+        // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
+        // effect so content doesn't scroll behind chrome.
+        if #available(iOS 16.0, *) {
+            // iOS 16+ handles this correctly — no extra work needed
+        } else {
+            let bgAlpha: CGFloat = settingsManager.auroraVisualizationEnabled ? 0.3 : 0.85
+            let blurStyle: UIBlurEffect.Style = .systemChromeMaterial
+
+            // Nav bar
+            navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+            // Tab bar
+            tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+            // Toolbar
+            let toolbarAppearance = UIToolbarAppearance()
+            toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+            UIToolbar.appearance().standardAppearance = toolbarAppearance
+            UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
+        }
+
         UINavigationBar.appearance().standardAppearance = navAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
         UINavigationBar.appearance().compactAppearance = navAppearance

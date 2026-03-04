@@ -153,6 +153,11 @@ public struct InfoCard: View {
                 infoRow(label: "Server", value: serverName)
             }
 
+            // Library name
+            if let libraryName = resolveLibraryName() {
+                infoRow(label: "Library", value: libraryName)
+            }
+
             // Connection URL and type
             if let connectionInfo = resolveConnectionInfo() {
                 infoRow(label: "Connection", value: connectionInfo)
@@ -371,6 +376,27 @@ public struct InfoCard: View {
         }
 
         return server.name
+    }
+
+    /// Resolve library name from the track's sourceCompositeKey
+    /// Format: "plex:accountId:serverId:libraryId" -> find matching library title
+    private func resolveLibraryName() -> String? {
+        guard let key = viewModel.currentTrack?.sourceCompositeKey else { return nil }
+        let components = key.split(separator: ":")
+        guard components.count >= 4 else { return nil }
+
+        let accountId = String(components[1])
+        let serverId = String(components[2])
+        let libraryId = String(components[3])
+
+        // Walk accounts → servers → libraries to find matching title
+        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
+              let server = account.servers.first(where: { $0.id == serverId }),
+              let library = server.libraries.first(where: { $0.id == libraryId }) else {
+            return nil
+        }
+
+        return library.title
     }
 
     /// Resolve connection URL and type info
