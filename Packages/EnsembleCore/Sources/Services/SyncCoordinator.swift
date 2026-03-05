@@ -581,7 +581,9 @@ public final class SyncCoordinator: ObservableObject {
         
         do {
             // Incremental sync library content
-            let timestamp = lastSyncDate.timeIntervalSince1970
+            // Subtract 5s buffer to catch items updated just before the last sync completed
+            // (guards against clock skew between server and client)
+            let timestamp = lastSyncDate.timeIntervalSince1970 - 5
             try await provider.syncLibraryIncremental(
                 since: timestamp,
                 to: libraryRepository,
