@@ -289,10 +289,10 @@ public actor PlexWebSocketManager {
                 // Library item lifecycle events
                 if let entries = container.TimelineEntry {
                     for entry in entries {
-                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? -1) itemID=\(entry.itemID ?? -1) type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
+                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? "nil") itemID=\(entry.itemID ?? "nil") type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
                         broadcast(.libraryUpdate(
-                            sectionID: entry.sectionID ?? 0,
-                            itemID: entry.itemID ?? 0,
+                            sectionID: entry.sectionIDInt ?? 0,
+                            itemID: entry.itemIDInt ?? 0,
                             type: entry.type ?? 0,
                             state: entry.state ?? 0
                         ))
@@ -364,13 +364,19 @@ private struct PlexNotificationContainer: Decodable {
 }
 
 private struct PlexTimelineEntry: Decodable {
-    let itemID: Int?
-    let sectionID: Int?
+    // sectionID and itemID come as strings from the Plex WebSocket JSON
+    let itemID: String?
+    let sectionID: String?
     let type: Int?
     let state: Int?
     let title: String?
     let metadataState: String?
     let updatedAt: Int?
+
+    /// Parsed integer sectionID for event routing.
+    var sectionIDInt: Int? { sectionID.flatMap(Int.init) }
+    /// Parsed integer itemID for event routing.
+    var itemIDInt: Int? { itemID.flatMap(Int.init) }
 }
 
 private struct PlexActivityNotification: Decodable {
