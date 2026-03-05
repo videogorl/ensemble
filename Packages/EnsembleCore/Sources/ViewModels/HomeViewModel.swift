@@ -135,6 +135,17 @@ public final class HomeViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Auto-reload when source statuses change (catches WebSocket-triggered incremental syncs)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .dropFirst()
+            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.requestAutoRefresh(reason: .syncCompleted)
+            }
+            .store(in: &cancellables)
+
         self.visibilityStore.$profiles
             .combineLatest(self.visibilityStore.$activeProfileID)
             .dropFirst()

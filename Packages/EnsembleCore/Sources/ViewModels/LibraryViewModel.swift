@@ -112,16 +112,29 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes (full or incremental)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] syncing in
                 if !syncing {
-                    // Sync just completed, reload library
+                    // Full sync just completed, reload library
                     Task { @MainActor in
                         await self?.loadLibrary()
                     }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Auto-reload when any source status changes (catches WebSocket-triggered incremental syncs
+        // which update sourceStatuses but don't toggle isSyncing)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadLibrary()
                 }
             }
             .store(in: &cancellables)
