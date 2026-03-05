@@ -154,20 +154,26 @@ Persistent artwork caching that survives app restarts:
 1. **ArtworkDownloadManager** (`EnsemblePersistence`) -- Downloads and stores artwork files locally
    - Stores in `Library/Application Support/Ensemble/Artwork/`
    - Filename format: `{ratingKey}_album.jpg` or `{ratingKey}_artist.jpg`
-   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`
+   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`, `deleteArtwork(ratingKey:type:)`
 
 2. **ArtworkLoader** (`EnsembleCore`) -- Coordinates with local-first strategy
    - `artworkURLAsync()` checks local cache first using `ratingKey`
    - Falls back to network fetch via `SyncCoordinator` if not cached
    - `predownloadArtwork()` methods for batch downloading during sync
    - Configures Nuke's `ImagePipeline` with 100MB disk cache
+   - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + Nuke cache and posts `artworkDidInvalidate` notification
 
 3. **ArtworkView** (`EnsembleUI`) -- SwiftUI component
    - Passes `ratingKey` to enable local cache lookups
    - Convenience initializers for `Track`, `Album`, `Artist`, `Playlist`
+   - Listens for `artworkDidInvalidate` notification and re-triggers load when matching ratingKey is invalidated
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
    - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+
+5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction
+   - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
+   - `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` so UI refreshes automatically
 
 **Usage:**
 ```swift
@@ -274,6 +280,7 @@ Dynamic home screen powered by Plex's hub system:
   - enqueuing missing track downloads
   - reconciling after sync/playlist updates
   - reference-counted cleanup of shared tracks when targets are removed
+  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
 - Sync integration:
@@ -322,7 +329,12 @@ Multi-layered network resilience spanning endpoint management, push-based update
 ### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
 - **`PlexWebSocketManager`** (`EnsembleAPI`, actor) -- Manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
 - **`PlexWebSocketCoordinator`** (`EnsembleCore`, @MainActor) -- Routes incoming WebSocket events to sync and health systems.
+  - `onLibraryUpdate` / `onPlaylistUpdate` -- Debounced section/playlist sync triggers (3s / 5s)
+  - `onArtworkInvalidation` -- Fires on album/artist metadata updates for cache eviction
+  - `onServerOffline` / `onServerHealthy` -- Server health signal callbacks
+  - `@Published serverScanProgress: [String: Int]` -- Per-server library scan progress (0-100) from activity events
 - `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
+- `SyncCoordinator.rateTrack()` triggers debounced post-rating playlist sync (5s) for smart playlist freshness.
 - `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
 
 ### Reactive Track Availability -- TrackAvailabilityResolver
@@ -451,7 +463,7 @@ Plex mood/vibe categories for discovery:
 Two sync modes to balance freshness and speed:
 
 - **Full sync:** `SyncCoordinator.syncAll()` -- fetches entire library from Plex
-- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items
+- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items (with 5s timestamp buffer to avoid missing near-boundary changes)
 - **Startup:** full sync if last sync >24h ago; incremental if >1h; skip if <1h
 - **Periodic (foreground):** incremental library sync every 1h, hub refresh every 10min
 - **Background (iOS):** `BackgroundSyncScheduler` registers `BGAppRefreshTask`; system triggers hub refresh approximately every 15min

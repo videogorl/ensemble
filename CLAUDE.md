@@ -68,6 +68,30 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### WebSocket Enhancements + Download Spinners (Mar 2026)
+Six improvements building on the WebSocket infrastructure:
+
+- **Playlist auto-update:** `PlaylistViewModel` now subscribes to `syncCoordinator.$sourceStatuses` (1s debounce) as defensive fallback for WebSocket-triggered playlist changes.
+- **Download spinners:** `OfflineDownloadService` publishes `activeDownloadRatingKeys: Set<String>`. `TrackRow` and `MediaTrackList` show a spinner for actively downloading tracks, replaced by download icon on completion.
+- **Scan progress indicator:** `PlexWebSocketCoordinator` tracks `serverScanProgress: [String: Int]` from activity events. `MusicSourceAccountDetailView` shows a linear progress bar per server during library scans.
+- **Smart playlist auto-refresh:** `SyncCoordinator.rateTrack()` triggers a debounced (5s) playlist sync after rating changes so smart playlists reflect new state.
+- **Artwork cache invalidation:** WebSocket album/artist metadata updates (type=9/8, state=5) fire `onArtworkInvalidation`. `ArtworkLoader.invalidateArtwork()` clears URL cache + local file + Nuke cache and posts notification. `ArtworkView` re-triggers load on invalidation.
+- **Incremental sync timestamp buffer:** 5s subtracted from `since` timestamp to avoid missing near-boundary changes.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/ViewModels/PlaylistViewModel.swift` - sourceStatuses observer
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - activeDownloadRatingKeys
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - download spinner
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - UIKit download spinner
+- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - serverScanProgress, onArtworkInvalidation
+- `Packages/EnsembleCore/Sources/ViewModels/MusicSourceAccountDetailViewModel.swift` - scanProgressByServer
+- `Packages/EnsembleUI/Sources/Screens/MusicSourceAccountDetailView.swift` - scan progress bar UI
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - post-rating playlist sync, 5s timestamp buffer
+- `Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift` - invalidateArtwork, artworkDidInvalidate notification
+- `Packages/EnsemblePersistence/Sources/Downloads/ArtworkDownloadManager.swift` - deleteArtwork
+- `Packages/EnsembleUI/Sources/Components/ArtworkView.swift` - invalidation listener
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - onArtworkInvalidation wiring
+
 ### Network Resilience & Offline Architecture v1 (Mar 2026)
 Five-phase overhaul of network resilience, push-based server updates, reactive track availability, queue resilience, and unified error handling:
 
