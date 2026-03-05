@@ -32,6 +32,9 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
+- `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
+- `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
+- `PlexWebSocketManager` (actor) -- Per-server WebSocket connections with exponential backoff reconnect
 - `KeychainService` -- Token persistence using KeychainAccess library
 - `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
 
@@ -80,6 +83,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
+- `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
+- `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
@@ -305,6 +310,44 @@ Dynamic home screen powered by Plex's hub system:
 
 ## Subsystem: Network Resilience
 
+Multi-layered network resilience spanning endpoint management, push-based updates, reactive availability, queue resilience, and unified error classification.
+
+### Endpoint Truth -- ServerConnectionRegistry
+- **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
+- `PlexAPIClient` reports successful failover results back to the registry so all consumers share the latest healthy endpoint.
+- `ServerHealthChecker` writes probe results into the registry after health checks.
+- `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
+- `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
+
+### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
+- **`PlexWebSocketManager`** (`EnsembleAPI`, actor) -- Manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
+- **`PlexWebSocketCoordinator`** (`EnsembleCore`, @MainActor) -- Routes incoming WebSocket events to sync and health systems.
+- `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
+- `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
+
+### Reactive Track Availability -- TrackAvailabilityResolver
+- **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
+- `TrackAvailability` enum: `.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`.
+- `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
+- Exposed via `DependencyContainer.trackAvailabilityResolver`.
+
+### Queue Resilience (PlaybackService)
+- Circuit breaker scans for downloaded alternatives when server is unreachable.
+- `retryCurrentTrack()` falls back to local download if available.
+- Cache eviction for newly downloaded queue items so AVPlayer picks up fresh local files.
+- Auto-resume playback when `ServerHealthChecker` completes a successful health check.
+
+### Unified Error Taxonomy -- PlexErrorClassification
+- **`PlexErrorClassification`** (`EnsembleAPI`) -- Classifies errors as transport (retryable/failover-eligible) vs. semantic (not retryable) for consistent failover and retry decisions.
+- `PlexAPIClient` uses `PlexErrorClassification` for failover gating instead of ad-hoc status code checks.
+- `MutationCoordinator` uses it to decide which failed mutations to queue for retry vs. discard.
+
+### Scrobble Queuing
+- `MutationCoordinator` now queues failed scrobble calls as `CDPendingMutation` (`.scrobble` type).
+- `SyncCoordinator` exposes `scrobbleTrackThrowing()` so `PlaybackService` can route scrobbles through the mutation coordinator.
+- `PendingMutationsViewModel` and `PendingMutationsView` display queued scrobbles alongside playlist mutations.
+
+### Foundation Layer (unchanged)
 - **NetworkMonitor** -- `NWPathMonitor` with 1s debouncing, states: `.online`/`.offline`/`.limited`/`.unknown`
   - Lifecycle-safe restart behavior: `stopMonitoring()` cancels/releases the current monitor and `startMonitoring()` creates a new monitor instance.
 - **SyncCoordinator** -- Transition-aware health orchestration for reconnects and interface switches
@@ -319,8 +362,28 @@ Dynamic home screen powered by Plex's hub system:
 - **Resources discovery parity** -- resources requests include HTTPS/relay/IPv6 parameters plus common Plex client headers.
 - **Auth lifecycle enforcement** -- `AccountManager` enforces auth migration cutover and token expiry checks on load/foreground.
 
+### Dependency Flow
+```
+PlexWebSocketManager ──events──> PlexWebSocketCoordinator ──> SyncCoordinator (incremental section sync)
+                                                          ──> ServerHealthChecker (probe triggers)
+PlexAPIClient ──failover──> ServerConnectionRegistry <──writes── ServerHealthChecker
+                                        |
+                                        v
+                               SyncCoordinator (subscribes to endpoint changes)
+                                        |
+                                        v
+                            TrackAvailabilityResolver (server state + download state -> per-track availability)
+                                        |
+                                        v
+                             TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+
+PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
+PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
+```
+
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
+- iOS: WebSocket connections start on foreground, stop on background (`AppDelegate`)
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
 - macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`

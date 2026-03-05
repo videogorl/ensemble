@@ -68,6 +68,32 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Network Resilience & Offline Architecture v1 (Mar 2026)
+Five-phase overhaul of network resilience, push-based server updates, reactive track availability, queue resilience, and unified error handling:
+
+- **Phase 1 -- ServerConnectionRegistry:** New actor (`ServerConnectionRegistry`) is the single source of truth for per-server endpoints. `PlexAPIClient` reports failover results back to the registry; `ServerHealthChecker` writes probe results; `SyncCoordinator` subscribes to registry changes; `AccountManager` owns the registry; `DependencyContainer` wires it.
+- **Phase 2 -- PlexWebSocketManager + PlexWebSocketCoordinator:** `PlexWebSocketManager` (actor) manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect. `PlexWebSocketCoordinator` (@MainActor) routes WS events to sync and health systems. `SyncCoordinator` gains adjustable timer policy and incremental section-level sync. `AppDelegate` starts/stops WebSocket connections on foreground/background.
+- **Phase 3 -- TrackAvailabilityResolver:** New @MainActor ObservableObject publishes per-track availability by combining per-server connection state with per-track download state. `TrackAvailability` enum (`.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`) replaces inline offline checks in `TrackRow`, `CompactSearchRows`, and `MediaTrackList`.
+- **Phase 4 -- Queue Resilience:** `PlaybackService` circuit breaker scans for downloaded alternatives; `retryCurrentTrack()` falls back to local downloads; cache eviction for newly downloaded queue items; auto-resume on health check completion.
+- **Phase 5 -- Mutation Queue Hardening:** `PlexErrorClassification` provides unified error taxonomy (transport vs. semantic). `PlexAPIClient` and `MutationCoordinator` use it for failover/retry decisions. `MutationCoordinator` queues failed scrobbles as `CDPendingMutation` (`.scrobble` type). `PlaybackService` routes scrobbles through the mutation coordinator via `SyncCoordinator.scrobbleTrackThrowing()`. `PendingMutationsViewModel` and `PendingMutationsView` display queued scrobbles.
+
+**Key files:**
+- `Packages/EnsembleAPI/Sources/Client/ServerConnectionRegistry.swift` - actor, per-server endpoint truth
+- `Packages/EnsembleAPI/Sources/Client/PlexWebSocketManager.swift` - actor, per-server WebSocket with backoff
+- `Packages/EnsembleAPI/Sources/Client/PlexErrorClassification.swift` - unified error taxonomy
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - failover reports to registry, uses error classification
+- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - routes WS events to sync/health
+- `Packages/EnsembleCore/Sources/Services/TrackAvailabilityResolver.swift` - reactive per-track availability
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - registry subscription, adjustable timers, scrobbleTrackThrowing
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - queue resilience, download fallback, scrobble routing
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires registry, WS coordinator, availability resolver
+- `Packages/EnsemblePersistence/Sources/CoreData/ManagedObjects.swift` - CDPendingMutation .scrobble type
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Components/CompactSearchRows.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Screens/PendingMutationsView.swift` - shows queued scrobbles
+- `Ensemble/App/AppDelegate.swift` - WS start/stop on foreground/background
+
 ### Offline Download Manager v1 (Settings-Managed, Target-Based) (Mar 2026)
 Offline downloads now use target-based management with source-safe reconciliation and optional iOS 26 continued background processing acceleration:
 

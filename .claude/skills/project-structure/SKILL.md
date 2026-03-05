@@ -60,6 +60,9 @@ Sources/
 +-- Client/
 |   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
+|   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
+|   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
+|   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
@@ -142,7 +145,9 @@ Sources/
 |   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
+|   +-- PlexWebSocketCoordinator.swift # Routes WebSocket events to sync/health systems (@MainActor)
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
+|   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
