@@ -505,7 +505,8 @@ public final class SyncCoordinator: ObservableObject {
             
             do {
                 // Incremental sync library content
-                let timestamp = lastSyncDate.timeIntervalSince1970
+                // Subtract 5s buffer to catch items updated just before the last sync completed
+                let timestamp = lastSyncDate.timeIntervalSince1970 - 5
                 try await provider.syncLibraryIncremental(
                     since: timestamp,
                     to: libraryRepository,
@@ -521,11 +522,11 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 )
                 
-                // Sync playlists once per server (playlists are typically fast)
+                // Sync playlists incrementally once per server
                 let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
                 if !syncedServerKeys.contains(serverKey) {
                     syncedServerKeys.insert(serverKey)
-                    try await provider.syncPlaylists(
+                    try await provider.syncPlaylistsIncremental(
                         to: playlistRepository,
                         progressHandler: { [weak self] progress in
                             Task { @MainActor in
@@ -537,6 +538,15 @@ public final class SyncCoordinator: ObservableObject {
                                 )
                             }
                         }
+                    )
+
+                    // Notify playlist views that data may have changed
+                    let serverSourceKey = "\(sourceId.type.rawValue):\(sourceId.accountId):\(sourceId.serverId)"
+                    onPlaylistRefreshCompleted?(serverSourceKey)
+                    NotificationCenter.default.post(
+                        name: Self.playlistsDidRefresh,
+                        object: nil,
+                        userInfo: ["serverSourceKey": serverSourceKey]
                     )
                 }
                 

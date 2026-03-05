@@ -42,16 +42,34 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
+        // Fetch existing timestamps to skip unchanged items (avoids expensive per-item CoreData upserts)
+        progressHandler(0.05)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
+        let existingArtistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceKey)
+        let existingAlbumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceKey)
+        let existingTrackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceKey)
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingArtistTimestamps.count) artists, \(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
+        #endif
+
         // Sync artists added or updated since timestamp
         progressHandler(0.1)
-        var phaseStart = CFAbsoluteTimeGetCurrent()
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allArtists = Set(newArtists.map { $0.ratingKey }).union(Set(updatedArtists.map { $0.ratingKey }))
-        let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var artistMap: [String: PlexArtist] = [:]
+        for a in newArtists { artistMap[a.ratingKey] = a }
+        for a in updatedArtists { artistMap[a.ratingKey] = a }
+        let artistsToSync = artistMap.values.filter { artist in
+            guard let serverUpdated = artist.updatedAt else { return true }
+            guard let localDate = existingArtistTimestamps[artist.ratingKey] else { return true }
+            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistsToSync.count) changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistMap.count) from server, \(artistsToSync.count) actually changed")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for artist in artistsToSync {
@@ -78,11 +96,19 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allAlbums = Set(newAlbums.map { $0.ratingKey }).union(Set(updatedAlbums.map { $0.ratingKey }))
-        let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var albumMap: [String: PlexAlbum] = [:]
+        for a in newAlbums { albumMap[a.ratingKey] = a }
+        for a in updatedAlbums { albumMap[a.ratingKey] = a }
+        let albumsToSync = albumMap.values.filter { album in
+            guard let serverUpdated = album.updatedAt else { return true }
+            guard let localDate = existingAlbumTimestamps[album.ratingKey] else { return true }
+            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumsToSync.count) changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumMap.count) from server, \(albumsToSync.count) actually changed")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for album in albumsToSync {
@@ -115,11 +141,19 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allTracks = Set(newTracks.map { $0.ratingKey }).union(Set(updatedTracks.map { $0.ratingKey }))
-        let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var trackMap: [String: PlexTrack] = [:]
+        for t in newTracks { trackMap[t.ratingKey] = t }
+        for t in updatedTracks { trackMap[t.ratingKey] = t }
+        let tracksToSync = trackMap.values.filter { track in
+            guard let serverUpdated = track.updatedAt else { return true }
+            guard let localDate = existingTrackTimestamps[track.ratingKey] else { return true }
+            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(tracksToSync.count) changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) actually changed")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {

@@ -108,6 +108,11 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
     func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
     func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+
+    // Bulk timestamp lookups (for incremental sync change detection)
+    func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
+    func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
+    func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 }
 
@@ -1127,6 +1132,80 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         try context.save()
                     }
                     continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Bulk Timestamp Lookups
+
+    /// Fetch all artist ratingKey → dateModified pairs for a source (single query for change detection)
+    public func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.propertiesToFetch = ["ratingKey", "dateModified"]
+                    let artists = try context.fetch(request)
+                    var result: [String: Date] = [:]
+                    result.reserveCapacity(artists.count)
+                    for artist in artists {
+                        if let date = artist.dateModified {
+                            result[artist.ratingKey] = date
+                        }
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Fetch all album ratingKey → dateModified pairs for a source (single query for change detection)
+    public func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.propertiesToFetch = ["ratingKey", "dateModified"]
+                    let albums = try context.fetch(request)
+                    var result: [String: Date] = [:]
+                    result.reserveCapacity(albums.count)
+                    for album in albums {
+                        if let date = album.dateModified {
+                            result[album.ratingKey] = date
+                        }
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Fetch all track ratingKey → dateModified pairs for a source (single query for change detection)
+    public func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.propertiesToFetch = ["ratingKey", "dateModified"]
+                    let tracks = try context.fetch(request)
+                    var result: [String: Date] = [:]
+                    result.reserveCapacity(tracks.count)
+                    for track in tracks {
+                        if let date = track.dateModified {
+                            result[track.ratingKey] = date
+                        }
+                    }
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }
