@@ -394,7 +394,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showArtwork: showArtwork,
                         showTrackNumber: showTrackNumbers,
                         isPlaying: isPlaying,
-                        isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
+                        isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
