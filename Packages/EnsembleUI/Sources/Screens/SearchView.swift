@@ -1059,7 +1059,7 @@ public struct SearchView: View {
         } label: {
             Label(
                 isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
             )
         }
 
@@ -1135,7 +1135,7 @@ public struct SearchView: View {
         } label: {
             Label(
                 isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
             )
         }
 
@@ -1203,7 +1203,7 @@ public struct SearchView: View {
         } label: {
             Label(
                 isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
             )
         }
 
