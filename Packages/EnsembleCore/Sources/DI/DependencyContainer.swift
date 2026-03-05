@@ -149,6 +149,9 @@ public final class DependencyContainer: @unchecked Sendable {
             wsc.onLibraryUpdate = { [weak syncCoordinatorRef] sectionKey in
                 await syncCoordinatorRef?.syncSectionIncremental(sectionKey: sectionKey)
             }
+            wsc.onPlaylistUpdate = { [weak syncCoordinatorRef] serverKey in
+                await syncCoordinatorRef?.syncServerPlaylistsIncremental(serverKey: serverKey)
+            }
             wsc.onServerOffline = { serverKey in
                 // Parse serverKey and trigger health check
                 let parts = serverKey.split(separator: ":", maxSplits: 1)

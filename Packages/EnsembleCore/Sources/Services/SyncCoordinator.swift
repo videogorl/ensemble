@@ -916,27 +916,23 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
         
-        // Determine if we need to sync
+        // Determine sync strategy: full if >24h or never synced, incremental otherwise.
+        // Always run at least an incremental sync on cold start so the user sees
+        // changes made on other devices or via Plex Web since the last session.
         var needsFullSync = false
-        var needsIncrementalSync = false
-        
+
         for (_, provider) in syncProviders {
             let sourceId = provider.sourceIdentifier
-            
+
             if let lastSyncDate = await loadLastSyncDate(for: sourceId) {
                 let hoursSinceSync = Date().timeIntervalSince(lastSyncDate) / 3600
-                
+
                 if hoursSinceSync > 24 {
                     #if DEBUG
                     EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs full sync")
                     #endif
                     needsFullSync = true
                     break
-                } else if hoursSinceSync > 1 {
-                    #if DEBUG
-                    EnsembleLogger.debug("⏰ Source \(sourceId.compositeKey) last synced \(Int(hoursSinceSync)) hours ago - needs incremental sync")
-                    #endif
-                    needsIncrementalSync = true
                 }
             } else {
                 #if DEBUG
@@ -946,22 +942,17 @@ public final class SyncCoordinator: ObservableObject {
                 break
             }
         }
-        
-        // Perform appropriate sync
+
         if needsFullSync {
             #if DEBUG
             EnsembleLogger.debug("🔄 Starting full sync on startup...")
             #endif
             await syncAll()
-        } else if needsIncrementalSync {
+        } else {
             #if DEBUG
             EnsembleLogger.debug("🔄 Starting incremental sync on startup...")
             #endif
             await syncAllIncremental()
-        } else {
-            #if DEBUG
-            EnsembleLogger.debug("✅ Library is fresh - skipping startup sync")
-            #endif
         }
     }
 
@@ -2348,6 +2339,43 @@ public final class SyncCoordinator: ObservableObject {
         #endif
 
         await syncIncremental(source: sourceId)
+    }
+
+    /// Trigger a playlist-only sync for a specific server.
+    /// Called by `PlexWebSocketCoordinator` when a playlist update notification arrives.
+    /// Does not depend on `isSyncing` so it can run alongside library sync.
+    public func syncServerPlaylistsIncremental(serverKey: String) async {
+        // Find a provider for this server
+        let matchingProvider = syncProviders.first { (_, provider) in
+            let id = provider.sourceIdentifier
+            return "\(id.accountId):\(id.serverId)" == serverKey
+        }
+
+        guard let (_, provider) = matchingProvider else {
+            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for server \(serverKey) playlist sync")
+            return
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
+        #endif
+
+        let sourceId = provider.sourceIdentifier
+        do {
+            try await provider.syncPlaylistsIncremental(
+                to: playlistRepository,
+                progressHandler: { _ in }
+            )
+            let serverSourceKey = "plex:\(sourceId.accountId):\(sourceId.serverId)"
+            onPlaylistRefreshCompleted?(serverSourceKey)
+            NotificationCenter.default.post(
+                name: Self.playlistsDidRefresh,
+                object: nil,
+                userInfo: ["serverSourceKey": serverSourceKey]
+            )
+        } catch {
+            EnsembleLogger.error("🔌 SyncCoordinator: Playlist sync failed for server \(serverKey): \(error.localizedDescription)")
+        }
     }
 
     /// Adjust periodic sync intervals based on WebSocket availability.

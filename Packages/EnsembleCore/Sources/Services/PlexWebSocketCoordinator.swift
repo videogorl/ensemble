@@ -25,6 +25,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// SyncCoordinator wires this to trigger incremental sync for the affected section.
     public var onLibraryUpdate: ((String) async -> Void)?
 
+    /// Called when a playlist update notification arrives. Parameter: serverKey (accountId:serverId).
+    /// SyncCoordinator wires this to trigger playlist-only sync for the affected server.
+    public var onPlaylistUpdate: ((String) async -> Void)?
+
     /// Called when a server goes offline (WebSocket disconnect or shutdown notification).
     /// Parameter: serverKey (accountId:serverId).
     public var onServerOffline: ((String) async -> Void)?
@@ -38,9 +42,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var accountObserver: AnyCancellable?
     private var isActive = false
 
-    // Debounce library update triggers to avoid spamming sync for batch updates
+    // Debounce library/playlist update triggers to avoid spamming sync for batch updates
     private var pendingLibraryUpdates: [String: Task<Void, Never>] = [:]
+    private var pendingPlaylistUpdates: [String: Task<Void, Never>] = [:]
     private let libraryUpdateDebounce: TimeInterval = 3.0
+    private let playlistUpdateDebounce: TimeInterval = 5.0
 
     public init(
         accountManager: AccountManager,
@@ -100,6 +106,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             task.cancel()
         }
         pendingLibraryUpdates.removeAll()
+        for (_, task) in pendingPlaylistUpdates {
+            task.cancel()
+        }
+        pendingPlaylistUpdates.removeAll()
     }
 
     // MARK: - Connection Management
@@ -194,6 +204,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         pendingLibraryUpdates[serverKey]?.cancel()
         pendingLibraryUpdates.removeValue(forKey: serverKey)
+        pendingPlaylistUpdates[serverKey]?.cancel()
+        pendingPlaylistUpdates.removeValue(forKey: serverKey)
     }
 
     // MARK: - Event Routing
@@ -201,8 +213,15 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private func handleEvent(_ event: PlexServerEvent, from serverKey: String) async {
         switch event {
         case .libraryUpdate(let sectionID, _, let type, let state):
-            // Only trigger sync for music types (8=artist, 9=album, 10=track) and
-            // completed states (5=processed, 9=deleted, 0=created)
+            // Playlist changes (type 15) trigger a playlist-only sync for the server
+            if type == 15 {
+                let actionableStates = [0, 5, 9]
+                guard actionableStates.contains(state) else { return }
+                debouncedPlaylistUpdate(serverKey: serverKey)
+                return
+            }
+
+            // Music types (8=artist, 9=album, 10=track) trigger library section sync
             let musicTypes = [8, 9, 10]
             let actionableStates = [0, 5, 9]
             guard musicTypes.contains(type) && actionableStates.contains(state) else { return }
@@ -259,6 +278,26 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 await onLibraryUpdate(sectionKey)
             } else {
                 EnsembleLogger.error("🔌 WebSocketCoordinator: onLibraryUpdate callback is nil — sync not triggered!")
+            }
+        }
+    }
+
+    /// Debounce playlist update triggers to coalesce batch updates from the server.
+    /// Uses a longer debounce than library updates because playlist mutations often
+    /// emit several timeline events in quick succession (add item, reorder, etc.).
+    private func debouncedPlaylistUpdate(serverKey: String) {
+        pendingPlaylistUpdates[serverKey]?.cancel()
+
+        pendingPlaylistUpdates[serverKey] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.playlistUpdateDebounce ?? 5.0) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            #if DEBUG
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering playlist sync for server \(serverKey)")
+            #endif
+
+            if let onPlaylistUpdate = await self?.onPlaylistUpdate {
+                await onPlaylistUpdate(serverKey)
             }
         }
     }
