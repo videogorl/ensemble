@@ -12,6 +12,7 @@ public class TrackTableViewCell: UITableViewCell {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let downloadIcon = UIImageView()
+    private let downloadSpinner = UIActivityIndicatorView(style: .medium)
     private let durationLabel = UILabel()
     private let playingIndicator = UIImageView()
     private let trackNumberLabel = UILabel()
@@ -70,6 +71,11 @@ public class TrackTableViewCell: UITableViewCell {
         downloadIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(downloadIcon)
 
+        downloadSpinner.hidesWhenStopped = true
+        downloadSpinner.translatesAutoresizingMaskIntoConstraints = false
+        downloadSpinner.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+        contentView.addSubview(downloadSpinner)
+
         durationLabel.font = .systemFont(ofSize: 14, weight: .regular)
         durationLabel.textColor = .secondaryLabel
         durationLabel.textAlignment = .right
@@ -101,9 +107,12 @@ public class TrackTableViewCell: UITableViewCell {
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
-            // Download icon sits just left of the duration label
+            // Download icon / spinner sit just left of the duration label
             downloadIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             downloadIcon.heightAnchor.constraint(equalToConstant: 14),
+
+            downloadSpinner.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            downloadSpinner.centerXAnchor.constraint(equalTo: downloadIcon.centerXAnchor),
 
             durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -128,6 +137,7 @@ public class TrackTableViewCell: UITableViewCell {
         showTrackNumber: Bool,
         isPlaying: Bool,
         isUnavailableOffline: Bool,
+        isActivelyDownloading: Bool = false,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         titleLabel.text = track.title
@@ -159,10 +169,23 @@ public class TrackTableViewCell: UITableViewCell {
         durationLabel.isHidden = isPlaying
         playingIndicator.isHidden = !isPlaying
 
-        // Toggle download icon size: 14pt with gap when downloaded, 0pt when not
-        downloadIcon.isHidden = !track.isDownloaded
-        downloadIconWidthConstraint?.constant = track.isDownloaded ? 14 : 0
-        downloadIconTrailingConstraint?.constant = track.isDownloaded ? -4 : 0
+        // Show spinner while downloading, download icon when complete, hide both otherwise
+        if isActivelyDownloading {
+            downloadIcon.isHidden = true
+            downloadSpinner.startAnimating()
+            downloadIconWidthConstraint?.constant = 14
+            downloadIconTrailingConstraint?.constant = -4
+        } else if track.isDownloaded {
+            downloadIcon.isHidden = false
+            downloadSpinner.stopAnimating()
+            downloadIconWidthConstraint?.constant = 14
+            downloadIconTrailingConstraint?.constant = -4
+        } else {
+            downloadIcon.isHidden = true
+            downloadSpinner.stopAnimating()
+            downloadIconWidthConstraint?.constant = 0
+            downloadIconTrailingConstraint?.constant = 0
+        }
         
         // Show/hide artwork
         artworkImageView.isHidden = !showArtwork
@@ -268,6 +291,7 @@ public struct MediaTrackList: UIViewRepresentable {
     
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
     
     public init(
         tracks: [Track],
@@ -350,6 +374,8 @@ public struct MediaTrackList: UIViewRepresentable {
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
         let isOffline = !networkMonitor.isConnected
         let offlineStateChanged = context.coordinator.isOffline != isOffline
+        let newActiveDownloads = offlineDownloadService.activeDownloadRatingKeys
+        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != newActiveDownloads
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -372,6 +398,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
+        context.coordinator.activeDownloadRatingKeys = newActiveDownloads
 
         // Only reload if data actually changed
         if dataChanged {
@@ -382,7 +409,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
-        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged {
+        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged {
             // Reconfigure visible cells when the playing track, connectivity, or download state changes.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
@@ -395,6 +422,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showTrackNumber: showTrackNumbers,
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
+                        isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
@@ -423,7 +451,8 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
-            isOffline: !networkMonitor.isConnected
+            isOffline: !networkMonitor.isConnected,
+            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys
         )
     }
     
@@ -460,6 +489,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
+        var activeDownloadRatingKeys: Set<String>
 
         init(
             tracks: [Track],
@@ -481,7 +511,8 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
-            isOffline: Bool
+            isOffline: Bool,
+            activeDownloadRatingKeys: Set<String> = []
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
@@ -503,6 +534,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.toastCenter = toastCenter
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
+            self.activeDownloadRatingKeys = activeDownloadRatingKeys
         }
         
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -524,6 +556,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 showTrackNumber: showTrackNumbers,
                 isPlaying: isPlaying,
                 isUnavailableOffline: isOffline && !track.isDownloaded,
+                isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 artworkLoader: artworkLoader
             )
             return cell

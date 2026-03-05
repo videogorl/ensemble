@@ -89,7 +89,12 @@ public struct TrackRow: View {
 
                 Spacer()
 
-                if track.isDownloaded {
+                // Download status: spinner while queued/downloading, icon when complete
+                if isActivelyDownloading {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                } else if track.isDownloaded {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -156,6 +161,11 @@ public struct TrackRow: View {
                 }
             }
         }
+    }
+
+    /// Whether this track is currently queued or actively downloading.
+    private var isActivelyDownloading: Bool {
+        deps.offlineDownloadService.activeDownloadRatingKeys.contains(track.id)
     }
 
     /// Track availability resolved from device connectivity, per-server health, and download state.

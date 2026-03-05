@@ -80,6 +80,8 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
+    /// Track ratingKeys currently pending or actively downloading — used by TrackRow to show spinners.
+    @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -1352,9 +1354,25 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshTargetProgress(forTargetKey: target.key)
             }
             await refreshTargetSnapshots()
+            await refreshActiveDownloadRatingKeys()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Recomputes the set of track ratingKeys that are pending or actively downloading.
+    private func refreshActiveDownloadRatingKeys() async {
+        do {
+            let pending = try await downloadManager.fetchPendingDownloads()
+            let keys = Set(pending.compactMap { $0.track?.ratingKey })
+            if keys != activeDownloadRatingKeys {
+                activeDownloadRatingKeys = keys
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed refreshing active download ratingKeys: \(error.localizedDescription)")
             #endif
         }
     }
@@ -1481,6 +1499,8 @@ public final class OfflineDownloadService: ObservableObject {
             // Force-refault all view context objects so the next fetch reads
             // the latest store data (localFilePath, download status, etc.).
             CoreDataStack.shared.refreshViewContext()
+            // Update active download set so TrackRow spinners reflect completions
+            await self?.refreshActiveDownloadRatingKeys()
             NotificationCenter.default.post(
                 name: OfflineDownloadService.downloadsDidChange,
                 object: nil
