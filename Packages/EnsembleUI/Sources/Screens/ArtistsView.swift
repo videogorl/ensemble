@@ -464,7 +464,8 @@ public struct ArtistDetailView: View {
                 // Shift up to cover the safe area + overscroll gap
                 .offset(y: -(geometry.safeAreaInsets.top + overscroll))
 
-                // Artist info overlay
+                // Artist info overlay — offset counteracts overscroll so
+                // the text stays visually pinned instead of drifting down
                 VStack(alignment: .leading, spacing: 8) {
                     Text(viewModel.artist.name)
                         .font(.largeTitle)
@@ -488,6 +489,7 @@ public struct ArtistDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
+                .offset(y: -overscroll)
             }
         }
         .aspectRatio(1, contentMode: .fit)

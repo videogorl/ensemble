@@ -367,6 +367,7 @@ struct AudioQualitySettingsView: View {
                     Text("Original").tag("original")
                     Text("High (320 kbps)").tag("high")
                     Text("Medium (192 kbps)").tag("medium")
+                    Text("Low (128 kbps)").tag("low")
                 }
             } header: {
                 Text("Downloads")

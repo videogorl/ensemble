@@ -702,6 +702,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var healthCheckCompletionObservation: AnyCancellable?
     private var qualityChangeObserver: NSObjectProtocol?
     private var downloadChangeObserver: AnyCancellable?
+    private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var isInterrupted = false
@@ -4126,7 +4127,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] _ in
             guard let self = self else { return }
             let newQuality = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+            // Only act when the streaming quality actually changed
+            guard newQuality != self.lastObservedStreamingQuality else { return }
+            self.lastObservedStreamingQuality = newQuality
             self.updateQueueStreamingQuality(newQuality)
+
+            // Reload the current track at the new quality if it's streaming
+            Task {
+                await self.reloadCurrentTrackForQualityChange()
+            }
         }
     }
 
@@ -4143,6 +4152,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await self.refreshQueueDownloadState()
             }
         }
+    }
+
+    /// Reload the currently playing track at the new streaming quality.
+    /// Preserves playback position so the transition is seamless.
+    private func reloadCurrentTrackForQualityChange() async {
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
+        let track = queue[currentQueueIndex].track
+
+        // Only reload streaming tracks (not downloaded)
+        if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
+            return
+        }
+
+        // Only reload if actively playing or paused
+        switch playbackState {
+        case .playing, .paused: break
+        default: return
+        }
+
+        let seekPosition = currentTime
+
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Reloading current track at new streaming quality, seeking to \(seekPosition)s")
+        #endif
+
+        // Evict the cached player item so a fresh one is created with the new quality
+        let cacheKey = track.id
+        playerItems.removeValue(forKey: cacheKey)
+        playerItemsLRU.removeAll { $0 == cacheKey }
+
+        // Replay from the saved position
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: seekPosition)
     }
 
     /// Re-stamp streamingQuality on all non-downloaded queue items
