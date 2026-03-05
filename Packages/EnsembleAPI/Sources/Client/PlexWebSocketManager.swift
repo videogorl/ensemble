@@ -138,11 +138,24 @@ public actor PlexWebSocketManager {
         task.resume()
         isConnected = true
 
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connecting to \(components.host ?? "unknown")...")
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connecting to \(url.absoluteString)")
 
         // Start receiving messages
         receiveTask = Task { [weak self] in
+            await self?.sendPing()
             await self?.receiveLoop()
+        }
+    }
+
+    /// Send a WebSocket ping to verify the connection is alive.
+    private func sendPing() async {
+        guard let task = webSocketTask else { return }
+        task.sendPing { [serverName] error in
+            if let error {
+                EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Ping FAILED — \(error.localizedDescription)")
+            } else {
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Ping OK — connection is alive")
+            }
         }
     }
 
@@ -170,11 +183,14 @@ public actor PlexWebSocketManager {
                 consecutiveFailures = 0
                 currentBackoff = Self.minBackoff
 
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received message")
+
                 // Every received message is an implicit health signal
                 broadcast(.connectionHealthy)
 
                 switch message {
                 case .string(let text):
+                    EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Message text (\(text.count) chars): \(String(text.prefix(300)))")
                     parseAndBroadcast(text)
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
