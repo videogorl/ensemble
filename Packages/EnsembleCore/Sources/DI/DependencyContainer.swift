@@ -130,12 +130,16 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         let syncCoordinatorRef = syncCoordinator
 
+        // Read Plex client identifier for WebSocket headers
+        let plexClientId = (try? keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
+
         // WebSocket coordinator for real-time server notifications
         let wsc = MainActor.assumeIsolated {
             PlexWebSocketCoordinator(
                 accountManager: am,
                 connectionRegistry: registry,
-                serverHealthChecker: shc
+                serverHealthChecker: shc,
+                clientIdentifier: plexClientId
             )
         }
         webSocketCoordinator = wsc

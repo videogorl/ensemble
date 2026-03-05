@@ -19,6 +19,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private let accountManager: AccountManager
     private let connectionRegistry: ServerConnectionRegistry
     private let serverHealthChecker: ServerHealthChecker
+    private let clientIdentifier: String
 
     /// Called when a library update notification arrives. Parameters: (sectionKey: String).
     /// SyncCoordinator wires this to trigger incremental sync for the affected section.
@@ -44,11 +45,13 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     public init(
         accountManager: AccountManager,
         connectionRegistry: ServerConnectionRegistry,
-        serverHealthChecker: ServerHealthChecker
+        serverHealthChecker: ServerHealthChecker,
+        clientIdentifier: String
     ) {
         self.accountManager = accountManager
         self.connectionRegistry = connectionRegistry
         self.serverHealthChecker = serverHealthChecker
+        self.clientIdentifier = clientIdentifier
     }
 
     // MARK: - Lifecycle
@@ -122,7 +125,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 let fallbackURL = server.url
                 let serverToken = server.token
                 let serverName = server.name
-                let placeholder = PlexWebSocketManager(serverURL: fallbackURL, token: serverToken, serverName: serverName)
+                let cid = self.clientIdentifier
+                let placeholder = PlexWebSocketManager(serverURL: fallbackURL, token: serverToken, serverName: serverName, clientIdentifier: cid)
                 managers[serverKey] = placeholder
 
                 // Resolve the best endpoint asynchronously, then connect
@@ -131,7 +135,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
                     // If registry returned a different URL, replace the placeholder
                     if url != fallbackURL {
-                        let replacement = PlexWebSocketManager(serverURL: url, token: serverToken, serverName: serverName)
+                        let replacement = PlexWebSocketManager(serverURL: url, token: serverToken, serverName: serverName, clientIdentifier: cid)
                         self.setupAndStartManager(replacement, for: serverKey, name: serverName, url: url)
                     } else {
                         self.setupAndStartManager(placeholder, for: serverKey, name: serverName, url: url)

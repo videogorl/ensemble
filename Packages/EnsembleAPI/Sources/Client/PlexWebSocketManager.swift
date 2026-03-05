@@ -29,6 +29,7 @@ public actor PlexWebSocketManager {
     private let serverURL: String
     private let token: String
     private let serverName: String
+    private let clientIdentifier: String
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -50,10 +51,12 @@ public actor PlexWebSocketManager {
     ///   - serverURL: Base URL of the Plex server (e.g., "https://192.168.1.10:32400")
     ///   - token: Plex auth token for this server
     ///   - serverName: Human-readable server name for logging
-    public init(serverURL: String, token: String, serverName: String) {
+    ///   - clientIdentifier: Plex client identifier (required for server to route notifications)
+    public init(serverURL: String, token: String, serverName: String, clientIdentifier: String) {
         self.serverURL = serverURL
         self.token = token
         self.serverName = serverName
+        self.clientIdentifier = clientIdentifier
     }
 
     // MARK: - Lifecycle
@@ -119,12 +122,18 @@ public actor PlexWebSocketManager {
             return
         }
 
+        // Use URLRequest to include standard Plex headers required for notification routing
+        var request = URLRequest(url: url)
+        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        request.setValue("Ensemble", forHTTPHeaderField: "X-Plex-Product")
+        request.setValue("1.0", forHTTPHeaderField: "X-Plex-Version")
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         let newSession = URLSession(configuration: config)
         session = newSession
 
-        let task = newSession.webSocketTask(with: url)
+        let task = newSession.webSocketTask(with: request)
         webSocketTask = task
         task.resume()
         isConnected = true
