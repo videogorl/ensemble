@@ -6,7 +6,8 @@ import Foundation
 public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
-    private let sectionKey: String
+    /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
+    let sectionKey: String
 
     public init(
         sourceIdentifier: MusicSourceIdentifier,

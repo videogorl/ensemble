@@ -57,6 +57,10 @@ public final class DependencyContainer: @unchecked Sendable {
     /// and SyncCoordinator (subscribes to keep API clients in sync).
     public let connectionRegistry: ServerConnectionRegistry
 
+    /// Manages WebSocket connections to Plex servers for real-time notifications.
+    /// Start on foreground, stop on background.
+    public let webSocketCoordinator: PlexWebSocketCoordinator
+
     // MARK: - Legacy (kept for add-account flow)
 
     public let authService: PlexAuthService
@@ -121,6 +125,45 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
         let syncCoordinatorRef = syncCoordinator
+
+        // WebSocket coordinator for real-time server notifications
+        let wsc = MainActor.assumeIsolated {
+            PlexWebSocketCoordinator(
+                accountManager: am,
+                connectionRegistry: registry,
+                serverHealthChecker: shc
+            )
+        }
+        webSocketCoordinator = wsc
+
+        // Wire WebSocket events to SyncCoordinator
+        MainActor.assumeIsolated {
+            wsc.onLibraryUpdate = { [weak syncCoordinatorRef] sectionKey in
+                await syncCoordinatorRef?.syncSectionIncremental(sectionKey: sectionKey)
+            }
+            wsc.onServerOffline = { [weak syncCoordinatorRef] serverKey in
+                // Parse serverKey and trigger health check
+                let parts = serverKey.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { return }
+                let accountId = String(parts[0])
+                let serverId = String(parts[1])
+                _ = await shc.checkServer(accountId: accountId, serverId: serverId)
+            }
+            wsc.onServerHealthy = { [weak shc] serverKey in
+                // Reset health check TTL by updating state directly
+                let parts = serverKey.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let shc else { return }
+                let accountId = String(parts[0])
+                let serverId = String(parts[1])
+                let currentState = await MainActor.run {
+                    shc.getServerState(accountId: accountId, serverId: serverId)
+                }
+                // If server was unknown/offline, run a health check to establish proper state
+                if !currentState.isAvailable {
+                    _ = await shc.checkServer(accountId: accountId, serverId: serverId)
+                }
+            }
+        }
 
         let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {
             OfflineBackgroundExecutionCoordinator()

@@ -2313,4 +2313,63 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("✅ Periodic sync complete")
         #endif
     }
+
+    // MARK: - WebSocket-Triggered Sync
+
+    /// Trigger an incremental sync for a specific library section.
+    /// Called by `PlexWebSocketCoordinator` when a library update notification arrives.
+    public func syncSectionIncremental(sectionKey: String) async {
+        // Find the source that matches this section key
+        let matchingSource = syncProviders.first { (_, provider) in
+            if let plexProvider = provider as? PlexMusicSourceSyncProvider {
+                return plexProvider.sectionKey == sectionKey
+            }
+            return false
+        }
+
+        guard let (compositeKey, _) = matchingSource else {
+            #if DEBUG
+            EnsembleLogger.debug("🔌 SyncCoordinator: No provider found for section \(sectionKey)")
+            #endif
+            return
+        }
+
+        // Find the matching source identifier
+        guard let sourceId = sourceStatuses.keys.first(where: { $0.compositeKey == compositeKey }) else {
+            return
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey)")
+        #endif
+
+        await syncIncremental(source: sourceId)
+    }
+
+    /// Adjust periodic sync intervals based on WebSocket availability.
+    /// When WebSocket is active for servers, polling can be relaxed since updates arrive in real-time.
+    public func adjustTimersForWebSocket(hasActiveWebSocket: Bool) {
+        stopPeriodicSync()
+
+        let interval: TimeInterval
+        if hasActiveWebSocket {
+            // With WebSocket: relax polling to every 4 hours (WebSocket pushes updates)
+            interval = 4 * 60 * 60
+            #if DEBUG
+            EnsembleLogger.debug("⏰ SyncCoordinator: WebSocket active — relaxed periodic sync to 4h")
+            #endif
+        } else {
+            // Without WebSocket: use default 1 hour interval
+            interval = incrementalSyncInterval
+            #if DEBUG
+            EnsembleLogger.debug("⏰ SyncCoordinator: No WebSocket — using default 1h periodic sync")
+            #endif
+        }
+
+        incrementalSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.performPeriodicSync()
+            }
+        }
+    }
 }
