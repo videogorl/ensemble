@@ -33,6 +33,7 @@ public actor PlexWebSocketManager {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
+    private let sessionDelegate = WebSocketSessionDelegate()
     private var isConnected = false
     private var isStopped = true
     private var reconnectTask: Task<Void, Never>?
@@ -57,6 +58,7 @@ public actor PlexWebSocketManager {
         self.token = token
         self.serverName = serverName
         self.clientIdentifier = clientIdentifier
+        self.sessionDelegate.serverName = serverName
     }
 
     // MARK: - Lifecycle
@@ -113,7 +115,12 @@ public actor PlexWebSocketManager {
         // Use wss:// for https servers, ws:// otherwise
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/:/websockets/notifications"
-        components.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
+        components.queryItems = [
+            URLQueryItem(name: "X-Plex-Token", value: token),
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier),
+            URLQueryItem(name: "X-Plex-Product", value: "Ensemble"),
+            URLQueryItem(name: "X-Plex-Version", value: "1.0"),
+        ]
 
         guard let url = components.url else {
             #if DEBUG
@@ -122,18 +129,15 @@ public actor PlexWebSocketManager {
             return
         }
 
-        // Use URLRequest to include standard Plex headers required for notification routing
-        var request = URLRequest(url: url)
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
-        request.setValue("Ensemble", forHTTPHeaderField: "X-Plex-Product")
-        request.setValue("1.0", forHTTPHeaderField: "X-Plex-Version")
-
+        // Use delegate to observe WebSocket open/close lifecycle events
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        let newSession = URLSession(configuration: config)
+        let newSession = URLSession(configuration: config, delegate: sessionDelegate, delegateQueue: nil)
         session = newSession
 
-        let task = newSession.webSocketTask(with: request)
+        // Use URL directly (not URLRequest) — URLSessionWebSocketTask may not forward
+        // custom headers from URLRequest in the WebSocket upgrade handshake on all platforms.
+        let task = newSession.webSocketTask(with: url)
         webSocketTask = task
         task.resume()
         isConnected = true
@@ -349,4 +353,39 @@ private struct PlexActivityDetail: Decodable {
 
 private struct PlexReachabilityEntry: Decodable {
     let reachability: Bool?
+}
+
+// MARK: - WebSocket Session Delegate
+
+/// Delegate to observe WebSocket lifecycle events (open/close) for diagnostics.
+final class WebSocketSessionDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+    var serverName: String = ""
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Upgrade complete — didOpen (protocol=\(`protocol` ?? "none"))")
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "none"
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Server closed connection — code=\(closeCode.rawValue) reason=\(reasonStr)")
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Task completed with error — \(error.localizedDescription)")
+        }
+    }
 }
