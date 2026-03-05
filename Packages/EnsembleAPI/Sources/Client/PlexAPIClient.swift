@@ -2003,32 +2003,7 @@ public actor PlexAPIClient {
     }
 
     private func shouldAttemptFailover(after error: Error) -> Bool {
-        if error is CancellationError {
-            return false
-        }
-
-        if let plexError = error as? PlexAPIError {
-            switch plexError {
-            case .networkError, .invalidResponse:
-                return true
-            case .httpError, .decodingError, .invalidURL, .notAuthenticated, .noServerSelected:
-                return false
-            }
-        }
-
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost,
-                    .networkConnectionLost, .dnsLookupFailed, .dataNotAllowed:
-                return true
-            case .cancelled:
-                return false
-            default:
-                return false
-            }
-        }
-
-        return false
+        PlexErrorClassification.classify(error).shouldFailover
     }
 
     internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {

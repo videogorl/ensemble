@@ -1316,6 +1316,15 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    /// Scrobble a track, throwing on failure so MutationCoordinator can queue retries.
+    public func scrobbleTrackThrowing(_ track: Track) async throws {
+        guard let sourceKey = track.sourceCompositeKey,
+              let provider = syncProviders[sourceKey] else {
+            return
+        }
+        try await provider.scrobble(ratingKey: track.id)
+    }
+
     /// Get tracks for an album from the music source
     public func getAlbumTracks(albumId: String, sourceKey: String) async throws -> [Track] {
         guard let provider = syncProviders[sourceKey] else {
