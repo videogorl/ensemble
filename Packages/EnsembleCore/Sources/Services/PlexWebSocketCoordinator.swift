@@ -16,6 +16,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Published so UI can show real-time connection status if desired.
     @Published public private(set) var connectedServerKeys: Set<String> = []
 
+    /// Per-server library scan progress (0-100). Key is serverKey (accountId:serverId).
+    /// Populated on scan "started"/"updated" activity events, cleared on "ended".
+    @Published public private(set) var serverScanProgress: [String: Int] = [:]
+
     private let accountManager: AccountManager
     private let connectionRegistry: ServerConnectionRegistry
     private let serverHealthChecker: ServerHealthChecker
@@ -229,14 +233,22 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             let sectionKey = String(sectionID)
             debouncedLibraryUpdate(sectionKey: sectionKey, serverKey: serverKey)
 
-        case .activityUpdate(let event, let type, _):
-            // Library scan completion triggers a sync
-            if type.contains("library.refresh") && event == "ended" {
-                #if DEBUG
-                EnsembleLogger.debug("🔌 WebSocketCoordinator: Library scan completed for \(serverKey)")
-                #endif
-                // Find enabled libraries for this server and trigger incremental sync
-                triggerSyncForServer(serverKey: serverKey)
+        case .activityUpdate(let event, let type, let progress):
+            // Track library scan progress for UI display
+            if type.contains("library.refresh") || type.contains("library.update") {
+                switch event {
+                case "started", "updated":
+                    serverScanProgress[serverKey] = progress
+                case "ended":
+                    serverScanProgress.removeValue(forKey: serverKey)
+                    #if DEBUG
+                    EnsembleLogger.debug("🔌 WebSocketCoordinator: Library scan completed for \(serverKey)")
+                    #endif
+                    // Find enabled libraries for this server and trigger incremental sync
+                    triggerSyncForServer(serverKey: serverKey)
+                default:
+                    break
+                }
             }
 
         case .serverShutdown:

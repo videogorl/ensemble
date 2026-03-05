@@ -461,7 +461,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            webSocketCoordinator: webSocketCoordinator
         )
     }
 

@@ -50,12 +50,15 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     @Published public private(set) var error: String?
     /// Number of pending offline mutations waiting to be replayed when connectivity resumes.
     @Published public private(set) var pendingMutationCount: Int = 0
+    /// Active library scan progress for servers in this account (0-100), nil if no scan active.
+    @Published public private(set) var scanProgressByServer: [String: Int] = [:]
 
     private let accountId: String
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
+    private let webSocketCoordinator: PlexWebSocketCoordinator
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
@@ -73,13 +76,31 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountManager: AccountManager,
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
         syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        webSocketCoordinator: PlexWebSocketCoordinator
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
+        self.webSocketCoordinator = webSocketCoordinator
+
+        // Subscribe to library scan progress from WebSocket events
+        webSocketCoordinator.$serverScanProgress
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] progressMap in
+                guard let self else { return }
+                // Filter to servers belonging to this account, keyed by serverId only
+                let accountPrefix = "\(accountId):"
+                var relevant: [String: Int] = [:]
+                for (key, value) in progressMap where key.hasPrefix(accountPrefix) {
+                    let serverId = String(key.dropFirst(accountPrefix.count))
+                    relevant[serverId] = value
+                }
+                self.scanProgressByServer = relevant
+            }
+            .store(in: &cancellables)
 
         // Mirror the global pending mutation count so the view can show sync status
         mutationCoordinator.$pendingCount

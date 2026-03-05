@@ -106,6 +106,23 @@ public struct MusicSourceAccountDetailView: View {
                 } else {
                     ForEach(viewModel.sections) { server in
                         Section {
+                            // Show scan progress bar when server is scanning
+                            if let scanProgress = viewModel.scanProgressByServer[server.id] {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.caption)
+                                            .foregroundColor(.accentColor)
+                                        Text("Scanning library…")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    ProgressView(value: Double(scanProgress), total: 100)
+                                        .tint(.accentColor)
+                                }
+                                .padding(.vertical, 2)
+                            }
+
                             if let refreshError = viewModel.serverLibraryErrors[server.id] {
                                 Text(refreshError)
                                     .font(.caption)
