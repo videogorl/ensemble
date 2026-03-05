@@ -132,7 +132,10 @@ public final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] statuses in
+                #if DEBUG
+                EnsembleLogger.debug("📚 LibraryViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+                #endif
                 Task { @MainActor in
                     await self?.loadLibrary()
                 }

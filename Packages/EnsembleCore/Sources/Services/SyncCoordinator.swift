@@ -2349,7 +2349,7 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         guard let (compositeKey, _) = matchingSource else {
-            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for section \(sectionKey)")
+            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for section \(sectionKey) — providers: \(syncProviders.keys.joined(separator: ", "))")
             return
         }
 
@@ -2359,10 +2359,14 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey)")
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (source=\(compositeKey))")
         #endif
 
         await syncIncremental(source: sourceId)
+
+        #if DEBUG
+        EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey)")
+        #endif
     }
 
     /// Trigger a playlist-only sync for a specific server.
@@ -2391,6 +2395,9 @@ public final class SyncCoordinator: ObservableObject {
                 progressHandler: { _ in }
             )
             let serverSourceKey = "plex:\(sourceId.accountId):\(sourceId.serverId)"
+            #if DEBUG
+            EnsembleLogger.debug("🔌 SyncCoordinator: Playlist sync completed for server \(serverKey), posting notification")
+            #endif
             onPlaylistRefreshCompleted?(serverSourceKey)
             NotificationCenter.default.post(
                 name: Self.playlistsDidRefresh,

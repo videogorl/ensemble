@@ -58,7 +58,11 @@ public final class PlaylistViewModel: ObservableObject {
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] notification in
+                #if DEBUG
+                let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
+                EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
+                #endif
                 Task { @MainActor in
                     await self?.loadPlaylists()
                 }
@@ -71,7 +75,10 @@ public final class PlaylistViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .dropFirst()
             .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] statuses in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+                #endif
                 Task { @MainActor in
                     await self?.loadPlaylists()
                 }
