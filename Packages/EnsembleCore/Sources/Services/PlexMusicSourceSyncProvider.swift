@@ -65,7 +65,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let artistsToSync = artistMap.values.filter { artist in
             guard let serverUpdated = artist.updatedAt else { return true }
             guard let localDate = existingArtistTimestamps[artist.ratingKey] else { return true }
-            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
         }
 
         #if DEBUG
@@ -104,7 +105,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let albumsToSync = albumMap.values.filter { album in
             guard let serverUpdated = album.updatedAt else { return true }
             guard let localDate = existingAlbumTimestamps[album.ratingKey] else { return true }
-            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
         }
 
         #if DEBUG
@@ -149,7 +151,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracksToSync = trackMap.values.filter { track in
             guard let serverUpdated = track.updatedAt else { return true }
             guard let localDate = existingTrackTimestamps[track.ratingKey] else { return true }
-            return Date(timeIntervalSince1970: TimeInterval(serverUpdated)) != localDate
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
         }
 
         #if DEBUG
@@ -432,19 +435,27 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         progressHandler(0.1)
 
-        // Fetch playlists added or updated since last sync
+        // Fetch existing playlist timestamps for change detection
         var phaseStart = CFAbsoluteTimeGetCurrent()
+        let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
+
+        // Fetch playlists added or updated since last sync
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
         let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
 
-        // Combine and deduplicate
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
         var playlistMap: [String: PlexPlaylist] = [:]
         for playlist in newPlaylists { playlistMap[playlist.ratingKey] = playlist }
         for playlist in updatedPlaylists { playlistMap[playlist.ratingKey] = playlist }
-        let changedPlaylists = Array(playlistMap.values)
+        let changedPlaylists = playlistMap.values.filter { playlist in
+            guard let serverUpdated = playlist.updatedAt else { return true }
+            guard let localDate = existingTimestamps[playlist.ratingKey] else { return true }
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(changedPlaylists.count) changed")
+        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(playlistMap.count) from server, \(changedPlaylists.count) actually changed")
         #endif
 
         // Sync only changed playlists (only fetch tracks for changed ones)

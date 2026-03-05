@@ -27,6 +27,9 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func deletePlaylists(sourceCompositeKey: String) async throws
     func removeDuplicatePlaylists() async throws
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
+
+    // Bulk timestamp lookup (for incremental sync change detection)
+    func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
 }
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
@@ -374,6 +377,32 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         try context.save()
                     }
                     continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Bulk Timestamp Lookup
+
+    /// Fetch all playlist ratingKey → dateModified pairs for a source (single query for change detection)
+    public func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                    request.propertiesToFetch = ["ratingKey", "dateModified"]
+                    let playlists = try context.fetch(request)
+                    var result: [String: Date] = [:]
+                    result.reserveCapacity(playlists.count)
+                    for playlist in playlists {
+                        if let date = playlist.dateModified {
+                            result[playlist.ratingKey] = date
+                        }
+                    }
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }
