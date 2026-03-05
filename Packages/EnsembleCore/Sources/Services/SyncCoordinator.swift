@@ -613,7 +613,16 @@ public final class SyncCoordinator: ObservableObject {
                     }
                 }
             )
-            
+
+            // Notify playlist views that data may have changed (incremental sync includes playlists)
+            let serverSourceKey = "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
+            onPlaylistRefreshCompleted?(serverSourceKey)
+            NotificationCenter.default.post(
+                name: Self.playlistsDidRefresh,
+                object: nil,
+                userInfo: ["serverSourceKey": serverSourceKey]
+            )
+
             let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
                 for: source,
                 fallback: currentConnectionState

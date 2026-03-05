@@ -430,6 +430,22 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
+                #endif
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (catches WebSocket-triggered
+        // incremental syncs that include playlist data)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     await self?.loadTracks()
                 }
