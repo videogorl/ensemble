@@ -700,6 +700,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
     private var healthCheckCompletionObservation: AnyCancellable?
+    private var qualityChangeObserver: NSObjectProtocol?
+    private var downloadChangeObserver: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var isInterrupted = false
@@ -828,12 +830,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
+        setupQueueQualityObservation()
+        setupDownloadChangeObservation()
     }
 
     deinit {
         cleanup()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
+        downloadChangeObserver?.cancel()
+        downloadChangeObserver = nil
+        if let qualityChangeObserver {
+            NotificationCenter.default.removeObserver(qualityChangeObserver)
+        }
     }
 
     /// Wire the mutation coordinator after init to avoid circular DI dependencies
@@ -4105,6 +4114,116 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
     
+    // MARK: - Queue Quality / Download Observation
+
+    /// When the user changes streaming quality, re-stamp all non-downloaded
+    /// queue items so InfoCard (and future resume) reflect the actual quality.
+    private func setupQueueQualityObservation() {
+        qualityChangeObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            let newQuality = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+            self.updateQueueStreamingQuality(newQuality)
+        }
+    }
+
+    /// When a download completes (or is removed), update matching queue items
+    /// so they reflect the current localFilePath (downloaded vs streaming).
+    private func setupDownloadChangeObservation() {
+        downloadChangeObserver = NotificationCenter.default.publisher(
+            for: OfflineDownloadService.downloadsDidChange
+        )
+        .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+        .sink { [weak self] _ in
+            guard let self = self else { return }
+            Task {
+                await self.refreshQueueDownloadState()
+            }
+        }
+    }
+
+    /// Re-stamp streamingQuality on all non-downloaded queue items
+    private func updateQueueStreamingQuality(_ quality: String) {
+        var changed = false
+        for i in queue.indices {
+            // Skip downloaded tracks (quality is file-determined)
+            if let path = queue[i].track.localFilePath,
+               FileManager.default.fileExists(atPath: path) {
+                continue
+            }
+            if queue[i].streamingQuality != quality {
+                queue[i].streamingQuality = quality
+                changed = true
+            }
+        }
+        if changed {
+            savePlaybackState()
+        }
+    }
+
+    /// Check each queue item for newly downloaded (or removed) tracks and
+    /// update localFilePath + streamingQuality accordingly.
+    private func refreshQueueDownloadState() async {
+        var changed = false
+        for i in queue.indices {
+            let track = queue[i].track
+            let ratingKey = track.id
+            let sourceKey = track.sourceCompositeKey
+
+            // Ask download manager for current local path
+            let currentPath = try? await downloadManager.getLocalFilePath(
+                forTrackRatingKey: ratingKey,
+                sourceCompositeKey: sourceKey
+            )
+
+            if track.localFilePath != currentPath {
+                // Rebuild the Track with the updated localFilePath
+                let updatedTrack = Track(
+                    id: track.id,
+                    key: track.key,
+                    title: track.title,
+                    artistName: track.artistName,
+                    albumName: track.albumName,
+                    albumRatingKey: track.albumRatingKey,
+                    artistRatingKey: track.artistRatingKey,
+                    trackNumber: track.trackNumber,
+                    discNumber: track.discNumber,
+                    duration: track.duration,
+                    thumbPath: track.thumbPath,
+                    fallbackThumbPath: track.fallbackThumbPath,
+                    fallbackRatingKey: track.fallbackRatingKey,
+                    streamKey: track.streamKey,
+                    streamId: track.streamId,
+                    localFilePath: currentPath,
+                    dateAdded: track.dateAdded,
+                    dateModified: track.dateModified,
+                    lastPlayed: track.lastPlayed,
+                    rating: track.rating,
+                    playCount: track.playCount,
+                    sourceCompositeKey: track.sourceCompositeKey
+                )
+                // Downloaded tracks clear streamingQuality; newly removed downloads
+                // re-stamp with the current streaming quality setting
+                let quality: String? = currentPath != nil
+                    ? nil
+                    : (UserDefaults.standard.string(forKey: "streamingQuality") ?? "original")
+                queue[i] = QueueItem(
+                    id: queue[i].id,
+                    track: updatedTrack,
+                    source: queue[i].source,
+                    streamingQuality: quality
+                )
+                changed = true
+            }
+        }
+        if changed {
+            savePlaybackState()
+        }
+    }
+
     /// Setup audio analyzer to subscribe to frequency band updates
     /// Only forwards FFT bands when not using external playback (AirPlay)
     private func setupAudioAnalyzer() {
