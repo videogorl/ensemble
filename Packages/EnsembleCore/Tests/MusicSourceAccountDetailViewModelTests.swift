@@ -86,6 +86,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let libraryRepository: LibraryRepository
         let playlistRepository: PlaylistRepository
         let discoveryService: MockDiscoveryService
+        let webSocketCoordinator: PlexWebSocketCoordinator
     }
 
     func testToggleLibraryPurgesOnlyUncheckedLibraryCache() async throws {
@@ -507,7 +508,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: harness.accountManager,
             accountDiscoveryService: gatedDiscovery,
             syncCoordinator: harness.syncCoordinator,
-            mutationCoordinator: harness.mutationCoordinator
+            mutationCoordinator: harness.mutationCoordinator,
+            webSocketCoordinator: harness.webSocketCoordinator
         )
 
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
@@ -554,13 +556,22 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator
         )
 
+        let shc = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let wsc = PlexWebSocketCoordinator(
+            accountManager: accountManager,
+            connectionRegistry: ServerConnectionRegistry(),
+            serverHealthChecker: shc,
+            clientIdentifier: "test"
+        )
+
         return Harness(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            discoveryService: discoveryService
+            discoveryService: discoveryService,
+            webSocketCoordinator: wsc
         )
     }
 
@@ -570,7 +581,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: harness.accountManager,
             accountDiscoveryService: harness.discoveryService,
             syncCoordinator: harness.syncCoordinator,
-            mutationCoordinator: harness.mutationCoordinator
+            mutationCoordinator: harness.mutationCoordinator,
+            webSocketCoordinator: harness.webSocketCoordinator
         )
     }
 

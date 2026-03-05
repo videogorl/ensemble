@@ -82,6 +82,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
+        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
         func clearArtworkCache() async throws {}
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
