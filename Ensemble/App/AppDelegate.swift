@@ -120,6 +120,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
         
+        // Start WebSocket connections after accounts are loaded and network is starting.
+        // This enables real-time push notifications from Plex servers.
+        Task { @MainActor in
+            DependencyContainer.shared.webSocketCoordinator.start()
+        }
+
         // Perform startup sync (non-blocking, runs in background)
         Task.detached(priority: .utility) {
             // Wait longer to ensure any Siri playback has a chance to start first.

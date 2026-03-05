@@ -8,4 +8,16 @@ enum EnsembleLogger {
         let suffix = terminator == "\n" ? "" : terminator
         logger.debug("\(message + suffix, privacy: .public)")
     }
+
+    static func info(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        let message = items.map { String(describing: $0) }.joined(separator: separator)
+        let suffix = terminator == "\n" ? "" : terminator
+        logger.info("\(message + suffix, privacy: .public)")
+    }
+
+    static func error(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+        let message = items.map { String(describing: $0) }.joined(separator: separator)
+        let suffix = terminator == "\n" ? "" : terminator
+        logger.error("\(message + suffix, privacy: .public)")
+    }
 }

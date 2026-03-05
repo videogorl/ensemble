@@ -58,9 +58,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         guard !isActive else { return }
         isActive = true
 
-        #if DEBUG
-        EnsembleLogger.debug("🔌 WebSocketCoordinator: Starting")
-        #endif
+        EnsembleLogger.info("🔌 WebSocketCoordinator: Starting — accounts=\(accountManager.plexAccounts.count)")
 
         // Connect to current servers
         refreshConnections()
@@ -158,9 +156,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             }
         }
 
-        #if DEBUG
-        EnsembleLogger.debug("🔌 WebSocketCoordinator: Added manager for \(serverKey) (\(name))")
-        #endif
+        EnsembleLogger.info("🔌 WebSocketCoordinator: Added manager for \(serverKey) (\(name)) url=\(url)")
     }
 
     private func removeManager(for serverKey: String) {
@@ -184,9 +180,13 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             // completed states (5=processed, 9=deleted, 0=created)
             let musicTypes = [8, 9, 10]
             let actionableStates = [0, 5, 9]
-            guard musicTypes.contains(type) && actionableStates.contains(state) else { return }
+            guard musicTypes.contains(type) && actionableStates.contains(state) else {
+                EnsembleLogger.info("🔌 WebSocketCoordinator: Ignoring non-actionable library update type=\(type) state=\(state) from \(serverKey)")
+                return
+            }
 
             let sectionKey = String(sectionID)
+            EnsembleLogger.info("🔌 WebSocketCoordinator: Actionable library update sectionKey=\(sectionKey) type=\(type) state=\(state) from \(serverKey) — scheduling debounced sync")
             debouncedLibraryUpdate(sectionKey: sectionKey, serverKey: serverKey)
 
         case .activityUpdate(let event, let type, _):
@@ -230,13 +230,14 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.libraryUpdateDebounce ?? 3.0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            #if DEBUG
-            await MainActor.run {
-                EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering sync for section \(sectionKey) on \(serverKey)")
-            }
-            #endif
+            EnsembleLogger.info("🔌 WebSocketCoordinator: Debounce fired — triggering incremental sync for section \(sectionKey) on \(serverKey)")
 
-            await self?.onLibraryUpdate?(sectionKey)
+            if let onLibraryUpdate = await self?.onLibraryUpdate {
+                await onLibraryUpdate(sectionKey)
+                EnsembleLogger.info("🔌 WebSocketCoordinator: Incremental sync completed for section \(sectionKey)")
+            } else {
+                EnsembleLogger.error("🔌 WebSocketCoordinator: onLibraryUpdate callback is nil — sync not triggered!")
+            }
         }
     }
 

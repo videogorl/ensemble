@@ -129,9 +129,7 @@ public actor PlexWebSocketManager {
         task.resume()
         isConnected = true
 
-        #if DEBUG
-        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Connecting to \(components.host ?? "unknown")...")
-        #endif
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connecting to \(components.host ?? "unknown")...")
 
         // Start receiving messages
         receiveTask = Task { [weak self] in
@@ -174,9 +172,7 @@ public actor PlexWebSocketManager {
             } catch {
                 guard !isStopped && !Task.isCancelled else { break }
 
-                #if DEBUG
-                EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Disconnected — \(error.localizedDescription)")
-                #endif
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Disconnected — \(error.localizedDescription)")
 
                 isConnected = false
                 scheduleReconnect()
@@ -194,9 +190,7 @@ public actor PlexWebSocketManager {
         let delay = currentBackoff
         currentBackoff = min(currentBackoff * 2, Self.maxBackoff)
 
-        #if DEBUG
-        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Reconnecting in \(Int(delay))s (attempt \(consecutiveFailures))")
-        #endif
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Reconnecting in \(Int(delay))s (attempt \(consecutiveFailures))")
 
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -225,6 +219,7 @@ public actor PlexWebSocketManager {
                 // Library item lifecycle events
                 if let entries = container.TimelineEntry {
                     for entry in entries {
+                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? -1) itemID=\(entry.itemID ?? -1) type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
                         broadcast(.libraryUpdate(
                             sectionID: entry.sectionID ?? 0,
                             itemID: entry.itemID ?? 0,
@@ -238,6 +233,7 @@ public actor PlexWebSocketManager {
                 // Library scan/refresh activities
                 if let activities = container.ActivityNotification {
                     for activity in activities {
+                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
                         broadcast(.activityUpdate(
                             event: activity.event ?? "",
                             type: activity.Activity?.type ?? "",
@@ -251,20 +247,20 @@ public actor PlexWebSocketManager {
                 if let entries = container.ReachabilityNotification,
                    let entry = entries.first,
                    entry.reachability == false {
+                    EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Server became unreachable")
                     broadcast(.serverShutdown)
                 }
 
             case "preference":
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Settings changed")
                 broadcast(.settingsUpdate)
 
             default:
-                // Other notification types (playing, transcode, etc.) — ignored for now
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Unhandled notification type: \(container.type)")
                 break
             }
         } catch {
-            #if DEBUG
-            EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Parse error — \(error.localizedDescription)")
-            #endif
+            EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Parse error — \(error.localizedDescription) json=\(json.prefix(500))")
         }
     }
 
