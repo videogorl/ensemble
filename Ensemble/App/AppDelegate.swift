@@ -6,7 +6,9 @@ import os
 import UIKit
 import EnsembleCore
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+// UIResponder (not NSObject) so the app delegate sits in the responder
+// chain and its keyCommands are reachable from every screen.
+class AppDelegate: UIResponder, UIApplicationDelegate {
     private var coverFlowRotationSupportEnabled = false
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
@@ -556,6 +558,52 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return nil
     }
     
+    // MARK: - Hardware Keyboard Shortcuts
+
+    override var keyCommands: [UIKeyCommand]? {
+        let spaceCommand = UIKeyCommand(
+            input: " ",
+            modifierFlags: [],
+            action: #selector(handleSpaceBarToggle)
+        )
+        spaceCommand.discoverabilityTitle = "Play / Pause"
+        return [spaceCommand]
+    }
+
+    @objc private func handleSpaceBarToggle() {
+        // Don't interfere when a text input is focused
+        guard !Self.isTextInputActive else { return }
+
+        let service = DependencyContainer.shared.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        default:
+            break
+        }
+    }
+
+    private static var _currentFirstResponder: UIResponder?
+
+    /// Returns true when the current first responder is a text input
+    private static var isTextInputActive: Bool {
+        _currentFirstResponder = nil
+        UIApplication.shared.sendAction(
+            #selector(ensemble_trapFirstResponder(_:)),
+            to: nil, from: nil, for: nil
+        )
+        guard let responder = _currentFirstResponder else { return false }
+        return responder is UITextField
+            || responder is UITextView
+            || responder is UISearchBar
+    }
+
+    @objc private func ensemble_trapFirstResponder(_ sender: Any) {
+        Self._currentFirstResponder = self
+    }
+
     func applicationDidEnterBackground(_ application: UIApplication) {
         // Stop network monitoring to save battery
         Task { @MainActor in
