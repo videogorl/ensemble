@@ -2328,20 +2328,9 @@ public final class SyncCoordinator: ObservableObject {
     /// Trigger an incremental sync for a specific library section.
     /// Called by `PlexWebSocketCoordinator` when a library update notification arrives.
     public func syncSectionIncremental(sectionKey: String) async {
-        EnsembleLogger.info("🔌 SyncCoordinator: syncSectionIncremental called for sectionKey=\(sectionKey)")
-
-        // Log available providers for debugging
-        let providerKeys = syncProviders.keys.joined(separator: ", ")
-        EnsembleLogger.info("🔌 SyncCoordinator: Available providers: [\(providerKeys)]")
-
-        // Find the source that matches this section key
+        // Find the provider that owns this section key
         let matchingSource = syncProviders.first { (_, provider) in
-            if let plexProvider = provider as? PlexMusicSourceSyncProvider {
-                let matches = plexProvider.sectionKey == sectionKey
-                EnsembleLogger.info("🔌 SyncCoordinator: Checking provider sectionKey=\(plexProvider.sectionKey) vs \(sectionKey) => \(matches)")
-                return matches
-            }
-            return false
+            (provider as? PlexMusicSourceSyncProvider)?.sectionKey == sectionKey
         }
 
         guard let (compositeKey, _) = matchingSource else {
@@ -2349,17 +2338,16 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        // Find the matching source identifier
         guard let sourceId = sourceStatuses.keys.first(where: { $0.compositeKey == compositeKey }) else {
             EnsembleLogger.error("🔌 SyncCoordinator: No sourceStatus found for compositeKey=\(compositeKey)")
             return
         }
 
-        EnsembleLogger.info("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) source=\(sourceId.compositeKey)")
+        #if DEBUG
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey)")
+        #endif
 
         await syncIncremental(source: sourceId)
-
-        EnsembleLogger.info("🔌 SyncCoordinator: WebSocket-triggered incremental sync completed for section \(sectionKey)")
     }
 
     /// Adjust periodic sync intervals based on WebSocket availability.

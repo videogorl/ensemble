@@ -25,6 +25,11 @@ public enum PlexServerEvent: Sendable {
 /// Connects to the server's notification WebSocket, parses incoming messages into
 /// typed `PlexServerEvent` values, and publishes them via an `AsyncStream`.
 /// Automatically reconnects with exponential backoff on disconnect.
+///
+/// Note: Library change notifications (`timeline`, `activity`) are only delivered
+/// to server owner/admin accounts (Plex Pass). Non-Plex Pass shared users only
+/// receive session-level notifications (e.g. `playing`). The WebSocket still
+/// provides implicit health signals for all account types.
 public actor PlexWebSocketManager {
     private let serverURL: String
     private let token: String
@@ -142,24 +147,11 @@ public actor PlexWebSocketManager {
         task.resume()
         isConnected = true
 
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connecting to \(url.absoluteString)")
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connecting to \(components.host ?? "unknown")...")
 
         // Start receiving messages
         receiveTask = Task { [weak self] in
-            await self?.sendPing()
             await self?.receiveLoop()
-        }
-    }
-
-    /// Send a WebSocket ping to verify the connection is alive.
-    private func sendPing() async {
-        guard let task = webSocketTask else { return }
-        task.sendPing { [serverName] error in
-            if let error {
-                EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Ping FAILED — \(error.localizedDescription)")
-            } else {
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Ping OK — connection is alive")
-            }
         }
     }
 
@@ -179,9 +171,11 @@ public actor PlexWebSocketManager {
             return
         }
 
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Receive loop started, waiting for messages... (subscribers=\(continuations.count))")
+        #if DEBUG
+        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Receive loop started (subscribers=\(continuations.count))")
+        #endif
 
-        // Use completion-handler receive to avoid potential actor-suspension issues
+        // Use completion-handler receive to avoid actor-suspension issues
         // with URLSessionWebSocketTask.receive() async
         await withCheckedContinuation { (loopContinuation: CheckedContinuation<Void, Never>) in
             scheduleReceive(task: task, loopContinuation: loopContinuation)
@@ -189,7 +183,7 @@ public actor PlexWebSocketManager {
     }
 
     /// Schedule a single receive using the completion-handler API, then recurse.
-    /// This avoids the async `task.receive()` which may have actor interop issues.
+    /// This avoids the async `task.receive()` which has actor interop issues.
     nonisolated private func scheduleReceive(
         task: URLSessionWebSocketTask,
         loopContinuation: CheckedContinuation<Void, Never>?
@@ -218,23 +212,18 @@ public actor PlexWebSocketManager {
         consecutiveFailures = 0
         currentBackoff = Self.minBackoff
 
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received message")
-
         // Every received message is an implicit health signal
         broadcast(.connectionHealthy)
 
         switch message {
         case .string(let text):
-            EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Message text (\(text.count) chars): \(String(text.prefix(300)))")
             parseAndBroadcast(text)
         case .data(let data):
             if let text = String(data: data, encoding: .utf8) {
                 parseAndBroadcast(text)
-            } else {
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received binary data (\(data.count) bytes) that couldn't be decoded as UTF-8")
             }
         @unknown default:
-            EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received unknown message type")
+            break
         }
     }
 
@@ -289,7 +278,9 @@ public actor PlexWebSocketManager {
                 // Library item lifecycle events
                 if let entries = container.TimelineEntry {
                     for entry in entries {
-                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? "nil") itemID=\(entry.itemID ?? "nil") type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
+                        #if DEBUG
+                        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: timeline sectionID=\(entry.sectionID ?? "nil") itemID=\(entry.itemID ?? "nil") type=\(entry.type ?? -1) state=\(entry.state ?? -1) title=\(entry.title ?? "nil")")
+                        #endif
                         broadcast(.libraryUpdate(
                             sectionID: entry.sectionIDInt ?? 0,
                             itemID: entry.itemIDInt ?? 0,
@@ -303,7 +294,9 @@ public actor PlexWebSocketManager {
                 // Library scan/refresh activities
                 if let activities = container.ActivityNotification {
                     for activity in activities {
-                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
+                        #if DEBUG
+                        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
+                        #endif
                         broadcast(.activityUpdate(
                             event: activity.event ?? "",
                             type: activity.Activity?.type ?? "",
@@ -322,11 +315,13 @@ public actor PlexWebSocketManager {
                 }
 
             case "preference":
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Settings changed")
+                #if DEBUG
+                EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Settings changed")
+                #endif
                 broadcast(.settingsUpdate)
 
             default:
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Unhandled notification type: \(container.type)")
+                // Silently ignore unhandled types (e.g. playing, status, backgroundProcessingQueue)
                 break
             }
         } catch {
@@ -396,7 +391,7 @@ private struct PlexReachabilityEntry: Decodable {
 
 // MARK: - WebSocket Session Delegate
 
-/// Delegate to observe WebSocket lifecycle events (open/close) for diagnostics.
+/// Delegate to observe WebSocket lifecycle events (open/close).
 final class WebSocketSessionDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     var serverName: String = ""
 
@@ -405,7 +400,7 @@ final class WebSocketSessionDelegate: NSObject, URLSessionWebSocketDelegate, @un
         webSocketTask: URLSessionWebSocketTask,
         didOpenWithProtocol protocol: String?
     ) {
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Upgrade complete — didOpen (protocol=\(`protocol` ?? "none"))")
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Connected")
     }
 
     func urlSession(
@@ -424,7 +419,7 @@ final class WebSocketSessionDelegate: NSObject, URLSessionWebSocketDelegate, @un
         didCompleteWithError error: Error?
     ) {
         if let error {
-            EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Task completed with error — \(error.localizedDescription)")
+            EnsembleLogger.error("🔌 WebSocket[\(serverName)]: Task error — \(error.localizedDescription)")
         }
     }
 }

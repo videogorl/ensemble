@@ -30,10 +30,11 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Current behavior:** `OfflineDownloadService` treats this as a server capability limitation, marks the server as `offline-transcode-unsupported`, and skips repeated transcode attempts by downloading original quality directly.
 - **User impact:** Download quality settings (`high/medium/low`) may not be attainable for affected servers; downloaded files remain original quality.
 
-### WebSocket Push Updates Are Best-Effort
+### WebSocket Library Notifications Require Plex Pass
 - `PlexWebSocketManager` maintains one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
-- Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections.
-- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback. If a WebSocket connection fails repeatedly, the backoff cap prevents excessive reconnect attempts.
+- **Plex Pass limitation:** Library change notifications (`timeline`, `activity`) are only delivered to server owner/admin accounts with Plex Pass. Non-Plex Pass shared users only receive session-level notifications (e.g., `playing`). The WebSocket still provides implicit health signals for all account types.
+- Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections at all.
+- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, the backoff cap prevents excessive reconnect attempts.
 
 ### Artwork Pre-Caching Not Automatic
 - `ArtworkLoader.predownloadArtwork()` methods exist
