@@ -24,14 +24,17 @@ public enum PlaybackState: Equatable, Sendable {
 
 public enum PlaybackError: Error, LocalizedError {
     case offline
+    case corruptLocalFile
     case serverUnavailable(message: String?)
     case networkError(Error)
     case unknown(Error)
-    
+
     public var errorDescription: String? {
         switch self {
         case .offline:
             return "No internet connection"
+        case .corruptLocalFile:
+            return "Downloaded file is corrupt"
         case .serverUnavailable(let message):
             return message ?? "Server is unavailable"
         case .networkError(let error):
@@ -2911,13 +2914,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("   🎵 Using streaming quality: \(quality.rawValue)")
         #endif
 
+        // Check network state early — needed for offline fail-fast decisions below.
+        let networkState = await MainActor.run(body: { networkMonitor.networkState })
+        let isDefinitelyOffline = networkState == .offline || networkState == .limited
+        #if DEBUG
+        EnsembleLogger.debug("   Network state: \(networkState.description), offline: \(isDefinitelyOffline)")
+        #endif
+
         // If we have a local file, use it regardless of network state.
         if let localPath = track.localFilePath {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = preparedLocalPlaybackURL(forPath: localPath)
                 if isClearlyInvalidLocalPayload(localPlaybackURL) {
                     #if DEBUG
-                    EnsembleLogger.debug("   ⚠️ Local file payload appears invalid; falling back to stream setup: \(localPlaybackURL.path)")
+                    EnsembleLogger.debug("   ⚠️ Local file payload appears invalid: \(localPlaybackURL.path)")
                     #endif
                 } else {
                     #if DEBUG
@@ -2939,26 +2949,41 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     }
                 }
 
+                // Local file exists but is corrupt. If offline, don't fall through
+                // to streaming — it will fail and trigger the retry loop.
+                if isDefinitelyOffline {
+                    #if DEBUG
+                    EnsembleLogger.debug("   ❌ Local file corrupt and offline — cannot stream fallback")
+                    #endif
+                    throw PlaybackError.corruptLocalFile
+                }
+
                 #if DEBUG
                 EnsembleLogger.debug("   ⚠️ Local file was present but unreadable; continuing with stream fallback")
                 #endif
+            } else if isDefinitelyOffline {
+                // localFilePath set but file missing on disk, and we're offline
+                #if DEBUG
+                EnsembleLogger.debug("   ❌ localFilePath set but file missing and offline: \(localPath)")
+                #endif
+                throw PlaybackError.offline
+            } else {
+                #if DEBUG
+                EnsembleLogger.debug("   ⚠️ localFilePath set but file missing on disk: \(localPath)")
+                #endif
             }
-
+        } else if isDefinitelyOffline {
+            // No local file and definitely offline — fail fast
             #if DEBUG
-            EnsembleLogger.debug("   ⚠️ localFilePath set but file missing on disk: \(localPath)")
+            EnsembleLogger.debug("   ❌ No local file and offline — cannot play")
             #endif
+            throw PlaybackError.offline
         }
 
         // Avoid failing fast on cold Siri launches where NWPathMonitor may still be
         // in `.unknown`/not-yet-updated state. The stream URL request path below is
         // authoritative and will surface real connectivity failures.
-        let networkState = await MainActor.run(body: { networkMonitor.networkState })
-        let isConnected = networkState.isConnected
-        #if DEBUG
-        EnsembleLogger.debug("   Network state: \(networkState.description), connected: \(isConnected)")
-        #endif
-
-        if !isConnected {
+        if !networkState.isConnected {
             #if DEBUG
             EnsembleLogger.debug("   ⚠️ Network monitor reports not connected; attempting optimistic stream setup")
             #endif
@@ -3154,12 +3179,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func isClearlyInvalidLocalPayload(_ fileURL: URL) -> Bool {
+        // Reject files that don't exist or can't be opened
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return true }
         defer { try? handle.close() }
+
+        // Reject files smaller than 256 bytes — too small for any valid audio container
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? 0
+        if fileSize < 256 { return true }
+
         guard let header = try? handle.read(upToCount: 64), !header.isEmpty else {
             return true
         }
 
+        // Reject HTML error pages that the server returned instead of audio data
         let leadingText = String(decoding: header, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
