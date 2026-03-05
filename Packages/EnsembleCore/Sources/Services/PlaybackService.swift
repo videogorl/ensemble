@@ -982,15 +982,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Circuit breaker: stop advancing if multiple consecutive tracks fail.
-        // Prevents rapid retry loops when the server is unreachable, which would
-        // cycle through the entire queue and potentially crash.
+        // Circuit breaker: after multiple consecutive failures, scan for a playable track
+        // rather than stopping entirely. This handles cases where some tracks are from
+        // an offline server but others are downloaded or from a different (online) server.
         if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
             #if DEBUG
-            EnsembleLogger.debug("⛔ Stopping queue advancement after \(consecutivePlaybackFailures) consecutive failures")
+            EnsembleLogger.debug("⛔ Circuit breaker triggered after \(consecutivePlaybackFailures) consecutive failures — scanning for playable track")
             #endif
+
+            // Scan remaining queue for a track with a local download
+            if let nextPlayable = findNextPlayableTrackIndex(after: currentQueueIndex) {
+                #if DEBUG
+                EnsembleLogger.debug("✅ Found playable track at index \(nextPlayable) — skipping to it")
+                #endif
+                consecutivePlaybackFailures = 0
+                currentQueueIndex = nextPlayable
+                await playCurrentQueueItem()
+                savePlaybackState()
+                return
+            }
+
+            // No playable tracks found — stop with message
             player?.pause()
-            playbackState = .failed("Server unavailable")
+            playbackState = .failed("No playable tracks available")
             return
         }
 
@@ -2849,6 +2863,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recoveryTime = nil
         }
 
+        // Before retrying the stream, check if a local download now exists.
+        // This handles tracks that finished downloading while queued/stalled.
+        if track.localFilePath == nil {
+            let resolved = await resolveTrackForPlaybackIfNeeded(track)
+            if resolved.localFilePath != nil {
+                #if DEBUG
+                EnsembleLogger.debug("💾 Download fallback: swapping to local file for '\(track.title)' (\(reason))")
+                #endif
+                // Evict stale cached player item so it re-creates from local file
+                await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime)
+                return
+            }
+        }
+
         if forceConnectionRefresh, track.localFilePath == nil {
             do {
                 try await syncCoordinator.refreshConnection()
@@ -3776,14 +3805,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
 
-            // Scrobble track at 90% completion
+            // Scrobble track at 90% completion — routed through MutationCoordinator
+            // so it queues for retry on flaky connections instead of being lost.
             if !self.hasScrobbled,
                let track = self.currentTrack,
                self.duration > 0,
                time.seconds / self.duration >= 0.9 {
                 self.hasScrobbled = true
                 Task {
-                    await self.syncCoordinator.scrobbleTrack(track)
+                    if let mutationCoordinator = self.mutationCoordinator {
+                        await mutationCoordinator.scrobbleTrack(track)
+                    } else {
+                        await self.syncCoordinator.scrobbleTrack(track)
+                    }
                 }
             }
         }
@@ -4152,12 +4186,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Called when SyncCoordinator completes health checks.
-    /// Refreshes queue with potentially updated connection URLs.
+    /// Refreshes queue with potentially updated connection URLs, and auto-resumes
+    /// playback if it was previously failed due to server unavailability.
     @MainActor
     private func handleHealthCheckCompletion() async {
-        // Only rebuild if we're actively playing/buffering streaming content
-        guard !queue.isEmpty,
-              currentTrack?.localFilePath == nil,
+        guard !queue.isEmpty else { return }
+
+        // Auto-resume: if playback failed because a server was offline, and a
+        // health check just passed, retry the current track automatically.
+        if case .failed = playbackState,
+           currentTrack?.localFilePath == nil {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
+            #endif
+            await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
+            return
+        }
+
+        // Only rebuild upcoming items if we're actively playing streaming content
+        guard currentTrack?.localFilePath == nil,
               playbackState == .playing || playbackState == .buffering || playbackState == .paused else {
             return
         }
@@ -4289,6 +4336,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
 
             if track.localFilePath != currentPath {
+                let wasNotDownloaded = track.localFilePath == nil
+                let isNowDownloaded = currentPath != nil
+
                 // Rebuild the Track with the updated localFilePath
                 let updatedTrack = Track(
                     id: track.id,
@@ -4326,11 +4376,32 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     streamingQuality: quality
                 )
                 changed = true
+
+                // Evict cached player item for newly downloaded upcoming tracks
+                // so they re-resolve to the local file on next access.
+                // Skip the currently playing track — it will pick up local on next stall/retry.
+                if wasNotDownloaded && isNowDownloaded && i != currentQueueIndex {
+                    await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                }
             }
         }
         if changed {
             savePlaybackState()
         }
+    }
+
+    /// Scan the queue after `startIndex` for the next track that has a local download.
+    /// Used by the circuit breaker to skip over unavailable tracks.
+    private func findNextPlayableTrackIndex(after startIndex: Int) -> Int? {
+        let searchStart = startIndex + 1
+        guard searchStart < queue.count else { return nil }
+
+        for i in searchStart..<queue.count {
+            if queue[i].track.isDownloaded {
+                return i
+            }
+        }
+        return nil
     }
 
     /// Setup audio analyzer to subscribe to frequency band updates
