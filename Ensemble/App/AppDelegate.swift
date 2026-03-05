@@ -1033,38 +1033,29 @@ enum SpaceBarPlaybackShortcut {
     /// Tracks how many text inputs are currently editing.
     private static var activeTextInputCount = 0
 
-    // MARK: - Public
-
     /// Call once from `AppDelegate.didFinishLaunchingWithOptions`.
     static func install() {
         guard !installed else { return }
         installed = true
 
-        AppLogger.debug("⌨️ SpaceBarShortcut: installing...")
-
         installSendEventSwizzle()
         installGCKeyboardMonitoring()
         observeTextInputLifecycle()
-
-        AppLogger.debug("⌨️ SpaceBarShortcut: install complete")
     }
 
     /// Whether a text field or text view is currently being edited.
     static var isTextInputActive: Bool { activeTextInputCount > 0 }
 
     /// Toggles playback if in a playing or paused state.
-    static func togglePlayback(source: String) {
+    static func togglePlayback() {
         let service = DependencyContainer.shared.playbackService
-        let state = service.playbackState
-        AppLogger.debug("⌨️ SpaceBarShortcut: togglePlayback (source=\(source), state=\(state))")
-
-        switch state {
+        switch service.playbackState {
         case .playing:
             service.pause()
         case .paused:
             service.resume()
         default:
-            AppLogger.debug("⌨️ SpaceBarShortcut: ignoring — state is \(state)")
+            break
         }
     }
 
@@ -1076,12 +1067,10 @@ enum SpaceBarPlaybackShortcut {
 
         guard let originalMethod = class_getInstanceMethod(UIApplication.self, originalSelector),
               let swizzledMethod = class_getInstanceMethod(UIApplication.self, swizzledSelector) else {
-            AppLogger.debug("⌨️ SpaceBarShortcut: sendEvent swizzle FAILED — could not find methods")
             return
         }
 
         method_exchangeImplementations(originalMethod, swizzledMethod)
-        AppLogger.debug("⌨️ SpaceBarShortcut: sendEvent swizzle installed")
     }
 
     // MARK: - Mechanism 2: GCKeyboard (GameController)
@@ -1089,10 +1078,7 @@ enum SpaceBarPlaybackShortcut {
     private static func installGCKeyboardMonitoring() {
         // Check for already-connected keyboard
         if let keyboard = GCKeyboard.coalesced {
-            AppLogger.debug("⌨️ SpaceBarShortcut: GCKeyboard already connected")
             configureGCKeyboard(keyboard)
-        } else {
-            AppLogger.debug("⌨️ SpaceBarShortcut: no GCKeyboard connected yet, observing...")
         }
 
         // Watch for keyboard connect/disconnect
@@ -1100,35 +1086,20 @@ enum SpaceBarPlaybackShortcut {
             forName: .GCKeyboardDidConnect,
             object: nil, queue: .main
         ) { notification in
-            AppLogger.debug("⌨️ SpaceBarShortcut: GCKeyboard connected")
             if let keyboard = notification.object as? GCKeyboard {
                 configureGCKeyboard(keyboard)
             }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .GCKeyboardDidDisconnect,
-            object: nil, queue: .main
-        ) { _ in
-            AppLogger.debug("⌨️ SpaceBarShortcut: GCKeyboard disconnected")
         }
     }
 
     private static func configureGCKeyboard(_ keyboard: GCKeyboard) {
         keyboard.keyboardInput?.keyChangedHandler = { _, _, keyCode, pressed in
-            guard pressed else { return } // Only key-down
-            AppLogger.debug("⌨️ GCKeyboard: key \(keyCode.rawValue) pressed")
-
-            guard keyCode == .spacebar else { return }
+            guard pressed, keyCode == .spacebar else { return }
             DispatchQueue.main.async {
-                guard !isTextInputActive else {
-                    AppLogger.debug("⌨️ GCKeyboard: space ignored — text input active")
-                    return
-                }
-                togglePlayback(source: "GCKeyboard")
+                guard !isTextInputActive else { return }
+                togglePlayback()
             }
         }
-        AppLogger.debug("⌨️ SpaceBarShortcut: GCKeyboard handler installed")
     }
 
     // MARK: - Text Input Tracking
@@ -1165,32 +1136,27 @@ extension UIApplication {
     /// Intercepts bare space-bar presses when no text input is active.
     @objc func ensemble_interceptEvent(_ event: UIEvent) {
         // Fast path: only inspect press events (hardware keyboard)
-        if event.type == .presses {
-            if let pressEvent = event as? UIPressesEvent {
-                for press in pressEvent.allPresses {
-                    // Log all press events so we can see what's coming in
-                    if press.phase == .began {
-                        let keyInfo = press.key.map { "keyCode=\($0.keyCode.rawValue) chars='\($0.characters)'" } ?? "no UIKey"
-                        AppLogger.debug("⌨️ sendEvent: press.began — \(keyInfo)")
-                    }
-
-                    guard let key = press.key,
-                          key.keyCode == .keyboardSpacebar,
-                          key.modifierFlags.intersection([.command, .alternate, .control, .shift]).isEmpty,
-                          !SpaceBarPlaybackShortcut.isTextInputActive else {
-                        continue
-                    }
-
-                    if press.phase == .began {
-                        SpaceBarPlaybackShortcut.togglePlayback(source: "sendEvent")
-                    }
-                    return // Consume the event
+        if event.type == .presses, let pressEvent = event as? UIPressesEvent {
+            for press in pressEvent.allPresses {
+                guard let key = press.key,
+                      key.keyCode == .keyboardSpacebar,
+                      // Bare space only — ignore Cmd+Space, Shift+Space, etc.
+                      key.modifierFlags.intersection([.command, .alternate, .control, .shift]).isEmpty,
+                      !SpaceBarPlaybackShortcut.isTextInputActive else {
+                    continue
                 }
+
+                // Toggle on key-down; consume all phases so scroll views
+                // don't also page-scroll.
+                if press.phase == .began {
+                    SpaceBarPlaybackShortcut.togglePlayback()
+                }
+                return
             }
         }
 
         // All other events → original path
-        ensemble_interceptEvent(event) // After swizzle this calls the real sendEvent
+        ensemble_interceptEvent(event)
     }
 }
 #endif
