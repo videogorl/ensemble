@@ -148,7 +148,12 @@ public actor PlexWebSocketManager {
     // MARK: - Receive Loop
 
     private func receiveLoop() async {
-        guard let task = webSocketTask else { return }
+        guard let task = webSocketTask else {
+            EnsembleLogger.error("🔌 WebSocket[\(serverName)]: receiveLoop called but no webSocketTask")
+            return
+        }
+
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Receive loop started, waiting for messages... (subscribers=\(continuations.count))")
 
         while !Task.isCancelled && !isStopped {
             do {
@@ -165,8 +170,11 @@ public actor PlexWebSocketManager {
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
                         parseAndBroadcast(text)
+                    } else {
+                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received binary data (\(data.count) bytes) that couldn't be decoded as UTF-8")
                     }
                 @unknown default:
+                    EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received unknown message type")
                     break
                 }
             } catch {

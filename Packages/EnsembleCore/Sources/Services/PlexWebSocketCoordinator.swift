@@ -114,13 +114,28 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 let serverKey = "\(account.id):\(server.id)"
                 activeKeys.insert(serverKey)
 
-                // Skip if already connected
+                // Skip if already connected or pending connection
                 if managers[serverKey] != nil { continue }
 
-                // Get the current endpoint URL from the registry (or fall back to server config)
+                // Reserve the slot synchronously to prevent duplicate connections
+                // when refreshConnections() is called multiple times rapidly.
+                let fallbackURL = server.url
+                let serverToken = server.token
+                let serverName = server.name
+                let placeholder = PlexWebSocketManager(serverURL: fallbackURL, token: serverToken, serverName: serverName)
+                managers[serverKey] = placeholder
+
+                // Resolve the best endpoint asynchronously, then connect
                 Task {
-                    let url = await connectionRegistry.currentURL(for: serverKey) ?? server.url
-                    await self.addManager(for: serverKey, url: url, token: server.token, name: server.name)
+                    let url = await self.connectionRegistry.currentURL(for: serverKey) ?? fallbackURL
+
+                    // If registry returned a different URL, replace the placeholder
+                    if url != fallbackURL {
+                        let replacement = PlexWebSocketManager(serverURL: url, token: serverToken, serverName: serverName)
+                        self.setupAndStartManager(replacement, for: serverKey, name: serverName, url: url)
+                    } else {
+                        self.setupAndStartManager(placeholder, for: serverKey, name: serverName, url: url)
+                    }
                 }
             }
         }
@@ -134,13 +149,23 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
     }
 
-    private func addManager(for serverKey: String, url: String, token: String, name: String) {
-        let manager = PlexWebSocketManager(serverURL: url, token: token, serverName: name)
+    /// Wire up event listening and start the WebSocket connection for a manager.
+    ///
+    /// Important: `events()` must be called before `start()` on the same actor
+    /// to ensure the continuation is registered before the receive loop begins.
+    /// Using separate Tasks would race — `start()` could win and broadcast to zero subscribers.
+    private func setupAndStartManager(_ manager: PlexWebSocketManager, for serverKey: String, name: String, url: String) {
         managers[serverKey] = manager
 
-        // Start receiving events
+        // Subscribe first, then start — sequentially on the same Task to avoid race.
         let eventTask = Task { [weak self] in
             let stream = await manager.events()
+            await manager.start()
+
+            await MainActor.run {
+                self?.connectedServerKeys.insert(serverKey)
+            }
+
             for await event in stream {
                 guard let self, !Task.isCancelled else { break }
                 await self.handleEvent(event, from: serverKey)
@@ -148,15 +173,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
         eventTasks[serverKey] = eventTask
 
-        // Start the connection
-        Task {
-            await manager.start()
-            await MainActor.run {
-                connectedServerKeys.insert(serverKey)
-            }
-        }
-
-        EnsembleLogger.info("🔌 WebSocketCoordinator: Added manager for \(serverKey) (\(name)) url=\(url)")
+        EnsembleLogger.info("🔌 WebSocketCoordinator: Connected manager for \(serverKey) (\(name)) url=\(url)")
     }
 
     private func removeManager(for serverKey: String) {
