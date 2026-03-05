@@ -181,41 +181,74 @@ public actor PlexWebSocketManager {
 
         EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Receive loop started, waiting for messages... (subscribers=\(continuations.count))")
 
-        while !Task.isCancelled && !isStopped {
-            do {
-                let message = try await task.receive()
-                consecutiveFailures = 0
-                currentBackoff = Self.minBackoff
+        // Use completion-handler receive to avoid potential actor-suspension issues
+        // with URLSessionWebSocketTask.receive() async
+        await withCheckedContinuation { (loopContinuation: CheckedContinuation<Void, Never>) in
+            scheduleReceive(task: task, loopContinuation: loopContinuation)
+        }
+    }
 
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received message")
+    /// Schedule a single receive using the completion-handler API, then recurse.
+    /// This avoids the async `task.receive()` which may have actor interop issues.
+    nonisolated private func scheduleReceive(
+        task: URLSessionWebSocketTask,
+        loopContinuation: CheckedContinuation<Void, Never>?
+    ) {
+        task.receive { [weak self] result in
+            guard let self else {
+                loopContinuation?.resume()
+                return
+            }
 
-                // Every received message is an implicit health signal
-                broadcast(.connectionHealthy)
+            switch result {
+            case .success(let message):
+                Task { await self.handleReceivedMessage(message) }
+                // Schedule next receive
+                self.scheduleReceive(task: task, loopContinuation: loopContinuation)
 
-                switch message {
-                case .string(let text):
-                    EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Message text (\(text.count) chars): \(String(text.prefix(300)))")
-                    parseAndBroadcast(text)
-                case .data(let data):
-                    if let text = String(data: data, encoding: .utf8) {
-                        parseAndBroadcast(text)
-                    } else {
-                        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received binary data (\(data.count) bytes) that couldn't be decoded as UTF-8")
-                    }
-                @unknown default:
-                    EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received unknown message type")
-                    break
+            case .failure(let error):
+                Task {
+                    await self.handleReceiveError(error, loopContinuation: loopContinuation)
                 }
-            } catch {
-                guard !isStopped && !Task.isCancelled else { break }
-
-                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Disconnected — \(error.localizedDescription)")
-
-                isConnected = false
-                scheduleReconnect()
-                break
             }
         }
+    }
+
+    private func handleReceivedMessage(_ message: URLSessionWebSocketTask.Message) {
+        consecutiveFailures = 0
+        currentBackoff = Self.minBackoff
+
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received message")
+
+        // Every received message is an implicit health signal
+        broadcast(.connectionHealthy)
+
+        switch message {
+        case .string(let text):
+            EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Message text (\(text.count) chars): \(String(text.prefix(300)))")
+            parseAndBroadcast(text)
+        case .data(let data):
+            if let text = String(data: data, encoding: .utf8) {
+                parseAndBroadcast(text)
+            } else {
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received binary data (\(data.count) bytes) that couldn't be decoded as UTF-8")
+            }
+        @unknown default:
+            EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Received unknown message type")
+        }
+    }
+
+    private func handleReceiveError(_ error: Error, loopContinuation: CheckedContinuation<Void, Never>?) {
+        guard !isStopped else {
+            loopContinuation?.resume()
+            return
+        }
+
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Disconnected — \(error.localizedDescription)")
+
+        isConnected = false
+        scheduleReconnect()
+        loopContinuation?.resume()
     }
 
     // MARK: - Reconnect
