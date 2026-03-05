@@ -116,6 +116,8 @@ public final class SyncCoordinator: ObservableObject {
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
+    // Debounced playlist sync after rating changes (for smart playlist freshness)
+    private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
@@ -1250,7 +1252,9 @@ public final class SyncCoordinator: ObservableObject {
         return nil
     }
     
-    /// Rate a track, routing to the correct provider
+    /// Rate a track, routing to the correct provider.
+    /// After a successful rating change, triggers a debounced playlist sync so smart playlists
+    /// reflect the updated rating state.
     public func rateTrack(track: Track, rating: Int?) async throws {
         guard let sourceKey = track.sourceCompositeKey,
               let provider = syncProviders[sourceKey] else {
@@ -1258,6 +1262,24 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
+
+        // Trigger debounced playlist sync so smart playlists reflect the new rating
+        triggerPostRatingPlaylistSync(serverSourceKey: sourceKey)
+    }
+
+    /// Debounced playlist sync after a rating change so smart playlists update.
+    /// Uses a 5s debounce to coalesce rapid rating changes (e.g. bulk favoriting).
+    private func triggerPostRatingPlaylistSync(serverSourceKey: String) {
+        postRatingPlaylistSyncTasks[serverSourceKey]?.cancel()
+        postRatingPlaylistSyncTasks[serverSourceKey] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s debounce
+            guard !Task.isCancelled, let self else { return }
+            #if DEBUG
+            EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating playlist sync for \(serverSourceKey)")
+            #endif
+            await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+            self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
+        }
     }
 
     /// Report playback timeline to Plex server
