@@ -64,6 +64,7 @@ public final class SyncCoordinator: ObservableObject {
         case networkReconnect
         case interfaceSwitch(from: NetworkType, to: NetworkType)
         case appForeground
+        case accountInventoryRefresh
 
         var description: String {
             switch self {
@@ -73,6 +74,8 @@ public final class SyncCoordinator: ObservableObject {
                 return "interface_switch(\(from.description)->\(to.description))"
             case .appForeground:
                 return "app_foreground"
+            case .accountInventoryRefresh:
+                return "account_inventory_refresh"
             }
         }
     }
@@ -1791,6 +1794,12 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Foreground hook used by app lifecycle to coalesce network health updates.
+    /// Triggers a fresh server health check and updates published sourceStatuses.
+    /// Called from account detail views after inventory refresh to reflect real connectivity.
+    public func refreshServerHealthStates() {
+        scheduleHealthRefresh(reason: .accountInventoryRefresh, forceServerRefresh: true)
+    }
+
     public func handleAppWillEnterForeground() async {
         if accountManager.enforceAuthTokenPolicy() {
             refreshProviders()
@@ -1926,12 +1935,13 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        // Interface switches (e.g., cellular<->wifi) bypass cooldown to ensure
-        // connections are refreshed immediately after network handoff.
+        // Interface switches and user-initiated account refreshes bypass cooldown
+        // to ensure connections are refreshed immediately.
         let bypassCooldown: Bool
-        if case .interfaceSwitch = reason {
+        switch reason {
+        case .interfaceSwitch, .accountInventoryRefresh:
             bypassCooldown = true
-        } else {
+        default:
             bypassCooldown = false
         }
 

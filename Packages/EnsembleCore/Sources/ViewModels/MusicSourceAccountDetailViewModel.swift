@@ -271,6 +271,10 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+
+        // Trigger a fresh server health check so library connection statuses
+        // reflect actual connectivity, not stale cached states.
+        syncCoordinator.refreshServerHealthStates()
     }
 
     private func syncSources(_ sources: [MusicSourceIdentifier]) async {
