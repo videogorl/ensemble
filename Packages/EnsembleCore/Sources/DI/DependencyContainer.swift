@@ -61,6 +61,10 @@ public final class DependencyContainer: @unchecked Sendable {
     /// Start on foreground, stop on background.
     public let webSocketCoordinator: PlexWebSocketCoordinator
 
+    /// Reactive track availability combining device connectivity, per-server health,
+    /// and local download state. Used by UI surfaces for dimming/blocking unavailable tracks.
+    public let trackAvailabilityResolver: TrackAvailabilityResolver
+
     // MARK: - Legacy (kept for add-account flow)
 
     public let authService: PlexAuthService
@@ -141,7 +145,7 @@ public final class DependencyContainer: @unchecked Sendable {
             wsc.onLibraryUpdate = { [weak syncCoordinatorRef] sectionKey in
                 await syncCoordinatorRef?.syncSectionIncremental(sectionKey: sectionKey)
             }
-            wsc.onServerOffline = { [weak syncCoordinatorRef] serverKey in
+            wsc.onServerOffline = { serverKey in
                 // Parse serverKey and trigger health check
                 let parts = serverKey.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2 else { return }
@@ -163,6 +167,15 @@ public final class DependencyContainer: @unchecked Sendable {
                     _ = await shc.checkServer(accountId: accountId, serverId: serverId)
                 }
             }
+        }
+
+        // Track availability resolver — reactive per-server + per-download availability
+        trackAvailabilityResolver = MainActor.assumeIsolated {
+            TrackAvailabilityResolver(
+                networkMonitor: nm,
+                serverHealthChecker: shc,
+                downloadManager: downloadManagerRef
+            )
         }
 
         let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {

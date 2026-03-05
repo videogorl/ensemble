@@ -170,16 +170,17 @@ public struct CompactTrackRow: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .opacity(isUnavailableOffline ? 0.45 : 1)
+        .opacity(trackAvailability.shouldDim ? 0.45 : 1)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            guard !isUnavailableOffline else {
+            let availability = trackAvailability
+            guard availability.canPlay else {
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .warning,
                         iconSystemName: "wifi.slash",
-                        title: "Not available offline",
+                        title: availability.userMessage ?? "Not available offline",
                         message: "Download this track before going offline.",
                         dedupeKey: "compact-offline-track-blocked-\(track.id)"
                     )
@@ -190,8 +191,9 @@ public struct CompactTrackRow: View {
         }
     }
 
-    private var isUnavailableOffline: Bool {
-        !deps.networkMonitor.isConnected && !track.isDownloaded
+    /// Track availability resolved from device connectivity, per-server health, and download state.
+    private var trackAvailability: TrackAvailability {
+        deps.trackAvailabilityResolver.availability(for: track)
     }
     
     private func formatDuration(_ seconds: TimeInterval) -> String {

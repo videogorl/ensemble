@@ -158,25 +158,30 @@ public struct TrackRow: View {
         }
     }
 
+    /// Track availability resolved from device connectivity, per-server health, and download state.
+    private var trackAvailability: TrackAvailability {
+        deps.trackAvailabilityResolver.availability(for: track)
+    }
+
     private var isUnavailableOffline: Bool {
-        !deps.networkMonitor.isConnected && !track.isDownloaded
+        trackAvailability.shouldDim
     }
 
     private func handleTap() {
-        guard isUnavailableOffline else {
-            onTap()
+        let availability = trackAvailability
+        guard availability.canPlay else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "wifi.slash",
+                    title: availability.userMessage ?? "Not available offline",
+                    message: "Download this track before going offline.",
+                    dedupeKey: "offline-track-blocked-\(track.id)"
+                )
+            )
             return
         }
-
-        deps.toastCenter.show(
-            ToastPayload(
-                style: .warning,
-                iconSystemName: "wifi.slash",
-                title: "Not available offline",
-                message: "Download this track before going offline.",
-                dedupeKey: "offline-track-blocked-\(track.id)"
-            )
-        )
+        onTap()
     }
 
     private var effectiveIsFavorited: Bool {

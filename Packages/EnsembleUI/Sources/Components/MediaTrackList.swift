@@ -370,6 +370,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
+        context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
 
         // Only reload if data actually changed
@@ -393,7 +394,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         showArtwork: showArtwork,
                         showTrackNumber: showTrackNumbers,
                         isPlaying: isPlaying,
-                        isUnavailableOffline: isOffline && !track.isDownloaded,
+                        isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
@@ -421,6 +422,7 @@ public struct MediaTrackList: UIViewRepresentable {
             recentPlaylistTitle: recentPlaylistTitle,
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
+            trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !networkMonitor.isConnected
         )
     }
@@ -456,8 +458,9 @@ public struct MediaTrackList: UIViewRepresentable {
         var recentPlaylistTitle: String?
         var artworkLoader: ArtworkLoaderProtocol
         var toastCenter: ToastCenter
+        var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
-        
+
         init(
             tracks: [Track],
             groupedTracks: [(disc: Int?, tracks: [Track])],
@@ -477,6 +480,7 @@ public struct MediaTrackList: UIViewRepresentable {
             recentPlaylistTitle: String?,
             artworkLoader: ArtworkLoaderProtocol,
             toastCenter: ToastCenter,
+            trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool
         ) {
             self.tracks = tracks
@@ -497,6 +501,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.recentPlaylistTitle = recentPlaylistTitle
             self.artworkLoader = artworkLoader
             self.toastCenter = toastCenter
+            self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
         }
         
@@ -562,13 +567,14 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.deselectRow(at: indexPath, animated: true)
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
 
-            if isOffline && !track.isDownloaded {
+            let availability = trackAvailabilityResolver.availability(for: track)
+            if !availability.canPlay {
                 Task { @MainActor in
                     toastCenter.show(
                         ToastPayload(
                             style: .warning,
                             iconSystemName: "wifi.slash",
-                            title: "Not available offline",
+                            title: availability.userMessage ?? "Not available offline",
                             message: "Download this track before going offline.",
                             dedupeKey: "table-offline-track-blocked-\(track.id)"
                         )
