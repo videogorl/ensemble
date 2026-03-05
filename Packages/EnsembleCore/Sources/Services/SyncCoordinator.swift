@@ -561,9 +561,10 @@ public final class SyncCoordinator: ObservableObject {
     /// Sync a single source incrementally (only fetch changes since last sync)
     public func syncIncremental(source: MusicSourceIdentifier) async {
         guard let provider = syncProviders[source.compositeKey] else { return }
-        
+
+        let overallStart = CFAbsoluteTimeGetCurrent()
         let currentConnectionState = sourceStatuses[source]?.connectionState ?? .unknown
-        
+
         // Get last sync timestamp
         guard let lastSyncDate = await loadLastSyncDate(for: source) else {
             // No previous sync - fall back to full sync
@@ -599,8 +600,9 @@ public final class SyncCoordinator: ObservableObject {
                 }
             )
             
-            // Sync playlists for this server
-            try await provider.syncPlaylists(
+            // Sync playlists incrementally (only changed playlists, not all)
+            let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
+            try await provider.syncPlaylistsIncremental(
                 to: playlistRepository,
                 progressHandler: { [weak self] progress in
                     Task { @MainActor in
@@ -614,6 +616,10 @@ public final class SyncCoordinator: ObservableObject {
                 }
             )
 
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s")
+            #endif
+
             // Notify playlist views that data may have changed (incremental sync includes playlists)
             let serverSourceKey = "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
             onPlaylistRefreshCompleted?(serverSourceKey)
@@ -622,6 +628,10 @@ public final class SyncCoordinator: ObservableObject {
                 object: nil,
                 userInfo: ["serverSourceKey": serverSourceKey]
             )
+
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ SyncCoordinator: incremental sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - overallStart))s for \(source.compositeKey)")
+            #endif
 
             let resolvedConnectionState = await connectionStateAfterSuccessfulSync(
                 for: source,

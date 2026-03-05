@@ -19,6 +19,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
+    private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
@@ -26,11 +27,13 @@ public final class PlaylistViewModel: ObservableObject {
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        toastCenter: ToastCenter
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
+        self.toastCenter = toastCenter
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -104,6 +107,24 @@ public final class PlaylistViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("📴 Offline - loading playlists from cache only")
             #endif
+            await loadPlaylists()
+            return
+        }
+
+        // Check if sync is already in progress
+        if syncCoordinator.isSyncing {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ Sync already in progress - loading playlists from cache")
+            #endif
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Sync in progress",
+                    message: "A background sync is already running.",
+                    dedupeKey: "sync-already-in-progress"
+                )
+            )
             await loadPlaylists()
             return
         }

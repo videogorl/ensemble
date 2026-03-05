@@ -338,7 +338,8 @@ public final class DependencyContainer: @unchecked Sendable {
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             accountManager: accountManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            toastCenter: toastCenter
         )
     }
 
@@ -377,7 +378,8 @@ public final class DependencyContainer: @unchecked Sendable {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            toastCenter: toastCenter
         )
     }
 

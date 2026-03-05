@@ -29,6 +29,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
         #endif
 
+        let syncStart = CFAbsoluteTimeGetCurrent()
+
         // Ensure CDMusicSource exists
         _ = try await repository.upsertMusicSource(
             compositeKey: sourceKey,
@@ -42,14 +44,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         // Sync artists added or updated since timestamp
         progressHandler(0.1)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
         let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
         let allArtists = Set(newArtists.map { $0.ratingKey }).union(Set(updatedArtists.map { $0.ratingKey }))
         let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(artistsToSync.count) artists changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistsToSync.count) changed")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for artist in artistsToSync {
             _ = try await repository.upsertArtist(
                 ratingKey: artist.ratingKey,
@@ -66,14 +70,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         // Sync albums added or updated since timestamp
         progressHandler(0.25)
+        #if DEBUG
+        if !artistsToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: artists upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
         let allAlbums = Set(newAlbums.map { $0.ratingKey }).union(Set(updatedAlbums.map { $0.ratingKey }))
         let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(albumsToSync.count) albums changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumsToSync.count) changed")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for album in albumsToSync {
             _ = try await repository.upsertAlbum(
                 ratingKey: album.ratingKey,
@@ -96,14 +107,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         // Sync tracks added or updated since timestamp
         progressHandler(0.4)
+        #if DEBUG
+        if !albumsToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: albums upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
         let allTracks = Set(newTracks.map { $0.ratingKey }).union(Set(updatedTracks.map { $0.ratingKey }))
         let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(tracksToSync.count) changed")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
             _ = try await repository.upsertTrack(
                 ratingKey: track.ratingKey,
@@ -129,8 +147,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
         #if DEBUG
-        EnsembleLogger.debug("🧹 Checking for orphaned items (lightweight inventory)...")
+        if !tracksToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: tracks upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        EnsembleLogger.debug("⏱️ Incremental sync: library phase total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
 
         // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
         let artistInventory = try await apiClient.getArtistInventory(sectionKey: sectionKey)
@@ -165,7 +187,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         progressHandler(1.0)
         #if DEBUG
-        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey)")
+        EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         #endif
     }
     
@@ -303,8 +326,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
 
+        let playlistSyncStart = CFAbsoluteTimeGetCurrent()
         progressHandler(0.1)
         let playlists = try await apiClient.getPlaylists()
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Playlist sync: fetched \(playlists.count) playlists in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s")
+        #endif
 
         for (index, playlist) in playlists.enumerated() {
             let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
@@ -342,6 +369,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
+        #endif
         progressHandler(1.0)
     }
 
@@ -350,6 +380,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws {
+        let syncStart = CFAbsoluteTimeGetCurrent()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
 
@@ -368,6 +399,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(0.1)
 
         // Fetch playlists added or updated since last sync
+        var phaseStart = CFAbsoluteTimeGetCurrent()
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
         let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
 
@@ -378,10 +410,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let changedPlaylists = Array(playlistMap.values)
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
+        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(changedPlaylists.count) changed")
         #endif
 
         // Sync only changed playlists (only fetch tracks for changed ones)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for (index, playlist) in changedPlaylists.enumerated() {
             let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
             progressHandler(playlistProgress)
@@ -409,8 +442,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        #endif
+
         // Orphan removal: Fetch playlist inventory and remove deleted playlists
         progressHandler(0.7)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         #if DEBUG
         EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
         #endif
@@ -429,8 +467,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             #endif
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        #endif
+
         // Update last playlist sync timestamp
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
+        #endif
 
         progressHandler(1.0)
     }

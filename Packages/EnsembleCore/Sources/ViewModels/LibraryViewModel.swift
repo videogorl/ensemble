@@ -43,6 +43,7 @@ public final class LibraryViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
@@ -55,12 +56,14 @@ public final class LibraryViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         accountManager: AccountManager,
-        visibilityStore: LibraryVisibilityStore? = nil
+        visibilityStore: LibraryVisibilityStore? = nil,
+        toastCenter: ToastCenter
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.toastCenter = toastCenter
 
         // Load saved filter options
         let savedTracks = FilterPersistence.load(for: "Songs")
@@ -317,6 +320,15 @@ public final class LibraryViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - waiting for it to complete")
             #endif
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Sync in progress",
+                    message: "A background sync is already running.",
+                    dedupeKey: "sync-already-in-progress"
+                )
+            )
             await loadLibrary()
             return
         }
