@@ -107,7 +107,7 @@ public struct SettingsView: View {
             }
 
             // Playback section
-            Section(header: Text("Playback").textCase(nil)) {
+            Section(header: Text("Playback").foregroundColor(.accentColor).textCase(nil)) {
                 Toggle(isOn: $isAutoplayEnabled) {
                     HStack {
                         Image(systemName: "infinity.circle.fill")
@@ -156,7 +156,7 @@ public struct SettingsView: View {
             }
 
             // Storage section
-            Section(header: Text("Storage").textCase(nil)) {
+            Section(header: Text("Storage").foregroundColor(.accentColor).textCase(nil)) {
                 Button(role: .destructive) {
                     showingClearDataAlert = true
                 } label: {
@@ -170,7 +170,7 @@ public struct SettingsView: View {
             }
             
             // Debug section
-            Section(header: Text("Reset").textCase(nil)) {
+            Section(header: Text("Reset").foregroundColor(.accentColor).textCase(nil)) {
                 Button(role: .destructive) {
                     // Clear all accounts from keychain
                     for account in accountManager.plexAccounts {
@@ -188,7 +188,7 @@ public struct SettingsView: View {
 
             #if DEBUG
             // Developer tools section (DEBUG builds only)
-            Section(header: Text("Developer").textCase(nil)) {
+            Section(header: Text("Developer").foregroundColor(.accentColor).textCase(nil)) {
                 Toggle(isOn: $debugSimulateOffline) {
                     HStack {
                         Image(systemName: "wifi.slash")
@@ -204,11 +204,29 @@ public struct SettingsView: View {
                 .onChange(of: debugSimulateOffline) { simulating in
                     DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
                 }
+
+                // Test toast button
+                Button {
+                    DependencyContainer.shared.toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: "bell.fill",
+                            title: "Test Toast",
+                            message: "This is a test notification"
+                        )
+                    )
+                } label: {
+                    HStack {
+                        Image(systemName: "bell.badge")
+                            .frame(width: 44)
+                        Text("Send Test Toast")
+                    }
+                }
             }
             #endif
 
             // About section
-            Section(header: Text("About").textCase(nil)) {
+            Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
                 HStack {
                     Image(systemName: "info.circle")
                         .frame(width: 44)

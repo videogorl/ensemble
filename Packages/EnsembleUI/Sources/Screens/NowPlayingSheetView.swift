@@ -9,8 +9,7 @@ public struct NowPlayingSheetView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     
-    // Page state (0: Queue, 1: Controls, 2: Lyrics)
-    @State private var currentPage: Int = 1 // Start at Controls (center)
+    // Page state lives on viewModel so it persists across sheet dismiss/reopen
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -52,7 +51,7 @@ public struct NowPlayingSheetView: View {
                     if shouldUseSideBySideLayout(geometry: geometry) {
                         sideBySideLayout
                     } else {
-                        NowPlayingCarousel(viewModel: viewModel, currentPage: $currentPage)
+                        NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
                     }
                 }
             }
@@ -95,27 +94,27 @@ public struct NowPlayingSheetView: View {
     private var sideBySideLayout: some View {
         HStack(spacing: 0) {
             // Left: Controls card (fixed, primary focus)
-            ControlsCard(viewModel: viewModel, currentPage: $currentPage)
+            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                 .frame(maxWidth: 500) // Cap width for readability
             
             // Right: Carousel with Queue and Lyrics
             ZStack(alignment: .bottom) {
-                TabView(selection: $currentPage) {
-                    QueueCard(viewModel: viewModel, currentPage: $currentPage)
+                TabView(selection: $viewModel.currentPage) {
+                    QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                         .tag(0)
                     
                     // Placeholder center slot (not shown in side-by-side)
                     Color.clear
                         .tag(1)
                     
-                    LyricsCard(viewModel: viewModel, currentPage: $currentPage)
+                    LyricsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                         .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .frame(maxWidth: 500) // Cap width to match controls
                 
                 // Fixed page indicator for side-by-side carousel
-                PageIndicator(currentPage: $currentPage)
+                PageIndicator(currentPage: $viewModel.currentPage)
                     .padding(.top, 10)
                     .padding(.bottom, 10)
             }

@@ -90,6 +90,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
+    /// Persists the selected card page (0: Queue, 1: Controls, 2: Lyrics, 3: Info) across sheet dismiss/reopen
+    @Published public var currentPage: Int = 1
     @Published public private(set) var isPlaylistMutationInProgress = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
     @Published public private(set) var artworkImage: PlatformImage?
