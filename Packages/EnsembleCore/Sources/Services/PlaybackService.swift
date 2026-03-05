@@ -696,6 +696,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var itemFailedToPlayToEndObserver: NSObjectProtocol?
     private var itemErrorLogEntryObserver: NSObjectProtocol?
     private var isHandlingQueueExhaustion = false
+    /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
+    private var consecutivePlaybackFailures = 0
+    private let maxConsecutiveFailuresBeforeStop = 3
     private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
@@ -973,6 +976,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         guard !queue.isEmpty else {
             stop()
+            return
+        }
+
+        // Circuit breaker: stop advancing if multiple consecutive tracks fail.
+        // Prevents rapid retry loops when the server is unreachable, which would
+        // cycle through the entire queue and potentially crash.
+        if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
+            #if DEBUG
+            EnsembleLogger.debug("⛔ Stopping queue advancement after \(consecutivePlaybackFailures) consecutive failures")
+            #endif
+            player?.pause()
+            playbackState = .failed("Server unavailable")
             return
         }
 
@@ -1621,6 +1636,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func playQueueIndex(_ index: Int) async {
         guard index >= 0, index < queue.count else { return }
+        consecutivePlaybackFailures = 0
 
         // Record current track to history before jumping
         if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
@@ -1775,17 +1791,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .stopped
         currentTime = 0
         bufferedProgress = 0
+        consecutivePlaybackFailures = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
     }
     
     /// Retry playing the current track (useful after network errors)
     public func retryCurrentTrack() async {
+        consecutivePlaybackFailures = 0
         await retryCurrentTrack(forceConnectionRefresh: false, reason: "manual")
     }
 
     public func next() {
         guard !queue.isEmpty else { return }
+        consecutivePlaybackFailures = 0
 
         // Record current track to history before advancing
         if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
@@ -1828,6 +1847,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func previous() {
+        consecutivePlaybackFailures = 0
+
         // If more than 3 seconds in, restart current track
         if currentTime > 3 {
             seek(to: 0)
@@ -2769,13 +2790,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // All retries exhausted
+        // All retries exhausted — increment failure counter and pause player
+        // to prevent AVQueuePlayer from auto-advancing to the next track
+        consecutivePlaybackFailures += 1
         #if DEBUG
-        EnsembleLogger.debug("❌ All retries exhausted for track preparation")
+        EnsembleLogger.debug("❌ All retries exhausted for track preparation (consecutive failures: \(consecutivePlaybackFailures))")
         #endif
         loadingStateTask?.cancel()
         let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
         await MainActor.run {
+            self.player?.pause()
             self.playbackState = .failed(errorMessage)
         }
         #if DEBUG
@@ -3349,6 +3373,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Cache the player item (with LRU eviction) instead of clearing all
         cachePlayerItem(item, for: track.id)
+
+        // Track loaded successfully — reset consecutive failure counter
+        consecutivePlaybackFailures = 0
 
         player?.removeAllItems()
         player?.insert(item, after: nil)
