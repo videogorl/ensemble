@@ -64,6 +64,19 @@ public final class PlaylistViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (e.g. WebSocket-triggered sync completes)
+        // This catches playlist updates from other devices that may not fire playlistsDidRefresh.
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.loadPlaylists()
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
