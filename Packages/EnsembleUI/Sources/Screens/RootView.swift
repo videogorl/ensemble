@@ -10,6 +10,10 @@ public struct RootView: View {
 
     public var body: some View {
         mainContentView
+        #if canImport(UIKit) && !os(watchOS)
+        // Global keyboard shortcut host (space = play/pause)
+        .background(KeyCommandHost().frame(width: 0, height: 0))
+        #endif
         .accentColor(settingsManager.accentColor.color)
         .onAppear {
             updateAppearance()
