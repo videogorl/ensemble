@@ -13,6 +13,9 @@ public protocol ArtworkLoaderProtocol {
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
+    /// Posted when a specific artwork is invalidated. `userInfo` contains `"ratingKey"`.
+    public static let artworkDidInvalidate = Notification.Name("ArtworkLoaderArtworkDidInvalidate")
+
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private static let asyncArtworkURLCacheTTL: TimeInterval = 5
@@ -43,6 +46,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         /// Clear all cached URL entries (used when server connection changes)
         func clearAll() {
             cache.removeAll()
+        }
+
+        /// Clear cached URL entries whose key contains the given substring (e.g. a ratingKey)
+        func clearEntries(matching substring: String) {
+            for key in cache.keys where key.contains(substring) {
+                cache.removeValue(forKey: key)
+            }
         }
     }
     
@@ -93,6 +103,30 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         await urlCache.clearAll()
         #if DEBUG
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
+        #endif
+    }
+
+    /// Invalidate a specific artwork so views re-fetch from the server.
+    /// Clears both the in-memory URL cache and local file, then posts a notification.
+    public func invalidateArtwork(ratingKey: String, type: ArtworkType) async {
+        // Clear URL cache entries containing this ratingKey
+        await urlCache.clearEntries(matching: ratingKey)
+
+        // Remove the local file
+        artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: type)
+
+        // Also evict from Nuke's image pipeline cache using ratingKey as best-effort key match
+        ImagePipeline.shared.cache.removeAll()
+
+        // Post notification so ArtworkView can re-trigger loads
+        NotificationCenter.default.post(
+            name: Self.artworkDidInvalidate,
+            object: nil,
+            userInfo: ["ratingKey": ratingKey]
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
         #endif
     }
 

@@ -41,6 +41,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Parameter: serverKey (accountId:serverId).
     public var onServerHealthy: ((String) async -> Void)?
 
+    /// Called when album/artist artwork may have changed on the server.
+    /// Parameters: (ratingKey: String, artworkType: "album" | "artist").
+    public var onArtworkInvalidation: ((String, String) async -> Void)?
+
     private var managers: [String: PlexWebSocketManager] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
     private var accountObserver: AnyCancellable?
@@ -216,13 +220,25 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     private func handleEvent(_ event: PlexServerEvent, from serverKey: String) async {
         switch event {
-        case .libraryUpdate(let sectionID, _, let type, let state):
+        case .libraryUpdate(let sectionID, let itemID, let type, let state):
             // Playlist changes (type 15) trigger a playlist-only sync for the server
             if type == 15 {
                 let actionableStates = [0, 5, 9]
                 guard actionableStates.contains(state) else { return }
                 debouncedPlaylistUpdate(serverKey: serverKey)
                 return
+            }
+
+            // Album metadata update (type=9, state=5) may include artwork changes
+            if type == 9 && state == 5 {
+                let ratingKey = String(itemID)
+                await onArtworkInvalidation?(ratingKey, "album")
+            }
+
+            // Artist metadata update (type=8, state=5) may include artwork changes
+            if type == 8 && state == 5 {
+                let ratingKey = String(itemID)
+                await onArtworkInvalidation?(ratingKey, "artist")
             }
 
             // Music types (8=artist, 9=album, 10=track) trigger library section sync

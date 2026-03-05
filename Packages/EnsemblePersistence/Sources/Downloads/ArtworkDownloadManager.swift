@@ -32,6 +32,7 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
+    func deleteArtwork(ratingKey: String, type: ArtworkType)
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
 }
@@ -150,6 +151,26 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
 
     
+    // MARK: - Single Artwork Deletion
+
+    /// Delete a specific cached artwork file by ratingKey and type.
+    public func deleteArtwork(ratingKey: String, type: ArtworkType) {
+        let typeString: String
+        switch type {
+        case .album: typeString = "album"
+        case .artist: typeString = "artist"
+        case .track: typeString = "track"
+        case .playlist: typeString = "playlist"
+        }
+
+        let filename = "\(ratingKey)_\(typeString).jpg"
+        let fileURL = Self.artworkDirectory.appendingPathComponent(filename)
+
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
     // MARK: - Cache Management
     
     public func clearArtworkCache() async throws {

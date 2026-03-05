@@ -14,6 +14,8 @@ public struct ArtworkView: View {
 
     @Environment(\.dependencies) private var dependencies
     @State private var artworkURL: URL?
+    /// Incremented when artwork is invalidated to force a re-load
+    @State private var invalidationToken: Int = 0
     
     // Unique ID to identify this specific artwork request
     private var loadID: String {
@@ -81,8 +83,19 @@ public struct ArtworkView: View {
             // Clear artwork URL immediately when track changes to prevent stale display
             artworkURL = nil
         }
-        .task(id: loadID) {
+        .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: ArtworkLoader.artworkDidInvalidate)
+        ) { notification in
+            // Re-trigger load if this artwork's ratingKey was invalidated
+            guard let invalidatedKey = notification.userInfo?["ratingKey"] as? String else { return }
+            let effectiveKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
+            if invalidatedKey == effectiveKey {
+                artworkURL = nil
+                invalidationToken += 1
+            }
         }
     }
     

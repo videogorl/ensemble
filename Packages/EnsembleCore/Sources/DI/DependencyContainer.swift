@@ -174,6 +174,7 @@ public final class DependencyContainer: @unchecked Sendable {
                     _ = await shc.checkServer(accountId: accountId, serverId: serverId)
                 }
             }
+
         }
 
         // Track availability resolver — reactive per-server + per-download availability
@@ -216,6 +217,20 @@ public final class DependencyContainer: @unchecked Sendable {
         // Note: artworkLoader must be created before playbackService since it's a dependency
         let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
         artworkLoader = artworkLoaderRef
+
+        // Wire artwork invalidation from WebSocket events to the artwork loader
+        let artworkLoaderForWS = artworkLoaderRef
+        MainActor.assumeIsolated {
+            wsc.onArtworkInvalidation = { ratingKey, typeString in
+                let type: ArtworkType
+                switch typeString {
+                case "album": type = .album
+                case "artist": type = .artist
+                default: type = .album
+                }
+                await artworkLoaderForWS.invalidateArtwork(ratingKey: ratingKey, type: type)
+            }
+        }
         
         // Audio analyzer for real-time frequency analysis
         let audioAnalyzerRef = MainActor.assumeIsolated {
