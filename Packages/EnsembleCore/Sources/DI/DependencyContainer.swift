@@ -50,6 +50,13 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let mutationCoordinator: MutationCoordinator
 
+    // MARK: - Network Infrastructure
+
+    /// Single source of truth for per-server active endpoints.
+    /// Shared by PlexAPIClient (writes on failover), ServerHealthChecker (writes on probe),
+    /// and SyncCoordinator (subscribes to keep API clients in sync).
+    public let connectionRegistry: ServerConnectionRegistry
+
     // MARK: - Legacy (kept for add-account flow)
 
     public let authService: PlexAuthService
@@ -61,6 +68,10 @@ public final class DependencyContainer: @unchecked Sendable {
         keychain = KeychainService.shared
         coreDataStack = CoreDataStack.shared
         authService = PlexAuthService(keychain: keychain)
+
+        // Network infrastructure — single source of truth for endpoint state
+        let registry = ServerConnectionRegistry()
+        connectionRegistry = registry
 
         // Repositories
         libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
@@ -81,7 +92,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let artworkDownloadRef = artworkDownloadManager
 
         let am = MainActor.assumeIsolated {
-            AccountManager(keychain: keychainRef)
+            AccountManager(keychain: keychainRef, connectionRegistry: registry)
         }
         accountManager = am
         accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
@@ -94,7 +105,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
         // Server health checking (must be created before SyncCoordinator)
         let shc = MainActor.assumeIsolated {
-            ServerHealthChecker(accountManager: am, networkMonitor: nm)
+            ServerHealthChecker(accountManager: am, networkMonitor: nm, connectionRegistry: registry)
         }
         serverHealthChecker = shc
 
@@ -105,7 +116,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: playlistRef,
                 artworkDownloadManager: artworkDownloadRef,
                 networkMonitor: nm,
-                serverHealthChecker: shc
+                serverHealthChecker: shc,
+                connectionRegistry: registry
             )
         }
         let syncCoordinatorRef = syncCoordinator

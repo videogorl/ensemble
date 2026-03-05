@@ -90,6 +90,7 @@ public final class SyncCoordinator: ObservableObject {
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
     public let serverHealthChecker: ServerHealthChecker
+    public let connectionRegistry: ServerConnectionRegistry?
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -101,6 +102,7 @@ public final class SyncCoordinator: ObservableObject {
     private var activeHealthRefreshTask: Task<Void, Never>?
     private let healthRefreshCooldown: TimeInterval = 30
     private let foregroundHealthStalenessThreshold: TimeInterval = 60
+    private var registrySubscriptionTask: Task<Void, Never>?
     
     // Periodic sync timers
     private var incrementalSyncTimer: Timer?
@@ -129,7 +131,8 @@ public final class SyncCoordinator: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         networkMonitor: NetworkMonitor,
-        serverHealthChecker: ServerHealthChecker
+        serverHealthChecker: ServerHealthChecker,
+        connectionRegistry: ServerConnectionRegistry? = nil
     ) {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
@@ -137,11 +140,17 @@ public final class SyncCoordinator: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
+        self.connectionRegistry = connectionRegistry
         self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
         // Observe network state changes
         setupNetworkMonitoring()
+
+        // Subscribe to centralized endpoint changes from the registry
+        if let registry = connectionRegistry {
+            subscribeToRegistryChanges(registry: registry)
+        }
     }
 
     /// Rebuild sync providers from current account configuration
@@ -2038,7 +2047,44 @@ public final class SyncCoordinator: ObservableObject {
         lastHealthRefreshAt = date
     }
 
-    /// Update all API clients with the latest working connection URLs from health checks
+    /// Subscribe to centralized endpoint changes from the registry.
+    /// When health checks or API client failovers discover a new endpoint, this
+    /// automatically syncs the API client and notifies artwork loaders.
+    private func subscribeToRegistryChanges(registry: ServerConnectionRegistry) {
+        registrySubscriptionTask = Task { [weak self] in
+            let stream = await registry.endpointChanges()
+            for await state in stream {
+                guard let self, !Task.isCancelled else { break }
+
+                // Parse serverKey back to accountId:serverId
+                let parts = state.serverKey.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let accountId = String(parts[0])
+                let serverId = String(parts[1])
+
+                // Update the API client's active URL to match the registry
+                if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
+                    let currentURL = await apiClient.getCurrentServerURL()
+                    if currentURL != state.endpoint.url {
+                        await apiClient.updateCurrentServerURL(state.endpoint.url)
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "📍 SyncCoordinator: Registry synced API client for \(state.serverKey) to \(state.endpoint.url) (source=\(state.source.rawValue))"
+                        )
+                        #endif
+                    }
+                }
+
+                // Notify listeners (e.g., ArtworkLoader) to invalidate stale cached URLs
+                await onConnectionsRefreshed?()
+            }
+        }
+    }
+
+    /// Update all API clients with the latest working connection URLs from health checks.
+    /// When a `ServerConnectionRegistry` is active, most updates flow reactively through
+    /// `subscribeToRegistryChanges`. This method remains as a fallback for tests and
+    /// the non-registry path.
     public func refreshAPIClientConnections() async {
         #if DEBUG
         EnsembleLogger.debug("🔄 SyncCoordinator: Updating API client connections...")
@@ -2046,13 +2092,25 @@ public final class SyncCoordinator: ObservableObject {
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
-                // Get the working URL from health checker
+                let serverKey = "\(account.id):\(server.id)"
+
+                // Prefer registry endpoint when available
+                if let registry = connectionRegistry,
+                   let registryURL = await registry.currentURL(for: serverKey),
+                   let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
+                    await apiClient.updateCurrentServerURL(registryURL)
+                    #if DEBUG
+                    EnsembleLogger.debug("✅ Updated API client for server \(server.name) from registry: \(registryURL)")
+                    #endif
+                    continue
+                }
+
+                // Fallback: read from health checker state
                 let connectionState = serverHealthChecker.getServerState(
                     accountId: account.id,
                     serverId: server.id
                 )
 
-                // If we found a working URL, update the API client
                 if case .connected(let workingURL) = connectionState,
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     await apiClient.updateCurrentServerURL(workingURL)

@@ -153,14 +153,29 @@ public actor PlexAPIClient {
     private let selectedLibrary: PlexLibrarySelection?
     private var currentServerURL: String  // The currently active server URL
 
+    // Centralized endpoint registry — when set, failover results are reported back
+    private let connectionRegistry: ServerConnectionRegistry?
+    private let serverKey: String?
+
     private static let plexTVBaseURL = "https://plex.tv"
 
     /// Initialize with a direct server connection
+    /// - Parameters:
+    ///   - connection: Server connection configuration
+    ///   - librarySelection: Optional library selection
+    ///   - keychain: Keychain for token persistence
+    ///   - failoverManager: Manages connection failover probing
+    ///   - connectionRegistry: Centralized endpoint registry — failover results are written back here
+    ///   - serverKey: Registry key for this server (required when registry is provided)
+    ///   - productName: Client product name for Plex headers
+    ///   - productVersion: Client product version for Plex headers
     public init(
         connection: PlexServerConnection,
         librarySelection: PlexLibrarySelection? = nil,
         keychain: KeychainServiceProtocol = KeychainService.shared,
         failoverManager: ConnectionFailoverManager = ConnectionFailoverManager(),
+        connectionRegistry: ServerConnectionRegistry? = nil,
+        serverKey: String? = nil,
         productName: String = "Ensemble",
         productVersion: String = "1.0"
     ) {
@@ -169,6 +184,8 @@ public actor PlexAPIClient {
         self.selectedLibrary = librarySelection
         self.currentServerURL = connection.url
         self.failoverManager = failoverManager
+        self.connectionRegistry = connectionRegistry
+        self.serverKey = serverKey
         self.productName = productName
         self.productVersion = productVersion
         #if os(iOS)
@@ -1745,19 +1762,24 @@ public actor PlexAPIClient {
         }
 
         currentServerURL = endpoint.url
+
+        // Report winning endpoint back to the centralized registry
+        if let registry = connectionRegistry, let key = serverKey {
+            await registry.updateEndpoint(for: key, endpoint: endpoint, source: .requestFailover)
+        }
+
         #if DEBUG
         EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
         #endif
         return selection
     }
-    
+
     /// Get the current active server URL
     public func getCurrentServerURL() -> String {
         currentServerURL
     }
 
-    /// Update the current server URL (e.g., from external health checks)
-    /// This allows proactive failover based on network changes
+    /// Update the current server URL (e.g., from external health checks or registry sync).
     public func updateCurrentServerURL(_ url: String) {
         #if DEBUG
         EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server URL to: \(url)")

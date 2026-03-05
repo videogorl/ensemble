@@ -25,6 +25,7 @@ public final class ServerHealthChecker: ObservableObject {
 
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
+    private let connectionRegistry: ServerConnectionRegistry?
     private let cacheTTL: TimeInterval
     private let unavailableCacheTTL: TimeInterval
     private let resourceRefreshCooldown: TimeInterval
@@ -35,10 +36,15 @@ public final class ServerHealthChecker: ObservableObject {
     private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
     private var lastResourceRefreshAt: [String: Date] = [:]
 
-    public init(accountManager: AccountManager, networkMonitor: NetworkMonitor) {
+    public init(
+        accountManager: AccountManager,
+        networkMonitor: NetworkMonitor,
+        connectionRegistry: ServerConnectionRegistry? = nil
+    ) {
         self.accountManager = accountManager
         // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
         self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = 120
         self.unavailableCacheTTL = 10
         self.resourceRefreshCooldown = 60
@@ -49,6 +55,7 @@ public final class ServerHealthChecker: ObservableObject {
     internal init(
         accountManager: AccountManager,
         failoverManager: ConnectionFailoverManager,
+        connectionRegistry: ServerConnectionRegistry? = nil,
         cacheTTL: TimeInterval = 120,
         unavailableCacheTTL: TimeInterval = 10,
         resourceRefreshCooldown: TimeInterval = 60,
@@ -57,6 +64,7 @@ public final class ServerHealthChecker: ObservableObject {
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = cacheTTL
         self.unavailableCacheTTL = unavailableCacheTTL
         self.resourceRefreshCooldown = resourceRefreshCooldown
@@ -315,6 +323,12 @@ public final class ServerHealthChecker: ObservableObject {
                 "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
             )
             #endif
+
+            // Write working endpoint to the centralized registry
+            if let registry = connectionRegistry {
+                await registry.updateEndpoint(for: serverKey, endpoint: workingEndpoint, source: .healthCheck)
+            }
+
             await MainActor.run {
                 serverFailureReasons.removeValue(forKey: serverKey)
             }
@@ -354,6 +368,12 @@ public final class ServerHealthChecker: ObservableObject {
                         "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
                     #endif
+
+                    // Write recovered endpoint to the centralized registry
+                    if let registry = connectionRegistry {
+                        await registry.updateEndpoint(for: serverKey, endpoint: refreshedWorkingEndpoint, source: .healthCheck)
+                    }
+
                     await MainActor.run {
                         serverFailureReasons.removeValue(forKey: serverKey)
                     }
