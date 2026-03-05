@@ -274,7 +274,6 @@ public struct ArtistDetailView: View {
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
-    @State private var scrollOffset: CGFloat = 0
     @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     public init(
@@ -323,19 +322,6 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
                 }
-                // Track scroll offset for rubber-band stretch
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ScrollOffsetPreferenceKey.self,
-                            value: proxy.frame(in: .named("artistScroll")).minY
-                        )
-                    }
-                )
-            }
-            .coordinateSpace(name: "artistScroll")
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                scrollOffset = value
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -448,20 +434,22 @@ public struct ArtistDetailView: View {
     private var heroBanner: some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.width // 1:1 square aspect ratio
-            // Rubber-band stretch: when overscrolling (offset > 0), expand artwork
-            let overscroll = max(scrollOffset, 0)
-            let stretchHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+            // Detect overscroll: when the banner's top in global coords is > 0,
+            // the user is pulling down past the top edge
+            let globalMinY = geometry.frame(in: .global).minY
+            let overscroll = max(globalMinY, 0)
+            let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
 
             ZStack(alignment: .bottom) {
-                // Artist artwork masked to fade out at the bottom
+                // Artist artwork — grows upward on overscroll, fades at the bottom.
+                // No .clipped() so it can extend above the GeometryReader frame.
                 ArtworkView(
                     artist: viewModel.artist,
                     size: .extraLarge,
                     cornerRadius: 0
                 )
                 .aspectRatio(contentMode: .fill)
-                .frame(width: geometry.size.width, height: stretchHeight)
-                .clipped()
+                .frame(width: geometry.size.width, height: artworkHeight)
                 .mask(
                     LinearGradient(
                         gradient: Gradient(stops: [
@@ -761,15 +749,5 @@ public struct ArtistDetailView: View {
             sourceCompositeKey: target.sourceCompositeKey
         )
         return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
-    }
-}
-
-// MARK: - Scroll Offset Preference Key
-
-/// Captures the Y offset of scroll content for rubber-band stretch effects
-private struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }

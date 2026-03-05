@@ -18,6 +18,8 @@ public class TrackTableViewCell: UITableViewCell {
     
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
+    private var downloadIconWidthConstraint: NSLayoutConstraint?
+    private var downloadIconTrailingConstraint: NSLayoutConstraint?
     private var currentTrackID: String?
     private var artworkLoadTask: Task<Void, Never>?
     
@@ -45,12 +47,18 @@ public class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(trackNumberLabel)
         
         titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentView.addSubview(titleLabel)
         
         subtitleLabel.font = .systemFont(ofSize: 14, weight: .regular)
         subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentView.addSubview(subtitleLabel)
         
         downloadIcon.image = UIImage(systemName: "arrow.down.circle.fill")
@@ -58,11 +66,16 @@ public class TrackTableViewCell: UITableViewCell {
         downloadIcon.contentMode = .scaleAspectFit
         downloadIcon.translatesAutoresizingMaskIntoConstraints = false
         downloadIcon.isHidden = true
+        downloadIcon.setContentHuggingPriority(.required, for: .horizontal)
+        downloadIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(downloadIcon)
 
         durationLabel.font = .systemFont(ofSize: 14, weight: .regular)
         durationLabel.textColor = .secondaryLabel
+        durationLabel.textAlignment = .right
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
+        durationLabel.setContentHuggingPriority(.required, for: .horizontal)
+        durationLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(durationLabel)
         
         playingIndicator.image = UIImage(systemName: "speaker.wave.3.fill")
@@ -83,15 +96,13 @@ public class TrackTableViewCell: UITableViewCell {
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
             
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -6),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: downloadIcon.leadingAnchor, constant: -6),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
             // Download icon sits just left of the duration label
-            downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -4),
             downloadIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            downloadIcon.widthAnchor.constraint(equalToConstant: 14),
             downloadIcon.heightAnchor.constraint(equalToConstant: 14),
 
             durationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
@@ -103,6 +114,12 @@ public class TrackTableViewCell: UITableViewCell {
             playingIndicator.widthAnchor.constraint(equalToConstant: 20),
             playingIndicator.heightAnchor.constraint(equalToConstant: 20)
         ])
+
+        // Stored constraints toggled based on download state
+        downloadIconWidthConstraint = downloadIcon.widthAnchor.constraint(equalToConstant: 0)
+        downloadIconTrailingConstraint = downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor)
+        downloadIconWidthConstraint?.isActive = true
+        downloadIconTrailingConstraint?.isActive = true
     }
     
     public func configure(
@@ -141,7 +158,11 @@ public class TrackTableViewCell: UITableViewCell {
         durationLabel.text = track.formattedDuration
         durationLabel.isHidden = isPlaying
         playingIndicator.isHidden = !isPlaying
+
+        // Toggle download icon size: 14pt with gap when downloaded, 0pt when not
         downloadIcon.isHidden = !track.isDownloaded
+        downloadIconWidthConstraint?.constant = track.isDownloaded ? 14 : 0
+        downloadIconTrailingConstraint?.constant = track.isDownloaded ? -4 : 0
         
         // Show/hide artwork
         artworkImageView.isHidden = !showArtwork
@@ -296,7 +317,7 @@ public struct MediaTrackList: UIViewRepresentable {
             bottom: 0,
             right: 0
         )
-        tableView.backgroundColor = .systemBackground
+        tableView.backgroundColor = .clear
         tableView.isScrollEnabled = false // Parent ScrollView handles scrolling
 
         // Disable automatic content inset adjustment — the table view is already
@@ -489,6 +510,7 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
+            cell.backgroundColor = .clear
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             let isPlaying = track.id == currentTrackId
             cell.configure(
@@ -510,7 +532,7 @@ public struct MediaTrackList: UIViewRepresentable {
             guard let disc = groupedTracks[section].disc else { return nil }
             
             let headerView = UIView()
-            headerView.backgroundColor = .systemBackground
+            headerView.backgroundColor = .clear
             
             let label = UILabel()
             label.text = "Disc \(disc)"
