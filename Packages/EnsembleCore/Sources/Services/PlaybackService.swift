@@ -415,11 +415,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         _ profile: PlaybackBufferingProfile,
         throttleActive: Bool
     ) -> PlaybackBufferingProfile {
-        guard throttleActive, profile.prefetchDepth > 0 else { return profile }
+        guard throttleActive, profile.prefetchDepth > 1 else { return profile }
+        // During transport error throttle, reduce prefetch to 1 (not 0) so
+        // AVQueuePlayer always has a next item for gapless transitions.
         return PlaybackBufferingProfile(
             waitsToMinimizeStalling: profile.waitsToMinimizeStalling,
             preferredForwardBufferDuration: profile.preferredForwardBufferDuration,
-            prefetchDepth: 0,
+            prefetchDepth: 1,
             stallRecoveryTimeout: profile.stallRecoveryTimeout,
             label: "\(profile.label)-prefetch-throttled"
         )
@@ -652,11 +654,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
 
     /// Returns the catalog/metadata duration for the current track.
-    /// Professional players (Spotify, Apple Music) always display catalog duration
-    /// rather than stream duration, because transcoded streams may include encoder
-    /// padding that extends audio past the intended end point.
+    /// Use the effective duration (max of Plex metadata and AVPlayerItem.duration)
+    /// so the scrubber accounts for actual stream length. After seeking, AVPlayer may
+    /// resolve a longer duration than Plex reports — without this, the UI shows -0:00
+    /// while audio keeps playing.
     public var duration: TimeInterval {
-        max(0, currentTrack?.duration ?? 0)
+        let metadataDuration = currentTrack?.duration ?? 0
+        let itemDuration = player?.currentItem?.duration.seconds
+        return Self.effectiveDuration(
+            metadataDuration: metadataDuration,
+            itemDuration: itemDuration
+        )
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -919,6 +927,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
+                    #if DEBUG
+                    let newTrackTitle = queue[index].track.title
+                    EnsembleLogger.debug("GAPLESS_DIAG: handleItemChange — gapless OK for '\(newTrackTitle)'")
+                    #endif
                     // Record current track to history before advancing (but not when going backward)
                     if !isNavigatingBackward && currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
@@ -1001,6 +1013,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         isHandlingQueueExhaustion = true
         defer { isHandlingQueueExhaustion = false }
+
+        #if DEBUG
+        let throttleActive = (prefetchThrottleUntil?.timeIntervalSince(Date()) ?? 0) > 0
+        EnsembleLogger.debug("GAPLESS_DIAG: handleQueueExhausted — NOT gapless. depth=\(activeBufferingProfile.prefetchDepth), throttle=\(throttleActive), idx=\(currentQueueIndex)/\(queue.count)")
+        #endif
 
         guard !queue.isEmpty else {
             stop()
@@ -3954,13 +3971,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
 
-            // Clamp displayed currentTime to metadata duration so the progress
-            // bar and remaining time are always accurate. Transcoded streams may
-            // deliver audio past the metadata end point (encoder padding), but UI
-            // should never show negative remaining time or >100% progress.
-            let metadataDuration = self.duration
+            // Use effectiveDuration (max of metadata and AVPlayerItem duration)
+            // so the scrubber accounts for actual stream length after seeking.
             let rawTime = time.seconds
-            self.currentTime = metadataDuration > 0 ? min(rawTime, metadataDuration) : rawTime
+            self.currentTime = rawTime
             self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 
