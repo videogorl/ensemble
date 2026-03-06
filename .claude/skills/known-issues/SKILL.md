@@ -36,10 +36,9 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections at all.
 - **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, the backoff cap prevents excessive reconnect attempts.
 
-### Artwork Pre-Caching Not Automatic
-- `ArtworkLoader.predownloadArtwork()` methods exist
-- Not currently called during library sync
-- Would improve offline experience if wired up to `SyncCoordinator`
+### Artwork Pre-Caching Sync-Path Only
+- `ArtworkLoader.predownloadArtwork()` is now called during sync for albums, artists, and playlists
+- However, artwork is only cached for items that pass through a sync path; browsing an uncached item still requires network
 
 ### Library Visibility Profile Selector UI Not Shipped Yet
 - `LibraryVisibilityProfile` + `LibraryVisibilityStore` groundwork exists in `EnsembleCore`
@@ -48,6 +47,19 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Current behavior:** filtering is foundation-only; sync-enable state remains unchanged
 
 ## Resolved
+
+### Server Offline: Tracks Not Dimmed and Queue Played Unavailable Tracks
+- **Resolved (March 5, 2026)**
+- **Issue:** When a Plex server went offline (but device stayed on Wi-Fi), tracks showed as available, playback queue tried every unavailable track, artwork didn't fall back to cache, and health checks only ran on network transitions (not server failures).
+- **Root causes:**
+  - `NWPathMonitor` doesn't detect server-level outages (network path stays "satisfied")
+  - `serverStates` started empty at launch; `TrackAvailabilityResolver` treated missing entries as "available"
+  - `performStartupSync()` didn't run health checks
+  - `resolvePlayableQueue` only checked device-level offline, not per-server health
+  - `next()`/`handleQueueExhausted` blindly advanced to next queue index
+  - `@Environment` (EnvironmentKey) doesn't create SwiftUI observation bindings for nested ObservableObjects
+- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use `@ObservedObject` on `DependencyContainer.shared.trackAvailabilityResolver` for reactive dimming.
+- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `TrackRow.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
 
 ### HomePod Siri Media Intents handle() Never Called
 - **Resolved (February 26, 2026)**
