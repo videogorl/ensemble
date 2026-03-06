@@ -2002,15 +2002,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             shouldResume: shouldResumeAfterSeek
         )
 
-        // Use zero tolerance for local files (free and exact); allow a small trailing tolerance
-        // for streams so AVPlayer can seek to a nearby keyframe, reducing seek latency.
-        let toleranceBefore = CMTime.zero
-        let toleranceAfter: CMTime = (source == .localFile)
-            ? .zero
-            : CMTime(seconds: 0.1, preferredTimescale: 1000)
-
+        // Zero tolerance for exact seeking. FLAC and most formats support sample-accurate
+        // seeks. Any non-zero tolerance causes the displayed position to drift from where
+        // the user dragged the scrubber.
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: toleranceBefore, toleranceAfter: toleranceAfter) { [weak self] _ in
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
                 // Use seekCounter (not activeSeek) for staleness: the time observer may have
                 // already cleared activeSeek to release the progress gate, but we still need
@@ -3465,19 +3461,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var cacheMisses = 0
 
         for index in targetIndices {
-            // Use queue track directly — refreshQueueDownloadState keeps localFilePath current.
-            // Avoid async resolve here to minimize suspension points and prefetch latency.
             let track = queue[index].track
             do {
                 let item: AVPlayerItem
-                // Batch cache check onto MainActor in a single hop
-                let (cachedItem, isCurrentItem) = await MainActor.run {
+                let cachedItem = await MainActor.run {
                     let cached = getCachedPlayerItem(for: track.id)
-                    let isCurrent = cached != nil && cached === player.currentItem
-                    return (cached, isCurrent)
+                    return (cached != nil && cached === player.currentItem) ? nil : cached
                 }
 
-                if let cachedItem, !isCurrentItem {
+                if let cachedItem {
                     item = cachedItem
                     cacheHits += 1
                 } else {
