@@ -217,6 +217,13 @@ public final class OfflineDownloadService: ObservableObject {
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: album.title
             )
+            // Cache album artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: album.id,
+                thumbPath: album.thumbPath,
+                sourceKey: sourceCompositeKey,
+                type: .album
+            )
         } else {
             await disableTarget(key: key)
         }
@@ -233,6 +240,13 @@ public final class OfflineDownloadService: ObservableObject {
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: artist.name
             )
+            // Cache artist artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: artist.id,
+                thumbPath: artist.thumbPath,
+                sourceKey: sourceCompositeKey,
+                type: .artist
+            )
         } else {
             await disableTarget(key: key)
         }
@@ -248,6 +262,13 @@ public final class OfflineDownloadService: ObservableObject {
                 ratingKey: playlist.id,
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: playlist.title
+            )
+            // Cache playlist composite artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: playlist.id,
+                thumbPath: playlist.compositePath,
+                sourceKey: sourceCompositeKey,
+                type: .playlist
             )
         } else {
             await disableTarget(key: key)
@@ -1199,6 +1220,49 @@ public final class OfflineDownloadService: ObservableObject {
                 )
                 #endif
             }
+        }
+    }
+
+    /// Cache artwork for a download target (album, artist, or playlist) so it's available offline.
+    private func cacheArtworkForTarget(
+        ratingKey: String,
+        thumbPath: String?,
+        sourceKey: String,
+        type: ArtworkType
+    ) async {
+        guard let thumbPath, !thumbPath.isEmpty else { return }
+
+        // Skip if already cached
+        let typeString: String
+        switch type {
+        case .album: typeString = "album"
+        case .artist: typeString = "artist"
+        case .playlist: typeString = "playlist"
+        case .track: typeString = "track"
+        }
+        let cachedPath = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_\(typeString).jpg").path
+        if FileManager.default.fileExists(atPath: cachedPath) { return }
+
+        do {
+            guard let artworkURL = try await syncCoordinator.getArtworkURL(
+                path: thumbPath,
+                sourceKey: sourceKey,
+                size: 500
+            ) else { return }
+
+            try await artworkDownloadManager.downloadAndCacheArtwork(
+                from: artworkURL,
+                ratingKey: ratingKey,
+                type: type
+            )
+            #if DEBUG
+            EnsembleLogger.debug("🖼️ Cached \(typeString) artwork for download target: \(ratingKey)")
+            #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Failed caching \(typeString) artwork for target \(ratingKey): \(error.localizedDescription)")
+            #endif
         }
     }
 
