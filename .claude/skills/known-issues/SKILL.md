@@ -88,6 +88,14 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Existing beta users are signed out once when migration version bumps (auth lifecycle and account-schema cutovers).
 - **Mitigation:** Add release-note callout for one-time sign-in requirement.
 
+## Performance Notes
+
+### Incremental Sync ratedAfter Fetch Returns All Rated Tracks
+- **Location:** `PlexMusicSourceSyncProvider.syncLibraryIncremental()`
+- **Issue:** The `lastRatedAt>=` API filter matches all tracks that have *ever* been rated (not just recently rated), effectively doubling the track fetch for incremental sync.
+- **Impact:** Extra API traffic (~1400 tracks fetched redundantly). Correctness is unaffected — rating comparison still works.
+- **Potential fix:** Only fetch `ratedAfter` when the since-timestamp is very recent, or compare ratings against the `updatedAt` result set only.
+
 ## Future Enhancements (Waveform System)
 
 - Cache waveform data locally to reduce repeated API calls
