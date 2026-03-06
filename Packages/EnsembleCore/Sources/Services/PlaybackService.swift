@@ -3465,13 +3465,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         var cacheMisses = 0
 
         for index in targetIndices {
-            let queuedTrack = queue[index].track
-            let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
+            // Use queue track directly — refreshQueueDownloadState keeps localFilePath current.
+            // Avoid async resolve here to minimize suspension points and prefetch latency.
+            let track = queue[index].track
             do {
                 let item: AVPlayerItem
-                // Cache access must happen on MainActor to prevent data races
-                let cachedItem = await MainActor.run { getCachedPlayerItem(for: track.id) }
-                let isCurrentItem = await MainActor.run { cachedItem != nil && cachedItem === player.currentItem }
+                // Batch cache check onto MainActor in a single hop
+                let (cachedItem, isCurrentItem) = await MainActor.run {
+                    let cached = getCachedPlayerItem(for: track.id)
+                    let isCurrent = cached != nil && cached === player.currentItem
+                    return (cached, isCurrent)
+                }
 
                 if let cachedItem, !isCurrentItem {
                     item = cachedItem
@@ -4378,8 +4382,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Called when SyncCoordinator completes health checks.
-    /// Refreshes queue with potentially updated connection URLs, and auto-resumes
-    /// playback if it was previously failed due to server unavailability.
+    /// Auto-resumes playback if it was previously failed due to server unavailability.
+    /// Does NOT rebuild the prefetch queue — proactively destroying prefetched items
+    /// on every health check breaks gapless playback. Stale URLs (rare) are handled
+    /// reactively by the network transition handler and error recovery paths.
     @MainActor
     private func handleHealthCheckCompletion() async {
         guard !queue.isEmpty else { return }
@@ -4394,18 +4400,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
             return
         }
-
-        // Only rebuild upcoming items if we're actively playing streaming content
-        guard currentTrack?.localFilePath == nil,
-              playbackState == .playing || playbackState == .buffering || playbackState == .paused else {
-            return
-        }
-
-        #if DEBUG
-        EnsembleLogger.debug("🏥 PlaybackService: Health check complete - refreshing queue URLs")
-        #endif
-
-        await rebuildUpcomingQueueForNetworkTransition()
     }
 
     /// Keep queue/current playback aligned with currently enabled sources.
