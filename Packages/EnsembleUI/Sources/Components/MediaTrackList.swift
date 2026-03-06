@@ -292,6 +292,7 @@ public struct MediaTrackList: UIViewRepresentable {
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
     
     public init(
         tracks: [Track],
@@ -376,6 +377,8 @@ public struct MediaTrackList: UIViewRepresentable {
         let offlineStateChanged = context.coordinator.isOffline != isOffline
         let newActiveDownloads = offlineDownloadService.activeDownloadRatingKeys
         let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != newActiveDownloads
+        let newAvailabilityGen = trackAvailabilityResolver.availabilityGeneration
+        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != newAvailabilityGen
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -399,6 +402,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
         context.coordinator.activeDownloadRatingKeys = newActiveDownloads
+        context.coordinator.lastAvailabilityGeneration = newAvailabilityGen
 
         // Only reload if data actually changed
         if dataChanged {
@@ -409,7 +413,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 EnsembleLogger.debug("🐛 MediaTrackList frame=\(tableView.frame) contentSize=\(tableView.contentSize) contentInset=\(tableView.contentInset) contentOffset=\(tableView.contentOffset) adjustedInset=\(tableView.adjustedContentInset) rows=\(self.tracks.count)")
                 #endif
             }
-        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged {
+        } else if currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged {
             // Reconfigure visible cells when the playing track, connectivity, or download state changes.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
@@ -490,6 +494,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
         var activeDownloadRatingKeys: Set<String>
+        var lastAvailabilityGeneration: UInt64 = 0
 
         init(
             tracks: [Track],

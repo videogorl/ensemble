@@ -119,6 +119,8 @@ public struct CompactTrackRow: View {
     let isPlaying: Bool
     let onTap: () -> Void
     @Environment(\.dependencies) private var deps
+    /// Observed to trigger re-render when server health or download state changes
+    @ObservedObject private var availabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(track: Track, isPlaying: Bool = false, onTap: @escaping () -> Void) {
         self.track = track
@@ -192,8 +194,10 @@ public struct CompactTrackRow: View {
     }
 
     /// Track availability resolved from device connectivity, per-server health, and download state.
+    /// Uses the @ObservedObject resolver so SwiftUI re-evaluates when availability changes.
     private var trackAvailability: TrackAvailability {
-        deps.trackAvailabilityResolver.availability(for: track)
+        _ = availabilityResolver.availabilityGeneration
+        return availabilityResolver.availability(for: track)
     }
     
     private func formatDuration(_ seconds: TimeInterval) -> String {

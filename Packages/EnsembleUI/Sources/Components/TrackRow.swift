@@ -18,6 +18,12 @@ public struct TrackRow: View {
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     @Environment(\.dependencies) private var deps
+    /// Observed to trigger re-render when server health or download state changes.
+    /// Accessed via DependencyContainer.shared since @Environment values don't
+    /// create SwiftUI observation bindings for nested ObservableObjects.
+    @ObservedObject private var availabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    /// Tracks availability state changes to trigger dimming updates when server health changes
+    @State private var availabilityGeneration: UInt64 = 0
 
     public init(
         track: Track,
@@ -169,8 +175,11 @@ public struct TrackRow: View {
     }
 
     /// Track availability resolved from device connectivity, per-server health, and download state.
+    /// Uses the @ObservedObject resolver so SwiftUI re-evaluates when availability changes.
     private var trackAvailability: TrackAvailability {
-        deps.trackAvailabilityResolver.availability(for: track)
+        // Read the generation to create a SwiftUI dependency on the published property
+        _ = availabilityResolver.availabilityGeneration
+        return availabilityResolver.availability(for: track)
     }
 
     private var isUnavailableOffline: Bool {
