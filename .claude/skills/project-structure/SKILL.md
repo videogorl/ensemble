@@ -219,6 +219,7 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
