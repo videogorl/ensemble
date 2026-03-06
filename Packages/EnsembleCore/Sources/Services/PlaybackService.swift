@@ -2023,12 +2023,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // seeks. Any non-zero tolerance causes the displayed position to drift from where
         // the user dragged the scrubber.
         let cmTime = CMTime(seconds: clampedTime, preferredTimescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             DispatchQueue.main.async {
                 // Use seekCounter (not activeSeek) for staleness: the time observer may have
                 // already cleared activeSeek to release the progress gate, but we still need
                 // to resume the player if no newer seek has started.
                 guard let self, self.seekCounter == seekID else { return }
+
+                #if DEBUG
+                let actualTime = self.player?.currentTime().seconds ?? -1
+                EnsembleLogger.debug("SCRUBBER_DIAG: seek completed — requested=\(String(format: "%.1f", clampedTime))s, actual=\(String(format: "%.1f", actualTime))s, finished=\(finished)")
+                #endif
 
                 if shouldResumeAfterSeek {
                     if mode == .transparent {
@@ -3968,7 +3973,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Once observer time catches up (or the guard times out),
                     // clear synchronization and resume normal progress updates.
                     #if DEBUG
-                    EnsembleLogger.debug("SCRUBBER_DIAG: seek gate released — target=\(String(format: "%.1f", seek.targetTime))s, observed=\(String(format: "%.1f", observedTime))s")
+                    let actualPlayerTime = self.player?.currentTime().seconds ?? -1
+                    let itemDurNow = self.player?.currentItem?.duration.seconds ?? -1
+                    EnsembleLogger.debug("SCRUBBER_DIAG: seek gate released — target=\(String(format: "%.1f", seek.targetTime))s, observed=\(String(format: "%.1f", observedTime))s, actualPlayerTime=\(String(format: "%.1f", actualPlayerTime))s, itemDuration=\(String(format: "%.1f", itemDurNow))s")
                     #endif
                     self.clearActiveSeek()
                 }
