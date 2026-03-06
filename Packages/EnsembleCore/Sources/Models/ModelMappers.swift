@@ -68,6 +68,16 @@ public extension Track {
     }
 
     init(from cd: CDTrack) {
+        // Resolve stored filename to absolute path in the current sandbox.
+        // CoreData stores just the filename; we reconstruct the full path here
+        // so all downstream code gets a valid, current absolute path.
+        let resolvedLocalFilePath: String? = cd.localFilePath.flatMap { stored in
+            guard !stored.isEmpty else { return nil }
+            let filename = DownloadManager.extractFilename(from: stored)
+            let absolute = DownloadManager.absolutePath(forFilename: filename)
+            return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
+        }
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -84,7 +94,7 @@ public extension Track {
             fallbackRatingKey: cd.album?.ratingKey,  // Album ratingKey
             streamKey: cd.streamKey,
             streamId: nil,  // Not stored in CoreData yet (would require migration)
-            localFilePath: cd.localFilePath,
+            localFilePath: resolvedLocalFilePath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
@@ -270,9 +280,18 @@ public extension Download {
             artistName: "Unknown Artist",
             albumName: "Unknown Album"
         )
+
+        // Resolve download.filePath (filename) to absolute path for the domain model.
+        let resolvedFilePath: String? = cd.filePath.flatMap { stored in
+            guard !stored.isEmpty else { return nil }
+            let filename = DownloadManager.extractFilename(from: stored)
+            return DownloadManager.absolutePath(forFilename: filename)
+        }
+
+        // Use download.filePath as a safety net when track.localFilePath has not been populated yet.
         let track: Track
-        if mappedTrack.localFilePath == nil, let fallbackFilePath = cd.filePath, !fallbackFilePath.isEmpty {
-            // Use download.filePath as a safety net when track.localFilePath has not been populated yet.
+        if mappedTrack.localFilePath == nil, let resolvedFilePath, !resolvedFilePath.isEmpty,
+           FileManager.default.fileExists(atPath: resolvedFilePath) {
             track = Track(
                 id: mappedTrack.id,
                 key: mappedTrack.key,
@@ -289,7 +308,7 @@ public extension Download {
                 fallbackRatingKey: mappedTrack.fallbackRatingKey,
                 streamKey: mappedTrack.streamKey,
                 streamId: mappedTrack.streamId,
-                localFilePath: fallbackFilePath,
+                localFilePath: resolvedFilePath,
                 dateAdded: mappedTrack.dateAdded,
                 dateModified: mappedTrack.dateModified,
                 lastPlayed: mappedTrack.lastPlayed,
@@ -315,7 +334,7 @@ public extension Download {
             track: track,
             status: status,
             progress: cd.progress,
-            filePath: cd.filePath,
+            filePath: resolvedFilePath,
             fileSize: cd.fileSize,
             error: cd.error
         )

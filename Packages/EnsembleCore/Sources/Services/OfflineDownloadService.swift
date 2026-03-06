@@ -939,9 +939,10 @@ public final class OfflineDownloadService: ObservableObject {
             )
             #endif
 
+            // Store filename only (not absolute path) — sandbox-stable across reinstalls.
             try await downloadManager.completeDownload(
                 download.objectID,
-                filePath: destinationURL.path,
+                filePath: destinationURL.lastPathComponent,
                 fileSize: persistedFileSize,
                 quality: effectiveQuality.rawValue
             )
@@ -1119,9 +1120,10 @@ public final class OfflineDownloadService: ObservableObject {
         )
         #endif
 
+        // Store filename only (not absolute path) — sandbox-stable across reinstalls.
         try await downloadManager.completeDownload(
             download.objectID,
-            filePath: destinationURL.path,
+            filePath: destinationURL.lastPathComponent,
             fileSize: queueFileSize,
             quality: quality.rawValue
         )

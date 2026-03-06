@@ -93,28 +93,28 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     var recoveredFailedCount = 0
 
                     for download in downloads {
-                        guard let originalFilePath = download.filePath, !originalFilePath.isEmpty else {
+                        guard let storedPath = download.filePath, !storedPath.isEmpty else {
                             continue
                         }
 
-                        let resolvedFilePath = Self.resolveExistingDownloadedFilePath(originalFilePath) ?? originalFilePath
-                        if resolvedFilePath != originalFilePath {
-                            download.filePath = resolvedFilePath
+                        // Migrate legacy absolute paths to filename-only storage.
+                        let filename = Self.extractFilename(from: storedPath)
+                        if filename != storedPath {
+                            download.filePath = filename
                             healedPathCount += 1
                         }
 
-                        let fileExists = FileManager.default.fileExists(atPath: resolvedFilePath)
+                        let absolutePath = Self.absolutePath(forFilename: filename)
+                        let fileExists = FileManager.default.fileExists(atPath: absolutePath)
                         let isCompleted = download.downloadStatus == .completed
                         let isFailed = download.downloadStatus == .failed
 
                         if fileExists {
-                            if Self.isClearlyInvalidDownloadedPayload(atPath: resolvedFilePath) {
+                            if Self.isClearlyInvalidDownloadedPayload(atPath: absolutePath) {
                                 download.downloadStatus = .failed
                                 download.error = "Downloaded file is invalid"
                                 download.progress = 0
-                                if download.track?.localFilePath == resolvedFilePath {
-                                    download.track?.localFilePath = nil
-                                }
+                                download.track?.localFilePath = nil
                                 invalidFileCount += 1
                                 continue
                             }
@@ -130,13 +130,14 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                                 recoveredFailedCount += 1
                             }
 
-                            if download.track?.localFilePath != resolvedFilePath {
-                                download.track?.localFilePath = resolvedFilePath
+                            // Keep track.localFilePath in sync (filename only).
+                            if download.track?.localFilePath != filename {
+                                download.track?.localFilePath = filename
                                 healedPathCount += 1
                             }
 
                             if download.fileSize <= 0,
-                               let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedFilePath),
+                               let attributes = try? FileManager.default.attributesOfItem(atPath: absolutePath),
                                let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
                                actualSize > 0 {
                                 download.fileSize = actualSize
@@ -146,9 +147,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             download.downloadStatus = .failed
                             download.error = "Downloaded file missing on disk"
                             download.progress = 0
-                            if download.track?.localFilePath == resolvedFilePath {
-                                download.track?.localFilePath = nil
-                            }
+                            download.track?.localFilePath = nil
                             missingFileCount += 1
                         }
                     }
@@ -438,24 +437,30 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         return
                     }
 
-                    // If the previous download had a different file path (e.g. quality re-queue),
+                    // Normalize to filename-only for storage (sandbox-stable).
+                    let filename = Self.extractFilename(from: filePath)
+
+                    // If the previous download had a different file (e.g. quality re-queue),
                     // clean up the old file now that the new one is ready.
-                    if let oldPath = download.filePath, !oldPath.isEmpty, oldPath != filePath {
-                        let resolvedOldPath = Self.resolveExistingDownloadedFilePath(oldPath) ?? oldPath
-                        try? FileManager.default.removeItem(atPath: resolvedOldPath)
+                    if let oldStored = download.filePath, !oldStored.isEmpty {
+                        let oldFilename = Self.extractFilename(from: oldStored)
+                        if oldFilename != filename {
+                            let oldAbsolute = Self.absolutePath(forFilename: oldFilename)
+                            try? FileManager.default.removeItem(atPath: oldAbsolute)
+                        }
                     }
 
                     download.status = CDDownload.Status.completed.rawValue
                     download.progress = 1.0
-                    download.filePath = filePath
+                    download.filePath = filename
                     download.fileSize = fileSize
                     download.completedAt = Date()
                     if let quality, !quality.isEmpty {
                         download.quality = Self.normalizedQuality(quality)
                     }
 
-                    // Update track local path for offline playback routing.
-                    download.track?.localFilePath = filePath
+                    // Update track local path for offline playback routing (filename only).
+                    download.track?.localFilePath = filename
 
                     try context.save()
                     continuation.resume()
@@ -500,14 +505,11 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     if let download = try context.fetch(request).first {
-                        // Resolve stale sandbox paths before deletion
-                        if let filePath = download.filePath {
-                            let resolvedPath = Self.resolveExistingDownloadedFilePath(filePath) ?? filePath
-                            try? FileManager.default.removeItem(atPath: resolvedPath)
-                            // Also try the stored path in case resolve returned a different one
-                            if resolvedPath != filePath {
-                                try? FileManager.default.removeItem(atPath: filePath)
-                            }
+                        // Resolve filename to current absolute path for file deletion.
+                        if let storedPath = download.filePath, !storedPath.isEmpty {
+                            let filename = Self.extractFilename(from: storedPath)
+                            let absolutePath = Self.absolutePath(forFilename: filename)
+                            try? FileManager.default.removeItem(atPath: absolutePath)
                         }
 
                         download.track?.localFilePath = nil
@@ -544,14 +546,17 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         return
                     }
 
-                    // Resolve stale sandbox paths (UUID changes on reinstall)
-                    if let resolvedPath = Self.resolveExistingDownloadedFilePath(storedPath) {
-                        // Heal the stored path if it was stale
-                        if resolvedPath != storedPath {
-                            track.localFilePath = resolvedPath
-                            try? context.save()
-                        }
-                        continuation.resume(returning: resolvedPath)
+                    // Migrate legacy absolute paths to filename-only.
+                    let filename = Self.extractFilename(from: storedPath)
+                    if filename != storedPath {
+                        track.localFilePath = filename
+                        try? context.save()
+                    }
+
+                    // Resolve filename to current absolute path.
+                    let absolutePath = Self.absolutePath(forFilename: filename)
+                    if FileManager.default.fileExists(atPath: absolutePath) {
+                        continuation.resume(returning: absolutePath)
                     } else {
                         continuation.resume(returning: nil)
                     }
@@ -587,14 +592,12 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let request = CDDownload.fetchRequest()
                     let downloads = try context.fetch(request)
 
-                    // Remove downloaded files from disk (resolve stale sandbox paths)
+                    // Remove downloaded files from disk
                     for download in downloads {
-                        if let filePath = download.filePath, !filePath.isEmpty {
-                            let resolvedPath = Self.resolveExistingDownloadedFilePath(filePath) ?? filePath
-                            try? FileManager.default.removeItem(atPath: resolvedPath)
-                            if resolvedPath != filePath {
-                                try? FileManager.default.removeItem(atPath: filePath)
-                            }
+                        if let storedPath = download.filePath, !storedPath.isEmpty {
+                            let filename = Self.extractFilename(from: storedPath)
+                            let absolutePath = Self.absolutePath(forFilename: filename)
+                            try? FileManager.default.removeItem(atPath: absolutePath)
                         }
                         // Clear the track's local file path so it's no longer treated as offline
                         download.track?.localFilePath = nil
@@ -639,28 +642,37 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    /// Resolve legacy/stale download paths to an existing local file path when possible.
-    /// iOS changes the app sandbox UUID on reinstall/rebuild, so stored absolute paths
-    /// become invalid. This extracts the filename and reconstructs using the current
-    /// downloads directory.
-    public static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
-        let normalizedStoredPath: String
+    /// Build the current absolute path for a download filename.
+    /// Stored paths in CoreData should be filenames only (not absolute paths).
+    /// This reconstructs the full path using the current sandbox's downloads directory.
+    public static func absolutePath(forFilename filename: String) -> String {
+        downloadsDirectory.appendingPathComponent(filename, isDirectory: false).path
+    }
+
+    /// Extract just the filename from a stored path, whether it's already a bare
+    /// filename or a legacy absolute/file-URL path.
+    public static func extractFilename(from storedPath: String) -> String {
+        // Handle file:// URLs
         if storedPath.hasPrefix("file://"), let url = URL(string: storedPath), !url.path.isEmpty {
-            normalizedStoredPath = url.path
-        } else {
-            normalizedStoredPath = storedPath
+            return URL(fileURLWithPath: url.path).lastPathComponent
         }
-
-        if FileManager.default.fileExists(atPath: normalizedStoredPath) {
-            return normalizedStoredPath
+        // Handle absolute paths — extract last component
+        if storedPath.contains("/") {
+            return URL(fileURLWithPath: storedPath).lastPathComponent
         }
+        // Already a bare filename
+        return storedPath
+    }
 
-        let fileName = URL(fileURLWithPath: normalizedStoredPath).lastPathComponent
-        guard !fileName.isEmpty else { return nil }
+    /// Resolve a stored path (filename or legacy absolute path) to a validated
+    /// absolute path on disk, or nil if the file doesn't exist.
+    public static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
+        let filename = extractFilename(from: storedPath)
+        guard !filename.isEmpty else { return nil }
 
-        let fallbackPath = downloadsDirectory.appendingPathComponent(fileName, isDirectory: false).path
-        if FileManager.default.fileExists(atPath: fallbackPath) {
-            return fallbackPath
+        let absolutePath = self.absolutePath(forFilename: filename)
+        if FileManager.default.fileExists(atPath: absolutePath) {
+            return absolutePath
         }
 
         return nil

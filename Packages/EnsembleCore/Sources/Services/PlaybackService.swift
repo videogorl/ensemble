@@ -1477,9 +1477,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Downloaded tracks get nil (quality is determined by the file itself).
     private func currentQueueQuality(for track: Track) -> String? {
         // If the track has a local file, it plays from disk — quality is file-determined
-        if let storedPath = track.localFilePath,
-           let resolved = DownloadManager.resolveExistingDownloadedFilePath(storedPath),
-           FileManager.default.fileExists(atPath: resolved) {
+        if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
             return nil
         }
         return UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
@@ -1626,13 +1624,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func resolveOfflinePlayableTrack(_ track: Track) async -> Track? {
-        // Resolve stale sandbox paths (iOS changes UUID on reinstall/rebuild)
-        if let storedPath = track.localFilePath,
-           let resolvedPath = DownloadManager.resolveExistingDownloadedFilePath(storedPath),
-           FileManager.default.fileExists(atPath: resolvedPath) {
-            if resolvedPath != storedPath {
-                return trackWithLocalFilePath(track, localFilePath: resolvedPath)
-            }
+        // track.localFilePath is resolved to a current absolute path by the model mapper.
+        if let localFilePath = track.localFilePath,
+           FileManager.default.fileExists(atPath: localFilePath) {
             return track
         }
 
@@ -2958,9 +2952,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
 
         // If we have a local file, use it regardless of network state.
-        // Resolve stale sandbox paths (iOS changes UUID on reinstall/rebuild).
-        if let storedLocalPath = track.localFilePath {
-            let localPath = DownloadManager.resolveExistingDownloadedFilePath(storedLocalPath) ?? storedLocalPath
+        // track.localFilePath is resolved to a current absolute path by the model mapper.
+        if let localPath = track.localFilePath {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = preparedLocalPlaybackURL(forPath: localPath)
                 if isClearlyInvalidLocalPayload(localPlaybackURL) {
@@ -4285,9 +4278,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let track = queue[currentQueueIndex].track
 
         // Only reload streaming tracks (not downloaded)
-        if let storedPath = track.localFilePath,
-           let resolved = DownloadManager.resolveExistingDownloadedFilePath(storedPath),
-           FileManager.default.fileExists(atPath: resolved) {
+        if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
             return
         }
 
