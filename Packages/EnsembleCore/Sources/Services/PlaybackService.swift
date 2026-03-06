@@ -699,6 +699,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var itemFailedToPlayToEndObserver: NSObjectProtocol?
     private var itemErrorLogEntryObserver: NSObjectProtocol?
     private var isHandlingQueueExhaustion = false
+    /// Set while handleServerUnreachablePlaybackFailure is running a health check.
+    /// Prevents handleQueueExhausted from advancing before the circuit breaker is armed.
+    private var isHandlingServerUnreachable = false
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     private var consecutivePlaybackFailures = 0
     private let maxConsecutiveFailuresBeforeStop = 3
@@ -968,6 +971,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
     @MainActor
     private func handleQueueExhausted() async {
+        // If a server-unreachable health check is in progress, wait for it to finish
+        // so the circuit breaker is properly armed before we decide what to do next.
+        if isHandlingServerUnreachable {
+            #if DEBUG
+            EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for server unreachable handler")
+            #endif
+            // Yield repeatedly until the handler finishes (it's on MainActor too)
+            for _ in 0..<100 {
+                await Task.yield()
+                if !isHandlingServerUnreachable { break }
+            }
+        }
+
         guard !isHandlingQueueExhaustion else {
             #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
@@ -2957,6 +2973,46 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil)
     }
 
+    /// Handle playback failure when the server is unreachable (timeout, can't connect, etc.).
+    /// Triggers a targeted health check to update server state and track availability UI,
+    /// then fast-tracks the circuit breaker to skip remaining tracks from the dead server.
+    @MainActor
+    private func handleServerUnreachablePlaybackFailure() async {
+        isHandlingServerUnreachable = true
+        defer { isHandlingServerUnreachable = false }
+
+        guard let track = currentTrack, let sourceKey = track.sourceCompositeKey else {
+            playbackState = .failed("Server is unavailable")
+            return
+        }
+
+        // If playing a local file, this shouldn't be a server issue
+        guard track.localFilePath == nil else {
+            playbackState = .failed("Playback error")
+            return
+        }
+
+        // Trigger health check for the affected server to update serverStates.
+        // This bumps TrackAvailabilityResolver's generation, updating the UI.
+        await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
+
+        // Fast-track circuit breaker if server is confirmed offline
+        if !syncCoordinator.isServerAvailable(sourceKey: sourceKey) {
+            consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
+            #if DEBUG
+            EnsembleLogger.debug("⛔ Server confirmed offline via AVPlayer failure — fast-tracking circuit breaker")
+            #endif
+        } else {
+            consecutivePlaybackFailures += 1
+        }
+
+        // Set failed state and pause player. handleQueueExhausted will pick up
+        // from here with the circuit breaker already armed.
+        player?.pause()
+        let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
+        playbackState = .failed(failureMessage ?? "Server is unavailable")
+    }
+
     private func createPlayerItem(for track: Track) async throws -> AVPlayerItem {
         #if DEBUG
         EnsembleLogger.debug("📦 Creating player item for: \(track.title)")
@@ -3536,21 +3592,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("❌ Player failed: \(errorDescription)")
                     #endif
 
-                    // Check if this is a connection-related error - if so, the current endpoint
-                    // may be bad and we should force a connection refresh before retrying.
-                    // "resource unavailable" often masks underlying TLS errors (like -1200)
-                    // that occur after network interface switches with stale connections.
+                    // Classify the error to determine recovery strategy.
                     let errorLower = errorDescription.lowercased()
-                    let isConnectionError = errorLower.contains("tls") ||
-                                            errorLower.contains("secure connection") ||
-                                            errorLower.contains("resource unavailable") ||
-                                            errorLower.contains("connection was lost")
-                    if isConnectionError {
+                    let nsItemError = item.error as NSError?
+                    let isTLSError = errorLower.contains("tls") ||
+                                     errorLower.contains("secure connection") ||
+                                     errorLower.contains("resource unavailable") ||
+                                     errorLower.contains("connection was lost")
+                    let isServerUnreachable = nsItemError?.domain == NSURLErrorDomain &&
+                        (nsItemError?.code == NSURLErrorTimedOut ||
+                         nsItemError?.code == NSURLErrorCannotConnectToHost ||
+                         nsItemError?.code == NSURLErrorNetworkConnectionLost ||
+                         nsItemError?.code == NSURLErrorNotConnectedToInternet ||
+                         nsItemError?.code == NSURLErrorCannotFindHost)
+
+                    if isTLSError {
                         #if DEBUG
-                        EnsembleLogger.debug("🔒 Connection error detected - forcing connection refresh")
+                        EnsembleLogger.debug("🔒 TLS/connection error detected - forcing connection refresh")
                         #endif
                         Task { @MainActor [weak self] in
                             await self?.handleTLSPlaybackFailure()
+                        }
+                    } else if isServerUnreachable {
+                        // Server is unreachable (timeout, can't connect, etc.)
+                        // Trigger a health check so the UI updates immediately,
+                        // then let handleQueueExhausted handle advancement.
+                        #if DEBUG
+                        EnsembleLogger.debug("🏥 Server unreachable error — triggering health check")
+                        #endif
+                        Task { @MainActor [weak self] in
+                            await self?.handleServerUnreachablePlaybackFailure()
                         }
                     } else {
                         self?.playbackState = .failed(errorDescription)
