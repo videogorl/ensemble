@@ -441,7 +441,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     // If the previous download had a different file path (e.g. quality re-queue),
                     // clean up the old file now that the new one is ready.
                     if let oldPath = download.filePath, !oldPath.isEmpty, oldPath != filePath {
-                        try? FileManager.default.removeItem(atPath: oldPath)
+                        let resolvedOldPath = Self.resolveExistingDownloadedFilePath(oldPath) ?? oldPath
+                        try? FileManager.default.removeItem(atPath: resolvedOldPath)
                     }
 
                     download.status = CDDownload.Status.completed.rawValue
@@ -499,8 +500,14 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     if let download = try context.fetch(request).first {
+                        // Resolve stale sandbox paths before deletion
                         if let filePath = download.filePath {
-                            try? FileManager.default.removeItem(atPath: filePath)
+                            let resolvedPath = Self.resolveExistingDownloadedFilePath(filePath) ?? filePath
+                            try? FileManager.default.removeItem(atPath: resolvedPath)
+                            // Also try the stored path in case resolve returned a different one
+                            if resolvedPath != filePath {
+                                try? FileManager.default.removeItem(atPath: filePath)
+                            }
                         }
 
                         download.track?.localFilePath = nil
@@ -531,8 +538,23 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
 
                 do {
-                    let track = try context.fetch(request).first
-                    continuation.resume(returning: track?.localFilePath)
+                    guard let track = try context.fetch(request).first,
+                          let storedPath = track.localFilePath, !storedPath.isEmpty else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    // Resolve stale sandbox paths (UUID changes on reinstall)
+                    if let resolvedPath = Self.resolveExistingDownloadedFilePath(storedPath) {
+                        // Heal the stored path if it was stale
+                        if resolvedPath != storedPath {
+                            track.localFilePath = resolvedPath
+                            try? context.save()
+                        }
+                        continuation.resume(returning: resolvedPath)
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -565,10 +587,14 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let request = CDDownload.fetchRequest()
                     let downloads = try context.fetch(request)
 
-                    // Remove downloaded files from disk
+                    // Remove downloaded files from disk (resolve stale sandbox paths)
                     for download in downloads {
                         if let filePath = download.filePath, !filePath.isEmpty {
-                            try? FileManager.default.removeItem(atPath: filePath)
+                            let resolvedPath = Self.resolveExistingDownloadedFilePath(filePath) ?? filePath
+                            try? FileManager.default.removeItem(atPath: resolvedPath)
+                            if resolvedPath != filePath {
+                                try? FileManager.default.removeItem(atPath: filePath)
+                            }
                         }
                         // Clear the track's local file path so it's no longer treated as offline
                         download.track?.localFilePath = nil
@@ -614,8 +640,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     }
 
     /// Resolve legacy/stale download paths to an existing local file path when possible.
-    /// This repairs records that kept an outdated absolute sandbox path.
-    private static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
+    /// iOS changes the app sandbox UUID on reinstall/rebuild, so stored absolute paths
+    /// become invalid. This extracts the filename and reconstructs using the current
+    /// downloads directory.
+    public static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
         let normalizedStoredPath: String
         if storedPath.hasPrefix("file://"), let url = URL(string: storedPath), !url.path.isEmpty {
             normalizedStoredPath = url.path
