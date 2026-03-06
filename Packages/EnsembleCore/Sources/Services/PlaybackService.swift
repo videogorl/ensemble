@@ -651,13 +651,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var radioModePublisher: AnyPublisher<RadioMode, Never> { $radioMode.eraseToAnyPublisher() }
     public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
 
+    /// Returns the catalog/metadata duration for the current track.
+    /// Professional players (Spotify, Apple Music) always display catalog duration
+    /// rather than stream duration, because transcoded streams may include encoder
+    /// padding that extends audio past the intended end point.
     public var duration: TimeInterval {
-        let metadataDuration = currentTrack?.duration ?? 0
-        let itemDuration = player?.currentItem?.duration.seconds
-        return Self.effectiveDuration(
-            metadataDuration: metadataDuration,
-            itemDuration: itemDuration
-        )
+        max(0, currentTrack?.duration ?? 0)
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -3209,9 +3208,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let asset = AVURLAsset(url: streamURL)
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
+
+        // Set forwardPlaybackEndTime so AVQueuePlayer knows exactly when this track
+        // ends. This is critical for two reasons:
+        // 1) Gapless transitions: AVQueuePlayer can pre-roll the next item at the right
+        //    time instead of waiting for the progressive stream to close.
+        // 2) Duration accuracy: transcoded streams often include encoder padding that
+        //    extends audio past the metadata duration. This prevents overrun.
+        // A 0.5s buffer avoids cutting off the last note if metadata is slightly short.
+        if track.duration > 0 {
+            item.forwardPlaybackEndTime = CMTime(
+                seconds: track.duration + 0.5,
+                preferredTimescale: 1000
+            )
+        }
+
         #if DEBUG
         EnsembleLogger.debug(
-            "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s"
+            "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s, forwardEndTime=\(track.duration + 0.5)s"
         )
         #endif
         return item
@@ -3958,7 +3972,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
 
-            self.currentTime = time.seconds
+            // Clamp displayed currentTime to metadata duration so the progress
+            // bar and remaining time are always accurate. Transcoded streams may
+            // deliver audio past the metadata end point (encoder padding), but UI
+            // should never show negative remaining time or >100% progress.
+            let metadataDuration = self.duration
+            let rawTime = time.seconds
+            self.currentTime = metadataDuration > 0 ? min(rawTime, metadataDuration) : rawTime
             self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 
@@ -3967,13 +3987,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #if DEBUG
             if !self.hasLoggedDurationOverrun,
                let track = self.currentTrack,
-               time.seconds > 0,
+               rawTime > 0,
                track.duration > 0,
-               time.seconds > track.duration {
+               rawTime > track.duration {
                 self.hasLoggedDurationOverrun = true
                 let itemDur = self.player?.currentItem?.duration.seconds
                 let itemDurStr = itemDur.map { String(format: "%.2f", $0) } ?? "nil"
-                EnsembleLogger.debug("DURATION_DIAG overrun: track='\(track.title)' metadataDuration=\(String(format: "%.2f", track.duration))s itemDuration=\(itemDurStr)s currentTime=\(String(format: "%.2f", time.seconds))s effectiveDuration=\(String(format: "%.2f", self.duration))s")
+                EnsembleLogger.debug("DURATION_DIAG overrun: track='\(track.title)' metadataDuration=\(String(format: "%.2f", track.duration))s itemDuration=\(itemDurStr)s currentTime=\(String(format: "%.2f", rawTime))s")
             }
             #endif
 
@@ -5111,8 +5131,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func updateNowPlayingProgress() {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        // Keep duration in sync — the effective duration may change as AVPlayerItem
-        // resolves its asset duration, and must stay accurate for the lock screen scrubber.
         info[MPMediaItemPropertyPlaybackDuration] = duration
         info[MPNowPlayingInfoPropertyPlaybackRate] = playbackState == .playing ? 1.0 : 0.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
