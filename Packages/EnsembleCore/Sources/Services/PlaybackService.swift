@@ -415,13 +415,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         _ profile: PlaybackBufferingProfile,
         throttleActive: Bool
     ) -> PlaybackBufferingProfile {
-        guard throttleActive, profile.prefetchDepth > 1 else { return profile }
-        // During transport error throttle, reduce prefetch to 1 (not 0) so
-        // AVQueuePlayer always has a next item for gapless transitions.
+        guard throttleActive, profile.prefetchDepth > 0 else { return profile }
         return PlaybackBufferingProfile(
             waitsToMinimizeStalling: profile.waitsToMinimizeStalling,
             preferredForwardBufferDuration: profile.preferredForwardBufferDuration,
-            prefetchDepth: 1,
+            prefetchDepth: 0,
             stallRecoveryTimeout: profile.stallRecoveryTimeout,
             label: "\(profile.label)-prefetch-throttled"
         )
@@ -658,12 +656,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// rather than stream duration, because transcoded streams may include encoder
     /// padding that extends audio past the intended end point.
     public var duration: TimeInterval {
-        let metadataDuration = currentTrack?.duration ?? 0
-        let itemDuration = player?.currentItem?.duration.seconds
-        return Self.effectiveDuration(
-            metadataDuration: metadataDuration,
-            itemDuration: itemDuration
-        )
+        max(0, currentTrack?.duration ?? 0)
     }
 
     /// Splits the upcoming queue into logical sections for UI display
@@ -926,10 +919,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let ratingKey = pair.key
             if let index = queue.firstIndex(where: { $0.track.id == ratingKey }) {
                 if currentQueueIndex != index {
-                    #if DEBUG
-                    let newTrackTitle = queue[index].track.title
-                    EnsembleLogger.debug("GAPLESS_DIAG: handleItemChange fired for track '\(newTrackTitle)' — gapless transition OK (AVQueuePlayer advanced naturally)")
-                    #endif
                     // Record current track to history before advancing (but not when going backward)
                     if !isNavigatingBackward && currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
@@ -1012,11 +1001,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         isHandlingQueueExhaustion = true
         defer { isHandlingQueueExhaustion = false }
-
-        #if DEBUG
-        let throttleActive = (prefetchThrottleUntil?.timeIntervalSince(Date()) ?? 0) > 0
-        EnsembleLogger.debug("GAPLESS_DIAG: handleQueueExhausted fired — NOT gapless. prefetchDepth=\(activeBufferingProfile.prefetchDepth), throttleActive=\(throttleActive), queueIndex=\(currentQueueIndex)/\(queue.count)")
-        #endif
 
         guard !queue.isEmpty else {
             stop()
@@ -3519,7 +3503,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug(
             "📦 Prefetch window fill: requestedDepth=\(requestedDepth), queuedCount=\(prefetchedItems.count), cacheHits=\(cacheHits), cacheMisses=\(cacheMisses)"
         )
-        EnsembleLogger.debug("GAPLESS_DIAG: prefetch depth=\(requestedDepth), targetIndices=\(targetIndices.count), success=\(prefetchedItems.count), playerItems=\(player.items().count)")
         #endif
     }
 
@@ -3971,29 +3954,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
 
-            // Use effectiveDuration (max of metadata and AVPlayerItem duration)
-            // so the scrubber accounts for actual stream length after seeking.
-            let metadataDuration = self.currentTrack?.duration ?? 0
-            let itemDuration = self.player?.currentItem?.duration.seconds
-            let effectiveDur = Self.effectiveDuration(
-                metadataDuration: metadataDuration,
-                itemDuration: itemDuration
-            )
+            // Clamp displayed currentTime to metadata duration so the progress
+            // bar and remaining time are always accurate. Transcoded streams may
+            // deliver audio past the metadata end point (encoder padding), but UI
+            // should never show negative remaining time or >100% progress.
+            let metadataDuration = self.duration
             let rawTime = time.seconds
-
-            #if DEBUG
-            // One-shot log after seek to capture duration divergence
-            if !self.hasLoggedDurationOverrun,
-               rawTime > 0,
-               metadataDuration > 0,
-               let itemDur = itemDuration,
-               itemDur.isFinite,
-               abs(itemDur - metadataDuration) > 1.0 {
-                EnsembleLogger.debug("SCRUBBER_DIAG: duration divergence — metadata=\(String(format: "%.2f", metadataDuration))s itemDuration=\(String(format: "%.2f", itemDur))s effectiveDuration=\(String(format: "%.2f", effectiveDur))s rawTime=\(String(format: "%.2f", rawTime))s")
-            }
-            #endif
-
-            self.currentTime = rawTime
+            self.currentTime = metadataDuration > 0 ? min(rawTime, metadataDuration) : rawTime
             self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 

@@ -1194,17 +1194,17 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
         
-        // Use Plex's HLS universal transcode endpoint. AVPlayer natively supports HLS
-        // and this endpoint works across Plex Pass and non-Plex Pass servers.
-        components.path = "/music/:/transcode/universal/start.m3u8"
+        // Use Plex's universal transcode endpoint. The extension doesn't determine the output
+        // format — that's controlled by the audioCodec query parameter and profile extra.
+        components.path = "/music/:/transcode/universal/start.mp3"
 
         let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
             // Path to the media item
             URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
 
-            // HLS protocol for native AVPlayer support
-            URLQueryItem(name: "protocol", value: "hls"),
+            // Protocol for streaming - http for simple progressive download
+            URLQueryItem(name: "protocol", value: "http"),
 
             // Media type
             URLQueryItem(name: "mediaIndex", value: "0"),
@@ -1214,10 +1214,14 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId, quality: quality))
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
 
-        // Quality-specific bitrate hints: original enables direct play (server
-        // decides best path), reduced qualities force transcode.
+        // Quality-specific bitrate hints. The base params already include
+        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
+        // these to 0 because that removes PMS's ability to fall back to direct
+        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
+        // Bitrate hints are "best effort": PMS transcodes if it can, direct
+        // streams the original codec if it can't.
         switch quality {
         case .original:
             break
@@ -1231,17 +1235,17 @@ public actor PlexAPIClient {
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
         }
-
+        
         components.queryItems = queryItems
-
+        
         guard let url = components.url else {
             throw PlexAPIError.invalidURL
         }
-
+        
         #if DEBUG
         EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
         #endif
-
+        
         return url
     }
 
@@ -1260,20 +1264,25 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
-        components.path = "/music/:/transcode/universal/start.m3u8"
+        components.path = "/music/:/transcode/universal/start.mp3"
 
         let resolvedSessionId = sessionId ?? UUID().uuidString
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
-            URLQueryItem(name: "protocol", value: "hls"),
+            URLQueryItem(name: "protocol", value: "http"),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId, quality: quality))
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
 
-        // Quality-specific bitrate hints for reduced quality levels.
+        // Quality-specific bitrate hints. The base params already include
+        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
+        // these to 0 because that removes PMS's ability to fall back to direct
+        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
+        // Bitrate hints are "best effort": PMS transcodes if it can, direct
+        // streams the original codec if it can't.
         switch quality {
         case .original:
             break
@@ -1301,12 +1310,8 @@ public actor PlexAPIClient {
         return url
     }
 
-    private func transcodeClientQueryItems(sessionId: String, quality: StreamingQuality = .original) -> [URLQueryItem] {
-        // For original quality, enable directPlay so the server chooses the best
-        // delivery method. For reduced qualities, disable directPlay to force
-        // transcoding at the requested bitrate.
-        let directPlayValue = quality == .original ? "1" : "0"
-        return [
+    private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {
+        [
             // Session identity and broad client metadata improve compatibility on
             // servers that enforce transcode profile matching.
             URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionId),
@@ -1318,22 +1323,23 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Device", value: deviceName),
             URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
             URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
-            URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra(quality: quality)),
-            URLQueryItem(name: "directPlay", value: directPlayValue),
+            URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
+            // directPlay=0 prevents PMS from redirecting to the raw file URL.
+            // Non-Plex Pass servers limit raw file downloads (~655KB), which cuts
+            // off playback mid-stream. directStream=1 tells PMS to stream the
+            // original codec through its pipeline without transcoding.
+            URLQueryItem(name: "directPlay", value: "0"),
             URLQueryItem(name: "directStream", value: "1"),
             URLQueryItem(name: "directStreamAudio", value: "1"),
             URLQueryItem(name: "hasMDE", value: "1")
         ]
     }
 
-    private func transcodeClientProfileExtra(quality: StreamingQuality = .original) -> String {
+    private func transcodeClientProfileExtra() -> String {
         // Tell PMS what audio codecs we can accept for transcoded output.
         // add-transcode-target-codec declares supported output codecs for the musicProfile.
         // We declare both AAC (preferred, better quality/bitrate) and MP3 (widely supported fallback).
-        // Declare support for both HLS (used by universal streaming) and HTTP (used by downloads).
         [
-            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=hls&audioCodec=aac)",
-            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=hls&audioCodec=mp3)",
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)",
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
         ].joined(separator: "+")

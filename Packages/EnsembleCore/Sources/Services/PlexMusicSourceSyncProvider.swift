@@ -591,52 +591,28 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
-        // For original quality, use raw file URLs for fastest playback and best
-        // gapless support (simple progressive HTTP download).
-        // For reduced qualities (high/medium/low), route through the universal
-        // transcode endpoint so PMS transcodes at the requested bitrate.
-        if quality == .original {
-            if let trackStreamKey, !trackStreamKey.isEmpty {
-                #if DEBUG
-                EnsembleLogger.debug("🔍 PlexProvider: Original quality — using cached stream key: \(trackStreamKey)")
-                #endif
-                return try await apiClient.getStreamURL(trackKey: trackStreamKey)
-            }
-
+        // Use direct stream URLs (raw file paths) for playback. These give
+        // AVPlayer a simple progressive HTTP download that pre-rolls reliably
+        // for gapless playback. The universal transcode endpoint returns
+        // "resource unavailable" on many server configurations.
+        if let trackStreamKey, !trackStreamKey.isEmpty {
             #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
+            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(trackStreamKey)")
             #endif
-            guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-                  let streamKey = track.streamURL else {
-                #if DEBUG
-                EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
-                #endif
-                throw PlexAPIError.invalidURL
-            }
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
         }
 
-        // Reduced quality — use universal transcode endpoint with bitrate hints.
-        // Falls back to raw file URL if the transcode endpoint fails.
-        do {
-            let url = try await apiClient.getUniversalStreamURL(ratingKey: trackRatingKey, quality: quality)
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
+        #endif
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
             #if DEBUG
-            EnsembleLogger.debug("🎵 PlexProvider: Using universal transcode URL for \(quality.rawValue) quality")
+            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
             #endif
-            return url
-        } catch {
-            #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexProvider: Universal transcode URL failed (\(error)), falling back to raw file URL")
-            #endif
-            if let trackStreamKey, !trackStreamKey.isEmpty {
-                return try await apiClient.getStreamURL(trackKey: trackStreamKey)
-            }
-            guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-                  let streamKey = track.streamURL else {
-                throw PlexAPIError.invalidURL
-            }
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            throw PlexAPIError.invalidURL
         }
+        return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
