@@ -448,6 +448,25 @@ public actor PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get tracks rated after a specific timestamp (for syncing rating changes from other devices)
+    public func getTracks(sectionKey: String, ratedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "includeMedia": "1",
+                "includeElements": "Media",
+                "lastRatedAt>=": String(unixTime)
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get tracks in an album
     public func getAlbumTracks(albumKey: String) async throws -> [PlexTrack] {
         let data = try await serverRequest(path: "/library/metadata/\(albumKey)/children")

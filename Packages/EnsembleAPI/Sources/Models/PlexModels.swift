@@ -304,6 +304,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let updatedAt: Int?
     public let viewCount: Int?
     public let lastViewedAt: Int?
+    public let lastRatedAt: Int?  // Datetime the item was last rated (separate from updatedAt)
     public let userRating: Double?  // User's rating (0-10 scale, Plex uses even numbers: 0,2,4,6,8,10 for 0-5 stars)
     public let media: [PlexMedia]?
     public let loudnessTimeline: String?  // Path to loudness timeline data (used for waveform visualization)
@@ -329,6 +330,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case updatedAt
         case viewCount
         case lastViewedAt
+        case lastRatedAt
         case userRating
         case media = "Media"
         case loudnessTimeline
@@ -371,6 +373,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
         viewCount = try container.decodeIfPresent(Int.self, forKey: .viewCount)
         lastViewedAt = try container.decodeIfPresent(Int.self, forKey: .lastViewedAt)
+        lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
         userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
 

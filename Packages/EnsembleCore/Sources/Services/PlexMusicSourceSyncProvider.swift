@@ -48,6 +48,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let existingArtistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceKey)
         let existingAlbumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceKey)
         let existingTrackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceKey)
+        let existingTrackRatings = try await repository.fetchTrackRatings(forSource: sourceKey)
         #if DEBUG
         EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingArtistTimestamps.count) artists, \(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
         #endif
@@ -149,12 +150,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
+        // Also fetch tracks with rating changes (Plex updates lastRatedAt, not updatedAt, for ratings)
+        let ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
 
         // Deduplicate by ratingKey, then filter to items actually changed vs local copy
         var trackMap: [String: PlexTrack] = [:]
         for t in newTracks { trackMap[t.ratingKey] = t }
         for t in updatedTracks { trackMap[t.ratingKey] = t }
+        for t in ratedTracks { trackMap[t.ratingKey] = t }
         let tracksToSync = trackMap.values.filter { track in
+            // Check if rating changed (Plex updates lastRatedAt, not updatedAt, for rating changes)
+            let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
+            if let localRating = existingTrackRatings[track.ratingKey], localRating != serverRating {
+                return true
+            }
+
             guard let serverUpdated = track.updatedAt else {
                 // Server has nil updatedAt — only sync if item doesn't exist locally
                 return existingTrackTimestamps[track.ratingKey] == nil
@@ -263,13 +273,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
-        // Sync artists
+        // Sync artists (batch upsert — single context, single save)
         progressHandler(0.1)
         var phaseStart = CFAbsoluteTimeGetCurrent()
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
         let artistRatingKeys = Set(artists.map { $0.ratingKey })
-        for artist in artists {
-            _ = try await repository.upsertArtist(
+        let artistInputs = artists.map { artist in
+            ArtistUpsertInput(
                 ratingKey: artist.ratingKey,
                 key: artist.key,
                 name: artist.title,
@@ -277,22 +287,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 thumbPath: artist.thumb,
                 artPath: artist.art,
                 dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: sourceKey
+                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
             )
         }
+        try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
 
         #if DEBUG
         EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
         #endif
 
-        // Sync albums
+        // Sync albums (batch upsert)
         progressHandler(0.3)
         phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
-        for album in albums {
-            _ = try await repository.upsertAlbum(
+        let albumInputs = albums.map { album in
+            AlbumUpsertInput(
                 ratingKey: album.ratingKey,
                 key: album.key,
                 title: album.title,
@@ -306,25 +316,22 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 trackCount: album.leafCount,
                 dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: 0,
-                sourceCompositeKey: sourceKey
+                rating: 0
             )
         }
+        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
         #if DEBUG
         EnsembleLogger.debug("⏱️ Full sync: albums \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(albums.count) items)")
         #endif
 
-        // Sync tracks
+        // Sync tracks (batch upsert — biggest win, ~24s → ~2-3s)
         progressHandler(0.5)
         phaseStart = CFAbsoluteTimeGetCurrent()
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
-        #if DEBUG
-        EnsembleLogger.debug("📀 Syncing \(tracks.count) tracks")
-        #endif
-        for track in tracks {
-            _ = try await repository.upsertTrack(
+        let trackInputs = tracks.map { track in
+            TrackUpsertInput(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
@@ -340,10 +347,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: track.userRating.map { Int($0) } ?? 0,
-                playCount: track.viewCount ?? 0,
-                sourceCompositeKey: sourceKey
+                playCount: track.viewCount ?? 0
             )
         }
+        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
         #if DEBUG
         EnsembleLogger.debug("⏱️ Full sync: tracks \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(tracks.count) items)")
