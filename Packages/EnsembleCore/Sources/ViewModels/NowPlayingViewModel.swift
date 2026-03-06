@@ -314,14 +314,26 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     /// Keeps the scrubber from reaching 100% while playback is still active when
-    /// stream metadata under-reports duration.
+    /// stream metadata under-reports duration. Only extends the duration when
+    /// currentTime has significantly exceeded the metadata duration (>5s),
+    /// indicating the stream is genuinely longer. Small overruns from transcoded
+    /// streams let the scrubber naturally complete at 100%.
     public var scrubberDuration: TimeInterval {
         let baseDuration = max(0, duration)
         guard currentTrack != nil else { return baseDuration }
 
         switch playbackState {
         case .playing, .buffering, .loading:
-            return max(baseDuration, currentTime + 1.0)
+            // Only extend duration if currentTime has significantly exceeded baseDuration.
+            // Transcoded streams often deliver a few extra seconds of audio beyond metadata;
+            // these small overruns should let the scrubber naturally pin at 100% / -0:00
+            // rather than extending the timeline indefinitely.
+            let overrun = currentTime - baseDuration
+            if overrun > 5.0 {
+                // Stream is genuinely longer than metadata reported — extend timeline
+                return currentTime + 1.0
+            }
+            return baseDuration
         default:
             return max(baseDuration, currentTime)
         }

@@ -3755,15 +3755,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             return
                         }
 
-                        if self.isCurrentPlaybackUsingLocalFile() {
-                            #if DEBUG
-                            EnsembleLogger.debug("ℹ️ Ignoring unexpected pause recovery for local playback item")
-                            #endif
+                        if self.activeSeek != nil {
+                            // Intentional pause — AVPlayer repositioning for an in-flight seek.
                             return
                         }
 
-                        if self.activeSeek != nil {
-                            // Intentional pause — AVPlayer repositioning for an in-flight seek.
+                        // For local files, a brief pause is usually an AVFoundation internal
+                        // repositioning event. Try an immediate resume rather than ignoring
+                        // the pause entirely, which could leave playback stuck.
+                        if self.isCurrentPlaybackUsingLocalFile() {
+                            if self.playbackState == .playing || self.playbackState == .loading || self.playbackState == .buffering {
+                                #if DEBUG
+                                EnsembleLogger.debug("ℹ️ Local file unexpected pause — attempting immediate resume")
+                                #endif
+                                self.player?.play()
+                            }
                             return
                         }
 
@@ -3815,9 +3821,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     case .waitingToPlayAtSpecifiedRate:
                         // Player is waiting to play (buffering, seeking, or loading)
                         if self.isCurrentPlaybackUsingLocalFile() {
+                            // Local files shouldn't need to wait. Force an immediate play
+                            // attempt rather than ignoring, which could leave playback stuck.
                             #if DEBUG
-                            EnsembleLogger.debug("ℹ️ Ignoring waiting-to-play transition for local playback item")
+                            EnsembleLogger.debug("ℹ️ Local file waiting-to-play — forcing immediate playback")
                             #endif
+                            if #available(iOS 10.0, macOS 10.12, *) {
+                                self.player?.playImmediately(atRate: 1.0)
+                            } else {
+                                self.player?.play()
+                            }
                             return
                         }
 
