@@ -1265,6 +1265,72 @@ public actor PlexAPIClient {
         return url
     }
 
+    /// Convenience overload that builds a universal stream URL from a rating key string.
+    /// Used by the playback path where only the rating key is available (no full PlexTrack).
+    public func getUniversalStreamURL(
+        ratingKey: String,
+        quality: StreamingQuality = .original,
+        sessionId: String? = nil
+    ) throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
+        #endif
+
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+
+        components.path = "/music/:/transcode/universal/start.mp3"
+
+        let resolvedSessionId = sessionId ?? UUID().uuidString
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
+            URLQueryItem(name: "protocol", value: "http"),
+            URLQueryItem(name: "mediaIndex", value: "0"),
+            URLQueryItem(name: "partIndex", value: "0"),
+            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
+            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
+        ]
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
+
+        // Quality-specific parameters (same logic as PlexTrack overload)
+        switch quality {
+        case .original:
+            break
+        case .high:
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
+        case .medium:
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
+        case .low:
+            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
+            queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
+        }
+
+        if quality != .original {
+            queryItems.removeAll { $0.name == "directPlay" }
+            queryItems.removeAll { $0.name == "directStream" }
+            queryItems.removeAll { $0.name == "directStreamAudio" }
+            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
+            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
+            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+        }
+
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
+        #endif
+
+        return url
+    }
+
     private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {
         [
             // Session identity and broad client metadata improve compatibility on

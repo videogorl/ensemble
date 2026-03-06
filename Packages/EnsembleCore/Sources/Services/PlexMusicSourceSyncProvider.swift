@@ -591,25 +591,16 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
-        // Playback path uses direct stream URLs for maximum AVPlayer compatibility.
-        if let trackStreamKey, !trackStreamKey.isEmpty {
-            #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(trackStreamKey)")
-            #endif
-            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
-        }
-
-        #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
-        #endif
-        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-              let streamKey = track.streamURL else {
-            #if DEBUG
-            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
-            #endif
-            throw PlexAPIError.invalidURL
-        }
-        return try await apiClient.getStreamURL(trackKey: streamKey)
+        // Use the universal transcode endpoint for all streaming playback.
+        // Raw file URLs (/library/parts/.../file.flac) cause two problems:
+        //   1. Non-Plex Pass servers cut off raw file downloads at ~655KB
+        //   2. Raw HTTP files don't provide reliable pre-roll for gapless playback
+        // The universal endpoint routes through PMS's pipeline, which handles
+        // codec negotiation, quality selection, and reliable progressive streaming.
+        return try await apiClient.getUniversalStreamURL(
+            ratingKey: trackRatingKey,
+            quality: quality
+        )
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
