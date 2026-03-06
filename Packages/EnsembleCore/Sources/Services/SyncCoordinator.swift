@@ -2105,6 +2105,50 @@ public final class SyncCoordinator: ObservableObject {
         await refreshAPIClientConnections()
     }
 
+    // MARK: - Targeted Server Health Checks
+
+    /// Trigger a health check for a specific server identified by sourceCompositeKey.
+    /// Called by PlaybackService when a playback failure indicates the server may be unreachable.
+    /// Updates serverStates and source connection states so TrackAvailabilityResolver reacts.
+    public func triggerServerHealthCheck(sourceKey: String) async {
+        guard let (accountId, serverId) = parseServerIds(from: sourceKey) else { return }
+
+        #if DEBUG
+        EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check for server \(accountId):\(serverId)")
+        #endif
+
+        let state = await serverHealthChecker.checkServer(
+            accountId: accountId,
+            serverId: serverId
+        )
+        updateSourceConnectionStates()
+
+        #if DEBUG
+        EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check result: \(state)")
+        #endif
+    }
+
+    /// Check whether a server is known to be available based on cached health state.
+    /// Returns false if the server is offline, degraded-offline, or has no cached state.
+    public func isServerAvailable(sourceKey: String?) -> Bool {
+        guard let sourceKey, let (accountId, serverId) = parseServerIds(from: sourceKey) else {
+            return true // Assume available if we can't determine the server
+        }
+        let serverKey = "\(accountId):\(serverId)"
+        guard let state = serverHealthChecker.serverStates[serverKey] else {
+            return true // No cached state means we haven't checked — assume available
+        }
+        return state.isAvailable
+    }
+
+    /// Parse accountId and serverId from a sourceCompositeKey.
+    /// Format: "plex:accountId:serverId:libraryId"
+    private func parseServerIds(from sourceKey: String) -> (accountId: String, serverId: String)? {
+        let parts = sourceKey.split(separator: ":")
+        guard parts.count >= 3 else { return nil }
+        return (String(parts[1]), String(parts[2]))
+    }
+
     internal func handleObservedNetworkStateForTesting(_ state: NetworkState) async {
         await handleObservedNetworkState(state)
     }

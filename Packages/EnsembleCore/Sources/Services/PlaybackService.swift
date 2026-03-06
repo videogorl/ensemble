@@ -2808,9 +2808,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // All retries exhausted — increment failure counter and pause player
-        // to prevent AVQueuePlayer from auto-advancing to the next track
-        consecutivePlaybackFailures += 1
+        // All retries exhausted — check if this is a connection error and trigger
+        // a targeted health check so the UI can update track availability immediately
+        let nsError = lastError.map { $0 as NSError }
+        let isConnectionError = nsError?.domain == NSURLErrorDomain &&
+            (nsError?.code == NSURLErrorTimedOut ||
+             nsError?.code == NSURLErrorNetworkConnectionLost ||
+             nsError?.code == NSURLErrorCannotConnectToHost ||
+             nsError?.code == NSURLErrorNotConnectedToInternet)
+
+        if isConnectionError, let sourceKey = track.sourceCompositeKey {
+            // Trigger health check for the affected server. This updates serverStates
+            // which bumps TrackAvailabilityResolver's generation, updating the UI.
+            await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
+
+            // If the server is now confirmed offline, fast-track the circuit breaker
+            // to avoid trying more tracks from the same dead server
+            if await !syncCoordinator.isServerAvailable(sourceKey: sourceKey) {
+                consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
+                #if DEBUG
+                EnsembleLogger.debug("⛔ Server confirmed offline — fast-tracking circuit breaker")
+                #endif
+            } else {
+                consecutivePlaybackFailures += 1
+            }
+        } else {
+            consecutivePlaybackFailures += 1
+        }
+
         #if DEBUG
         EnsembleLogger.debug("❌ All retries exhausted for track preparation (consecutive failures: \(consecutivePlaybackFailures))")
         #endif
@@ -4392,14 +4417,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    /// Scan the queue after `startIndex` for the next track that has a local download.
+    /// Scan the queue after `startIndex` for the next playable track.
+    /// Accepts downloaded tracks or tracks from a server that is still available.
     /// Used by the circuit breaker to skip over unavailable tracks.
+    @MainActor
     private func findNextPlayableTrackIndex(after startIndex: Int) -> Int? {
         let searchStart = startIndex + 1
         guard searchStart < queue.count else { return nil }
 
         for i in searchStart..<queue.count {
-            if queue[i].track.isDownloaded {
+            let track = queue[i].track
+            // Accept downloaded tracks or tracks from a different (available) server
+            if track.isDownloaded || syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey) {
                 return i
             }
         }

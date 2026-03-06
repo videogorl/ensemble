@@ -195,20 +195,33 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         
         guard let finalPath = actualPath else { return nil }
         let isOffline = await syncCoordinator.isOffline
-        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(isOffline ? "offline" : "online")"
+        let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
+        let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
+        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
 
         if let cachedURL = await urlCache.get(cacheKey) {
             return cachedURL
         }
 
-        // When offline, use local cache directly (no network attempt).
-        // When online, prefer network but fall back to local cache if URL resolution fails.
-        if isOffline, let localURL = localCachedArtworkURL(ratingKey: actualRatingKey) {
+        // When offline or server is known to be unreachable, use local cache directly.
+        // This avoids building a network URL that Nuke would time out fetching.
+        let serverUnavailable = !isOffline && !serverAvailable
+        if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey) {
             #if DEBUG
-            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(localURL.lastPathComponent)")
+            let reason = isOffline ? "Offline" : "Server unavailable"
+            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: \(reason) - using local file: \(localURL.lastPathComponent)")
             #endif
             await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
             return localURL
+        }
+
+        // Server is unavailable and no local cache — return nil immediately
+        // rather than building a URL that will time out
+        if serverUnavailable {
+            #if DEBUG
+            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Server unavailable, no local cache for ratingKey:\(actualRatingKey ?? "nil")")
+            #endif
+            return nil
         }
 
         // Use network to fetch artwork
