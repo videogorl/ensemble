@@ -89,6 +89,24 @@ public final class ServerHealthChecker: ObservableObject {
 
     // MARK: - Public Methods
 
+    /// Pre-populate serverStates with `.unknown` for all configured servers.
+    /// Call this at startup (after accounts are loaded, before UI renders) so that
+    /// TrackAvailabilityResolver treats tracks from unchecked servers as unavailable
+    /// instead of defaulting to available.
+    public func prepopulateUnknownStates() {
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
+                if serverStates[serverKey] == nil {
+                    serverStates[serverKey] = .unknown
+                    #if DEBUG
+                    EnsembleLogger.debug("🏥 ServerHealthChecker: Pre-populated \(serverKey) as .unknown")
+                    #endif
+                }
+            }
+        }
+    }
+
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
         _ = await checkAllServers(forceRefresh: false, eligibleServerKeys: nil)

@@ -131,6 +131,9 @@ public final class TrackAvailabilityResolver: ObservableObject {
 
     private func bumpGeneration() {
         availabilityGeneration &+= 1
+        #if DEBUG
+        EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(availabilityGeneration), serverStates=\(serverHealthChecker.serverStates.mapValues { $0.description })")
+        #endif
     }
 
     /// Extract the server key (accountId:serverId) from a source composite key.

@@ -2261,6 +2261,12 @@ public final class SyncCoordinator: ObservableObject {
         await onConnectionsRefreshed?()
     }
 
+    /// Public entry point for callers outside SyncCoordinator (e.g. AppDelegate)
+    /// that need to push health-check results into sourceStatuses.
+    public func updateSourceConnectionStatesFromAppDelegate() {
+        updateSourceConnectionStates()
+    }
+
     /// Update source statuses with current connection states from health checker
     private func updateSourceConnectionStates() {
         for account in accountManager.plexAccounts {
