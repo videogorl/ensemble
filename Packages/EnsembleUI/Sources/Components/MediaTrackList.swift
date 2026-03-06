@@ -560,7 +560,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 showArtwork: showArtwork,
                 showTrackNumber: showTrackNumbers,
                 isPlaying: isPlaying,
-                isUnavailableOffline: isOffline && !track.isDownloaded,
+                isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 artworkLoader: artworkLoader
             )
