@@ -156,7 +156,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         #if DEBUG
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) actually changed")
+        // Diagnostic: break down WHY items are flagged as changed
+        let tracksNilTimestamp = trackMap.values.filter { $0.updatedAt == nil }.count
+        let tracksNewLocally = trackMap.values.filter { $0.updatedAt != nil && existingTrackTimestamps[$0.ratingKey] == nil }.count
+        let tracksDiffTimestamp = tracksToSync.count - tracksNilTimestamp - tracksNewLocally
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNewLocally), nilTimestamp=\(tracksNilTimestamp), changed=\(tracksDiffTimestamp))")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
@@ -233,7 +237,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws {
+        let syncStart = CFAbsoluteTimeGetCurrent()
         let sourceKey = sourceIdentifier.compositeKey
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
+        #endif
 
         // Ensure CDMusicSource exists
         _ = try await repository.upsertMusicSource(
@@ -248,6 +256,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         // Sync artists
         progressHandler(0.1)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
         let artistRatingKeys = Set(artists.map { $0.ratingKey })
         for artist in artists {
@@ -264,8 +273,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
+        #endif
+
         // Sync albums
         progressHandler(0.3)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
         for album in albums {
@@ -288,8 +302,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: albums \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(albums.count) items)")
+        #endif
+
         // Sync tracks
         progressHandler(0.5)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         #if DEBUG
@@ -317,8 +336,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: tracks \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(tracks.count) items)")
+        #endif
+
         // Sync genres
         progressHandler(0.7)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
         let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
         for genre in genres {
@@ -330,8 +354,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: genres \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(genres.count) items)")
+        #endif
+
         // Remove orphaned items (deleted/merged on server but still in local DB)
         progressHandler(0.85)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         #if DEBUG
         EnsembleLogger.debug("🧹 Checking for orphaned items...")
         #endif
@@ -350,12 +379,17 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             #endif
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: orphan check \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        EnsembleLogger.debug("⏱️ Full sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s (\(artists.count) artists, \(albums.count) albums, \(tracks.count) tracks, \(genres.count) genres)")
+        #endif
+
         // Update last sync timestamp
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
     }
-    
+
     public func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
