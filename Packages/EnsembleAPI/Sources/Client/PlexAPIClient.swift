@@ -1216,40 +1216,24 @@ public actor PlexAPIClient {
         ]
         queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
 
-        // Add quality-specific parameters.
+        // Quality-specific bitrate hints. The base params already include
+        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
+        // these to 0 because that removes PMS's ability to fall back to direct
+        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
+        // Bitrate hints are "best effort": PMS transcodes if it can, direct
+        // streams the original codec if it can't.
         switch quality {
         case .original:
-            // Original quality: directPlay=0 (set in base params) prevents PMS from
-            // redirecting to the raw file. directStream=1 + directStreamAudio=1 tell
-            // PMS to stream the original codec through its pipeline without transcoding.
             break
-
         case .high:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-
         case .medium:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-
         case .low:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
-        }
-
-        // For non-original quality, force transcoding by disabling direct play/stream
-        // and specifying the target audio codec. Without an explicit audioCodec param
-        // PMS may silently fall back to serving the original file.
-        if quality != .original {
-            queryItems.removeAll { $0.name == "directPlay" }
-            queryItems.removeAll { $0.name == "directStream" }
-            queryItems.removeAll { $0.name == "directStreamAudio" }
-            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
-            // Tell PMS what codec to transcode to — this is required for PMS
-            // to actually start a transcode session instead of direct playing
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
         
         components.queryItems = queryItems
@@ -1293,7 +1277,12 @@ public actor PlexAPIClient {
         ]
         queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
 
-        // Quality-specific parameters (same logic as PlexTrack overload)
+        // Quality-specific bitrate hints. The base params already include
+        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
+        // these to 0 because that removes PMS's ability to fall back to direct
+        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
+        // Bitrate hints are "best effort": PMS transcodes if it can, direct
+        // streams the original codec if it can't.
         switch quality {
         case .original:
             break
@@ -1306,16 +1295,6 @@ public actor PlexAPIClient {
         case .low:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
-        }
-
-        if quality != .original {
-            queryItems.removeAll { $0.name == "directPlay" }
-            queryItems.removeAll { $0.name == "directStream" }
-            queryItems.removeAll { $0.name == "directStreamAudio" }
-            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
         }
 
         components.queryItems = queryItems
