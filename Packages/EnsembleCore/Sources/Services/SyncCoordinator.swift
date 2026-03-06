@@ -932,7 +932,7 @@ public final class SyncCoordinator: ObservableObject {
         #if DEBUG
         EnsembleLogger.debug("🚀 Performing startup sync...")
         #endif
-        
+
         // Don't sync if offline
         guard !isOffline else {
             #if DEBUG
@@ -940,7 +940,7 @@ public final class SyncCoordinator: ObservableObject {
             #endif
             return
         }
-        
+
         // Don't sync if already syncing
         guard !isSyncing else {
             #if DEBUG
@@ -948,13 +948,29 @@ public final class SyncCoordinator: ObservableObject {
             #endif
             return
         }
-        
+
         // Check if we have any sources configured
         guard !syncProviders.isEmpty else {
             #if DEBUG
             EnsembleLogger.debug("ℹ️ No sync providers configured - skipping startup sync")
             #endif
             return
+        }
+
+        // Run health checks first so serverStates is populated before sync begins.
+        // This ensures TrackAvailabilityResolver has accurate data from the start,
+        // and tracks from offline servers are correctly dimmed in the UI.
+        let eligibleServers = enabledServerKeysForHealthChecks()
+        if !eligibleServers.isEmpty {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
+            #endif
+            let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
+            updateSourceConnectionStates()
+            lastHealthRefreshAt = nowProviderForTesting()
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
+            #endif
         }
         
         // Determine sync strategy: full if >24h or never synced, incremental otherwise.

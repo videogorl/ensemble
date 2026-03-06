@@ -1028,8 +1028,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
-        let nextIndex = currentQueueIndex + 1
-        if nextIndex < queue.count {
+        // Find the next playable track, skipping unavailable ones (offline server, not downloaded).
+        // This prevents trying to play a track we already know will fail.
+        let nextIndex = findNextPlayableTrackIndex(after: currentQueueIndex)
+        if let nextIndex, nextIndex < queue.count {
             currentQueueIndex = nextIndex
             await playCurrentQueueItem()
             savePlaybackState()
@@ -1515,7 +1517,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
             // Stop any currently playing audio before showing error state
             stop()
-            playbackState = .failed("No downloaded tracks available offline")
+            let isDeviceOffline = await MainActor.run {
+                !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+            }
+            playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             return
         }
         let queueTracks = playableQueue.tracks
@@ -1554,7 +1559,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !tracks.isEmpty else { return }
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
             stop()
-            playbackState = .failed("No downloaded tracks available offline")
+            let isDeviceOffline = await MainActor.run {
+                !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+            }
+            playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             return
         }
         let queueTracks = playableQueue.tracks
@@ -1600,12 +1608,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) async -> (tracks: [Track], startIndex: Int, skippedCount: Int)? {
         guard !tracks.isEmpty else { return nil }
         let clampedStartIndex = min(max(preferredStartIndex, 0), tracks.count - 1)
-        let isOfflineConstrained = await MainActor.run {
+        let isDeviceOffline = await MainActor.run {
             !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
         }
 
-        // When streaming is available, keep queue behavior unchanged.
-        guard isOfflineConstrained else {
+        // Check per-server availability for the tracks in the queue.
+        // Even when the device has network, individual servers may be offline.
+        let hasUnavailableTracks: Bool
+        if isDeviceOffline {
+            hasUnavailableTracks = false
+        } else {
+            hasUnavailableTracks = await MainActor.run {
+                tracks.contains { track in
+                    !track.isDownloaded && !syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey)
+                }
+            }
+        }
+
+        // When all servers are available and device is online, keep queue unchanged.
+        guard isDeviceOffline || hasUnavailableTracks else {
             return (tracks: tracks, startIndex: clampedStartIndex, skippedCount: 0)
         }
 
@@ -1615,10 +1636,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         originalPlayableIndices.reserveCapacity(tracks.count)
 
         for (index, track) in tracks.enumerated() {
-            if let offlineTrack = await resolveOfflinePlayableTrack(track) {
-                playableTracks.append(offlineTrack)
+            if isDeviceOffline {
+                // Device is fully offline — only downloaded tracks
+                if let offlineTrack = await resolveOfflinePlayableTrack(track) {
+                    playableTracks.append(offlineTrack)
+                    originalPlayableIndices.append(index)
+                }
+            } else if track.isDownloaded {
+                // Downloaded tracks are always playable
+                playableTracks.append(track)
+                originalPlayableIndices.append(index)
+            } else if await MainActor.run(body: { syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey) }) {
+                // Track's server is online — can stream
+                playableTracks.append(track)
                 originalPlayableIndices.append(index)
             }
+            // else: server offline and not downloaded — skip
         }
 
         guard !playableTracks.isEmpty else { return nil }
@@ -1670,6 +1703,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func playQueueIndex(_ index: Int) async {
         guard index >= 0, index < queue.count else { return }
+
+        // Block playback of tracks from offline servers
+        let track = queue[index].track
+        let isUnavailable = await MainActor.run {
+            !track.isDownloaded && !syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey)
+        }
+        if isUnavailable { return }
+
         consecutivePlaybackFailures = 0
 
         // Record current track to history before jumping
@@ -1845,37 +1886,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recordToHistory(queue[currentQueueIndex])
         }
 
-        // Always use direct queue navigation to keep currentQueueIndex in sync
-        // User's explicit "next" should skip to the next track regardless of repeat mode
-        let nextIndex = currentQueueIndex + 1
-        if nextIndex >= queue.count {
-            // Queue ended
-            if repeatMode == .all {
-                // Repeat all takes precedence
-                currentQueueIndex = 0
-                Task {
-                    await playCurrentQueueItem()
-                    savePlaybackState()
-                }
-            } else if isAutoplayEnabled {
-                // Autoplay enabled: refresh to get more recommendations
-                #if DEBUG
-                EnsembleLogger.debug("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
-                #endif
-                Task {
-                    await refreshAutoplayQueue()
-                }
+        // Find the next playable track on MainActor (server availability is MainActor-isolated).
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            if let nextIndex = self.findNextPlayableTrackIndex(after: self.currentQueueIndex) {
+                self.currentQueueIndex = nextIndex
+                await self.playCurrentQueueItem()
+                self.savePlaybackState()
+                await self.checkAndRefreshAutoplayQueue()
             } else {
-                // No autoplay, stop playback
-                stop()
-            }
-        } else {
-            currentQueueIndex = nextIndex
-            Task {
-                await playCurrentQueueItem()
-                savePlaybackState()
-                // Check queue after advancing
-                await checkAndRefreshAutoplayQueue()
+                // No playable tracks remaining in queue
+                if self.repeatMode == .all {
+                    // Wrap around — find first playable from start
+                    if let wrappedIndex = self.findNextPlayableTrackIndex(after: -1) {
+                        self.currentQueueIndex = wrappedIndex
+                        await self.playCurrentQueueItem()
+                        self.savePlaybackState()
+                    } else {
+                        self.stop()
+                    }
+                } else if self.isAutoplayEnabled {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎙️ Queue ended, autoplay enabled, refreshing for more tracks...")
+                    #endif
+                    await self.refreshAutoplayQueue()
+                } else {
+                    self.stop()
+                }
             }
         }
     }
@@ -4486,6 +4524,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if changed {
             savePlaybackState()
         }
+    }
+
+    /// Returns an appropriate error message when no tracks are playable.
+    /// Distinguishes between device-offline and server-offline scenarios.
+    private func noPlayableTracksMessage(isDeviceOffline: Bool) -> String {
+        if isDeviceOffline {
+            return "No downloaded tracks available offline"
+        }
+        return "No playable tracks available — server is unreachable"
     }
 
     /// Scan the queue after `startIndex` for the next playable track.
