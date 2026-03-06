@@ -175,11 +175,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         #if DEBUG
-        // Diagnostic: break down WHY items are flagged as changed
-        let tracksNilTimestamp = trackMap.values.filter { $0.updatedAt == nil }.count
-        let tracksNewLocally = trackMap.values.filter { $0.updatedAt != nil && existingTrackTimestamps[$0.ratingKey] == nil }.count
-        let tracksDiffTimestamp = tracksToSync.count - tracksNilTimestamp - tracksNewLocally
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNewLocally), nilTimestamp=\(tracksNilTimestamp), changed=\(tracksDiffTimestamp))")
+        // Diagnostic: break down WHY items in tracksToSync were flagged
+        let tracksNew = tracksToSync.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
+        let tracksRatingChanged = tracksToSync.filter { track in
+            guard let localRating = existingTrackRatings[track.ratingKey] else { return false }
+            return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
+        }.count
+        let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server (\(ratedTracks.count) rated), \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
