@@ -483,6 +483,63 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.removedQueueItemCount, 2)
     }
 
+    // MARK: - effectiveDuration edge cases
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNil() {
+        // When AVPlayerItem hasn't resolved its duration yet (e.g. progressive MP3 still loading),
+        // we fall back to metadata duration from Plex.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: nil)
+        XCTAssertEqual(result, 180)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsInfinite() {
+        // HLS/progressive streams may report .indefinite (infinity) before duration resolves.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 240, itemDuration: .infinity)
+        XCTAssertEqual(result, 240)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNaN() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 120, itemDuration: .nan)
+        XCTAssertEqual(result, 120)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsZero() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 300, itemDuration: 0)
+        XCTAssertEqual(result, 300)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNegative() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 200, itemDuration: -5)
+        XCTAssertEqual(result, 200)
+    }
+
+    func testEffectiveDurationRejectsAbsurdlyLongItemDuration() {
+        // Guard against malformed media reporting 24h+ durations
+        let absurdDuration = 25 * 60 * 60.0  // 25 hours
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: absurdDuration)
+        XCTAssertEqual(result, 180)
+    }
+
+    func testEffectiveDurationClampsNegativeMetadataToZero() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: -10, itemDuration: nil)
+        XCTAssertEqual(result, 0)
+    }
+
+    func testEffectiveDurationPreferslongerDuration() {
+        // Transcoded streams may produce slightly more or fewer audio frames than metadata says.
+        // Prefer the longer value so the progress bar doesn't prematurely reach 100%.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 183)
+        XCTAssertEqual(result, 183)
+    }
+
+    func testEffectiveDurationUsesMetadataWhenItemIsShorter() {
+        // Metadata says 240s but AVPlayerItem resolved to 238s. Keep the longer value.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 240, itemDuration: 238)
+        XCTAssertEqual(result, 240)
+    }
+
+    // MARK: - Queue pruning
+
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
         let current = QueueItem(
             id: "current",
