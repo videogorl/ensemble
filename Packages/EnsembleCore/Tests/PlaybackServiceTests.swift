@@ -280,10 +280,23 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
-    func testPrefetchThrottleDropsDepthToZeroWhenActive() {
-        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
-        XCTAssertEqual(profile.prefetchDepth, 0)
-        XCTAssertTrue(profile.label.contains("prefetch-throttled"))
+    func testPrefetchThrottleReducesDepthToOneWhenActive() {
+        // wifiOrWired already has prefetchDepth=1, so throttle is a no-op (preserves gapless)
+        let wifiProfile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
+        XCTAssertEqual(wifiProfile.prefetchDepth, 1)
+        XCTAssertEqual(wifiProfile, .wifiOrWired)
+
+        // For a hypothetical profile with depth > 1, throttle should reduce to 1
+        let deepProfile = PlaybackService.PlaybackBufferingProfile(
+            waitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: 8,
+            prefetchDepth: 3,
+            stallRecoveryTimeout: 8,
+            label: "deep"
+        )
+        let throttled = PlaybackService.throttledPrefetchProfileIfNeeded(deepProfile, throttleActive: true)
+        XCTAssertEqual(throttled.prefetchDepth, 1)
+        XCTAssertTrue(throttled.label.contains("prefetch-throttled"))
     }
 
     func testPrefetchThrottleLeavesProfileUntouchedWhenInactive() {
