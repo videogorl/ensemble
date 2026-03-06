@@ -904,6 +904,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
     
+    /// Called from the currentItem KVO observer (already dispatched to DispatchQueue.main).
+    /// State updates MUST happen synchronously here — deferring via Task { @MainActor }
+    /// creates a window where audio has advanced but currentTrack/NowPlayingInfo are stale,
+    /// causing wrong track display on lock screen, -0:00 remaining time, and broken
+    /// background advancement.
     private func handleItemChange(_ item: AVPlayerItem) {
         // Seeks should only apply to the previously active item. Clear stale seek gating
         // immediately when AVQueuePlayer advances to a different item.
@@ -918,50 +923,51 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if !isNavigatingBackward && currentQueueIndex >= 0 && currentQueueIndex < queue.count {
                         recordToHistory(queue[currentQueueIndex])
                     }
-                    
+
                     // Reset backward navigation flag
                     isNavigatingBackward = false
 
-                    // Batch state updates to prevent multiple Combine publications
                     let newTrack = queue[index].track
 
-                    // Update all state in a single transaction
-                    Task { @MainActor in
-                        self.currentQueueIndex = index
-                        self.currentTrack = newTrack
-                        self.currentTime = 0
-                        self.bufferedProgress = 0
-                        self.waveformHeights = []  // Clear old waveform immediately
+                    // Update state synchronously — we're already on the main thread from the
+                    // KVO observer's DispatchQueue.main.async dispatch. Deferring these updates
+                    // via Task causes the time observer to report the new track's playhead
+                    // while currentTrack/duration still reference the old track.
+                    currentQueueIndex = index
+                    currentTrack = newTrack
+                    currentTime = 0
+                    bufferedProgress = 0
+                    waveformHeights = []
 
-                        // Reset timeline tracking for new track
-                        self.lastTimelineReportTime = 0
-                        self.hasScrobbled = false
+                    // Reset timeline tracking for new track
+                    lastTimelineReportTime = 0
+                    hasScrobbled = false
 
-                        // Non-state-changing operations
-                        self.generateWaveform(for: newTrack.id)
-                        self.updateNowPlayingInfo()
-                        self.savePlaybackState()
+                    // Update NowPlayingInfo synchronously so lock screen updates immediately,
+                    // even when the app is backgrounded.
+                    generateWaveform(for: newTrack.id)
+                    updateNowPlayingInfo()
+                    savePlaybackState()
 
-                        // Pre-fetch next item for gapless
-                        await self.prefetchNextItem()
-                        
-                        // Check if we need to refresh autoplay queue
-                        await self.checkAndRefreshAutoplayQueue()
+                    // Async operations (network-dependent) in a separate Task
+                    Task { [weak self] in
+                        await self?.prefetchNextItem()
+                        await self?.checkAndRefreshAutoplayQueue()
                     }
                 } else if repeatMode == .one {
-                    // Handle repeat.one where the track ID and index are the same, 
+                    // Handle repeat.one where the track ID and index are the same,
                     // but it's a new AVPlayerItem (new playback)
                     #if DEBUG
                     EnsembleLogger.debug("↻ Repeating track due to repeat.one mode")
                     #endif
-                    
-                    Task { @MainActor in
-                        // Reset timeline tracking for the repeat
-                        self.lastTimelineReportTime = 0
-                        self.hasScrobbled = false
-                        
-                        // Queue it again for the next repeat
-                        await self.prefetchNextItem()
+
+                    // Reset timeline tracking synchronously
+                    lastTimelineReportTime = 0
+                    hasScrobbled = false
+
+                    // Queue the next repeat item asynchronously
+                    Task { [weak self] in
+                        await self?.prefetchNextItem()
                     }
                 }
             }
@@ -3898,6 +3904,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] time in
             guard let self = self else { return }
 
+            // Safety net: detect if the player's current item no longer matches our
+            // tracked currentTrack. This can happen if a KVO notification was dropped
+            // or delayed (e.g. background execution). Correct the state synchronously.
+            if let currentItem = self.player?.currentItem,
+               let pair = self.playerItems.first(where: { $0.value === currentItem }),
+               pair.key != self.currentTrack?.id {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Time observer detected stale track state — player item '\(pair.key)' != currentTrack '\(self.currentTrack?.id ?? "nil")'. Correcting.")
+                #endif
+                self.handleItemChange(currentItem)
+            }
+
             if let seek = self.activeSeek {
                 if seek.trackID != nil && seek.trackID != self.currentTrack?.id {
                     // Track switched while seek was in flight; clear stale seek gating.
@@ -5060,6 +5078,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func updateNowPlayingProgress() {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        // Keep duration in sync — the effective duration may change as AVPlayerItem
+        // resolves its asset duration, and must stay accurate for the lock screen scrubber.
+        info[MPMediaItemPropertyPlaybackDuration] = duration
+        info[MPNowPlayingInfoPropertyPlaybackRate] = playbackState == .playing ? 1.0 : 0.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
