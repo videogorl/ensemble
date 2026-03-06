@@ -3209,23 +3209,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
-        // Set forwardPlaybackEndTime so AVQueuePlayer knows exactly when this track
-        // ends. This is critical for two reasons:
-        // 1) Gapless transitions: AVQueuePlayer can pre-roll the next item at the right
-        //    time instead of waiting for the progressive stream to close.
-        // 2) Duration accuracy: transcoded streams often include encoder padding that
-        //    extends audio past the metadata duration. This prevents overrun.
-        // A 0.5s buffer avoids cutting off the last note if metadata is slightly short.
-        if track.duration > 0 {
-            item.forwardPlaybackEndTime = CMTime(
-                seconds: track.duration + 0.5,
-                preferredTimescale: 1000
-            )
-        }
-
         #if DEBUG
         EnsembleLogger.debug(
-            "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s, forwardEndTime=\(track.duration + 0.5)s"
+            "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s"
         )
         #endif
         return item

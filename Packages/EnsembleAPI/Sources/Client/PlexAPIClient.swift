@@ -1219,7 +1219,9 @@ public actor PlexAPIClient {
         // Add quality-specific parameters.
         switch quality {
         case .original:
-            // Original: server decides direct play / direct stream (flags already set above)
+            // Original quality: directPlay=0 (set in base params) prevents PMS from
+            // redirecting to the raw file. directStream=1 + directStreamAudio=1 tell
+            // PMS to stream the original codec through its pipeline without transcoding.
             break
 
         case .high:
@@ -1277,7 +1279,11 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
             URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
             URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
-            URLQueryItem(name: "directPlay", value: "1"),
+            // directPlay=0 prevents PMS from redirecting to the raw file URL.
+            // Non-Plex Pass servers limit raw file downloads (~655KB), which cuts
+            // off playback mid-stream. directStream=1 tells PMS to stream the
+            // original codec through its pipeline without transcoding.
+            URLQueryItem(name: "directPlay", value: "0"),
             URLQueryItem(name: "directStream", value: "1"),
             URLQueryItem(name: "directStreamAudio", value: "1"),
             URLQueryItem(name: "hasMDE", value: "1")
