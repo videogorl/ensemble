@@ -1153,9 +1153,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     var result: [String: Date] = [:]
                     result.reserveCapacity(artists.count)
                     for artist in artists {
-                        if let date = artist.dateModified {
-                            result[artist.ratingKey] = date
-                        }
+                        // Use distantPast for nil dateModified so we can detect existence
+                        result[artist.ratingKey] = artist.dateModified ?? Date.distantPast
                     }
                     continuation.resume(returning: result)
                 } catch {
@@ -1177,9 +1176,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     var result: [String: Date] = [:]
                     result.reserveCapacity(albums.count)
                     for album in albums {
-                        if let date = album.dateModified {
-                            result[album.ratingKey] = date
-                        }
+                        // Use distantPast for nil dateModified so we can detect existence
+                        result[album.ratingKey] = album.dateModified ?? Date.distantPast
                     }
                     continuation.resume(returning: result)
                 } catch {
@@ -1201,9 +1199,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     var result: [String: Date] = [:]
                     result.reserveCapacity(tracks.count)
                     for track in tracks {
-                        if let date = track.dateModified {
-                            result[track.ratingKey] = date
-                        }
+                        // Use distantPast for nil dateModified so we can detect existence
+                        result[track.ratingKey] = track.dateModified ?? Date.distantPast
                     }
                     continuation.resume(returning: result)
                 } catch {

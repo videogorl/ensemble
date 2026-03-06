@@ -63,7 +63,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         for a in newArtists { artistMap[a.ratingKey] = a }
         for a in updatedArtists { artistMap[a.ratingKey] = a }
         let artistsToSync = artistMap.values.filter { artist in
-            guard let serverUpdated = artist.updatedAt else { return true }
+            guard let serverUpdated = artist.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingArtistTimestamps[artist.ratingKey] == nil
+            }
             guard let localDate = existingArtistTimestamps[artist.ratingKey] else { return true }
             // Compare as integer seconds to avoid sub-second precision mismatches
             return serverUpdated != Int(localDate.timeIntervalSince1970)
@@ -103,7 +106,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         for a in newAlbums { albumMap[a.ratingKey] = a }
         for a in updatedAlbums { albumMap[a.ratingKey] = a }
         let albumsToSync = albumMap.values.filter { album in
-            guard let serverUpdated = album.updatedAt else { return true }
+            guard let serverUpdated = album.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingAlbumTimestamps[album.ratingKey] == nil
+            }
             guard let localDate = existingAlbumTimestamps[album.ratingKey] else { return true }
             // Compare as integer seconds to avoid sub-second precision mismatches
             return serverUpdated != Int(localDate.timeIntervalSince1970)
@@ -149,7 +155,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         for t in newTracks { trackMap[t.ratingKey] = t }
         for t in updatedTracks { trackMap[t.ratingKey] = t }
         let tracksToSync = trackMap.values.filter { track in
-            guard let serverUpdated = track.updatedAt else { return true }
+            guard let serverUpdated = track.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingTrackTimestamps[track.ratingKey] == nil
+            }
             guard let localDate = existingTrackTimestamps[track.ratingKey] else { return true }
             // Compare as integer seconds to avoid sub-second precision mismatches
             return serverUpdated != Int(localDate.timeIntervalSince1970)
@@ -482,7 +491,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         for playlist in newPlaylists { playlistMap[playlist.ratingKey] = playlist }
         for playlist in updatedPlaylists { playlistMap[playlist.ratingKey] = playlist }
         let changedPlaylists = playlistMap.values.filter { playlist in
-            guard let serverUpdated = playlist.updatedAt else { return true }
+            guard let serverUpdated = playlist.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingTimestamps[playlist.ratingKey] == nil
+            }
             guard let localDate = existingTimestamps[playlist.ratingKey] else { return true }
             // Compare as integer seconds to avoid sub-second precision mismatches
             return serverUpdated != Int(localDate.timeIntervalSince1970)

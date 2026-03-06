@@ -398,9 +398,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     var result: [String: Date] = [:]
                     result.reserveCapacity(playlists.count)
                     for playlist in playlists {
-                        if let date = playlist.dateModified {
-                            result[playlist.ratingKey] = date
-                        }
+                        // Use distantPast for nil dateModified so we can detect existence
+                        result[playlist.ratingKey] = playlist.dateModified ?? Date.distantPast
                     }
                     continuation.resume(returning: result)
                 } catch {
