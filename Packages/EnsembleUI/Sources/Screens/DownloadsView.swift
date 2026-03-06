@@ -497,38 +497,7 @@ private struct DownloadedItemRow: View {
     }
 }
 
-/// Row for navigating to the Pending Mutations screen
-private struct PendingChangesRow: View {
-    let count: Int
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "clock.arrow.circlepath")
-                .frame(width: 24)
-                .foregroundColor(.orange)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Pending Changes")
-                    .font(.body)
-                Text("Offline edits waiting to sync")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Text("\(count)")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(Color.orange)
-                .clipShape(Capsule())
-        }
-        .padding(.vertical, 4)
-    }
-}
+// PendingChangesRow is now a shared component in Components/PendingChangesRow.swift
 
 /// Shows a spinner + progress bar while a target is being removed
 private struct RemovalProgressRow: View {
