@@ -55,6 +55,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Workaround:** Extension writes playback payload to App Group and posts a Darwin notification; app listens for the notification and executes playback directly, bypassing the broken `handle()` flow.
 - **Key files:** `PlayMediaIntentHandler.swift` (confirm + Darwin post), `AppDelegate.swift` (Darwin listener)
 
+### Downloaded Tracks Unplayable After App Reinstall
+- **Resolved (March 5, 2026)**
+- **Issue:** iOS changes the app sandbox UUID on every reinstall/rebuild. Absolute paths stored in `CDDownload.filePath` and `CDTrack.localFilePath` became invalid, causing "cannot play non-downloaded tracks" errors even though files still existed on disk.
+- **Fix:** Store only filenames in CoreData (not absolute paths). Resolve filename → absolute path at the model mapping boundary (`Track(from: CDTrack)`, `Download(from: CDDownload)`). Legacy absolute paths are migrated to filenames on first `fetchDownloads()`.
+- **Key files:** `DownloadManager.swift` (filename storage, `absolutePath(forFilename:)`, `extractFilename(from:)`), `ModelMappers.swift` (resolution at mapping boundary), `OfflineDownloadService.swift` (stores `.lastPathComponent`)
+
 ### Infrastructure
 - **Legacy CocoaPods Cleanup** -- Removed unused `ios/Pods/` directory
 
