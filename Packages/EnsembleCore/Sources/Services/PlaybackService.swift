@@ -198,15 +198,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let wifiOrWired = PlaybackBufferingProfile(
             waitsToMinimizeStalling: false,
             preferredForwardBufferDuration: 8,
-            prefetchDepth: 1,
+            prefetchDepth: 2,
             stallRecoveryTimeout: 8,
             label: "wifi/wired"
         )
 
         static let cellularOrOther = PlaybackBufferingProfile(
-            waitsToMinimizeStalling: false,
-            preferredForwardBufferDuration: 6,
-            prefetchDepth: 1,
+            waitsToMinimizeStalling: true,
+            preferredForwardBufferDuration: 18,
+            prefetchDepth: 2,
             stallRecoveryTimeout: 12,
             label: "cellular/other"
         )
@@ -214,7 +214,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let conservative = PlaybackBufferingProfile(
             waitsToMinimizeStalling: true,
             preferredForwardBufferDuration: 20,
-            prefetchDepth: 1,
+            prefetchDepth: 2,
             stallRecoveryTimeout: 15,
             label: "conservative"
         )
@@ -763,6 +763,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
 
+    // Wall-clock based duration tracking: AVPlayer's reported position can diverge from
+    // the actual audio playhead after seeking on HTTP progressive downloads. We track
+    // wall-clock time elapsed since the last seek to detect when playback should have
+    // ended, regardless of what AVPlayer reports.
+    private var seekCompletedAt: Date?
+    private var remainingDurationAtSeek: TimeInterval?
+    private var hasTriggeredWallClockBoundary = false
+
 
     public var historyPublisher: AnyPublisher<[QueueItem], Never> { $playbackHistory.eraseToAnyPublisher() }
 
@@ -913,11 +921,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
     
-    /// Called from the currentItem KVO observer (already dispatched to DispatchQueue.main).
-    /// State updates MUST happen synchronously here — deferring via Task { @MainActor }
-    /// creates a window where audio has advanced but currentTrack/NowPlayingInfo are stale,
-    /// causing wrong track display on lock screen, -0:00 remaining time, and broken
-    /// background advancement.
     private func handleItemChange(_ item: AVPlayerItem) {
         // Seeks should only apply to the previously active item. Clear stale seek gating
         // immediately when AVQueuePlayer advances to a different item.
@@ -940,36 +943,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Reset backward navigation flag
                     isNavigatingBackward = false
 
+                    // Batch state updates to prevent multiple Combine publications
                     let newTrack = queue[index].track
 
-                    // Update state synchronously — we're already on the main thread from the
-                    // KVO observer's DispatchQueue.main.async dispatch. Deferring these updates
-                    // via Task causes the time observer to report the new track's playhead
-                    // while currentTrack/duration still reference the old track.
-                    currentQueueIndex = index
-                    currentTrack = newTrack
-                    currentTime = 0
-                    bufferedProgress = 0
-                    waveformHeights = []
+                    // Update all state in a single transaction
+                    Task { @MainActor in
+                        self.currentQueueIndex = index
+                        self.currentTrack = newTrack
+                        self.currentTime = 0
+                        self.bufferedProgress = 0
+                        self.waveformHeights = []
 
-                    // Reset timeline tracking for new track
-                    lastTimelineReportTime = 0
-                    hasScrobbled = false
-                    hasLoggedDurationOverrun = false
+                        // Reset timeline tracking for new track
+                        self.lastTimelineReportTime = 0
+                        self.hasScrobbled = false
+                        self.hasLoggedDurationOverrun = false
 
+                        // Reset wall-clock duration tracking for new track
+                        self.seekCompletedAt = nil
+                        self.remainingDurationAtSeek = nil
+                        self.hasTriggeredWallClockBoundary = false
 
-                    // Update NowPlayingInfo synchronously so lock screen updates immediately,
-                    // even when the app is backgrounded.
-                    generateWaveform(for: newTrack.id)
-                    updateNowPlayingInfo()
-                    savePlaybackState()
+                        // Non-state-changing operations
+                        self.generateWaveform(for: newTrack.id)
+                        self.updateNowPlayingInfo()
+                        self.savePlaybackState()
 
-                    // Async operations (network-dependent) must run on MainActor
-                    // because prefetchUpcomingItems reads queue/currentQueueIndex
-                    // and manipulates AVQueuePlayer.
-                    Task { @MainActor [weak self] in
-                        await self?.prefetchNextItem()
-                        await self?.checkAndRefreshAutoplayQueue()
+                        // Pre-fetch next item for gapless
+                        await self.prefetchNextItem()
+
+                        // Check if we need to refresh autoplay queue
+                        await self.checkAndRefreshAutoplayQueue()
                     }
                 } else if repeatMode == .one {
                     // Handle repeat.one where the track ID and index are the same,
@@ -978,13 +982,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("↻ Repeating track due to repeat.one mode")
                     #endif
 
-                    // Reset timeline tracking synchronously
-                    lastTimelineReportTime = 0
-                    hasScrobbled = false
+                    Task { @MainActor in
+                        // Reset timeline tracking for the repeat
+                        self.lastTimelineReportTime = 0
+                        self.hasScrobbled = false
 
-                    // Queue the next repeat item asynchronously
-                    Task { @MainActor [weak self] in
-                        await self?.prefetchNextItem()
+                        // Queue it again for the next repeat
+                        await self.prefetchNextItem()
                     }
                 }
             }
@@ -1895,6 +1899,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime = 0
         bufferedProgress = 0
         consecutivePlaybackFailures = 0
+        seekCompletedAt = nil
+        remainingDurationAtSeek = nil
+        hasTriggeredWallClockBoundary = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
     }
@@ -2073,6 +2080,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         }
                     }
                 }
+
+                // For network streams, start wall-clock tracking to detect when playback
+                // should end. AVPlayer's reported position can diverge from actual audio
+                // playhead after seeking with tolerance on HTTP progressive downloads.
+                if source == .networkStream && finished {
+                    let effectiveDur = self.duration
+                    if effectiveDur > 0 && clampedTime < effectiveDur {
+                        self.seekCompletedAt = Date()
+                        self.remainingDurationAtSeek = effectiveDur - clampedTime
+                        self.hasTriggeredWallClockBoundary = false
+                        #if DEBUG
+                        EnsembleLogger.debug("SCRUBBER_DIAG: wall-clock tracking started — remaining=\(String(format: "%.1f", effectiveDur - clampedTime))s")
+                        #endif
+                    }
+                }
+
                 self.clearActiveSeek()
             }
         }
@@ -3947,18 +3970,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) { [weak self] time in
             guard let self = self else { return }
 
-            // Safety net: detect if the player's current item no longer matches our
-            // tracked currentTrack. This can happen if a KVO notification was dropped
-            // or delayed (e.g. background execution). Correct the state synchronously.
-            if let currentItem = self.player?.currentItem,
-               let pair = self.playerItems.first(where: { $0.value === currentItem }),
-               pair.key != self.currentTrack?.id {
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ Time observer detected stale track state — player item '\(pair.key)' != currentTrack '\(self.currentTrack?.id ?? "nil")'. Correcting.")
-                #endif
-                self.handleItemChange(currentItem)
-            }
-
             if let seek = self.activeSeek {
                 if seek.trackID != nil && seek.trackID != self.currentTrack?.id {
                     // Track switched while seek was in flight; clear stale seek gating.
@@ -3986,6 +3997,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("SCRUBBER_DIAG: seek gate released — target=\(String(format: "%.1f", seek.targetTime))s, observed=\(String(format: "%.1f", observedTime))s, actualPlayerTime=\(String(format: "%.1f", actualPlayerTime))s, itemDuration=\(String(format: "%.1f", itemDurNow))s")
                     #endif
                     self.clearActiveSeek()
+                }
+            }
+
+            // Wall-clock based end-of-track detection: AVPlayer's reported position can
+            // diverge from actual audio playhead after seeking on HTTP progressive downloads.
+            // We track wall-clock time elapsed since seek to detect when playback should
+            // have ended, regardless of what AVPlayer reports.
+            if !self.hasTriggeredWallClockBoundary,
+               let seekTime = self.seekCompletedAt,
+               let remaining = self.remainingDurationAtSeek,
+               remaining > 0 {
+                let elapsed = Date().timeIntervalSince(seekTime)
+                // Add 1s grace period to account for timing imprecision
+                if elapsed > remaining + 1.0 {
+                    self.hasTriggeredWallClockBoundary = true
+                    #if DEBUG
+                    EnsembleLogger.debug("SCRUBBER_DIAG: wall-clock boundary triggered — elapsed=\(String(format: "%.1f", elapsed))s, expected remaining=\(String(format: "%.1f", remaining))s, advancing track")
+                    #endif
+                    Task { @MainActor [weak self] in
+                        await self?.handleQueueExhausted()
+                    }
+                    return
                 }
             }
 
@@ -4849,6 +4882,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         lastTimelineReportTime = 0
         hasScrobbled = false
         hasLoggedDurationOverrun = false
+        seekCompletedAt = nil
+        remainingDurationAtSeek = nil
+        hasTriggeredWallClockBoundary = false
         autoGeneratedTrackIds.removeAll()
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
