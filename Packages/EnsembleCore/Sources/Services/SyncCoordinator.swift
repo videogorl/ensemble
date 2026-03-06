@@ -630,6 +630,9 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.debug("⏱️ SyncCoordinator: playlist phase took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistPhaseStart))s")
             #endif
 
+            // Cache playlist composite artwork so it's always available offline
+            await cachePlaylistArtwork(sourceId: source, provider: provider)
+
             // Notify playlist views that data may have changed (incremental sync includes playlists)
             let serverSourceKey = "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
             onPlaylistRefreshCompleted?(serverSourceKey)
@@ -683,6 +686,8 @@ public final class SyncCoordinator: ObservableObject {
                     to: playlistRepository,
                     progressHandler: { _ in }
                 )
+                // Cache playlist composite artwork so it's always available offline
+                await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
                 onPlaylistRefreshCompleted?("plex:\(sourceId.accountId):\(sourceId.serverId)")
             } catch {
                 #if DEBUG
@@ -1519,27 +1524,35 @@ public final class SyncCoordinator: ObservableObject {
             }
 
             // --- Playlists (progress 88–96%) ---
-            let sourcePlaylists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceId.compositeKey)
+            // Reuse the shared playlist artwork caching helper
+            await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
 
             #if DEBUG
-            EnsembleLogger.debug("📸 Pre-caching artwork for \(sourcePlaylists.count) playlists")
+            EnsembleLogger.debug("✅ Cached artworks: \(albumsCached) albums, \(artistsCached) artists + playlists")
             #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed to cache artwork: \(error)")
+            #endif
+        }
+    }
 
-            var playlistsCached = 0
-            for (index, playlist) in sourcePlaylists.enumerated() {
-                let artworkProgress = 0.88 + (0.08 * Double(index) / Double(max(sourcePlaylists.count, 1)))
-                let currentConnectionState = sourceStatuses[sourceId]?.connectionState ?? .unknown
-                sourceStatuses[sourceId] = MusicSourceStatus(
-                    syncStatus: .syncing(progress: artworkProgress),
-                    connectionState: currentConnectionState
-                )
+    /// Cache composite artwork for all playlists belonging to a source.
+    /// Lightweight — skips playlists that already have cached artwork on disk.
+    /// Called after every playlist sync (full and incremental) so artwork is
+    /// always available offline.
+    private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+        do {
+            let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceId.compositeKey)
+            var cached = 0
 
+            for playlist in playlists {
+                // Skip if already cached on disk
                 if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
                    FileManager.default.fileExists(atPath: localPath) {
                     continue
                 }
 
-                // Plex playlists use compositePath for their composite cover artwork
                 guard let thumbPath = playlist.compositePath,
                       let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
                     continue
@@ -1549,20 +1562,22 @@ public final class SyncCoordinator: ObservableObject {
                     try await artworkDownloadManager.downloadAndCacheArtwork(
                         from: artworkURL, ratingKey: playlist.ratingKey, type: .playlist
                     )
-                    playlistsCached += 1
+                    cached += 1
                 } catch {
                     #if DEBUG
-                    EnsembleLogger.debug("Failed to cache artwork for playlist \(playlist.title): \(error)")
+                    EnsembleLogger.debug("⚠️ Failed to cache artwork for playlist \(playlist.title): \(error.localizedDescription)")
                     #endif
                 }
             }
 
             #if DEBUG
-            EnsembleLogger.debug("✅ Cached artworks: \(albumsCached) albums, \(artistsCached) artists, \(playlistsCached) playlists")
+            if cached > 0 {
+                EnsembleLogger.debug("🖼️ Cached artwork for \(cached) playlists (\(sourceId.compositeKey))")
+            }
             #endif
         } catch {
             #if DEBUG
-            EnsembleLogger.debug("❌ Failed to cache artwork: \(error)")
+            EnsembleLogger.debug("⚠️ Failed to fetch playlists for artwork caching: \(error.localizedDescription)")
             #endif
         }
     }
@@ -1710,6 +1725,8 @@ public final class SyncCoordinator: ObservableObject {
                 }
             }
             if didRefresh {
+                // Cache playlist artwork after mutations (e.g. new playlist created)
+                await cachePlaylistArtwork(sourceId: provider.sourceIdentifier, provider: provider)
                 onPlaylistRefreshCompleted?(serverSourceKey)
                 NotificationCenter.default.post(
                     name: Self.playlistsDidRefresh,
@@ -2423,6 +2440,8 @@ public final class SyncCoordinator: ObservableObject {
                 to: playlistRepository,
                 progressHandler: { _ in }
             )
+            // Cache playlist artwork so it's always available offline
+            await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
             let serverSourceKey = "plex:\(sourceId.accountId):\(sourceId.serverId)"
             #if DEBUG
             EnsembleLogger.debug("🔌 SyncCoordinator: Playlist sync completed for server \(serverKey), posting notification")
