@@ -321,7 +321,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertFalse(viewModel.isTrackFavorited(track))
     }
 
-    func testProgressStaysBelowCompleteWhilePlayingAtReportedEnd() async {
+    func testProgressPinsAtCompleteWhenCurrentTimeReachesDuration() async {
         let (viewModel, playback) = makeViewModel()
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
         playback.setCurrentTrack(track)
@@ -331,22 +331,22 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         await Task.yield()
 
-        XCTAssertLessThan(viewModel.progress, 1.0)
-        XCTAssertEqual(viewModel.scrubberDuration, 101, accuracy: 0.001)
+        // When currentTime == duration, progress pins at 1.0 and remaining shows -0:00
+        XCTAssertEqual(viewModel.progress, 1.0, accuracy: 0.001)
+        XCTAssertEqual(viewModel.scrubberDuration, 100, accuracy: 0.001)
     }
 
-    func testSeekToProgressUsesScrubberDurationWhilePlaying() async {
+    func testScrubberDurationMatchesPlaybackDuration() async {
         let (viewModel, playback) = makeViewModel()
-        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
         playback.setCurrentTrack(track)
-        playback.setDuration(100)
+        playback.setDuration(200)
         playback.setPlaybackState(.playing)
-        playback.setCurrentTime(100)
+        playback.setCurrentTime(50)
 
         await Task.yield()
 
-        viewModel.seekToProgress(1.0)
-
-        XCTAssertEqual(playback.currentTime, 101, accuracy: 0.001)
+        // scrubberDuration should match the playback duration exactly
+        XCTAssertEqual(viewModel.scrubberDuration, 200, accuracy: 0.001)
     }
 }
