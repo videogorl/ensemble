@@ -185,7 +185,8 @@ final class PlaybackServiceTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(profile, .conservative)
-        XCTAssertEqual(profile.prefetchDepth, 0)
+        // Conservative keeps prefetchDepth=1 to preserve gapless transitions
+        XCTAssertEqual(profile.prefetchDepth, 1)
     }
 
     func testResolvedBufferingProfileFallsBackToBaseProfileAfterEscalationExpires() {

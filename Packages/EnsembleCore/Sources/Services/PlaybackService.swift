@@ -214,7 +214,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let conservative = PlaybackBufferingProfile(
             waitsToMinimizeStalling: true,
             preferredForwardBufferDuration: 20,
-            prefetchDepth: 0,
+            prefetchDepth: 1,
             stallRecoveryTimeout: 15,
             label: "conservative"
         )
@@ -3967,6 +3967,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     // Once observer time catches up (or the guard times out),
                     // clear synchronization and resume normal progress updates.
+                    #if DEBUG
+                    EnsembleLogger.debug("SCRUBBER_DIAG: seek gate released — target=\(String(format: "%.1f", seek.targetTime))s, observed=\(String(format: "%.1f", observedTime))s")
+                    #endif
                     self.clearActiveSeek()
                 }
             }
@@ -3975,23 +3978,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // so the scrubber accounts for actual stream length after seeking.
             let rawTime = time.seconds
             self.currentTime = rawTime
+
+            #if DEBUG
+            // Log once per track when durations diverge (filter: SCRUBBER_DIAG)
+            if !self.hasLoggedDurationOverrun,
+               rawTime > 5,
+               let track = self.currentTrack {
+                self.hasLoggedDurationOverrun = true
+                let metaDur = track.duration
+                let itemDur = self.player?.currentItem?.duration.seconds
+                let itemStr = itemDur.map { String(format: "%.2f", $0) } ?? "nil"
+                let effDur = self.duration
+                EnsembleLogger.debug("SCRUBBER_DIAG: track='\(track.title)' metadata=\(String(format: "%.2f", metaDur))s item=\(itemStr)s effective=\(String(format: "%.2f", effDur))s")
+            }
+            #endif
             self.updateBufferedProgress()
             self.updateNowPlayingProgress()
 
-            // Log duration diagnostics once when playback exceeds metadata duration.
-            // Filter logs by "DURATION_DIAG" to isolate these.
-            #if DEBUG
-            if !self.hasLoggedDurationOverrun,
-               let track = self.currentTrack,
-               rawTime > 0,
-               track.duration > 0,
-               rawTime > track.duration {
-                self.hasLoggedDurationOverrun = true
-                let itemDur = self.player?.currentItem?.duration.seconds
-                let itemDurStr = itemDur.map { String(format: "%.2f", $0) } ?? "nil"
-                EnsembleLogger.debug("DURATION_DIAG overrun: track='\(track.title)' metadataDuration=\(String(format: "%.2f", track.duration))s itemDuration=\(itemDurStr)s currentTime=\(String(format: "%.2f", rawTime))s")
-            }
-            #endif
+            // (Duration diagnostics merged into SCRUBBER_DIAG above)
 
             // Report timeline to Plex every 10 seconds when playing
             if self.playbackState == .playing,
