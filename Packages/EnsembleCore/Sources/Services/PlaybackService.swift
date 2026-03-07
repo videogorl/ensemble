@@ -3302,6 +3302,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
+        // For downloaded transcode files (file:// URLs), set forwardPlaybackEndTime to
+        // the metadata duration. VBR MP3 files from PMS lack XING/LAME headers, causing
+        // AVPlayer to wildly overestimate duration. Without this, AVPlayer tries to read
+        // past actual audio data end, triggers FigFilePlayer errors, and introduces gaps
+        // during gapless transitions. This tells AVPlayer exactly when to stop and advance.
+        if streamURL.isFileURL && track.duration > 0 {
+            item.forwardPlaybackEndTime = CMTime(seconds: track.duration, preferredTimescale: 600)
+        }
+
         #if DEBUG
         EnsembleLogger.debug(
             "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s"
