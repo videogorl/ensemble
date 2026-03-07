@@ -161,7 +161,7 @@ Persistent artwork caching that survives app restarts:
    - Falls back to network fetch via `SyncCoordinator` if not cached
    - `predownloadArtwork()` methods for batch downloading during sync
    - Configures Nuke's `ImagePipeline` with 100MB disk cache
-   - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + Nuke cache and posts `artworkDidInvalidate` notification
+   - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + targeted Nuke cache eviction (per ratingKey via `ArtworkURLTracker`) and posts `artworkDidInvalidate` notification
 
 3. **ArtworkView** (`EnsembleUI`) -- SwiftUI component
    - Passes `ratingKey` to enable local cache lookups
@@ -321,7 +321,7 @@ Multi-layered network resilience spanning endpoint management, push-based update
 
 ### Endpoint Truth -- ServerConnectionRegistry
 - **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
-- `PlexAPIClient` reports successful failover results back to the registry so all consumers share the latest healthy endpoint.
+- `PlexAPIClient` seeds the registry on init with the first discovered endpoint, and reports failover results back so all consumers share the latest healthy endpoint.
 - `ServerHealthChecker` writes probe results into the registry after health checks.
 - `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
 - `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
@@ -350,9 +350,9 @@ Multi-layered network resilience spanning endpoint management, push-based update
 - Auto-resume playback when `ServerHealthChecker` completes a successful health check.
 
 ### Unified Error Taxonomy -- PlexErrorClassification
-- **`PlexErrorClassification`** (`EnsembleAPI`) -- Classifies errors as transport (retryable/failover-eligible) vs. semantic (not retryable) for consistent failover and retry decisions.
+- **`PlexErrorClassification`** (`EnsembleAPI`) -- Classifies errors as transport (retryable/failover-eligible), rate-limited (retryable, no failover), or semantic (not retryable). HTTP 429 is classified as `.rateLimited`.
 - `PlexAPIClient` uses `PlexErrorClassification` for failover gating instead of ad-hoc status code checks.
-- `MutationCoordinator` uses it to decide which failed mutations to queue for retry vs. discard.
+- `MutationCoordinator` uses it to decide which failed mutations to queue for retry vs. discard. `drainQueue()` applies exponential backoff (capped at 30s) after 2+ consecutive failures and breaks out after 5.
 
 ### Scrobble Queuing
 - `MutationCoordinator` now queues failed scrobble calls as `CDPendingMutation` (`.scrobble` type).
