@@ -1284,7 +1284,12 @@ public actor PlexAPIClient {
         )
 
         #if DEBUG
-        EnsembleLogger.debug("🔗 Download URL built (manual encoding)")
+        // Log the full URL for debugging (debug builds only, local logs)
+        let urlStr = url.absoluteString
+        EnsembleLogger.debug("🔗 Full download URL (\(urlStr.count) chars): \(urlStr.prefix(600))")
+        if urlStr.count > 600 {
+            EnsembleLogger.debug("🔗 URL cont: \(urlStr.dropFirst(600).prefix(600))")
+        }
         #endif
 
         // Download the stream via URLSession.data (handles chunked encoding correctly).
