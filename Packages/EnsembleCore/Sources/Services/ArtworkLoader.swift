@@ -21,6 +21,30 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private static let asyncArtworkURLCacheTTL: TimeInterval = 5
     private static let legacyArtworkURLCacheTTL: TimeInterval = 60
     
+    /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
+    /// instead of wiping the entire pipeline cache when a single artwork changes.
+    private actor ArtworkURLTracker {
+        private var urlsByRatingKey: [String: Set<URL>] = [:]
+
+        func record(url: URL, forRatingKey ratingKey: String) {
+            urlsByRatingKey[ratingKey, default: []].insert(url)
+        }
+
+        func urls(forRatingKey ratingKey: String) -> Set<URL> {
+            urlsByRatingKey[ratingKey] ?? []
+        }
+
+        func clear(forRatingKey ratingKey: String) {
+            urlsByRatingKey.removeValue(forKey: ratingKey)
+        }
+
+        func clearAll() {
+            urlsByRatingKey.removeAll()
+        }
+    }
+
+    private let artworkURLTracker = ArtworkURLTracker()
+
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
         private struct Entry {
@@ -101,6 +125,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Called when server connection changes to clear stale URLs pointing to unreachable endpoints.
     public func invalidateURLCache() async {
         await urlCache.clearAll()
+        // Connection changed — all tracked URLs are stale
+        await artworkURLTracker.clearAll()
         #if DEBUG
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
         #endif
@@ -115,8 +141,18 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Remove the local file
         artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: type)
 
-        // Also evict from Nuke's image pipeline cache using ratingKey as best-effort key match
-        ImagePipeline.shared.cache.removeAll()
+        // Evict tracked URLs from Nuke's cache (targeted instead of clearing all)
+        let trackedURLs = await artworkURLTracker.urls(forRatingKey: ratingKey)
+        if !trackedURLs.isEmpty {
+            for url in trackedURLs {
+                let request = ImageRequest(url: url)
+                ImagePipeline.shared.cache.removeCachedImage(for: request)
+            }
+            await artworkURLTracker.clear(forRatingKey: ratingKey)
+        } else {
+            // No tracked URLs (edge case) — fall back to clearing all
+            ImagePipeline.shared.cache.removeAll()
+        }
 
         // Post notification so ArtworkView can re-trigger loads
         NotificationCenter.default.post(
@@ -149,6 +185,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
             
             if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
+                // Track the URL for targeted cache eviction on invalidation
+                if let ratingKey = Self.extractRatingKey(from: path) {
+                    await self.artworkURLTracker.record(url: url, forRatingKey: ratingKey)
+                }
                 await urlCache.set(cacheKey, url: url, ttl: Self.legacyArtworkURLCacheTTL)
             }
         }
@@ -231,6 +271,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             let label = usedFallback ? "Network fallback" : "Network"
             EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: \(label) URL - \(url.absoluteString)")
             #endif
+            // Track the URL for targeted cache eviction on invalidation
+            if let key = actualRatingKey {
+                await artworkURLTracker.record(url: url, forRatingKey: key)
+            }
             await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
             return url
         }
@@ -247,6 +291,16 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         return nil
     }
     
+    /// Extract ratingKey from an artwork path like `/library/metadata/{ratingKey}/thumb/...`
+    private static func extractRatingKey(from path: String) -> String? {
+        let components = path.split(separator: "/")
+        // Expected: ["library", "metadata", "{ratingKey}", "thumb", ...]
+        guard components.count >= 3,
+              components[0] == "library",
+              components[1] == "metadata" else { return nil }
+        return String(components[2])
+    }
+
     /// Look up locally cached artwork file for a given ratingKey.
     /// Checks album, artist, and playlist artwork caches in order.
     private func localCachedArtworkURL(ratingKey: String?) -> URL? {
