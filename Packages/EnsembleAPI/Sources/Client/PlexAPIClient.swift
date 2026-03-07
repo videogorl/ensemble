@@ -1230,19 +1230,14 @@ public actor PlexAPIClient {
         // Without this, PMS returns 400 on the start endpoint.
         try await callTranscodeDecision(queryItems: queryItems)
 
-        // Step 2: Build the start.mp3 URL
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        components.path = "/music/:/transcode/universal/start.mp3"
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
+        // Step 2: Build the start.mp3 URL with manual encoding (see buildTranscodeURL)
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
 
         #if DEBUG
-        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
+        EnsembleLogger.debug("✅ Created universal stream URL")
         #endif
 
         return url
@@ -1274,31 +1269,25 @@ public actor PlexAPIClient {
             sessionId: resolvedSessionId
         )
 
-        // Warm up the transcode session — PMS requires this before start.mp3
+        // Warm up the transcode session — PMS requires this before start.mp3.
+        // Decision tolerates URLComponents encoding, so it can use queryItems directly.
         try await callTranscodeDecision(queryItems: queryItems)
 
-        // Build the start.mp3 URL
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        components.path = "/music/:/transcode/universal/start.mp3"
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
+        // Build the start.mp3 URL with manual query encoding.
+        // URLComponents encodes `=` as `%3D` inside query values, but PMS's start.mp3
+        // endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
+        // (e.g., `type=musicProfile`). The decision endpoint tolerates %3D but start.mp3
+        // returns 400. We manually encode only `&` (as %26) and leave `=` literal.
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
 
         #if DEBUG
-        // Log full query params (without server URL prefix) to diagnose 400s
-        let paramStr = queryItems.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
-        EnsembleLogger.debug("🔗 Download params: \(paramStr.prefix(500))")
-        EnsembleLogger.debug("🔗 Download params (cont): \(paramStr.dropFirst(500).prefix(500))")
+        EnsembleLogger.debug("🔗 Download URL built (manual encoding)")
         #endif
 
-        // Download the stream to a temp file via URLSession.
-        // URLSession handles chunked encoding and Connection: close correctly.
-        // Use data(for:) instead of download(for:) to capture error body on failure,
-        // then write to file on success.
+        // Download the stream via URLSession.data (handles chunked encoding correctly).
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -1353,15 +1342,11 @@ public actor PlexAPIClient {
             sessionId: sessionId
         )
 
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        components.path = "/music/:/transcode/universal/start.mp3"
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
+        // Use manual encoding — see buildTranscodeURL for rationale
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
 
         #if DEBUG
         EnsembleLogger.debug("✅ Created universal download URL (no decision): \(url)")
@@ -1407,18 +1392,14 @@ public actor PlexAPIClient {
     /// Call the transcode decision endpoint to warm up the session.
     /// This must be called before start.mp3 or PMS returns 400.
     private func callTranscodeDecision(queryItems: [URLQueryItem]) async throws {
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        components.path = "/music/:/transcode/universal/decision"
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
+        // Use the same manual encoding as start.mp3 for consistency
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/decision",
+            queryItems: queryItems
+        )
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Calling transcode decision: \(url.absoluteString.prefix(300))")
+        EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
         #endif
 
         var request = URLRequest(url: url)
@@ -1445,6 +1426,30 @@ public actor PlexAPIClient {
         #if DEBUG
         EnsembleLogger.debug("✅ Transcode decision completed")
         #endif
+    }
+
+    /// Build a transcode URL with manual query encoding.
+    ///
+    /// PMS's start.mp3 endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
+    /// values (e.g., `type=musicProfile&context=streaming`). Swift's `URLComponents` encodes
+    /// `=` as `%3D` in query values, which the decision endpoint tolerates but start.mp3
+    /// rejects with 400. This method encodes only `&` (to `%26`) and percent-encodes spaces,
+    /// leaving `=`, `+`, `/`, and other characters that PMS expects literal.
+    private func buildTranscodeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        let query = queryItems.map { item -> String in
+            let value = item.value ?? ""
+            // Encode & as %26 to prevent splitting into separate params.
+            // Encode spaces as %20. Leave = + / literal (PMS expects them).
+            let encoded = value
+                .replacingOccurrences(of: "&", with: "%26")
+                .replacingOccurrences(of: " ", with: "%20")
+            return "\(item.name)=\(encoded)"
+        }.joined(separator: "&")
+
+        guard let url = URL(string: "\(currentServerURL)\(path)?\(query)") else {
+            throw PlexAPIError.invalidURL
+        }
+        return url
     }
 
     private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {
