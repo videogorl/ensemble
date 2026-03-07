@@ -1181,92 +1181,71 @@ public actor PlexAPIClient {
     /// Generate streaming URL for a track using universal transcode endpoint
     /// This endpoint works for both Plex Pass and non-Plex Pass users by intelligently
     /// choosing between direct play, direct stream, or transcode based on server capabilities
+    /// Get a universal stream URL for a track.
+    /// Delegates to the ratingKey overload which handles the decision endpoint call.
     public func getUniversalStreamURL(
         for track: PlexTrack,
         quality: StreamingQuality = .original,
         sessionId: String? = nil
-    ) throws -> URL {
+    ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL: \(track.title) [quality: \(quality.rawValue)]")
         #endif
-        
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        
-        // Use Plex's universal transcode endpoint. The extension doesn't determine the output
-        // format — that's controlled by the audioCodec query parameter and profile extra.
-        components.path = "/music/:/transcode/universal/start.mp3"
-
-        let resolvedSessionId = sessionId ?? UUID().uuidString
-        var queryItems: [URLQueryItem] = [
-            // Path to the media item
-            URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
-
-            // Protocol for streaming - http for simple progressive download
-            URLQueryItem(name: "protocol", value: "http"),
-
-            // Media type
-            URLQueryItem(name: "mediaIndex", value: "0"),
-            URLQueryItem(name: "partIndex", value: "0"),
-
-            // Authentication
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
-        ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
-
-        // Quality-specific bitrate hints. The base params already include
-        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
-        // these to 0 because that removes PMS's ability to fall back to direct
-        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
-        // Bitrate hints are "best effort": PMS transcodes if it can, direct
-        // streams the original codec if it can't.
-        switch quality {
-        case .original:
-            break
-        case .high:
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-        case .medium:
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-        case .low:
-            queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
-            queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
-        }
-        
-        components.queryItems = queryItems
-        
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
-        
-        #if DEBUG
-        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
-        #endif
-        
-        return url
+        return try await getUniversalStreamURL(
+            ratingKey: track.ratingKey,
+            quality: quality,
+            sessionId: sessionId
+        )
     }
 
-    /// Convenience overload that builds a universal stream URL from a rating key string.
-    /// Used by the playback path where only the rating key is available (no full PlexTrack).
+    /// Get a universal stream URL for a track, warming up the transcode session first.
+    /// The decision endpoint MUST be called before start.mp3 or PMS returns 400.
+    /// Get a universal stream URL for a track, warming up the transcode session first.
+    /// The decision endpoint MUST be called before start.mp3 or PMS returns 400.
     public func getUniversalStreamURL(
         ratingKey: String,
         quality: StreamingQuality = .original,
         sessionId: String? = nil
-    ) throws -> URL {
+    ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
         #endif
 
+        let resolvedSessionId = sessionId ?? UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId
+        )
+
+        // Step 1: Call the decision endpoint to warm up the transcode session.
+        // Without this, PMS returns 400 on the start endpoint.
+        try await callTranscodeDecision(queryItems: queryItems)
+
+        // Step 2: Build the start.mp3 URL
         guard var components = URLComponents(string: currentServerURL) else {
             throw PlexAPIError.invalidURL
         }
-
         components.path = "/music/:/transcode/universal/start.mp3"
+        components.queryItems = queryItems
 
-        let resolvedSessionId = sessionId ?? UUID().uuidString
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
+        #endif
+
+        return url
+    }
+
+    /// Build query items for universal transcode endpoints (shared by decision and start).
+    private func buildUniversalStreamQueryItems(
+        ratingKey: String,
+        quality: StreamingQuality,
+        sessionId: String
+    ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
             URLQueryItem(name: "protocol", value: "http"),
@@ -1275,14 +1254,9 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
 
-        // Quality-specific bitrate hints. The base params already include
-        // directPlay=0, directStream=1, directStreamAudio=1 — we never override
-        // these to 0 because that removes PMS's ability to fall back to direct
-        // streaming when transcoding isn't available (e.g. non-Plex Pass servers).
-        // Bitrate hints are "best effort": PMS transcodes if it can, direct
-        // streams the original codec if it can't.
+        // Quality-specific bitrate hints.
         switch quality {
         case .original:
             break
@@ -1297,6 +1271,16 @@ public actor PlexAPIClient {
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
         }
 
+        return queryItems
+    }
+
+    /// Call the transcode decision endpoint to warm up the session.
+    /// This must be called before start.mp3 or PMS returns 400.
+    private func callTranscodeDecision(queryItems: [URLQueryItem]) async throws {
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        components.path = "/music/:/transcode/universal/decision"
         components.queryItems = queryItems
 
         guard let url = components.url else {
@@ -1304,10 +1288,32 @@ public actor PlexAPIClient {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
+        EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
         #endif
 
-        return url
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let (_, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PlexAPIError.invalidResponse
+        }
+
+        // Accept 200 (success) or 400 (decision made but may be "cannot transcode")
+        // The important thing is the session is now warmed up
+        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 400 else {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
+            #endif
+            throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Transcode decision completed")
+        #endif
     }
 
     private func transcodeClientQueryItems(sessionId: String) -> [URLQueryItem] {

@@ -156,6 +156,7 @@ Offline downloads now use target-based management with source-safe reconciliatio
 Streaming now uses Plex's universal transcode endpoint with quality settings support, fixing playback for non-Plex Pass accounts:
 
 - **Universal endpoint:** All streaming routes through `/music/:/transcode/universal/start.mp3` with `protocol=http` (progressive download). Falls back to direct file URLs if the universal endpoint fails (URL construction error).
+- **Decision endpoint required:** The `/music/:/transcode/universal/decision` endpoint MUST be called before `/start.mp3` to warm up the transcode session. Without this, PMS returns 400. The `getUniversalStreamURL()` method handles this automatically.
 - **Quality-aware routing:** "Original" quality uses `directPlay=0&directStream=1` (PMS direct-streams original codec through its pipeline); reduced qualities add `musicBitrate`/`audioBitrate` params and PMS transcodes to MP3 at the target bitrate.
 - **Non-Plex Pass fix:** Direct file URLs were cut off at ~655KB for non-Plex Pass users; universal endpoint streams through PMS's pipeline and works for all account types.
 - **Quality mapping:** original=direct-stream, high=320kbps MP3, medium=192kbps MP3, low=128kbps MP3.
@@ -163,7 +164,7 @@ Streaming now uses Plex's universal transcode endpoint with quality settings sup
 - **Settings integration:** `streamingQuality` AppStorage value (from Settings -> Audio Quality) is respected during playback via `PlexMusicSourceSyncProvider.getStreamURL()`.
 
 **Key files:**
-- `PlexAPIClient.swift` - `StreamingQuality` enum, `getUniversalStreamURL()` method, `transcodeClientProfileExtra()`
+- `PlexAPIClient.swift` - `StreamingQuality` enum, `getUniversalStreamURL()` method, `callTranscodeDecision()`, `transcodeClientProfileExtra()`
 - `PlexMusicSourceSyncProvider.swift` - quality-aware routing through universal endpoint with direct-stream fallback
 - `SyncCoordinator.swift` - quality parameter routing to provider
 - `PlaybackService.swift` - reads `streamingQuality` from UserDefaults and passes to stream URL generation
