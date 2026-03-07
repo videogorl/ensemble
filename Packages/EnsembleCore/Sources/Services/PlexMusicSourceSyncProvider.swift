@@ -675,6 +675,43 @@ public func getStreamURL(
         return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 
+    /// Get a download URL for offline use. Skips the transcode decision endpoint
+    /// since URLSession downloads don't need session warmup.
+    /// Falls back to the direct file URL if universal URL construction fails.
+    public func getDownloadURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality
+    ) async throws -> URL {
+        // Try the universal download URL (no decision call)
+        do {
+            let url = try await apiClient.getUniversalDownloadURL(
+                ratingKey: trackRatingKey,
+                quality: quality
+            )
+            #if DEBUG
+            EnsembleLogger.debug("🎵 PlexProvider: Using universal download URL (quality=\(quality.rawValue))")
+            #endif
+            return url
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ PlexProvider: Universal download URL failed: \(error). Falling back to direct stream.")
+            #endif
+        }
+
+        // Fallback: direct file URL (always original quality)
+        if let trackStreamKey, !trackStreamKey.isEmpty {
+            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
+        }
+
+        // Last resort: fetch track metadata for stream key
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
+            throw PlexAPIError.invalidURL
+        }
+        return try await apiClient.getStreamURL(trackKey: streamKey)
+    }
+
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
         try await apiClient.getArtworkURL(path: path, size: size)
     }

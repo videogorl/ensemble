@@ -1193,6 +1193,31 @@ public final class SyncCoordinator: ObservableObject {
         throw PlexAPIError.noServerSelected
     }
 
+    /// Get a download URL for offline use, skipping the transcode decision endpoint.
+    /// Routes through the provider's dedicated download path which avoids the unnecessary
+    /// HTTP roundtrip that the streaming path requires for AVPlayer session warmup.
+    public func getDownloadURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
+        if let sourceKey = await resolvedTrackSourceCompositeKey(for: track),
+           let provider = syncProviders[sourceKey] as? PlexMusicSourceSyncProvider {
+            return try await provider.getDownloadURL(
+                for: track.id,
+                trackStreamKey: track.streamKey,
+                quality: quality
+            )
+        }
+
+        // Fallback: try any available provider
+        if let provider = syncProviders.values.first as? PlexMusicSourceSyncProvider {
+            return try await provider.getDownloadURL(
+                for: track.id,
+                trackStreamKey: track.streamKey,
+                quality: quality
+            )
+        }
+
+        throw PlexAPIError.noServerSelected
+    }
+
     /// Get a quality-aware universal stream URL for offline downloading.
     /// Playback should continue using direct stream URLs for AVPlayer compatibility.
     public func getOfflineDownloadURL(for track: Track, quality: StreamingQuality) async throws -> URL {

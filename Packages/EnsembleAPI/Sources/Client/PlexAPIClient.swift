@@ -1248,6 +1248,37 @@ public actor PlexAPIClient {
         return url
     }
 
+    /// Build a universal download URL for offline use, skipping the decision endpoint.
+    /// The decision call is only needed for AVPlayer streaming (session warmup); URLSession
+    /// downloads work without it, saving an unnecessary HTTP roundtrip per download.
+    public func getUniversalDownloadURL(
+        ratingKey: String,
+        quality: StreamingQuality = .original
+    ) throws -> URL {
+        let sessionId = UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: sessionId
+        )
+
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        components.path = "/music/:/transcode/universal/start.mp3"
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal download URL (no decision): \(url)")
+        #endif
+
+        return url
+    }
+
     /// Build query items for universal transcode endpoints (shared by decision and start).
     private func buildUniversalStreamQueryItems(
         ratingKey: String,

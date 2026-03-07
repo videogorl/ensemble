@@ -894,7 +894,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             // Original quality or download queue failed — download the original file directly.
-            selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
+            selectedURL = try await syncCoordinator.getDownloadURL(for: domainTrack, quality: .original)
             selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             effectiveQuality = .original
 
