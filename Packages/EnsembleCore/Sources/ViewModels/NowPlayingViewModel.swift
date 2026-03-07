@@ -418,6 +418,11 @@ public final class NowPlayingViewModel: ObservableObject {
     public func togglePlayPause() {
         if isPlaying {
             playbackService.pause()
+        } else if case .failed = playbackState {
+            // When in failed state, tapping play retries the current track
+            Task {
+                await playbackService.retryCurrentTrack()
+            }
         } else {
             playbackService.resume()
         }

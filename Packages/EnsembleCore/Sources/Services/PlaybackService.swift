@@ -1045,29 +1045,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Circuit breaker: after multiple consecutive failures, scan for a playable track
-        // rather than stopping entirely. This handles cases where some tracks are from
-        // an offline server but others are downloaded or from a different (online) server.
-        if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
+        // If the track failed (not natural end-of-track), do NOT advance to the next song.
+        // The user tapped *this* track — they want to see the error, not a different song.
+        // They can manually retry, skip, or pick a new track.
+        if case .failed = playbackState {
             #if DEBUG
-            EnsembleLogger.debug("⛔ Circuit breaker triggered after \(consecutivePlaybackFailures) consecutive failures — scanning for playable track")
+            EnsembleLogger.debug("⏭️ Track is in failed state — staying on current track (no auto-advance)")
             #endif
-
-            // Scan remaining queue for a track with a local download
-            if let nextPlayable = findNextPlayableTrackIndex(after: currentQueueIndex) {
-                #if DEBUG
-                EnsembleLogger.debug("✅ Found playable track at index \(nextPlayable) — skipping to it")
-                #endif
-                consecutivePlaybackFailures = 0
-                currentQueueIndex = nextPlayable
-                await playCurrentQueueItem()
-                savePlaybackState()
-                return
-            }
-
-            // No playable tracks found — stop with message
-            player?.pause()
-            playbackState = .failed("No playable tracks available")
             return
         }
 
@@ -3141,8 +3125,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             consecutivePlaybackFailures += 1
         }
 
-        // Set failed state and pause player. handleQueueExhausted will pick up
-        // from here with the circuit breaker already armed.
+        // Set failed state and pause player. handleQueueExhausted will see
+        // the .failed state and stop — no auto-advance to the next track.
         player?.pause()
         let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
         playbackState = .failed(failureMessage ?? "Server is unavailable")
