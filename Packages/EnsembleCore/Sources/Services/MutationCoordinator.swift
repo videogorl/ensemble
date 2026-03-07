@@ -350,11 +350,33 @@ public final class MutationCoordinator: ObservableObject {
             EnsembleLogger.debug("📬 MutationCoordinator: Draining \(mutations.count) mutations")
             #endif
 
+            var consecutiveFailures = 0
+
             for mutation in mutations {
+                // If too many consecutive failures, stop draining — server is likely down.
+                // Queue will re-drain on next connectivity event.
+                if consecutiveFailures >= 5 {
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ MutationCoordinator: Stopping drain after \(consecutiveFailures) consecutive failures")
+                    #endif
+                    break
+                }
+
+                // Progressive backoff after 2+ consecutive failures
+                if consecutiveFailures >= 2 {
+                    let delaySeconds = min(Double(1 << consecutiveFailures), 30.0)
+                    #if DEBUG
+                    EnsembleLogger.debug("⏳ MutationCoordinator: Backoff \(delaySeconds)s before next drain attempt")
+                    #endif
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+
                 let success = await replayMutation(mutation)
                 if success {
                     try? await repository.deleteMutation(id: mutation.id)
+                    consecutiveFailures = 0
                 } else {
+                    consecutiveFailures += 1
                     try? await repository.incrementRetryCount(id: mutation.id)
                     if mutation.retryCount + 1 >= Self.maxRetries {
                         try? await repository.markFailed(id: mutation.id)

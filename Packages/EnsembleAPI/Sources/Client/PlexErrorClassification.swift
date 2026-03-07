@@ -11,6 +11,9 @@ public enum PlexErrorClassification: Sendable {
     /// Server error (5xx) — server is up but struggling. Safe to retry later.
     case serverError
 
+    /// Rate limited (429) — server is throttling requests. Safe to retry with backoff.
+    case rateLimited
+
     /// Semantic/client error (4xx, auth, decode) — do not retry.
     /// Includes: bad request, unauthorized, not found, decode failures.
     case semanticError
@@ -21,7 +24,7 @@ public enum PlexErrorClassification: Sendable {
     /// Whether this error class is safe to queue for retry.
     public var isRetryable: Bool {
         switch self {
-        case .connectionFailure, .serverError: return true
+        case .connectionFailure, .serverError, .rateLimited: return true
         case .semanticError, .cancelled: return false
         }
     }
@@ -29,6 +32,11 @@ public enum PlexErrorClassification: Sendable {
     /// Whether this error class should trigger endpoint failover.
     public var shouldFailover: Bool {
         self == .connectionFailure
+    }
+
+    /// Whether this error is a 429 rate-limit response.
+    public var isRateLimited: Bool {
+        self == .rateLimited
     }
 
     /// Classify an arbitrary Error into one of the four categories.
@@ -45,6 +53,9 @@ public enum PlexErrorClassification: Sendable {
             case .invalidResponse:
                 return .connectionFailure
             case .httpError(let statusCode):
+                if statusCode == 429 {
+                    return .rateLimited
+                }
                 if (500...599).contains(statusCode) {
                     return .serverError
                 }
