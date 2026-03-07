@@ -147,7 +147,13 @@ public actor ConnectionFailoverManager {
         // when an early exit is safe (no remaining probe could beat the current best).
         let bestPossibleClass = candidates.map(\.endpointClass).min() ?? .relay
 
-        let (selected, probes) = await withTaskGroup(of: ConnectionProbeResult.self) { group -> (PlexEndpointDescriptor?, [ConnectionProbeResult]) in
+        // Use Optional to distinguish real probe results from the grace-period
+        // deadline sentinel (nil). When a working endpoint is found but higher-priority
+        // probes are still pending, we inject a deadline task that fires after 0.5s.
+        // If nothing better arrives by then, we cancel remaining probes and return.
+        let gracePeriodNs: UInt64 = 500_000_000  // 0.5s
+
+        let (selected, probes) = await withTaskGroup(of: ConnectionProbeResult?.self) { group -> (PlexEndpointDescriptor?, [ConnectionProbeResult]) in
             for endpoint in candidates {
                 // Local endpoints respond in <100ms when reachable; use a shorter
                 // timeout to avoid blocking on unreachable LAN addresses.
@@ -159,8 +165,23 @@ public actor ConnectionFailoverManager {
 
             var collected: [ConnectionProbeResult] = []
             var bestSoFar: ConnectionProbeResult?
+            var graceTaskAdded = false
 
-            for await probe in group {
+            for await optionalProbe in group {
+                // nil = grace period deadline expired
+                guard let probe = optionalProbe else {
+                    if bestSoFar != nil {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar!.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
+                        )
+                        #endif
+                        group.cancelAll()
+                        break
+                    }
+                    continue
+                }
+
                 collected.append(probe)
 
                 if probe.success {
@@ -185,6 +206,16 @@ public actor ConnectionFailoverManager {
                         #endif
                         group.cancelAll()
                         break
+                    }
+
+                    // Inject a deadline task so we don't wait indefinitely for
+                    // higher-priority probes that may be timing out on unreachable hosts.
+                    if !graceTaskAdded {
+                        graceTaskAdded = true
+                        group.addTask {
+                            try? await Task.sleep(nanoseconds: gracePeriodNs)
+                            return nil  // Sentinel: grace period expired
+                        }
                     }
                 }
             }

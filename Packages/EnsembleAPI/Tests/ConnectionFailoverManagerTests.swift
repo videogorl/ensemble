@@ -295,6 +295,43 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         XCTAssertEqual(result.selected?.url, "https://local.example")
     }
 
+    func testGracePeriodExitsEarlyWhenLocalEndpointsAreUnreachable() async throws {
+        // Remote endpoint succeeds immediately; local endpoints are unreachable
+        // (long delay simulates timeout). The grace period should allow returning
+        // the remote result without waiting for local endpoints to fully timeout.
+        let network = DelayedHostNetwork(
+            statusCodesByHost: [
+                "remote.example": 200,
+                "slow-local-1.example": 500,  // Will fail after 5s delay
+                "slow-local-2.example": 500   // Will fail after 5s delay
+            ],
+            delaysByHost: [
+                "slow-local-1.example": 5_000_000_000,
+                "slow-local-2.example": 5_000_000_000
+            ]
+        )
+        let manager = ConnectionFailoverManager(timeout: 10.0) { request in
+            try await network.perform(request)
+        }
+
+        let start = Date()
+        let result = await manager.findBestConnection(
+            endpoints: [
+                PlexEndpointDescriptor(url: "https://slow-local-1.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://slow-local-2.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+            ],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        // Should select remote and exit via grace period (well under 5s)
+        XCTAssertEqual(result.selected?.url, "https://remote.example")
+        XCTAssertLessThan(elapsed, 3.0, "Grace period should exit without waiting for slow local endpoints")
+    }
+
     func testFallsToRemoteWhenLocalFails() async throws {
         // Local endpoint fails; remote succeeds. Verifies correct selection
         // when the best-class endpoint is unavailable.
