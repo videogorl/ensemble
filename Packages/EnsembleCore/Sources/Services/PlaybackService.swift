@@ -3492,6 +3492,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
     }
 
+    /// Remove all prefetched items from AVQueuePlayer's internal queue.
+    /// Called when a player item fails to prevent AVQueuePlayer from automatically
+    /// advancing to the next prefetched track.
+    @MainActor
+    private func clearPrefetchedItems() {
+        guard let player else { return }
+        let items = player.items()
+        for item in items.dropFirst() {
+            player.remove(item)
+        }
+        #if DEBUG
+        if items.count > 1 {
+            EnsembleLogger.debug("🗑️ Cleared \(items.count - 1) prefetched item(s) to prevent auto-advance")
+        }
+        #endif
+    }
+
     private func upcomingQueueIndices(depth: Int) -> [Int] {
         guard depth > 0, !queue.isEmpty else { return [] }
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return [] }
@@ -3517,6 +3534,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func prefetchUpcomingItems(depth: Int) async {
         guard let player else { return }
+
+        // Don't prefetch when playback has failed — inserting items into
+        // AVQueuePlayer would allow it to auto-advance past the failed track.
+        if case .failed = playbackState { return }
 
         let targetIndices = upcomingQueueIndices(depth: depth)
         let requestedDepth = max(0, depth)
@@ -3756,8 +3777,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         #endif
                         self?.consecutivePlaybackFailures += 1
                         self?.playbackState = .failed(errorDescription)
+                        // Remove prefetched items so AVQueuePlayer can't auto-advance
+                        // to the next track. The user should stay on the failed track.
+                        self?.clearPrefetchedItems()
                     } else {
                         self?.playbackState = .failed(errorDescription)
+                        self?.clearPrefetchedItems()
                     }
                 default:
                     break
