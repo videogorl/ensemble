@@ -4121,6 +4121,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         playbackState = .playing
         adaptiveBufferingState.conservativeWaitCycles = 0
+
+        // Reset wall-clock tracking so buffering time doesn't count toward
+        // the remaining-duration boundary check. This prevents premature
+        // track advancement when buffering stalls after a seek.
+        if seekCompletedAt != nil {
+            seekCompletedAt = Date()
+        }
+
         // We assume success here; timeControlStatus will update if it fails.
         #if DEBUG
         EnsembleLogger.debug("▶️ Resuming playback (\(reason)) immediate=\(forceImmediate)")
