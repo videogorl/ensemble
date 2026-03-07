@@ -1289,31 +1289,35 @@ public actor PlexAPIClient {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🔗 Download URL: \(url.absoluteString.prefix(300))")
+        // Log full query params (without server URL prefix) to diagnose 400s
+        let paramStr = queryItems.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+        EnsembleLogger.debug("🔗 Download params: \(paramStr.prefix(500))")
+        EnsembleLogger.debug("🔗 Download params (cont): \(paramStr.dropFirst(500).prefix(500))")
         #endif
 
         // Download the stream to a temp file via URLSession.
         // URLSession handles chunked encoding and Connection: close correctly.
+        // Use data(for:) instead of download(for:) to capture error body on failure,
+        // then write to file on success.
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
 
-        let (tempURL, response) = try await session.download(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             #if DEBUG
             EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            if let httpResponse = response as? HTTPURLResponse {
-                EnsembleLogger.debug("⚠️ Response headers: \(httpResponse.allHeaderFields)")
-            }
+            let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? "(non-utf8)"
+            EnsembleLogger.debug("⚠️ Response body: \(bodyStr)")
             #endif
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
 
-        // Move to a stable temp location (URLSession temp files get cleaned up)
+        // Write downloaded data to a stable temp location
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
@@ -1325,7 +1329,7 @@ public actor PlexAPIClient {
         if FileManager.default.fileExists(atPath: destURL.path) {
             try? FileManager.default.removeItem(at: destURL)
         }
-        try FileManager.default.moveItem(at: tempURL, to: destURL)
+        try data.write(to: destURL)
 
         #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
