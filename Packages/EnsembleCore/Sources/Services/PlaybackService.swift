@@ -4452,6 +4452,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func handleHealthCheckCompletion() async {
         guard !queue.isEmpty else { return }
 
+        // Reset the failure circuit breaker — a passing health check means
+        // conditions have changed, so give playback a fresh failure budget.
+        consecutivePlaybackFailures = 0
+
         // Auto-resume: if playback failed because a server was offline, and a
         // health check just passed, retry the current track automatically.
         if case .failed = playbackState,

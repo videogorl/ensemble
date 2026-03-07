@@ -51,6 +51,10 @@ public protocol MusicSourceSyncProvider: Sendable {
     /// Scrobble a track (mark as played)
     func scrobble(ratingKey: String) async throws
 
+    /// Reset any temporary fallback state for stream URL generation (e.g., universal endpoint cooldown).
+    /// Called after a successful connection refresh so transient failures don't persist.
+    func resetStreamFallbackState()
+
     /// Get tracks for an album directly from the source
     func getAlbumTracks(albumKey: String) async throws -> [Track]
 
@@ -59,4 +63,9 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get all tracks for an artist directly from the source
     func getArtistTracks(artistKey: String) async throws -> [Track]
+}
+
+// Default no-op for providers that don't have fallback state
+extension MusicSourceSyncProvider {
+    public func resetStreamFallbackState() {}
 }

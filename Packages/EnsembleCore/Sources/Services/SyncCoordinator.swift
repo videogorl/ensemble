@@ -1141,6 +1141,12 @@ public final class SyncCoordinator: ObservableObject {
         guard refreshedAnyConnection else {
             throw lastError ?? PlexAPIError.noServerSelected
         }
+
+        // Clear any temporary stream URL fallback state (e.g., universal endpoint cooldown)
+        // so providers re-attempt the preferred path after connectivity is restored.
+        for (_, provider) in syncProviders {
+            provider.resetStreamFallbackState()
+        }
     }
     
     /// Get the stream URL for a track, routing to the correct provider

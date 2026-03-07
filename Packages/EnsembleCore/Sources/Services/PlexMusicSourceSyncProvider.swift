@@ -14,10 +14,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     /// we skip the universal endpoint and fall back to direct file URLs.
     private var lastUniversalStreamTrack: String?
 
-    /// When true, skip the universal endpoint entirely for this provider (server-wide).
+    /// When set, skip the universal endpoint until this date (server-wide cooldown).
     /// Set when a retry fallback occurs, indicating the transcoder is unavailable.
-    /// Cleared on next app launch (provider re-creation).
-    private var universalEndpointDisabled = false
+    /// Automatically expires after 60s so transient failures don't permanently disable streaming.
+    private var universalEndpointDisabledUntil: Date?
 
     public init(
         sourceIdentifier: MusicSourceIdentifier,
@@ -29,12 +29,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.sectionKey = sectionKey
     }
 
-    /// Reset the universal endpoint fallback state. Call when playback succeeds
-    /// to allow the universal endpoint to be tried again for future tracks.
+    /// Reset the universal endpoint fallback state, including the server-wide cooldown.
+    /// Call after a successful connection refresh to allow the universal endpoint
+    /// to be tried again for future tracks.
     public func resetUniversalEndpointFallback() {
         lastUniversalStreamTrack = nil
-        // Note: we don't reset universalEndpointDisabled here since it indicates
-        // server-wide transcoder unavailability. It resets on app restart.
+        universalEndpointDisabledUntil = nil
     }
     
     public func syncLibraryIncremental(
@@ -610,9 +610,10 @@ public func getStreamURL(
         #endif
 
         // Skip universal if: (a) we already returned a universal URL for this track and
-        // it's being retried, or (b) the transcoder has been disabled server-wide.
+        // it's being retried, or (b) the transcoder is in cooldown (time-limited).
         let isRetry = (lastUniversalStreamTrack == trackRatingKey)
-        let skipUniversal = isRetry || universalEndpointDisabled
+        let isInCooldown = universalEndpointDisabledUntil.map { Date() < $0 } ?? false
+        let skipUniversal = isRetry || isInCooldown
 
         // Route all quality levels through the universal transcode endpoint.
         // - Original: PMS direct-streams the original codec (no re-encoding)
@@ -641,13 +642,13 @@ public func getStreamURL(
         } else if isRetry {
             // This is a retry for the same track — the transcoder failed.
             // Disable it server-wide so subsequent tracks go straight to direct URLs.
-            universalEndpointDisabled = true
+            universalEndpointDisabledUntil = Date().addingTimeInterval(60)
             #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexProvider: Retry detected for \(trackRatingKey), disabling universal endpoint for this server")
+            EnsembleLogger.debug("⚠️ PlexProvider: Retry detected for \(trackRatingKey), disabling universal endpoint for 60s")
             #endif
         } else {
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Universal endpoint disabled, using direct stream")
+            EnsembleLogger.debug("🔍 PlexProvider: Universal endpoint in cooldown, using direct stream")
             #endif
         }
 
@@ -726,6 +727,10 @@ public func getStreamURL(
 
     public func scrobble(ratingKey: String) async throws {
         try await apiClient.scrobble(ratingKey: ratingKey)
+    }
+
+    public func resetStreamFallbackState() {
+        resetUniversalEndpointFallback()
     }
 
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {
