@@ -2777,8 +2777,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func clearPlayerItemCache() {
         playerItems.removeAll()
         playerItemsLRU.removeAll()
+        cleanupStreamCacheFiles()
         #if DEBUG
         EnsembleLogger.debug("🗑️ Cleared player item cache")
+        #endif
+    }
+
+    /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
+    private func cleanupStreamCacheFiles() {
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
+        try? FileManager.default.removeItem(at: cacheDir)
+        #if DEBUG
+        EnsembleLogger.debug("🗑️ Cleaned up stream cache directory")
         #endif
     }
 

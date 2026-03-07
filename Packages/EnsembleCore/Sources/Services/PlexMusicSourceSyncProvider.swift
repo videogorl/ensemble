@@ -9,16 +9,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
 
-    /// Tracks the last universal stream URL we returned. If `getStreamURL` is called again
-    /// for the same track (i.e., PlaybackService is retrying after AVPlayer failed to load it),
-    /// we skip the universal endpoint and fall back to direct file URLs.
-    private var lastUniversalStreamTrack: String?
-
-    /// When set, skip the universal endpoint until this date (server-wide cooldown).
-    /// Set when a retry fallback occurs, indicating the transcoder is unavailable.
-    /// Automatically expires after 60s so transient failures don't permanently disable streaming.
-    private var universalEndpointDisabledUntil: Date?
-
     public init(
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,
@@ -29,13 +19,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.sectionKey = sectionKey
     }
 
-    /// Reset the universal endpoint fallback state, including the server-wide cooldown.
-    /// Call after a successful connection refresh to allow the universal endpoint
-    /// to be tried again for future tracks.
-    public func resetUniversalEndpointFallback() {
-        lastUniversalStreamTrack = nil
-        universalEndpointDisabledUntil = nil
-    }
+    /// No-op — retained for protocol conformance. The download-to-file approach
+    /// eliminates the AVPlayer HTTP stack issues that required fallback tracking.
+    public func resetUniversalEndpointFallback() {}
     
     public func syncLibraryIncremental(
         since timestamp: TimeInterval,
@@ -609,52 +595,29 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
-        // Skip universal if: (a) we already returned a universal URL for this track and
-        // it's being retried, or (b) the transcoder is in cooldown (time-limited).
-        let isRetry = (lastUniversalStreamTrack == trackRatingKey)
-        let isInCooldown = universalEndpointDisabledUntil.map { Date() < $0 } ?? false
-        let skipUniversal = isRetry || isInCooldown
-
-        // Route all quality levels through the universal transcode endpoint.
-        // - Original: PMS direct-streams the original codec (no re-encoding)
-        // - High/Medium/Low: PMS transcodes to MP3 at the target bitrate
-        // The universal endpoint also avoids the ~655KB download cutoff that
-        // non-Plex Pass servers impose on raw file URLs.
-        if !skipUniversal {
-            do {
-                let url = try await apiClient.getUniversalStreamURL(
-                    ratingKey: trackRatingKey,
-                    quality: quality
-                )
-                // Remember this track so we can detect a retry
-                lastUniversalStreamTrack = trackRatingKey
-                #if DEBUG
-                EnsembleLogger.debug("🎵 PlexProvider: Using universal endpoint (quality=\(quality.rawValue))")
-                #endif
-                return url
-            } catch {
-                // Universal URL construction failed (e.g., no valid server URL).
-                // Fall back to direct file URL below.
-                #if DEBUG
-                EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint URL construction failed: \(error). Falling back to direct stream.")
-                #endif
-            }
-        } else if isRetry {
-            // This is a retry for the same track — the transcoder failed.
-            // Disable it server-wide so subsequent tracks go straight to direct URLs.
-            universalEndpointDisabledUntil = Date().addingTimeInterval(60)
+        // Download the stream to a local temp file via URLSession.
+        // AVPlayer's CFHTTP stack cannot handle PMS's chunked transcode responses
+        // (Transfer-Encoding: chunked, no Content-Length, Connection: close), failing
+        // with CFHTTP error -16845. URLSession handles this correctly, so we download
+        // via URLSession and give AVPlayer a local file URL.
+        do {
+            let fileURL = try await apiClient.downloadUniversalStreamToFile(
+                ratingKey: trackRatingKey,
+                quality: quality
+            )
             #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexProvider: Retry detected for \(trackRatingKey), disabling universal endpoint for 60s")
+            EnsembleLogger.debug("🎵 PlexProvider: Downloaded universal stream to file (quality=\(quality.rawValue))")
             #endif
-        } else {
+            return fileURL
+        } catch {
+            // Universal download failed (network error, server error, etc.).
+            // Fall back to direct file URL as last resort.
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Universal endpoint in cooldown, using direct stream")
+            EnsembleLogger.debug("⚠️ PlexProvider: Universal stream download failed: \(error). Falling back to direct stream.")
             #endif
         }
 
         // Fallback: direct file URL (always original quality)
-        // Clear the per-track tracking since we're now on fallback path
-        lastUniversalStreamTrack = nil
 
         if let trackStreamKey, !trackStreamKey.isEmpty {
             #if DEBUG
@@ -734,11 +697,8 @@ public func getStreamURL(
     }
 
     public func disableUniversalEndpoint() {
-        universalEndpointDisabledUntil = Date().addingTimeInterval(60)
-        lastUniversalStreamTrack = nil
-        #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint disabled for 60s (resource unavailable)")
-        #endif
+        // No-op — the download-to-file approach bypasses the AVPlayer HTTP stack
+        // issues that previously required this cooldown mechanism.
     }
 
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {

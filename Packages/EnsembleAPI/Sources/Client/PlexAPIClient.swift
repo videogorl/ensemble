@@ -1248,6 +1248,82 @@ public actor PlexAPIClient {
         return url
     }
 
+    /// Download a universal transcode stream to a temporary file and return the file URL.
+    ///
+    /// AVPlayer's CoreMedia HTTP stack (CFHTTP) fails to parse chunked responses from PMS's
+    /// transcode endpoint (Transfer-Encoding: chunked, no Content-Length, Connection: close).
+    /// This manifests as CFHTTP error -16845 / NSURLErrorResourceUnavailable. Downloading via
+    /// URLSession (which handles chunked encoding correctly) and playing from a local file
+    /// bypasses the issue entirely.
+    public func downloadUniversalStreamToFile(
+        ratingKey: String,
+        quality: StreamingQuality = .original,
+        sessionId: String? = nil
+    ) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
+        #endif
+
+        let resolvedSessionId = sessionId ?? UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId
+        )
+
+        // Step 1: Call the decision endpoint to warm up the transcode session
+        try await callTranscodeDecision(queryItems: queryItems)
+
+        // Step 2: Build the start.mp3 URL
+        guard var components = URLComponents(string: currentServerURL) else {
+            throw PlexAPIError.invalidURL
+        }
+        components.path = "/music/:/transcode/universal/start.mp3"
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
+            throw PlexAPIError.invalidURL
+        }
+
+        // Step 3: Download the stream to a temp file via URLSession.
+        // URLSession handles chunked encoding and Connection: close correctly.
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let (tempURL, response) = try await session.download(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
+            #endif
+            throw PlexAPIError.httpError(statusCode: statusCode)
+        }
+
+        // Move to a stable temp location (URLSession temp files get cleaned up)
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+        let fileExtension = quality == .original ? "audio" : "mp3"
+        let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
+
+        // Remove stale file if it exists (e.g., from a crashed session)
+        if FileManager.default.fileExists(atPath: destURL.path) {
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        try FileManager.default.moveItem(at: tempURL, to: destURL)
+
+        #if DEBUG
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
+        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        #endif
+
+        return destURL
+    }
+
     /// Build a universal download URL for offline use, skipping the decision endpoint.
     /// The decision call is only needed for AVPlayer streaming (session warmup); URLSession
     /// downloads work without it, saving an unnecessary HTTP roundtrip per download.

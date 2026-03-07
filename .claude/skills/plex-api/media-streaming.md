@@ -148,20 +148,10 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 ```
 
 
-## Active Investigation: AVPlayer "resource unavailable" Error
+## RESOLVED: AVPlayer "resource unavailable" / CFHTTP -16845
 
-**Status:** Diagnostic logging added, awaiting log output.
+**Root cause:** AVPlayer's CoreMedia HTTP stack (CFHTTP) cannot handle PMS's chunked transcode response (`Transfer-Encoding: chunked`, no `Content-Length`, `Connection: close`). This causes CFHTTP error -16845, which surfaces as `NSURLErrorResourceUnavailable` (-1008). After the first failure, the stale transcode session on PMS causes subsequent requests to return HTTP 400.
 
-AVPlayer fails with "resource unavailable" (~72ms after URL creation) when playing universal transcode URLs, even though curl downloads the same URL successfully. The response is valid MP3 data (3.1MB, correct ID3 header, valid audio frames).
+**Fix:** `PlexAPIClient.downloadUniversalStreamToFile()` downloads the stream via URLSession (which handles chunked encoding correctly) to a temp file. AVPlayer receives a `file://` URL instead of a remote URL, bypassing CFHTTP entirely.
 
-**Hypotheses:**
-- AVPlayer may not handle `Transfer-Encoding: chunked` + `Connection: close` + no `Content-Length` for progressive MP3
-- The VBR mismatch (first frame 32kbps, average 128kbps) may confuse duration estimation
-- CFHTTP error -16845 is logged by the system but root cause unknown
-
-**Diagnostic logging location:** `PlaybackService.swift` at the `.failed` status observer — logs full error chain (domain, code, underlying errors).
-
-**Potential fixes to explore:**
-1. `AVAssetResourceLoaderDelegate` — intercept request, download via URLSession, feed to AVPlayer
-2. Pre-buffer to temp file before creating AVPlayerItem
-3. Different AVURLAsset configuration options
+**DO NOT revert to giving AVPlayer remote transcode URLs.** The CFHTTP issue is in Apple's CoreMedia framework and cannot be worked around with AVURLAsset options or headers.
