@@ -1288,10 +1288,15 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("🔗 Download URL: \(url.absoluteString.prefix(300))")
+        #endif
+
         // Download the stream to a temp file via URLSession.
         // URLSession handles chunked encoding and Connection: close correctly.
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
 
         let (tempURL, response) = try await session.download(for: request)
@@ -1301,6 +1306,9 @@ public actor PlexAPIClient {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             #if DEBUG
             EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
+            if let httpResponse = response as? HTTPURLResponse {
+                EnsembleLogger.debug("⚠️ Response headers: \(httpResponse.allHeaderFields)")
+            }
             #endif
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
@@ -1406,11 +1414,12 @@ public actor PlexAPIClient {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
+        EnsembleLogger.debug("🔄 Calling transcode decision: \(url.absoluteString.prefix(300))")
         #endif
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         addPlexHeaders(to: &request, token: serverConnection.token)
 
