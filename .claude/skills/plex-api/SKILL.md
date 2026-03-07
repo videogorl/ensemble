@@ -60,14 +60,28 @@ library://{libraryUUID}/directory//library/metadata/{ratingKey}/allLeaves
 ```
 
 
-## Testing Endpoints with curl
+## CRITICAL: Test Endpoints with curl FIRST
 
-**Before implementing any Plex endpoint in code, test it with curl first.** This catches API quirks (like required parameters or call sequences) before they cause hard-to-debug runtime failures.
+**Before making ANY code changes to streaming or playback, test the Plex endpoints with curl.** This is non-negotiable. A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing.
+
+### Known Streaming Facts (curl-verified 2026-03-07)
+
+- **Universal transcode endpoint WORKS** — returns 200, valid audio/mpeg
+- **Direct file stream (`/library/parts/...`) returns 503** — DO NOT fall back to direct stream
+- **DO NOT "disable universal endpoint" as a fix** — this has been tried multiple times and always makes things worse
+- The "resource unavailable" AVPlayer error is an **AVPlayer-specific issue** with how it handles the response, not a server problem
+- Universal response headers: `Transfer-Encoding: chunked`, `Accept-Ranges: none`, `Connection: close`, no `Content-Length`
+- Decision endpoint MUST be called before `start.mp3` (returns 400 without it)
+- Concurrent transcode sessions work fine; no cookies needed
 
 ### Getting Test Credentials
 
 ```bash
-# Get server access token from plex.tv (uses account token from browser console)
+# Token is in .env at project root
+source .env
+echo $PLEX_ACCESS_TOKEN
+
+# Or get from plex.tv (uses account token from browser console)
 ACCOUNT_TOKEN="<from localStorage.getItem('myPlexAccessToken') in plex.tv>"
 curl -s "https://plex.tv/api/v2/resources?includeHttps=1&X-Plex-Token=${ACCOUNT_TOKEN}&X-Plex-Client-Identifier=claude-test" \
   -H "Accept: application/json" | python3 -c "
@@ -80,22 +94,19 @@ for r in json.load(sys.stdin):
             if c.get('local'): print(f\"  URL: {c['uri']}\")"
 ```
 
-**Do NOT save tokens to files or memory.** Request fresh credentials each session.
-
 ### Basic Endpoint Testing
 
 ```bash
-SERVER="https://192-168-x-x.xxxxx.plex.direct:32400"
-TOKEN="<server access token>"
+source .env  # loads PLEX_ACCESS_TOKEN and PLEX_SERVER_URL
 
 # Test basic connectivity
-curl -s -k "${SERVER}/identity"
+curl -s -k "${PLEX_SERVER_URL}/identity"
 
 # List library sections
-curl -s -k "${SERVER}/library/sections?X-Plex-Token=${TOKEN}" -H "Accept: application/json"
+curl -s -k "${PLEX_SERVER_URL}/library/sections?X-Plex-Token=${PLEX_ACCESS_TOKEN}" -H "Accept: application/json"
 
 # Search for a track
-curl -s -k "${SERVER}/library/sections/3/search?type=10&query=SongName&X-Plex-Token=${TOKEN}" -H "Accept: application/json"
+curl -s -k "${PLEX_SERVER_URL}/library/sections/3/search?type=10&query=SongName&X-Plex-Token=${PLEX_ACCESS_TOKEN}" -H "Accept: application/json"
 ```
 
 ### Testing Transcode Endpoints
@@ -103,26 +114,29 @@ curl -s -k "${SERVER}/library/sections/3/search?type=10&query=SongName&X-Plex-To
 The universal transcode endpoint requires a specific call sequence:
 
 ```bash
+source .env
 SESSION=$(python3 -c "import uuid; print(uuid.uuid4())")
 CLIENT="test-$(date +%s)"
 PROFILE="add-transcode-target-codec(type%3DmusicProfile%26context%3Dstreaming%26protocol%3Dhttp%26audioCodec%3Daac)%2Badd-transcode-target-codec(type%3DmusicProfile%26context%3Dstreaming%26protocol%3Dhttp%26audioCodec%3Dmp3)"
 
 # Step 1: Call decision endpoint FIRST (required to warm up session)
-curl -s -k "${SERVER}/music/:/transcode/universal/decision?path=/library/metadata/${RATING_KEY}&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=${TOKEN}&X-Plex-Client-Identifier=${CLIENT}&X-Plex-Session-Identifier=${SESSION}&session=${SESSION}&X-Plex-Product=Ensemble&X-Plex-Platform=iOS&X-Plex-Client-Profile-Extra=${PROFILE}" -H "Accept: application/json"
+curl -s -k "${PLEX_SERVER_URL}/music/:/transcode/universal/decision?path=/library/metadata/${RATING_KEY}&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=${PLEX_ACCESS_TOKEN}&X-Plex-Client-Identifier=${CLIENT}&X-Plex-Session-Identifier=${SESSION}&session=${SESSION}&X-Plex-Product=Ensemble&X-Plex-Platform=iOS&X-Plex-Client-Profile-Extra=${PROFILE}" -H "Accept: application/json"
 
 # Step 2: Now call start.mp3 (will return 400 without step 1!)
 curl -s -k -o /dev/null -w "HTTP %{http_code}, Size: %{size_download} bytes\n" \
-  "${SERVER}/music/:/transcode/universal/start.mp3?path=/library/metadata/${RATING_KEY}&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=${TOKEN}&X-Plex-Client-Identifier=${CLIENT}&X-Plex-Session-Identifier=${SESSION}&session=${SESSION}&X-Plex-Product=Ensemble&X-Plex-Platform=iOS&X-Plex-Client-Profile-Extra=${PROFILE}"
+  "${PLEX_SERVER_URL}/music/:/transcode/universal/start.mp3?path=/library/metadata/${RATING_KEY}&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=${PLEX_ACCESS_TOKEN}&X-Plex-Client-Identifier=${CLIENT}&X-Plex-Session-Identifier=${SESSION}&session=${SESSION}&X-Plex-Product=Ensemble&X-Plex-Platform=iOS&X-Plex-Client-Profile-Extra=${PROFILE}"
 ```
 
 ### Managing Transcode Sessions
 
 ```bash
+source .env
+
 # List active transcode sessions
-curl -s -k "${SERVER}/transcode/sessions?X-Plex-Token=${TOKEN}" -H "Accept: application/json"
+curl -s -k "${PLEX_SERVER_URL}/transcode/sessions?X-Plex-Token=${PLEX_ACCESS_TOKEN}" -H "Accept: application/json"
 
 # Kill a stuck session
-curl -s -k -X DELETE "${SERVER}/transcode/sessions/${SESSION_KEY}?X-Plex-Token=${TOKEN}"
+curl -s -k -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-Token=${PLEX_ACCESS_TOKEN}"
 ```
 
 ### What to Document After Testing

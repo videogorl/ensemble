@@ -38,6 +38,16 @@ When a problem is mentioned, **interview the user first** to help hone in on whe
 
 When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
 
+### Plex Streaming Issues — MUST READ
+
+**ALWAYS test Plex endpoints with curl BEFORE making code changes.** A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing. Load the `plex-api` skill for endpoint details and testing patterns.
+
+**DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed:
+- **Universal transcode endpoint WORKS** (200, valid audio/mpeg)
+- **Direct file stream returns 503** — falling back to direct stream makes things WORSE
+- The "resource unavailable" error is an **AVPlayer-specific issue**, not a server problem
+- See the `plex-api` skill for the full diagnosis and testing patterns
+
 
 ## Using the Gemini CLI
 

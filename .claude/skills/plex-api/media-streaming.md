@@ -1,24 +1,102 @@
 # Media Streaming Endpoints
 
-## Audio Streaming
+## CRITICAL: Universal Transcode is the Primary Streaming Path
+
+**DO NOT use direct file URLs for streaming.** Direct file stream (`/library/parts/...`) returns 503 on some server configurations. The universal transcode endpoint is the only reliable streaming path.
+
+**DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed the universal endpoint returns valid audio data. The "resource unavailable" error is an AVPlayer-specific issue, not a server problem.
+
+**ALWAYS test with curl before making streaming code changes.** Token is in `.env` at project root.
+
+
+## Universal Transcode Endpoint (Primary — use this)
+
+### Step 1: `GET /music/:/transcode/universal/decision`
+Warm up the transcode session. **MUST be called before `start.mp3`** or PMS returns 400.
+
+### Step 2: `GET /music/:/transcode/universal/start.mp3`
+Stream the transcoded audio. Uses the same query parameters as the decision call.
+
+**Required parameters:**
+- `path`: `/library/metadata/{ratingKey}` (URL-encoded)
+- `protocol`: `http` (HLS not supported for music on all PMS versions)
+- `mediaIndex`: `0`
+- `partIndex`: `0`
+- `directPlay`: `0` (prevents redirect to raw file URL)
+- `directStream`: `1` (streams original codec through PMS pipeline)
+- `directStreamAudio`: `1`
+- `hasMDE`: `1`
+- `X-Plex-Token`: Auth token
+- `X-Plex-Client-Identifier`: Unique client ID
+- `X-Plex-Session-Identifier`: Session UUID (must match between decision and start)
+- `transcodeSessionId`: Same session UUID
+- `session`: Same session UUID
+- `X-Plex-Product`, `X-Plex-Platform`, `X-Plex-Device`: Client metadata
+- `X-Plex-Client-Profile-Extra`: Codec capabilities (see below)
+
+**Quality-specific parameters:**
+- Original: no bitrate params (uses `directStream=1`)
+- High: `musicBitrate=320&audioBitrate=320`
+- Medium: `musicBitrate=192&audioBitrate=192`
+- Low: `musicBitrate=128&audioBitrate=128`
+
+**Client profile extra (codec declarations):**
+```
+add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)
++add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)
++add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)
++add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)
++add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=flac)
++add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=alac)
+```
+
+**Response characteristics (important for AVPlayer):**
+```
+HTTP/1.1 200 OK
+Content-Type: audio/mpeg
+Transfer-Encoding: chunked
+Accept-Ranges: none
+Connection: close
+Cache-Control: no-cache
+```
+- No `Content-Length` header — stream length is unknown upfront
+- Chunked encoding — data arrives in chunks
+- No range requests supported
+- Connection closes after transfer
+- These characteristics may cause AVPlayer issues (active investigation)
+
+**curl test pattern:**
+```bash
+source .env  # loads PLEX_ACCESS_TOKEN and PLEX_SERVER_URL
+SESSION_ID="test-$(date +%s)"
+
+# Decision first
+curl -s -o /dev/null -w "Decision: %{http_code}\n" \
+  "${PLEX_SERVER_URL}/music/:/transcode/universal/decision?path=%2Flibrary%2Fmetadata%2F8785&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=$PLEX_ACCESS_TOKEN&X-Plex-Client-Identifier=curl-test&X-Plex-Session-Identifier=$SESSION_ID&session=$SESSION_ID&X-Plex-Product=Ensemble&X-Plex-Platform=iOS"
+
+# Then stream
+curl -s -o /dev/null -w "Stream: %{http_code} Size: %{size_download}\n" \
+  "${PLEX_SERVER_URL}/music/:/transcode/universal/start.mp3?path=%2Flibrary%2Fmetadata%2F8785&protocol=http&mediaIndex=0&partIndex=0&directPlay=0&directStream=1&directStreamAudio=1&hasMDE=1&musicBitrate=128&audioBitrate=128&X-Plex-Token=$PLEX_ACCESS_TOKEN&X-Plex-Client-Identifier=curl-test&X-Plex-Session-Identifier=$SESSION_ID&session=$SESSION_ID&X-Plex-Product=Ensemble&X-Plex-Platform=iOS"
+```
+
+
+## Direct File Stream (BROKEN — do not use as primary path)
 
 ### `GET /library/parts/{partId}/{changestamp}/{filename}`
-Direct audio file streaming URL.
+
+Direct audio file URL. **Returns 503 Service Unavailable** on some server configurations. Only used as a last resort fallback in the provider code, and only when the universal endpoint itself fails to construct a URL (not when AVPlayer fails to play it).
 
 **URL construction:**
 ```
 {serverURL}/library/parts/{partId}/{changestamp}/{filename}?X-Plex-Token={token}
 ```
 
-**Fields from track metadata:**
-- `partId`: From `Media.Part.id`
-- `changestamp`: From `Media.Part.key` path (number after `/library/parts/`)
-- `filename`: From `Media.Part.file` (basename)
 
-**Example:**
-```
-https://server.plex.direct:32400/library/parts/12345/1234567890/song.flac?X-Plex-Token=xxx
-```
+## Universal Download URL (for offline downloads)
+
+Same as the universal stream URL but **does NOT require the decision call**. URLSession handles chunked downloads fine — the decision warmup is only needed for AVPlayer streaming.
+
+Built via `PlexAPIClient.getUniversalDownloadURL()`.
 
 
 ## Waveform / Loudness Data
@@ -58,39 +136,32 @@ Transcode/resize images (artwork, thumbnails).
 - Album art: `/library/metadata/{ratingKey}/thumb/{timestamp}`
 - Artist art: `/library/metadata/{ratingKey}/thumb/{timestamp}`
 
-**Example - 300x300 album art:**
-```
-/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F123%2Fthumb%2F1234567&width=300&height=300&minSize=1
-```
 
+## Transcode Session Management
 
-## Transcoding (Audio Conversion)
+```bash
+# List active transcode sessions
+curl -s "${PLEX_SERVER_URL}/transcode/sessions?X-Plex-Token=${TOKEN}" -H "Accept: application/json"
 
-For audio transcoding (format conversion, bitrate limiting):
-
-### `GET /{transcodeType}/:/transcode/universal/decision`
-Get transcoding decision (direct play vs transcode).
-
-### `GET /{transcodeType}/:/transcode/universal/start.*`
-Start transcoded stream.
-
-**Note:** For music, direct streaming is usually preferred. Transcoding is typically only needed for:
-- Format incompatibility (rare for audio)
-- Bandwidth limiting on cellular
-
-
-## Constructing Playback URLs
-
-**Direct play (preferred for audio):**
-```swift
-let url = "\(serverURL)/library/parts/\(partId)/\(changestamp)/\(filename)"
-    + "?X-Plex-Token=\(token)"
+# Kill a stuck session
+curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-Token=${TOKEN}"
 ```
 
-**With artwork:**
-```swift
-let artworkURL = "\(serverURL)/photo/:/transcode"
-    + "?url=\(encodedThumbPath)"
-    + "&width=300&height=300&minSize=1"
-    + "&X-Plex-Token=\(token)"
-```
+
+## Active Investigation: AVPlayer "resource unavailable" Error
+
+**Status:** Diagnostic logging added, awaiting log output.
+
+AVPlayer fails with "resource unavailable" (~72ms after URL creation) when playing universal transcode URLs, even though curl downloads the same URL successfully. The response is valid MP3 data (3.1MB, correct ID3 header, valid audio frames).
+
+**Hypotheses:**
+- AVPlayer may not handle `Transfer-Encoding: chunked` + `Connection: close` + no `Content-Length` for progressive MP3
+- The VBR mismatch (first frame 32kbps, average 128kbps) may confuse duration estimation
+- CFHTTP error -16845 is logged by the system but root cause unknown
+
+**Diagnostic logging location:** `PlaybackService.swift` at the `.failed` status observer — logs full error chain (domain, code, underlying errors).
+
+**Potential fixes to explore:**
+1. `AVAssetResourceLoaderDelegate` — intercept request, download via URLSession, feed to AVPlayer
+2. Pre-buffer to temp file before creating AVPlayerItem
+3. Different AVURLAsset configuration options
