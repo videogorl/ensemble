@@ -1255,6 +1255,10 @@ public actor PlexAPIClient {
     /// This manifests as CFHTTP error -16845 / NSURLErrorResourceUnavailable. Downloading via
     /// URLSession (which handles chunked encoding correctly) and playing from a local file
     /// bypasses the issue entirely.
+    ///
+    /// The decision endpoint is intentionally NOT called here. It creates transcode sessions
+    /// on PMS that conflict when multiple tracks are prefetched concurrently (same client ID).
+    /// URLSession downloads work without it — curl-verified on PMS 1.43.0.
     public func downloadUniversalStreamToFile(
         ratingKey: String,
         quality: StreamingQuality = .original,
@@ -1271,10 +1275,7 @@ public actor PlexAPIClient {
             sessionId: resolvedSessionId
         )
 
-        // Step 1: Call the decision endpoint to warm up the transcode session
-        try await callTranscodeDecision(queryItems: queryItems)
-
-        // Step 2: Build the start.mp3 URL
+        // Build the start.mp3 URL (no decision call needed for URLSession downloads)
         guard var components = URLComponents(string: currentServerURL) else {
             throw PlexAPIError.invalidURL
         }
@@ -1285,7 +1286,7 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidURL
         }
 
-        // Step 3: Download the stream to a temp file via URLSession.
+        // Download the stream to a temp file via URLSession.
         // URLSession handles chunked encoding and Connection: close correctly.
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
