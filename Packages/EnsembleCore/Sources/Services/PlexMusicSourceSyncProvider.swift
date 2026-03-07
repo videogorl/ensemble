@@ -591,19 +591,38 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
-        // Use direct stream URLs (raw file paths) for playback. These give
-        // AVPlayer a simple progressive HTTP download that pre-rolls reliably
-        // for gapless playback. The universal transcode endpoint returns
-        // "resource unavailable" on many server configurations.
+        // Route all quality levels through the universal transcode endpoint.
+        // - Original: PMS direct-streams the original codec (no re-encoding)
+        // - High/Medium/Low: PMS transcodes to MP3 at the target bitrate
+        // The universal endpoint also avoids the ~655KB download cutoff that
+        // non-Plex Pass servers impose on raw file URLs.
+        do {
+            let url = try await apiClient.getUniversalStreamURL(
+                ratingKey: trackRatingKey,
+                quality: quality
+            )
+            #if DEBUG
+            EnsembleLogger.debug("🎵 PlexProvider: Using universal endpoint (quality=\(quality.rawValue))")
+            #endif
+            return url
+        } catch {
+            // Universal URL construction failed (e.g., no valid server URL).
+            // Fall back to direct file URL below.
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint URL construction failed: \(error). Falling back to direct stream.")
+            #endif
+        }
+
+        // Fallback: direct file URL (always original quality)
         if let trackStreamKey, !trackStreamKey.isEmpty {
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(trackStreamKey)")
+            EnsembleLogger.debug("🔍 PlexProvider: Fallback using cached stream key: \(trackStreamKey)")
             #endif
             return try await apiClient.getStreamURL(trackKey: trackStreamKey)
         }
 
         #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching track metadata")
+        EnsembleLogger.debug("⚠️ PlexProvider: Fallback fetching track metadata for stream key")
         #endif
         guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
               let streamKey = track.streamURL else {

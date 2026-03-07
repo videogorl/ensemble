@@ -153,18 +153,19 @@ Offline downloads now use target-based management with source-safe reconciliatio
 - `Ensemble/Info.plist`
 
 ### Universal Transcode Endpoint + Quality Settings (Mar 2026)
-Streaming now uses Plex's universal transcode endpoint with full quality settings support, fixing playback for non-Plex Pass accounts:
+Streaming now uses Plex's universal transcode endpoint with quality settings support, fixing playback for non-Plex Pass accounts:
 
-- **Universal endpoint:** All streaming uses `/music/:/transcode/universal/start.m3u8` instead of direct file URLs.
-- **Quality-aware routing:** "Original" quality uses `directPlay=1&directStream=1` flags (server chooses best method); reduced qualities force transcode with explicit bitrates.
-- **Non-Plex Pass fix:** Servers were cutting off direct file URLs at ~655KB for non-Plex Pass users; universal endpoint works reliably for all account types.
-- **Quality mapping:** original=server decides, high=320kbps AAC, medium=192kbps AAC, low=128kbps AAC.
-- **Settings integration:** `streamingQuality` AppStorage value (from Settings → Audio Quality) is now respected during playback.
+- **Universal endpoint:** All streaming routes through `/music/:/transcode/universal/start.mp3` with `protocol=http` (progressive download). Falls back to direct file URLs if the universal endpoint fails (URL construction error).
+- **Quality-aware routing:** "Original" quality uses `directPlay=0&directStream=1` (PMS direct-streams original codec through its pipeline); reduced qualities add `musicBitrate`/`audioBitrate` params and PMS transcodes to MP3 at the target bitrate.
+- **Non-Plex Pass fix:** Direct file URLs were cut off at ~655KB for non-Plex Pass users; universal endpoint streams through PMS's pipeline and works for all account types.
+- **Quality mapping:** original=direct-stream, high=320kbps MP3, medium=192kbps MP3, low=128kbps MP3.
+- **Client profile:** `transcodeClientProfileExtra()` declares both transcode output codecs (AAC, MP3) and direct-play codecs (AAC, MP3, FLAC, ALAC) so PMS knows what the client can handle natively.
+- **Settings integration:** `streamingQuality` AppStorage value (from Settings -> Audio Quality) is respected during playback via `PlexMusicSourceSyncProvider.getStreamURL()`.
 
 **Key files:**
-- `PlexAPIClient.swift` - `StreamingQuality` enum + `getUniversalStreamURL()` method
-- `MusicSourceSyncProvider.swift` + `PlexMusicSourceSyncProvider.swift` - protocol and implementation updated to pass quality
-- `SyncCoordinator.swift` - quality parameter added to `getStreamURL()`
+- `PlexAPIClient.swift` - `StreamingQuality` enum, `getUniversalStreamURL()` method, `transcodeClientProfileExtra()`
+- `PlexMusicSourceSyncProvider.swift` - quality-aware routing through universal endpoint with direct-stream fallback
+- `SyncCoordinator.swift` - quality parameter routing to provider
 - `PlaybackService.swift` - reads `streamingQuality` from UserDefaults and passes to stream URL generation
 
 ### Siri Media Intents v1.1 (In-App-First) (Feb 2026)
