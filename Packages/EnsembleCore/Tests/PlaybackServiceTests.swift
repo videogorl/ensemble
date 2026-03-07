@@ -552,6 +552,21 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result, 240)
     }
 
+    func testEffectiveDurationCapsVBROverestimate() {
+        // VBR MP3 files from PMS transcode cause AVPlayer to wildly overestimate
+        // duration (e.g., 195s → 270s) due to missing XING/LAME headers.
+        // When AVPlayer reports >10% longer than metadata, trust metadata.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 195.78, itemDuration: 270.29)
+        XCTAssertEqual(result, 195.78)
+    }
+
+    func testEffectiveDurationAllowsSmallItemOvershoot() {
+        // AVPlayer reporting slightly longer (within 10%) is normal for transcoded
+        // streams — allow it so progress bar doesn't complete early.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 195)
+        XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
+    }
+
     // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {

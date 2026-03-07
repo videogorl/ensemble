@@ -479,7 +479,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Defensive bound for malformed media durations.
         guard itemDuration < 24 * 60 * 60 else { return baseDuration }
 
-        // Prefer the longer duration so progress/scrubber doesn't complete early.
+        // If metadata is available and AVPlayer reports significantly longer duration,
+        // trust metadata. VBR MP3 files from PMS transcode cause AVPlayer to wildly
+        // overestimate duration (e.g., 195s → 270s) due to missing XING/LAME headers.
+        // Only allow AVPlayer to extend past metadata by up to 10%.
+        if baseDuration > 0 && itemDuration > baseDuration * 1.1 {
+            return baseDuration
+        }
+
+        // For small differences or when AVPlayer is shorter, take the max so the
+        // scrubber doesn't complete early while audio is still playing.
         return max(baseDuration, itemDuration)
     }
 

@@ -1287,13 +1287,14 @@ public actor PlexAPIClient {
         EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
         #endif
 
-        // Download the stream via URLSession.data (handles chunked encoding correctly).
+        // Download the stream to a temp file via URLSession.download.
+        // URLSession handles chunked encoding and Connection: close correctly.
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         addPlexHeaders(to: &request, token: serverConnection.token)
 
-        let (data, response) = try await session.data(for: request)
+        let (tempURL, response) = try await session.download(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
@@ -1304,7 +1305,7 @@ public actor PlexAPIClient {
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
 
-        // Write downloaded data to a stable temp location
+        // Move to a stable temp location (URLSession temp files get cleaned up)
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
@@ -1316,7 +1317,7 @@ public actor PlexAPIClient {
         if FileManager.default.fileExists(atPath: destURL.path) {
             try? FileManager.default.removeItem(at: destURL)
         }
-        try data.write(to: destURL)
+        try FileManager.default.moveItem(at: tempURL, to: destURL)
 
         #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
