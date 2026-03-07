@@ -1256,9 +1256,8 @@ public actor PlexAPIClient {
     /// URLSession (which handles chunked encoding correctly) and playing from a local file
     /// bypasses the issue entirely.
     ///
-    /// The decision endpoint is intentionally NOT called here. It creates transcode sessions
-    /// on PMS that conflict when multiple tracks are prefetched concurrently (same client ID).
-    /// URLSession downloads work without it — curl-verified on PMS 1.43.0.
+    /// The decision endpoint MUST be called before start.mp3. Without it, PMS returns HTTP 400.
+    /// Each download uses a unique session ID, so concurrent prefetch downloads do not conflict.
     public func downloadUniversalStreamToFile(
         ratingKey: String,
         quality: StreamingQuality = .original,
@@ -1275,7 +1274,10 @@ public actor PlexAPIClient {
             sessionId: resolvedSessionId
         )
 
-        // Build the start.mp3 URL (no decision call needed for URLSession downloads)
+        // Warm up the transcode session — PMS requires this before start.mp3
+        try await callTranscodeDecision(queryItems: queryItems)
+
+        // Build the start.mp3 URL
         guard var components = URLComponents(string: currentServerURL) else {
             throw PlexAPIError.invalidURL
         }
@@ -1418,9 +1420,9 @@ public actor PlexAPIClient {
             throw PlexAPIError.invalidResponse
         }
 
-        // Accept 200 (success) or 400 (decision made but may be "cannot transcode")
-        // The important thing is the session is now warmed up
-        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 400 else {
+        // Only accept 200 — if decision returns 400, the session wasn't warmed up
+        // and the subsequent start.mp3 download will also fail with 400
+        guard httpResponse.statusCode == 200 else {
             #if DEBUG
             EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
             #endif

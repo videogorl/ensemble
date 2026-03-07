@@ -11,12 +11,11 @@
 
 ## Universal Transcode Endpoint (Primary — use this)
 
-### Step 1: `GET /music/:/transcode/universal/decision` (AVPlayer streaming only)
-Warm up the transcode session. Required when AVPlayer loads start.mp3 directly (remote URL).
-**NOT needed for URLSession downloads** — URLSession can fetch start.mp3 without a prior decision.
-Calling decision creates transcode sessions on PMS that conflict with concurrent prefetch downloads
-(same client ID), causing HTTP 400 errors. Only call decision if you absolutely need AVPlayer
-to load the URL directly (which has its own CFHTTP issues — see below).
+### Step 1: `GET /music/:/transcode/universal/decision` (REQUIRED)
+Warm up the transcode session. **MUST be called before start.mp3** or PMS returns HTTP 400.
+Each download should use a unique `X-Plex-Session-Identifier` / `session` / `transcodeSessionId`
+so concurrent prefetch downloads do not conflict with each other.
+Only accept HTTP 200 from this endpoint — 400 means the session was NOT warmed up.
 
 ### Step 2: `GET /music/:/transcode/universal/start.mp3`
 Stream the transcoded audio. Uses the same query parameters as the decision call.
@@ -98,12 +97,11 @@ Direct audio file URL. **Returns 503 Service Unavailable** on some server config
 
 ## Universal Download URL (for offline downloads and playback)
 
-Same as the universal stream URL but **does NOT require the decision call**. URLSession handles
-chunked downloads fine. The decision call should be avoided for downloads because it creates
-transcode sessions on PMS that conflict when multiple tracks are downloaded concurrently.
+Same as the universal stream URL. The decision call IS required before start.mp3 (PMS returns 400
+without it). Each download uses a unique session ID so concurrent downloads do not conflict.
 
-- Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task
-- Playback: `PlexAPIClient.downloadUniversalStreamToFile()` — downloads to temp file, returns file URL for AVPlayer
+- Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task (caller must call decision separately)
+- Playback: `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
 
 
 ## Waveform / Loudness Data
