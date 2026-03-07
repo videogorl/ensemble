@@ -234,6 +234,14 @@ public actor PlexAPIClient {
             EnsembleLogger.debug("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
             #endif
         }
+
+        // Seed the registry with the initial endpoint so consumers (e.g. WebSocket
+        // coordinator) have a valid URL before the first health check completes.
+        if let registry = connectionRegistry, let key = serverKey {
+            let endpoint = connection.endpoints.first
+                ?? PlexEndpointDescriptor(url: connection.url, local: false, relay: false)
+            Task { await registry.updateEndpoint(for: key, endpoint: endpoint, source: .connectionRefresh) }
+        }
     }
 
     // MARK: - Server Connection
