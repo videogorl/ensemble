@@ -9,6 +9,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
 
+    /// Tracks the last universal stream URL we returned. If `getStreamURL` is called again
+    /// for the same track (i.e., PlaybackService is retrying after AVPlayer failed to load it),
+    /// we skip the universal endpoint and fall back to direct file URLs.
+    private var lastUniversalStreamTrack: String?
+
     public init(
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,
@@ -17,6 +22,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.sourceIdentifier = sourceIdentifier
         self.apiClient = apiClient
         self.sectionKey = sectionKey
+    }
+
+    /// Reset the universal endpoint fallback state. Call when playback succeeds
+    /// to allow the universal endpoint to be tried again for future tracks.
+    public func resetUniversalEndpointFallback() {
+        lastUniversalStreamTrack = nil
     }
     
     public func syncLibraryIncremental(
@@ -591,32 +602,49 @@ public func getStreamURL(
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
+        // If we already returned a universal URL for this track and getStreamURL is being
+        // called again (i.e., PlaybackService is retrying after AVPlayer failed), skip the
+        // universal endpoint and fall back to direct file URLs. This prevents infinite
+        // retry loops when the transcoder returns 400 (transiently stuck).
+        let skipUniversal = (lastUniversalStreamTrack == trackRatingKey)
+
         // Route all quality levels through the universal transcode endpoint.
         // - Original: PMS direct-streams the original codec (no re-encoding)
         // - High/Medium/Low: PMS transcodes to MP3 at the target bitrate
         // The universal endpoint also avoids the ~655KB download cutoff that
         // non-Plex Pass servers impose on raw file URLs.
-        do {
-            let url = try await apiClient.getUniversalStreamURL(
-                ratingKey: trackRatingKey,
-                quality: quality
-            )
+        if !skipUniversal {
+            do {
+                let url = try await apiClient.getUniversalStreamURL(
+                    ratingKey: trackRatingKey,
+                    quality: quality
+                )
+                // Remember this track so we can detect a retry
+                lastUniversalStreamTrack = trackRatingKey
+                #if DEBUG
+                EnsembleLogger.debug("🎵 PlexProvider: Using universal endpoint (quality=\(quality.rawValue))")
+                #endif
+                return url
+            } catch {
+                // Universal URL construction failed (e.g., no valid server URL).
+                // Fall back to direct file URL below.
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint URL construction failed: \(error). Falling back to direct stream.")
+                #endif
+            }
+        } else {
             #if DEBUG
-            EnsembleLogger.debug("🎵 PlexProvider: Using universal endpoint (quality=\(quality.rawValue))")
-            #endif
-            return url
-        } catch {
-            // Universal URL construction failed (e.g., no valid server URL).
-            // Fall back to direct file URL below.
-            #if DEBUG
-            EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint URL construction failed: \(error). Falling back to direct stream.")
+            EnsembleLogger.debug("⚠️ PlexProvider: Retry detected for \(trackRatingKey), skipping universal endpoint")
             #endif
         }
 
         // Fallback: direct file URL (always original quality)
+        // Clear the universal tracking since we're now on fallback path
+        lastUniversalStreamTrack = nil
+
         if let trackStreamKey, !trackStreamKey.isEmpty {
             #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Fallback using cached stream key: \(trackStreamKey)")
+            EnsembleLogger.debug("🔍 PlexProvider: Fallback using direct stream key: \(trackStreamKey)")
             #endif
             return try await apiClient.getStreamURL(trackKey: trackStreamKey)
         }
