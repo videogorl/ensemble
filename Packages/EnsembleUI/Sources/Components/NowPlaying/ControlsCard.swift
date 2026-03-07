@@ -388,14 +388,15 @@ public struct ControlsCard: View {
                     }
             )
             
-            // Play/Pause
+            // Play/Pause — disabled when track isn't yet confirmed playable
+            // (e.g. after queue restoration, before server health check completes)
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
                     if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 80))
                             .opacity(0.3)
-                        
+
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(1.5)
@@ -405,6 +406,8 @@ public struct ControlsCard: View {
                     }
                 }
             }
+            .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
+            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
             
             // Next / Seek Forward
             ZStack {

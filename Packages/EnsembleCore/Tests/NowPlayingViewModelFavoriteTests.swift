@@ -217,24 +217,52 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func countPendingMutations() async throws -> Int { 0 }
     }
 
+    private final class MockDownloadManager: DownloadManagerProtocol, @unchecked Sendable {
+        func fetchDownloads() async throws -> [CDDownload] { [] }
+        func fetchPendingDownloads() async throws -> [CDDownload] { [] }
+        func fetchNextPendingDownload() async throws -> CDDownload? { nil }
+        func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
+        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
+        func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
+        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { fatalError() }
+        func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
+        func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {}
+        func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
+        func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
+        func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
+        func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {}
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
+        func getTotalDownloadSize() async throws -> Int64 { 0 }
+        func deleteAllDownloads() async throws {}
+    }
+
     private func makeViewModel() -> (viewModel: NowPlayingViewModel, playbackService: MockPlaybackService) {
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
         let accountManager = AccountManager(keychain: TestKeychain())
         let playbackService = MockPlaybackService()
         let networkMonitor = NetworkMonitor()
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             artworkDownloadManager: MockArtworkDownloadManager(),
             networkMonitor: networkMonitor,
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+            serverHealthChecker: serverHealthChecker
         )
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
+        )
+        let trackAvailabilityResolver = TrackAvailabilityResolver(
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker,
+            downloadManager: MockDownloadManager()
         )
 
         return (NowPlayingViewModel(
@@ -243,7 +271,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             libraryRepository: libraryRepository,
             navigationCoordinator: NavigationCoordinator(),
             toastCenter: ToastCenter(),
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            trackAvailabilityResolver: trackAvailabilityResolver
         ), playbackService)
     }
 

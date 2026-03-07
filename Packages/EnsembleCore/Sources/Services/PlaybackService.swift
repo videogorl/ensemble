@@ -709,6 +709,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Set while handleServerUnreachablePlaybackFailure is running a health check.
     /// Prevents handleQueueExhausted from advancing before the circuit breaker is armed.
     private var isHandlingServerUnreachable = false
+    /// Set while handleTLSPlaybackFailure is refreshing connection and retrying.
+    /// Prevents handleQueueExhausted from racing with the TLS retry path.
+    private var isHandlingTLSFailure = false
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     private var consecutivePlaybackFailures = 0
     private let maxConsecutiveFailuresBeforeStop = 3
@@ -998,6 +1001,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
     @MainActor
     private func handleQueueExhausted() async {
+        // If a TLS connection refresh is in progress, wait for it to finish
+        // so the retry completes before we try to advance the queue.
+        if isHandlingTLSFailure {
+            #if DEBUG
+            EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for TLS failure handler")
+            #endif
+            for _ in 0..<100 {
+                await Task.yield()
+                if !isHandlingTLSFailure { break }
+            }
+        }
+
         // If a server-unreachable health check is in progress, wait for it to finish
         // so the circuit breaker is properly armed before we decide what to do next.
         if isHandlingServerUnreachable {
@@ -3042,6 +3057,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Forces a connection refresh to find a working endpoint, rebuilds queue, and retries.
     @MainActor
     private func handleTLSPlaybackFailure() async {
+        isHandlingTLSFailure = true
+        defer { isHandlingTLSFailure = false }
+
         guard let track = currentTrack else {
             playbackState = .failed("TLS connection error")
             return
@@ -3636,8 +3654,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Cache the player item (with LRU eviction) instead of clearing all
         cachePlayerItem(item, for: track.id)
 
-        // Track loaded successfully — reset consecutive failure counter
-        consecutivePlaybackFailures = 0
+        // NOTE: Do NOT reset consecutivePlaybackFailures here. Items that fail
+        // immediately after insertion would reset the counter before any audio flows,
+        // making the circuit breaker unreachable. The counter resets when
+        // timeControlStatus transitions to .playing (confirmed audio output).
 
         player?.removeAllItems()
         player?.insert(item, after: nil)
@@ -3715,8 +3735,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     let nsItemError = item.error as NSError?
                     let isTLSError = errorLower.contains("tls") ||
                                      errorLower.contains("secure connection") ||
-                                     errorLower.contains("resource unavailable") ||
                                      errorLower.contains("connection was lost")
+                    // "resource unavailable" is a stream/transcode pipeline error from PMS,
+                    // NOT a TLS error. Handled separately below to let the circuit breaker work.
+                    let isResourceUnavailable = errorLower.contains("resource unavailable")
                     let isServerUnreachable = nsItemError?.domain == NSURLErrorDomain &&
                         (nsItemError?.code == NSURLErrorTimedOut ||
                          nsItemError?.code == NSURLErrorCannotConnectToHost ||
@@ -3741,6 +3763,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         Task { @MainActor [weak self] in
                             await self?.handleServerUnreachablePlaybackFailure()
                         }
+                    } else if isResourceUnavailable {
+                        // Stream/transcode resource error (e.g. universal endpoint failure
+                        // for non-Plex-Pass users). Increment the circuit breaker and fail
+                        // immediately — no connection refresh needed.
+                        #if DEBUG
+                        EnsembleLogger.debug("⚠️ Resource unavailable (transcode pipeline) — circuit breaker failure \((self?.consecutivePlaybackFailures ?? 0) + 1)")
+                        #endif
+                        self?.consecutivePlaybackFailures += 1
+                        self?.playbackState = .failed(errorDescription)
                     } else {
                         self?.playbackState = .failed(errorDescription)
                     }
@@ -3808,6 +3839,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             #endif
                             self.playbackState = .playing
                             self.adaptiveBufferingState.conservativeWaitCycles = 0
+
+                            // Audio is confirmed flowing — safe to reset the circuit breaker.
+                            // This is the only automatic reset point; manual resets remain in
+                            // next(), previous(), retryCurrentTrack(), stop(), and play(tracks:).
+                            self.consecutivePlaybackFailures = 0
                             
                             let now = Date()
                             // Only reset loop detection if we've been playing for a bit

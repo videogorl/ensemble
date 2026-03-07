@@ -96,6 +96,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
     @Published public private(set) var artworkImage: PlatformImage?
     @Published private var optimisticTrackRatings: [String: Int] = [:]
+    /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
+    @Published private var availabilityGeneration: UInt64 = 0
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -103,6 +105,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
+    private let trackAvailabilityResolver: TrackAvailabilityResolver
     private var cancellables = Set<AnyCancellable>()
     
     // Artwork loading state
@@ -121,7 +124,8 @@ public final class NowPlayingViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        trackAvailabilityResolver: TrackAvailabilityResolver
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
@@ -129,6 +133,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
+        self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -241,6 +246,12 @@ public final class NowPlayingViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Forward availability generation so isCurrentTrackPlayable re-evaluates
+        // when server connectivity changes (e.g. health check completes after restore)
+        trackAvailabilityResolver.$availabilityGeneration
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$availabilityGeneration)
     }
 
     // MARK: - Artwork Management
@@ -334,6 +345,15 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public var isPlaying: Bool {
         playbackState == .playing
+    }
+
+    /// Whether the current track can be played right now.
+    /// Downloaded tracks are always playable; server tracks require the server to be reachable.
+    /// Used to gate the play button after queue restoration before health checks complete.
+    public var isCurrentTrackPlayable: Bool {
+        guard let track = currentTrack else { return false }
+        let availability = trackAvailabilityResolver.availability(for: track)
+        return availability == .available || availability == .availableDownloadedOnly
     }
 
     public var hasCurrentTrack: Bool {

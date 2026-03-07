@@ -351,7 +351,8 @@ public final class DependencyContainer: @unchecked Sendable {
             libraryRepository: libraryRepository,
             navigationCoordinator: navigationCoordinator,
             toastCenter: toastCenter,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            trackAvailabilityResolver: trackAvailabilityResolver
         )
     }
 
