@@ -48,6 +48,16 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Resolved
 
+### Playback Failure Loop with Non-Plex-Pass / Universal Transcode Failures
+- **Resolved (March 7, 2026)**
+- **Issue:** When universal transcode endpoint failed (e.g. non-Plex-Pass users), the app entered an infinite loop: track fails → retry/advance → next track fails → repeat. Users couldn't pause or stop because tracks failed within milliseconds.
+- **Root causes:**
+  - Circuit breaker reset on item insertion instead of confirmed playback, so the counter went 0→1→reset→0→1 and never reached threshold
+  - `handleQueueExhausted` and `handleTLSPlaybackFailure` raced concurrently with no mutual exclusion
+  - "resource unavailable" (transcode pipeline error) was misclassified as TLS error, triggering wasteful connection refresh cycles
+- **Fix:** Circuit breaker resets only when `timeControlStatus == .playing`. TLS handler sets `isHandlingTLSFailure` flag; queue exhaustion handler waits for it. "resource unavailable" classified as transcode pipeline error with direct circuit breaker increment. Play button gated on track availability after queue restoration.
+- **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`, `ControlsCard.swift`, `MiniPlayer.swift`
+
 ### Server Offline: Tracks Not Dimmed and Queue Played Unavailable Tracks
 - **Resolved (March 5, 2026)**
 - **Issue:** When a Plex server went offline (but device stayed on Wi-Fi), tracks showed as available, playback queue tried every unavailable track, artwork didn't fall back to cache, and health checks only ran on network transitions (not server failures).
