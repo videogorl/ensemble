@@ -246,7 +246,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // When offline or server is known to be unreachable, use local cache directly.
         // This avoids building a network URL that Nuke would time out fetching.
         let serverUnavailable = !isOffline && !serverAvailable
-        if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey) {
+        if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             #if DEBUG
             let reason = isOffline ? "Offline" : "Server unavailable"
             EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: \(reason) - using local file: \(localURL.lastPathComponent)")
@@ -280,7 +280,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         // Network URL resolution failed — fall back to local cache if available
-        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey) {
+        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             #if DEBUG
             EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Network failed, using local file: \(localURL.lastPathComponent)")
             #endif
@@ -303,16 +303,34 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     /// Look up locally cached artwork file for a given ratingKey.
     /// Checks album, artist, and playlist artwork caches in order.
-    private func localCachedArtworkURL(ratingKey: String?) -> URL? {
-        guard let key = ratingKey else { return nil }
+    /// Falls back to extracting the ratingKey from the artwork path when the
+    /// passed ratingKey doesn't match a cached file (e.g., track ratingKey vs.
+    /// album ratingKey embedded in the inherited parentThumb path).
+    private func localCachedArtworkURL(ratingKey: String?, path: String? = nil) -> URL? {
         let artworkDir = ArtworkDownloadManager.artworkDirectory
 
-        for suffix in ["album", "artist", "playlist"] {
-            let path = artworkDir.appendingPathComponent("\(key)_\(suffix).jpg").path
-            if FileManager.default.fileExists(atPath: path) {
-                return URL(fileURLWithPath: path)
+        // Try the passed ratingKey first
+        if let key = ratingKey {
+            for suffix in ["album", "artist", "playlist"] {
+                let filePath = artworkDir.appendingPathComponent("\(key)_\(suffix).jpg").path
+                if FileManager.default.fileExists(atPath: filePath) {
+                    return URL(fileURLWithPath: filePath)
+                }
             }
         }
+
+        // Fall back to the ratingKey embedded in the artwork path.
+        // Tracks inherit their album's thumbPath (`parentThumb`), so the path
+        // contains the album ratingKey while the passed ratingKey is the track's.
+        if let path, let pathKey = Self.extractRatingKey(from: path), pathKey != ratingKey {
+            for suffix in ["album", "artist", "playlist"] {
+                let filePath = artworkDir.appendingPathComponent("\(pathKey)_\(suffix).jpg").path
+                if FileManager.default.fileExists(atPath: filePath) {
+                    return URL(fileURLWithPath: filePath)
+                }
+            }
+        }
+
         return nil
     }
 

@@ -3585,6 +3585,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let queuedItems = prefetchedItems
         await MainActor.run {
+            // Re-check failed state before inserting — the current item may have
+            // failed while this prefetch was in-flight. Inserting items now would
+            // let AVQueuePlayer auto-advance past the failed track.
+            if case .failed = playbackState { return }
+
             var insertAfter = player.currentItem
             for item in player.items().dropFirst() {
                 player.remove(item)
