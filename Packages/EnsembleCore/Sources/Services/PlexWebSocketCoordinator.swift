@@ -48,6 +48,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var managers: [String: PlexWebSocketManager] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
     private var accountObserver: AnyCancellable?
+    private var registrySubscriptionTask: Task<Void, Never>?
     private var isActive = false
 
     // Debounce library/playlist update triggers to avoid spamming sync for batch updates
@@ -88,6 +89,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             .sink { [weak self] _ in
                 self?.refreshConnections()
             }
+
+        // Subscribe to registry endpoint changes so existing WebSocket managers
+        // reconnect to the correct URL when health checks find a new endpoint.
+        subscribeToRegistryChanges()
     }
 
     /// Stop all WebSocket connections. Call on background.
@@ -101,6 +106,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         accountObserver?.cancel()
         accountObserver = nil
+        registrySubscriptionTask?.cancel()
+        registrySubscriptionTask = nil
 
         // Stop all managers
         for (key, _) in managers {
@@ -326,6 +333,24 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
             if let onPlaylistUpdate = await self?.onPlaylistUpdate {
                 await onPlaylistUpdate(serverKey)
+            }
+        }
+    }
+
+    // MARK: - Registry Subscription
+
+    /// Listen for endpoint changes from the registry and update existing WebSocket
+    /// managers to use the new URL. Without this, managers created before the first
+    /// health check keep reconnecting to a stale (possibly unreachable) endpoint.
+    private func subscribeToRegistryChanges() {
+        registrySubscriptionTask = Task { [weak self] in
+            guard let self else { return }
+            let stream = await connectionRegistry.endpointChanges()
+            for await state in stream {
+                guard !Task.isCancelled else { break }
+                if let manager = self.managers[state.serverKey] {
+                    await manager.updateServerURL(state.endpoint.url)
+                }
             }
         }
     }

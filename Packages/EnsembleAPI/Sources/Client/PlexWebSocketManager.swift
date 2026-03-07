@@ -31,7 +31,7 @@ public enum PlexServerEvent: Sendable {
 /// receive session-level notifications (e.g. `playing`). The WebSocket still
 /// provides implicit health signals for all account types.
 public actor PlexWebSocketManager {
-    private let serverURL: String
+    private var serverURL: String
     private let token: String
     private let serverName: String
     private let clientIdentifier: String
@@ -85,6 +85,25 @@ public actor PlexWebSocketManager {
         receiveTask?.cancel()
         receiveTask = nil
         disconnect()
+    }
+
+    /// Update the server URL and force a reconnect.
+    /// Called when the connection registry discovers a new working endpoint
+    /// (e.g., after a health check switches from a stale local IP to a remote endpoint).
+    public func updateServerURL(_ newURL: String) {
+        guard newURL != serverURL else { return }
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Endpoint changed → \(newURL)")
+        serverURL = newURL
+        // Reset backoff since this is a deliberate endpoint switch, not a failure
+        currentBackoff = Self.minBackoff
+        consecutiveFailures = 0
+        // Force reconnect if currently active
+        if !isStopped {
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            disconnect()
+            connect()
+        }
     }
 
     // MARK: - Subscribe
