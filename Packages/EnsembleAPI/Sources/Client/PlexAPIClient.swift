@@ -1284,12 +1284,7 @@ public actor PlexAPIClient {
         )
 
         #if DEBUG
-        // Log the full URL for debugging (debug builds only, local logs)
-        let urlStr = url.absoluteString
-        EnsembleLogger.debug("🔗 Full download URL (\(urlStr.count) chars): \(urlStr.prefix(600))")
-        if urlStr.count > 600 {
-            EnsembleLogger.debug("🔗 URL cont: \(urlStr.dropFirst(600).prefix(600))")
-        }
+        EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
         #endif
 
         // Download the stream via URLSession.data (handles chunked encoding correctly).
@@ -1305,8 +1300,6 @@ public actor PlexAPIClient {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             #if DEBUG
             EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? "(non-utf8)"
-            EnsembleLogger.debug("⚠️ Response body: \(bodyStr)")
             #endif
             throw PlexAPIError.httpError(statusCode: statusCode)
         }
@@ -1469,7 +1462,8 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Platform", value: platformName),
             URLQueryItem(name: "X-Plex-Device", value: deviceName),
             URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
-            URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
+            // DO NOT include X-Plex-Client-Profile-Name — "generic" causes PMS to
+            // return 400 on start.mp3 (decision tolerates it, but the stream rejects it).
             URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
             // directPlay=0 prevents PMS from redirecting to the raw file URL.
             // Non-Plex Pass servers limit raw file downloads (~655KB), which cuts
