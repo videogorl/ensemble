@@ -3785,6 +3785,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Remove prefetched items so AVQueuePlayer can't auto-advance
                         // to the next track. The user should stay on the failed track.
                         self?.clearPrefetchedItems()
+                        // Immediately disable the universal endpoint for this provider so
+                        // the next retry (and prefetches) use direct file URLs instead of
+                        // repeatedly hitting a broken transcode pipeline.
+                        if let sourceKey = self?.currentTrack?.sourceCompositeKey {
+                            self?.syncCoordinator.disableUniversalEndpoint(for: sourceKey)
+                        }
                     } else {
                         self?.playbackState = .failed(errorDescription)
                         self?.clearPrefetchedItems()

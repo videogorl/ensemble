@@ -1149,6 +1149,15 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
     
+    /// Disable the universal transcode endpoint for the provider matching the given source key.
+    /// Called when AVPlayer reports a resource-unavailable error so subsequent stream URL
+    /// requests immediately fall back to direct file URLs without retrying the transcoder.
+    public func disableUniversalEndpoint(for sourceKey: String) {
+        if let provider = syncProviders[sourceKey] {
+            provider.disableUniversalEndpoint()
+        }
+    }
+
     /// Get the stream URL for a track, routing to the correct provider
     /// - Parameters:
     ///   - track: The track to stream

@@ -55,6 +55,11 @@ public protocol MusicSourceSyncProvider: Sendable {
     /// Called after a successful connection refresh so transient failures don't persist.
     func resetStreamFallbackState()
 
+    /// Disable the universal transcode endpoint for this provider, forcing direct stream fallback.
+    /// Called when AVPlayer reports a resource-unavailable error, indicating the transcode
+    /// pipeline is broken (e.g., non-Plex Pass accounts). Expires after the provider's cooldown period.
+    func disableUniversalEndpoint()
+
     /// Get tracks for an album directly from the source
     func getAlbumTracks(albumKey: String) async throws -> [Track]
 
@@ -68,4 +73,5 @@ public protocol MusicSourceSyncProvider: Sendable {
 // Default no-op for providers that don't have fallback state
 extension MusicSourceSyncProvider {
     public func resetStreamFallbackState() {}
+    public func disableUniversalEndpoint() {}
 }

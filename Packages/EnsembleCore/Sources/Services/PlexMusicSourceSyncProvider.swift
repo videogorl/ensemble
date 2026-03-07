@@ -733,6 +733,14 @@ public func getStreamURL(
         resetUniversalEndpointFallback()
     }
 
+    public func disableUniversalEndpoint() {
+        universalEndpointDisabledUntil = Date().addingTimeInterval(60)
+        lastUniversalStreamTrack = nil
+        #if DEBUG
+        EnsembleLogger.debug("⚠️ PlexProvider: Universal endpoint disabled for 60s (resource unavailable)")
+        #endif
+    }
+
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {
         let plexTracks = try await apiClient.getAlbumTracks(albumKey: albumKey)
         return plexTracks.map { Track(from: $0, sourceKey: sourceIdentifier.compositeKey) }
