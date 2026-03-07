@@ -1846,7 +1846,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
-        
+
+        // If no player item is loaded (e.g., after state restoration where we deferred
+        // the network request), load and play the current queue item now.
+        if player?.currentItem == nil, currentTrack != nil {
+            Task { @MainActor in
+                await playCurrentQueueItem(seekTo: currentTime)
+            }
+            return
+        }
+
         // Setup audio tap if not already set up (e.g., after state restoration)
         if let currentItem = player?.currentItem, currentItem.audioMix == nil {
             #if DEBUG
@@ -1856,12 +1865,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 audioAnalyzer.setupAudioTap(for: currentItem)
             }
         }
-        
+
         // Resume frequency analysis
         Task { @MainActor in
             audioAnalyzer.resumeUpdates()
         }
-        
+
         #if !os(macOS)
         // Ensure session is active before resuming, especially critical for background handovers.
         try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
@@ -5352,22 +5361,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = index
         let track = await resolveTrackForPlaybackIfNeeded(items[index].track)
         currentTrack = track
-        currentTime = 0
+        currentTime = time
         waveformHeights = []  // Clear old waveform immediately
 
-        // Load the player item but don't start playback
+        // Don't load the player item yet — defer the network request until the
+        // user explicitly taps play. This prevents auto-play when the server isn't
+        // ready at app launch (health checks/reconnects would otherwise trigger
+        // playback from a .failed state).
         generateWaveform(for: track.id)
-        playbackState = .loading
-        
-        do {
-            let item = try await createPlayerItem(for: track)
-            await loadAndPrepare(item: item, track: track, seekTo: time)
-        } catch {
-            #if DEBUG
-            EnsembleLogger.debug("❌ Failed to prepare track during restore: \(error)")
-            #endif
-            playbackState = .failed(error.localizedDescription)
-        }
+        playbackState = .paused
+        updateNowPlayingInfo()
     }
 
     private func resolveTrackForPlaybackIfNeeded(_ track: Track) async -> Track {
