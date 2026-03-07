@@ -160,3 +160,10 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 **Fix:** `PlexAPIClient.downloadUniversalStreamToFile()` downloads the stream via URLSession (which handles chunked encoding correctly) to a temp file. AVPlayer receives a `file://` URL instead of a remote URL, bypassing CFHTTP entirely.
 
 **DO NOT revert to giving AVPlayer remote transcode URLs.** The CFHTTP issue is in Apple's CoreMedia framework and cannot be worked around with AVURLAsset options or headers.
+
+
+## CRITICAL: URLComponents breaks PMS transcode URLs
+
+**DO NOT use `URLComponents.queryItems` to build transcode URLs.** Swift's `URLComponents` encodes `=` as `%3D` inside query parameter values. PMS's decision endpoint tolerates this, but `start.mp3` requires literal `=` inside `X-Plex-Client-Profile-Extra` values (e.g., `type=musicProfile&context=streaming`). With `%3D` encoding, `start.mp3` returns **400 Bad Request**.
+
+**Use `PlexAPIClient.buildTranscodeURL(path:queryItems:)`** instead, which manually encodes only `&` (as `%26`) and spaces (as `%20`), leaving `=`, `+`, and `/` as literal characters.
