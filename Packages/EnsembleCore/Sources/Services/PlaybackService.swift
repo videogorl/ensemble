@@ -3738,6 +3738,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     let errorDescription = item.error?.localizedDescription ?? "Unknown error"
                     #if DEBUG
                     EnsembleLogger.debug("❌ Player failed: \(errorDescription)")
+                    // Full error chain for diagnostics
+                    if let nsError = item.error as NSError? {
+                        EnsembleLogger.debug("   Error domain: \(nsError.domain), code: \(nsError.code)")
+                        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                            EnsembleLogger.debug("   Underlying: domain=\(underlying.domain) code=\(underlying.code) — \(underlying.localizedDescription)")
+                            if let deep = underlying.userInfo[NSUnderlyingErrorKey] as? NSError {
+                                EnsembleLogger.debug("   Deep underlying: domain=\(deep.domain) code=\(deep.code) — \(deep.localizedDescription)")
+                            }
+                        }
+                    }
                     #endif
 
                     // Classify the error to determine recovery strategy.
@@ -3785,12 +3795,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Remove prefetched items so AVQueuePlayer can't auto-advance
                         // to the next track. The user should stay on the failed track.
                         self?.clearPrefetchedItems()
-                        // Immediately disable the universal endpoint for this provider so
-                        // the next retry (and prefetches) use direct file URLs instead of
-                        // repeatedly hitting a broken transcode pipeline.
-                        if let sourceKey = self?.currentTrack?.sourceCompositeKey {
-                            self?.syncCoordinator.disableUniversalEndpoint(for: sourceKey)
-                        }
                     } else {
                         self?.playbackState = .failed(errorDescription)
                         self?.clearPrefetchedItems()
