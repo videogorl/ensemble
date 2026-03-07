@@ -3053,8 +3053,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        // Participate in the circuit breaker to prevent infinite retry loops.
+        // TLS errors often affect ALL tracks on a server, so retrying endlessly
+        // just burns CPU and network while the UI flickers.
+        consecutivePlaybackFailures += 1
+        if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
+            #if DEBUG
+            EnsembleLogger.debug("🔒 TLS retry limit reached (\(consecutivePlaybackFailures) failures) — stopping")
+            #endif
+            playbackState = .failed("Unable to establish secure connection to server")
+            return
+        }
+
         #if DEBUG
-        EnsembleLogger.debug("🔒 Handling TLS playback failure - refreshing connection and rebuilding queue")
+        EnsembleLogger.debug("🔒 Handling TLS playback failure (\(consecutivePlaybackFailures)/\(maxConsecutiveFailuresBeforeStop)) - refreshing connection and rebuilding queue")
         #endif
 
         // Force a connection refresh to find a working endpoint
