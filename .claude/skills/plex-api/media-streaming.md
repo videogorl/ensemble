@@ -11,8 +11,12 @@
 
 ## Universal Transcode Endpoint (Primary — use this)
 
-### Step 1: `GET /music/:/transcode/universal/decision`
-Warm up the transcode session. **MUST be called before `start.mp3`** or PMS returns 400.
+### Step 1: `GET /music/:/transcode/universal/decision` (AVPlayer streaming only)
+Warm up the transcode session. Required when AVPlayer loads start.mp3 directly (remote URL).
+**NOT needed for URLSession downloads** — URLSession can fetch start.mp3 without a prior decision.
+Calling decision creates transcode sessions on PMS that conflict with concurrent prefetch downloads
+(same client ID), causing HTTP 400 errors. Only call decision if you absolutely need AVPlayer
+to load the URL directly (which has its own CFHTTP issues — see below).
 
 ### Step 2: `GET /music/:/transcode/universal/start.mp3`
 Stream the transcoded audio. Uses the same query parameters as the decision call.
@@ -92,11 +96,14 @@ Direct audio file URL. **Returns 503 Service Unavailable** on some server config
 ```
 
 
-## Universal Download URL (for offline downloads)
+## Universal Download URL (for offline downloads and playback)
 
-Same as the universal stream URL but **does NOT require the decision call**. URLSession handles chunked downloads fine — the decision warmup is only needed for AVPlayer streaming.
+Same as the universal stream URL but **does NOT require the decision call**. URLSession handles
+chunked downloads fine. The decision call should be avoided for downloads because it creates
+transcode sessions on PMS that conflict when multiple tracks are downloaded concurrently.
 
-Built via `PlexAPIClient.getUniversalDownloadURL()`.
+- Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task
+- Playback: `PlexAPIClient.downloadUniversalStreamToFile()` — downloads to temp file, returns file URL for AVPlayer
 
 
 ## Waveform / Loudness Data
