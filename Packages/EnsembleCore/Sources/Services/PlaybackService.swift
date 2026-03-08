@@ -8,6 +8,9 @@ import Nuke
 #if canImport(QuartzCore)
 import QuartzCore
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Playback State
 
@@ -746,6 +749,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var unexpectedPauseCount = 0
     private var audioSessionInterruptionObserver: Any?
     private var audioSessionRouteChangeObserver: Any?
+    /// Background task identifier used to keep the app alive during track transitions.
+    /// Without this, iOS may suspend the app between tracks when no audio is playing.
+    #if canImport(UIKit)
+    private var trackTransitionBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    #endif
     private var activeSeek: SeekOperation?
     private var seekCounter: UInt64 = 0
     /// Seek requested while player item was loading; applied when readyToPlay.
@@ -1244,6 +1252,38 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         
         return heights
+    }
+
+    // MARK: - Background Task Protection
+
+    /// Begins a background task to keep the app alive during track transitions.
+    /// Without this, iOS may suspend the app between tracks (when no audio is
+    /// actively playing), preventing the next track from loading and starting.
+    private func beginTrackTransitionBackgroundTask() {
+        #if canImport(UIKit)
+        guard trackTransitionBackgroundTask == .invalid else { return }
+        trackTransitionBackgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "TrackTransition"
+        ) { [weak self] in
+            // Expiration handler — clean up if iOS is about to suspend
+            self?.endTrackTransitionBackgroundTask()
+        }
+        #if DEBUG
+        EnsembleLogger.debug("🔒 Background task started for track transition")
+        #endif
+        #endif
+    }
+
+    /// Ends the background task once the new track is playing (or failed).
+    private func endTrackTransitionBackgroundTask() {
+        #if canImport(UIKit)
+        guard trackTransitionBackgroundTask != .invalid else { return }
+        #if DEBUG
+        EnsembleLogger.debug("🔓 Background task ended for track transition")
+        #endif
+        UIApplication.shared.endBackgroundTask(trackTransitionBackgroundTask)
+        trackTransitionBackgroundTask = .invalid
+        #endif
     }
 
     // MARK: - Audio Session
@@ -1909,6 +1949,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        endTrackTransitionBackgroundTask()
         cleanup()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
         fallbackReverseTimer?.invalidate()
@@ -2925,6 +2966,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         forcingFreshItem: Bool = false,
         seekTo startTime: TimeInterval? = nil
     ) async {
+        // Keep the app alive during track transitions in background.
+        // iOS may suspend the app between tracks when no audio is playing.
+        beginTrackTransitionBackgroundTask()
+
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else {
             stop()
             return
@@ -3119,6 +3164,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("❌ All retries exhausted for track preparation (consecutive failures: \(consecutivePlaybackFailures))")
         #endif
         loadingStateTask?.cancel()
+        endTrackTransitionBackgroundTask()
         let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
         await MainActor.run {
             self.isSkipTransitionInProgress = false
@@ -4044,6 +4090,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             self.playbackState = .playing
                             self.audioAnalyzer.resumeUpdates()  // Visualizer starts only after audio confirmed
                             self.adaptiveBufferingState.conservativeWaitCycles = 0
+
+                            // Audio is confirmed — release background task protection
+                            self.endTrackTransitionBackgroundTask()
 
                             // Audio is confirmed flowing — safe to reset the circuit breaker.
                             // This is the only automatic reset point; manual resets remain in
