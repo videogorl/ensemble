@@ -8,7 +8,7 @@ public struct InfoCard: View {
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("streamingQuality") private var streamingQuality: String = "original"
+    @AppStorage("streamingQuality") private var streamingQuality: String = "high"
 
     // Album fetched asynchronously for year display
     @State private var fetchedAlbum: Album?

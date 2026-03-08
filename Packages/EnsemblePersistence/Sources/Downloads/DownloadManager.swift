@@ -279,7 +279,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         try await createDownload(
             forTrackRatingKey: trackRatingKey,
             sourceCompositeKey: nil,
-            quality: "original"
+            quality: "high"
         )
     }
 

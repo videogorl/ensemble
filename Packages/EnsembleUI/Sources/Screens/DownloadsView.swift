@@ -6,7 +6,7 @@ public struct DownloadsView: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @State private var isRefreshingDownloadQuality = false
-    @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())

@@ -738,7 +738,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var healthCheckCompletionObservation: AnyCancellable?
     private var qualityChangeObserver: NSObjectProtocol?
     private var downloadChangeObserver: AnyCancellable?
-    private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+    private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     private var isInterrupted = false
@@ -1584,7 +1584,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
             return nil
         }
-        return UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+        return UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     }
 
     /// Creates a QueueItem stamped with the current streaming quality
@@ -3346,8 +3346,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
 
         // Read streaming quality setting from AppStorage
-        let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
-        let quality = StreamingQuality(rawValue: qualityString) ?? .original
+        let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
+        let quality = StreamingQuality(rawValue: qualityString) ?? .high
         #if DEBUG
         EnsembleLogger.debug("   🎵 Using streaming quality: \(quality.rawValue)")
         #endif
@@ -4852,7 +4852,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            let newQuality = UserDefaults.standard.string(forKey: "streamingQuality") ?? "original"
+            let newQuality = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
             // Only act when the streaming quality actually changed
             guard newQuality != self.lastObservedStreamingQuality else { return }
             self.lastObservedStreamingQuality = newQuality
@@ -4979,7 +4979,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // re-stamp with the current streaming quality setting
                 let quality: String? = currentPath != nil
                     ? nil
-                    : (UserDefaults.standard.string(forKey: "streamingQuality") ?? "original")
+                    : (UserDefaults.standard.string(forKey: "streamingQuality") ?? "high")
                 queue[i] = QueueItem(
                     id: queue[i].id,
                     track: updatedTrack,

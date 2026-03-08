@@ -120,7 +120,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     /// Number of completed tracks whose quality doesn't match the current download quality setting
     public var qualityMismatchCount: Int {
-        let desired = UserDefaults.standard.string(forKey: "downloadQuality") ?? "original"
+        let desired = UserDefaults.standard.string(forKey: "downloadQuality") ?? "high"
         return tracks.filter { row in
             row.status == .completed && row.downloadedQuality != nil && row.downloadedQuality != desired
         }.count

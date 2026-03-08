@@ -190,7 +190,7 @@ public final class DownloadsViewModel: ObservableObject {
                     // Estimate total size: sum of duration * bitrate for current quality
                     let totalDurationMs = allTracks.reduce(Int64(0)) { $0 + $1.duration }
                     let durationSeconds = Double(totalDurationMs) / 1000.0
-                    let downloadQuality = UserDefaults.standard.string(forKey: "downloadQuality") ?? "original"
+                    let downloadQuality = UserDefaults.standard.string(forKey: "downloadQuality") ?? "high"
                     let estimatedTotalBytes = Self.estimateBytes(durationSeconds: durationSeconds, quality: downloadQuality, actualBytes: downloadedBytes)
 
                     // Determine status from library-level target snapshot
