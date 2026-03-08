@@ -2936,6 +2936,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 player?.removeTimeObserver(observer)
                 timeObserver = nil
             }
+            // Pause the visualizer so it doesn't keep showing the old track's
+            // frequency bands while the new track buffers/loads.
+            audioAnalyzer.pauseUpdates()
             // Show loading immediately so the UI reflects the transition
             // instead of showing a stale play/pause button with silence.
             playbackState = .loading
@@ -2948,36 +2951,58 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             adaptiveBufferingState.conservativeWaitCycles = 0
         }
 
-        // Check if we have a cached player item that's ready to play
+        // Check if we have a cached player item — either ready or still loading from prefetch
         if let cachedItem = await MainActor.run(body: { getCachedPlayerItem(for: track.id) }),
-           cachedItem.status == .readyToPlay,
            !forcingFreshItem {
-            #if DEBUG
-            EnsembleLogger.debug("   ✅ Using cached player item (ready)")
-            #endif
 
-            // Seek to beginning since cached items retain their position
-            await MainActor.run {
-                cachedItem.seek(to: .zero, completionHandler: nil)
+            // If the prefetched item isn't ready yet, wait briefly for it
+            // instead of re-downloading the entire stream from scratch.
+            if cachedItem.status != .readyToPlay {
+                #if DEBUG
+                EnsembleLogger.debug("   ⏳ Cached item not ready yet, waiting for prefetch...")
+                #endif
+                let waitStart = CACurrentMediaTime()
+                let maxWait: TimeInterval = 8.0 // Don't wait longer than 8s
+                while cachedItem.status != .readyToPlay && cachedItem.status != .failed {
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms poll
+                    if CACurrentMediaTime() - waitStart > maxWait { break }
+                }
             }
 
-            // Use cached item - no loading state needed
-            await MainActor.run {
-                self.currentTrack = track
-                self.currentTime = 0
-                self.pendingLoadSeekTime = nil
-                self.bufferedProgress = 0
-                self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
-                self.updateNowPlayingInfo()
+            if cachedItem.status == .readyToPlay {
+                #if DEBUG
+                EnsembleLogger.debug("   ✅ Using cached player item (ready)")
+                #endif
+
+                // Seek to beginning since cached items retain their position
+                await MainActor.run {
+                    cachedItem.seek(to: .zero, completionHandler: nil)
+                }
+
+                // Use cached item - no loading state needed
+                await MainActor.run {
+                    self.currentTrack = track
+                    self.currentTime = 0
+                    self.pendingLoadSeekTime = nil
+                    self.bufferedProgress = 0
+                    self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
+                    self.updateNowPlayingInfo()
+                }
+
+                generateWaveform(for: track.id)
+                await loadAndPlay(item: cachedItem, track: track)
+                Task { await prefetchNextItem() }
+                #if DEBUG
+                EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
+                #endif
+                return
             }
 
-            generateWaveform(for: track.id)
-            await loadAndPlay(item: cachedItem, track: track)
-            Task { await prefetchNextItem() }
+            // Prefetch item failed — fall through to create a fresh one
             #if DEBUG
-            EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
+            EnsembleLogger.debug("   ⚠️ Cached item failed/timed out, creating fresh item")
             #endif
-            return
+            await MainActor.run { removeCachedPlayerItem(for: track.id) }
         }
 
         // No cached item ready - set current track info
