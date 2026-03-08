@@ -3011,10 +3011,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 let (item, fileURL) = try await createPlayerItem(for: track)
-                // Fire-and-forget frequency analysis so it doesn't block playback start
+                // Fire-and-forget frequency analysis so it doesn't block playback start.
+                // Use Task.detached to avoid contending with MainActor during the
+                // multi-second FFT analysis await — only hops to MainActor for the
+                // brief loadTimeline entry/exit points, not the entire suspension.
                 if let fileURL {
-                    Task { @MainActor in
-                        await self.audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL)
+                    Task.detached { [audioAnalyzer] in
+                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL)
                     }
                 }
                 await loadAndPlay(item: item, track: track)
@@ -3713,10 +3716,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     cacheMisses += 1
 
                     // Pre-compute frequency timeline so the visualizer is ready
-                    // on gapless transitions
+                    // on gapless transitions (detached to avoid MainActor contention)
                     if let fileURL {
-                        await MainActor.run {
-                            Task { await self.audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL) }
+                        let analyzer = self.audioAnalyzer
+                        Task.detached {
+                            await analyzer.loadTimeline(for: track.id, fileURL: fileURL)
                         }
                     }
                 }
