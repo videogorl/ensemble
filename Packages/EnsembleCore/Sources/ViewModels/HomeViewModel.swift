@@ -596,9 +596,7 @@ public final class HomeViewModel: ObservableObject {
             #endif
             self.pendingHubSnapshot = nil
             self.hubs = pendingHubSnapshot
-            if isEditingOrder {
-                self.editableHubs = pendingHubSnapshot
-            }
+            // Don't overwrite editableHubs — user may be actively reordering
         }
     }
 
@@ -627,9 +625,7 @@ public final class HomeViewModel: ObservableObject {
         pendingHubSnapshot = nil
         pendingHubApplyTask?.cancel()
         hubs = visibleSnapshot
-        if isEditingOrder {
-            editableHubs = visibleSnapshot
-        }
+        // Don't overwrite editableHubs — user may be actively reordering
     }
 
     private func applyVisibilityToPublishedHubs() {
@@ -646,9 +642,7 @@ public final class HomeViewModel: ObservableObject {
         pendingHubSnapshot = nil
         pendingHubApplyTask?.cancel()
         hubs = visibleHubs
-        if isEditingOrder {
-            editableHubs = visibleHubs
-        }
+        // Don't overwrite editableHubs — user may be actively reordering
     }
 
     internal var hasPendingAutoRefreshForTesting: Bool {

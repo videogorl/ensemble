@@ -90,12 +90,6 @@ public struct HubOrderingSheet: View {
                         }
                     }
 
-                    Spacer()
-
-                    // Chevron like Plexamp
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.5))
                 }
                 .padding(.vertical, 4)
             }
