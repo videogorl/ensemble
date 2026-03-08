@@ -1320,11 +1320,21 @@ public actor PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
-        // PMS's universal transcode produces VBR MP3 files without XING headers.
-        // AVPlayer can't determine true duration or frame layout, causing
-        // FigFilePlayer errors at track boundaries and broken gapless transitions.
-        // Injecting a XING header gives AVPlayer accurate metadata.
+        // PMS's universal transcode produces VBR MP3 files that cause AVPlayer
+        // FigFilePlayer errors at gapless transition boundaries. Convert to CAF
+        // (uncompressed PCM) which AVPlayer handles natively for true zero-gap
+        // gapless playback. Falls back to XING header injection if conversion fails.
         if quality != .original {
+            if let cafURL = AudioFormatConverter.convertToCAF(mp3URL: destURL) {
+                #if DEBUG
+                let cafSize = (try? FileManager.default.attributesOfItem(atPath: cafURL.path)[.size] as? Int) ?? 0
+                EnsembleLogger.debug("✅ Converted stream to CAF: \(cafURL.lastPathComponent) (\(cafSize) bytes)")
+                #endif
+                return cafURL
+            }
+
+            // Conversion failed — fall back to XING header injection for basic
+            // duration accuracy and LAME gapless metadata.
             try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
                 at: destURL,
                 metadataDurationSeconds: metadataDurationSeconds
