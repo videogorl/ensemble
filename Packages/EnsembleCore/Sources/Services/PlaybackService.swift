@@ -2841,6 +2841,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
+        // Stop old playback immediately so the old track's audio doesn't continue
+        // playing while the UI shows the new track's metadata. Also remove the
+        // periodic time observer to prevent it from overwriting currentTime with
+        // the old track's position during the transition.
+        await MainActor.run {
+            player?.pause()
+            if let observer = timeObserver {
+                player?.removeTimeObserver(observer)
+                timeObserver = nil
+            }
+        }
+
         // Reset adaptive buffering state for fresh playback attempts
         if forcingFreshItem {
             await MainActor.run { removeCachedPlayerItem(for: track.id) }
