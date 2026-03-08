@@ -107,16 +107,16 @@ public struct FrequencyTimelinePersistence {
         let data = try Data(contentsOf: url)
         guard data.count >= 16 else { throw FrequencyAnalysisError.invalidSidecar }
 
-        // Parse header
-        let m = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self) }
+        // Parse header (use loadUnaligned — Data's buffer isn't guaranteed aligned)
+        let m = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
         guard m == magic else { throw FrequencyAnalysisError.invalidSidecar }
 
-        let v = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }
+        let v = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt16.self) }
         guard v == version else { throw FrequencyAnalysisError.invalidSidecar }
 
-        let count = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt32.self) })
-        let fps = Double(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self) })
-        let dur = TimeInterval(data.withUnsafeBytes { $0.load(fromByteOffset: 12, as: Float32.self) })
+        let count = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 6, as: UInt32.self) })
+        let fps = Double(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 10, as: UInt16.self) })
+        let dur = TimeInterval(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: Float32.self) })
 
         let expectedSize = 16 + count * bandCount
         guard data.count >= expectedSize else { throw FrequencyAnalysisError.invalidSidecar }
