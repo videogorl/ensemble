@@ -589,7 +589,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 public func getStreamURL(
         for trackRatingKey: String,
         trackStreamKey: String?,
-        quality: StreamingQuality
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double? = nil
     ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
@@ -603,7 +604,8 @@ public func getStreamURL(
         do {
             let fileURL = try await apiClient.downloadUniversalStreamToFile(
                 ratingKey: trackRatingKey,
-                quality: quality
+                quality: quality,
+                metadataDurationSeconds: metadataDurationSeconds
             )
             #if DEBUG
             EnsembleLogger.debug("🎵 PlexProvider: Downloaded universal stream to file (quality=\(quality.rawValue))")

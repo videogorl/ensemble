@@ -1191,7 +1191,10 @@ public final class SyncCoordinator: ObservableObject {
                     #endif
                 }
             }
-            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey, quality: quality)
+            return try await provider.getStreamURL(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
         }
 
         // Fallback: try any available provider
@@ -1199,7 +1202,10 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("⚠️ Using fallback provider")
             #endif
-            return try await provider.getStreamURL(for: track.id, trackStreamKey: track.streamKey, quality: quality)
+            return try await provider.getStreamURL(
+                for: track.id, trackStreamKey: track.streamKey,
+                quality: quality, metadataDurationSeconds: track.duration
+            )
         }
 
         #if DEBUG

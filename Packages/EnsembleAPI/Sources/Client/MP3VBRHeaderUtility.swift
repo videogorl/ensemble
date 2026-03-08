@@ -17,7 +17,16 @@ enum MP3VBRHeaderUtility {
 
     /// Inject a XING VBR header into an MP3 file if it lacks one.
     /// Rewrites the file in place. No-op if the file already has a XING/Info header.
-    static func injectXingHeaderIfNeeded(at fileURL: URL) throws {
+    ///
+    /// - Parameters:
+    ///   - fileURL: Path to the MP3 file.
+    ///   - metadataDurationSeconds: Optional source duration from Plex metadata. When provided,
+    ///     LAME gapless info (encoder delay + padding) is embedded so AVPlayer can trim
+    ///     silence at track boundaries for seamless gapless playback.
+    static func injectXingHeaderIfNeeded(
+        at fileURL: URL,
+        metadataDurationSeconds: Double? = nil
+    ) throws {
         let data = try Data(contentsOf: fileURL)
 
         // Skip ID3v2 tag if present
@@ -37,11 +46,32 @@ enum MP3VBRHeaderUtility {
         let stats = countFrames(data: data, offset: audioOffset)
         guard stats.frameCount > 0 else { return }
 
-        // Build the XING header frame
+        // Calculate LAME gapless metadata if we have the source duration.
+        // MP3 encoding adds silence: encoder delay at the start (~576 samples for
+        // ffmpeg/libmp3lame) and zero-padding at the end to fill the last frame.
+        // Without this info, AVPlayer plays the padding, causing ~50-100ms gaps.
+        var gaplessInfo: LAMEGaplessInfo?
+        if let metadataDuration = metadataDurationSeconds, metadataDuration > 0 {
+            let totalSamples = stats.frameCount * frameInfo.samplesPerFrame
+            let actualSamples = Int(round(metadataDuration * Double(frameInfo.sampleRate)))
+            let delay = encoderDelay
+            let padding = max(0, totalSamples - actualSamples - delay)
+            gaplessInfo = LAMEGaplessInfo(delay: delay, padding: padding)
+
+            #if DEBUG
+            EnsembleLogger.debug(
+                "🎵 LAME gapless: delay=\(delay), padding=\(padding), "
+                + "totalSamples=\(totalSamples), actualSamples=\(actualSamples)"
+            )
+            #endif
+        }
+
+        // Build the XING header frame (includes LAME extension when gapless info is available)
         guard let xingFrame = buildXingFrame(
             frameInfo: frameInfo,
             totalFrames: stats.frameCount,
-            totalAudioBytes: stats.totalBytes
+            totalAudioBytes: stats.totalBytes,
+            gaplessInfo: gaplessInfo
         ) else {
             return
         }
@@ -57,8 +87,23 @@ enum MP3VBRHeaderUtility {
         try output.write(to: fileURL, options: .atomic)
 
         #if DEBUG
-        EnsembleLogger.debug("🎵 Injected XING header: \(stats.frameCount) frames, \(stats.totalBytes) audio bytes")
+        EnsembleLogger.debug(
+            "🎵 Injected XING header: \(stats.frameCount) frames, \(stats.totalBytes) audio bytes"
+            + (gaplessInfo != nil ? " [LAME gapless: delay=\(gaplessInfo!.delay), padding=\(gaplessInfo!.padding)]" : "")
+        )
         #endif
+    }
+
+    // MARK: - Constants
+
+    /// Standard encoder delay for ffmpeg's libmp3lame (576 samples).
+    /// PMS uses ffmpeg for its universal transcode pipeline.
+    static let encoderDelay = 576
+
+    /// Encoder delay and padding for LAME gapless playback.
+    struct LAMEGaplessInfo {
+        let delay: Int   // Samples to skip at start (typically 576)
+        let padding: Int // Samples to skip at end (fills last frame)
     }
 
     // MARK: - ID3v2 Parsing
@@ -282,30 +327,45 @@ enum MP3VBRHeaderUtility {
     /// Build a complete MPEG frame containing a XING VBR header.
     /// The frame uses the lowest valid bitrate to keep it small,
     /// and is filled with silence so it doesn't produce audible output.
+    /// When gapless info is provided, a LAME extension with encoder delay/padding
+    /// is appended so AVPlayer can trim silence at track boundaries.
     private static func buildXingFrame(
         frameInfo: MPEGFrameInfo,
         totalFrames: Int,
-        totalAudioBytes: Int
+        totalAudioBytes: Int,
+        gaplessInfo: LAMEGaplessInfo? = nil
     ) -> Data? {
-        // Use the lowest valid bitrate for this MPEG version/layer to minimize frame size
-        let minBitrate = minimumBitrate(version: frameInfo.mpegVersion, layer: frameInfo.layer)
-        guard minBitrate > 0 else { return nil }
+        // XING payload: 4 (tag) + 4 (flags) + 4 (frames) + 4 (bytes) = 16 bytes
+        // LAME extension: 36 bytes (version, delay/padding, CRC, etc.)
+        let xingPayloadSize = 16
+        let lameExtensionSize = gaplessInfo != nil ? 36 : 0
+        let requiredContentSize = frameInfo.xingDataOffset + xingPayloadSize + lameExtensionSize
 
-        // Calculate frame size at minimum bitrate (no padding)
+        // Find a bitrate that produces a frame large enough for the payload.
+        // Start with minimum bitrate; step up if frame is too small for LAME extension.
+        let bitrate = findBitrateForFrameSize(
+            version: frameInfo.mpegVersion,
+            layer: frameInfo.layer,
+            sampleRate: frameInfo.sampleRate,
+            samplesPerFrame: frameInfo.samplesPerFrame,
+            minimumSize: requiredContentSize
+        )
+        guard bitrate > 0 else { return nil }
+
+        // Calculate frame size at chosen bitrate (no padding)
         let frameSize: Int
         if frameInfo.layer == 1 {
-            frameSize = (12 * minBitrate * 1000 / frameInfo.sampleRate) * 4
+            frameSize = (12 * bitrate * 1000 / frameInfo.sampleRate) * 4
         } else {
-            frameSize = frameInfo.samplesPerFrame / 8 * minBitrate * 1000 / frameInfo.sampleRate
+            frameSize = frameInfo.samplesPerFrame / 8 * bitrate * 1000 / frameInfo.sampleRate
         }
-        // XING payload: 4 (tag) + 4 (flags) + 4 (frames) + 4 (bytes) = 16 bytes
-        guard frameSize > 0, frameSize >= frameInfo.xingDataOffset + 16 else { return nil }
+        guard frameSize >= requiredContentSize else { return nil }
 
         // Build the 4-byte MPEG header for the XING frame
         let header = buildMPEGHeader(
             version: frameInfo.mpegVersion,
             layer: frameInfo.layer,
-            bitrate: minBitrate,
+            bitrate: bitrate,
             sampleRate: frameInfo.sampleRate,
             channels: frameInfo.channels,
             padding: false
@@ -319,7 +379,7 @@ enum MP3VBRHeaderUtility {
         frame[2] = header[2]
         frame[3] = header[3]
 
-        // Write XING header at the correct offset
+        // Write XING header at the correct offset (after side information)
         var offset = frameInfo.xingDataOffset
 
         // "Xing" identifier
@@ -344,8 +404,69 @@ enum MP3VBRHeaderUtility {
         frame[offset+1] = UInt8((totalAudioBytes >> 16) & 0xFF)
         frame[offset+2] = UInt8((totalAudioBytes >> 8) & 0xFF)
         frame[offset+3] = UInt8(totalAudioBytes & 0xFF)
+        offset += 4
+
+        // LAME extension — encoder delay and padding for gapless playback.
+        // Layout (36 bytes total):
+        //   0-8: encoder version string (9 bytes, e.g. "LAVC60.3\0")
+        //   9:   info tag revision (4 bits) + VBR method (4 bits)
+        //  10:   lowpass frequency / 100
+        //  11-18: replay gain (8 bytes)
+        //  19:  encoding flags (4 bits) + ATH type (4 bits)
+        //  20:  minimum bitrate
+        //  21-23: encoder delay (12 bits) + padding (12 bits) ← KEY for gapless
+        //  24:  misc
+        //  25:  MP3 gain
+        //  26-27: preset / surround info
+        //  28-31: music length (total file size)
+        //  32-33: music CRC
+        //  34-35: info tag CRC
+        if let gapless = gaplessInfo {
+            let lameStart = offset
+
+            // Encoder version: "Lavf" (PMS uses ffmpeg/libavformat)
+            let versionBytes: [UInt8] = [0x4C, 0x61, 0x76, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00]
+            for (i, b) in versionBytes.enumerated() {
+                frame[lameStart + i] = b
+            }
+
+            // Delay (12 bits) + padding (12 bits) packed into 3 bytes at offset 21
+            let delayClamp = min(gapless.delay, 0xFFF)
+            let paddingClamp = min(gapless.padding, 0xFFF)
+            frame[lameStart + 21] = UInt8((delayClamp >> 4) & 0xFF)
+            frame[lameStart + 22] = UInt8(((delayClamp & 0x0F) << 4) | ((paddingClamp >> 8) & 0x0F))
+            frame[lameStart + 23] = UInt8(paddingClamp & 0xFF)
+
+            // Music length: total file bytes (XING frame + original audio)
+            let musicLength = frameSize + totalAudioBytes
+            frame[lameStart + 28] = UInt8((musicLength >> 24) & 0xFF)
+            frame[lameStart + 29] = UInt8((musicLength >> 16) & 0xFF)
+            frame[lameStart + 30] = UInt8((musicLength >> 8) & 0xFF)
+            frame[lameStart + 31] = UInt8(musicLength & 0xFF)
+        }
 
         return frame
+    }
+
+    /// Find the smallest standard bitrate that produces a frame large enough.
+    private static func findBitrateForFrameSize(
+        version: Int, layer: Int, sampleRate: Int,
+        samplesPerFrame: Int, minimumSize: Int
+    ) -> Int {
+        for index in 1..<15 {
+            let br = bitrateTable(version: version, layer: layer, index: index)
+            guard br > 0 else { continue }
+            let size: Int
+            if layer == 1 {
+                size = (12 * br * 1000 / sampleRate) * 4
+            } else {
+                size = samplesPerFrame / 8 * br * 1000 / sampleRate
+            }
+            if size >= minimumSize {
+                return br
+            }
+        }
+        return 0
     }
 
     /// Build a 4-byte MPEG audio frame header.

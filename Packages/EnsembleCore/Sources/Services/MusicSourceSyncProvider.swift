@@ -36,7 +36,8 @@ public protocol MusicSourceSyncProvider: Sendable {
     func getStreamURL(
         for trackRatingKey: String,
         trackStreamKey: String?,
-        quality: StreamingQuality
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double?
     ) async throws -> URL
 
     /// Get an artwork URL

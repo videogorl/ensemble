@@ -1256,7 +1256,8 @@ public actor PlexAPIClient {
     public func downloadUniversalStreamToFile(
         ratingKey: String,
         quality: StreamingQuality = .original,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        metadataDurationSeconds: Double? = nil
     ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
@@ -1324,7 +1325,10 @@ public actor PlexAPIClient {
         // FigFilePlayer errors at track boundaries and broken gapless transitions.
         // Injecting a XING header gives AVPlayer accurate metadata.
         if quality != .original {
-            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(at: destURL)
+            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
+                at: destURL,
+                metadataDurationSeconds: metadataDurationSeconds
+            )
         }
 
         #if DEBUG

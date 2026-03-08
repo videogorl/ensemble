@@ -150,6 +150,65 @@ final class MP3VBRHeaderUtilityTests: XCTestCase {
         XCTAssertEqual(afterFirst, afterSecond, "Second injection should not modify file")
     }
 
+    func testInjectsLAMEGaplessInfo() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+        let fileURL = tmpDir.appendingPathComponent("test_lame_\(UUID().uuidString).mp3")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let frameCount = 7500  // ~196s at 44100Hz with 1152 samples/frame
+        let originalData = buildTestMP3(frameCount: frameCount)
+        try originalData.write(to: fileURL)
+
+        // 7500 frames * 1152 samples/frame = 8,640,000 total samples
+        // At 44100Hz that's 195.918s total encoded.
+        // Use a metadata duration that produces padding < 4095 (12-bit max).
+        // metadataDuration = 195.90s → actualSamples = round(195.90 * 44100) = 8,639,190
+        // delay = 576, padding = 8,640,000 - 8,639,190 - 576 = 234
+        let metadataDuration = 195.90
+
+        try MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
+            at: fileURL,
+            metadataDurationSeconds: metadataDuration
+        )
+
+        let newData = try Data(contentsOf: fileURL)
+
+        // Find XING tag
+        let id3Size = (Int(newData[6]) << 21) | (Int(newData[7]) << 14)
+                    | (Int(newData[8]) << 7)  | Int(newData[9])
+        let audioOffset = 10 + id3Size
+
+        // XING tag at side-info offset 36 (MPEG1 stereo)
+        let xingTagOffset = audioOffset + 36
+        let xingTag = Array(newData[xingTagOffset..<(xingTagOffset + 4)])
+        XCTAssertEqual(xingTag, [0x58, 0x69, 0x6E, 0x67], "Should contain 'Xing' tag")
+
+        // LAME extension starts after XING fields: tag(4) + flags(4) + frames(4) + bytes(4) = 16
+        let lameOffset = xingTagOffset + 16
+
+        // Check encoder version starts with "Lavf"
+        XCTAssertEqual(newData[lameOffset], 0x4C)     // 'L'
+        XCTAssertEqual(newData[lameOffset + 1], 0x61)  // 'a'
+        XCTAssertEqual(newData[lameOffset + 2], 0x76)  // 'v'
+        XCTAssertEqual(newData[lameOffset + 3], 0x66)  // 'f'
+
+        // Decode delay and padding from bytes 21-23 of LAME extension
+        let delayPaddingOffset = lameOffset + 21
+        let b0 = Int(newData[delayPaddingOffset])
+        let b1 = Int(newData[delayPaddingOffset + 1])
+        let b2 = Int(newData[delayPaddingOffset + 2])
+
+        let delay = (b0 << 4) | ((b1 >> 4) & 0x0F)
+        let padding = ((b1 & 0x0F) << 8) | b2
+
+        XCTAssertEqual(delay, 576, "Encoder delay should be 576 samples")
+
+        // Expected padding: 8,640,000 - 8,639,190 - 576 = 234
+        let expectedPadding = frameCount * 1152 - Int(round(metadataDuration * 44100)) - 576
+        XCTAssertEqual(padding, expectedPadding, "Encoder padding should match calculated value")
+        XCTAssertGreaterThan(padding, 0, "Padding should be positive")
+    }
+
     func testNoOpForNonMP3Data() throws {
         let tmpDir = FileManager.default.temporaryDirectory
         let fileURL = tmpDir.appendingPathComponent("test_xing_nonmp3_\(UUID().uuidString).mp3")
