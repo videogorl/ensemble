@@ -3334,11 +3334,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
-        // NOTE: Do NOT set forwardPlaybackEndTime on VBR transcode files. AVPlayer's
-        // time coordinate is warped when XING/LAME headers are missing (it overestimates
-        // duration), so a metadata-based end time operates in the wrong time space and
-        // can cut off audio or extend past the real end. Let AVPlayer detect end-of-file
-        // naturally — it's more reliable for gapless transitions with VBR files.
+        // For transcoded VBR MP3 files (non-original quality, file:// URL), set
+        // forwardPlaybackEndTime to the metadata duration. With XING+LAME headers
+        // injected, AVPlayer's time coordinates are now accurate, so the metadata
+        // duration maps correctly. This prevents AVPlayer from reading into the
+        // zero-padded tail of the last MPEG frame, which causes FigFilePlayer
+        // err=-12864 at the gapless transition boundary.
+        if quality != .original && streamURL.isFileURL && track.duration > 0 {
+            item.forwardPlaybackEndTime = CMTime(seconds: track.duration, preferredTimescale: 44100)
+            #if DEBUG
+            EnsembleLogger.debug("   ⏱️ Set forwardPlaybackEndTime=\(track.duration)s for VBR gapless")
+            #endif
+        }
 
         #if DEBUG
         EnsembleLogger.debug(
