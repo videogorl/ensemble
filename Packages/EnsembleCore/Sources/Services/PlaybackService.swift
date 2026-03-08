@@ -3661,12 +3661,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             for item in queuedItems where !player.items().contains(where: { $0 === item }) {
-                // Pre-install audio tap on prefetched items so AVPlayer doesn't
-                // need to set up the audio processing pipeline during gapless
-                // transitions. This reduces the transition gap.
-                if item.audioMix == nil {
-                    audioAnalyzer.setupAudioTap(for: item)
-                }
                 player.insert(item, after: insertAfter)
                 insertAfter = item
             }
