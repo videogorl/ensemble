@@ -258,35 +258,14 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         let currentTime = CACurrentMediaTime()
         guard currentTime - lastUpdateTime >= updateInterval else { return }
         lastUpdateTime = currentTime
-        
-        #if DEBUG
-        logger.debug("🎵 Processing REAL audio buffer: \(frameCount) frames at \(Int(sampleRate))Hz")
-        #endif
-        
+
         // Get audio samples from first channel
         let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferList, count: 1)
-        guard let firstBuffer = audioBuffer.first?.mBuffers else {
-            #if DEBUG
-            logger.error("⚠️ No audio buffer available")
-            #endif
-            return
-        }
-        
+        guard let firstBuffer = audioBuffer.first?.mBuffers else { return }
+
         let samples = firstBuffer.mData?.assumingMemoryBound(to: Float.self)
         let sampleCount = min(Int(firstBuffer.mDataByteSize) / MemoryLayout<Float>.size, fftSize)
-        
-        guard let samples = samples, sampleCount > 0 else {
-            #if DEBUG
-            logger.error("⚠️ No samples or sample count is 0")
-            #endif
-            return
-        }
-        
-        #if DEBUG
-        // Log sample values to verify we're getting real audio
-        let first10Samples = (0..<min(10, sampleCount)).map { String(format: "%.4f", samples[$0]) }.joined(separator: ", ")
-        logger.debug("📊 First 10 audio samples: [\(first10Samples)]")
-        #endif
+        guard let samples = samples, sampleCount > 0 else { return }
         
         // Prepare FFT input
         var realParts = [Float](repeating: 0, count: fftSize / 2)
@@ -323,18 +302,9 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
         // Extract frequency bands
         let bands = extractFrequencyBands(from: normalizedMagnitudes, sampleRate: sampleRate)
         
-        #if DEBUG
-        let avgBand = bands.reduce(0.0, +) / Double(bands.count)
-        let first5 = bands.prefix(5).map { String(format: "%.3f", $0) }.joined(separator: ", ")
-        logger.debug("🎵 Extracted \(bands.count) REAL FFT bands, avg: \(String(format: "%.3f", avgBand)), first 5: [\(first5)]")
-        #endif
-        
         // Update on main thread
         Task { @MainActor in
             self.frequencyBands = bands
-            #if DEBUG
-            logger.debug("✅ Updated REAL frequency bands on main thread")
-            #endif
         }
     }
     
@@ -352,9 +322,8 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             let upperBin = Int(upperFreq / binSize)
             
             guard lowerBin < magnitudes.count else { continue }
-            
+
             // Average magnitude in this frequency range
-            let binRange = max(1, upperBin - lowerBin)
             var sum: Float = 0.0
             var count: Int = 0
             
@@ -433,7 +402,10 @@ private func tapUnprepare(tap: MTAudioProcessingTap) {
     #endif
 }
 
-/// Audio tap process callback - called for each audio buffer
+/// Audio tap process callback - called for each audio buffer (~12 Hz).
+/// This runs on the real-time audio render thread — keep it as lean as
+/// possible: no logging, no allocations, no locks beyond what's strictly
+/// required. Logger calls here cause audible glitches on low-RAM devices.
 private func tapProcess(
     tap: MTAudioProcessingTap,
     numberFrames: CMItemCount,
@@ -442,16 +414,8 @@ private func tapProcess(
     numberFramesOut: UnsafeMutablePointer<CMItemCount>,
     flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
 ) {
-    #if DEBUG
-    logger.debug("🔊 tapProcess called with \(numberFrames) frames")
-    #endif
-    
     var timeRange = CMTimeRange()
-    
-    #if DEBUG
-    logger.debug("🔊 Calling MTAudioProcessingTapGetSourceAudio...")
-    #endif
-    
+
     let status = MTAudioProcessingTapGetSourceAudio(
         tap,
         numberFrames,
@@ -460,63 +424,20 @@ private func tapProcess(
         &timeRange,
         numberFramesOut
     )
-    
-    #if DEBUG
-    logger.debug("🔊 MTAudioProcessingTapGetSourceAudio returned status: \(status), frames out: \(numberFramesOut.pointee)")
-    #endif
-    
-    guard status == noErr else {
-        #if DEBUG
-        logger.error("❌ Failed to get source audio: \(status)")
-        #endif
-        return
-    }
-    
-    #if DEBUG
-    logger.debug("🔊 Getting analyzer from storage...")
-    #endif
-    
-    // Get analyzer instance from client info
+
+    guard status == noErr else { return }
+
+    // Retrieve the AudioAnalyzer stored during tapInit
     let clientInfo = MTAudioProcessingTapGetStorage(tap)
-    
-    #if DEBUG
-    logger.debug("🔊 Client info: \(clientInfo != nil ? "valid" : "nil")")
-    #endif
-    
-    guard clientInfo != nil else {
-        #if DEBUG
-        logger.error("❌ Client info is nil")
-        #endif
-        return
-    }
-    
-    #if DEBUG
-    logger.debug("🔊 Converting to analyzer instance...")
-    #endif
-    
+    guard clientInfo != nil else { return }
     let analyzer = Unmanaged<AudioAnalyzer>.fromOpaque(clientInfo).takeUnretainedValue()
-    
-    #if DEBUG
-    logger.debug("🔊 Analyzer instance retrieved successfully")
-    #endif
-    
-    // Get sample rate from audio buffer format (typical is 44.1kHz or 48kHz)
-    let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferListInOut, count: 1)
-    // Default to 44.1kHz if we can't determine format
+
+    // Default to 44.1 kHz if we can't determine format
     let sampleRate: Double = 44100.0
-    
-    #if DEBUG
-    logger.debug("🔊 About to call processAudioBuffer with \(numberFramesOut.pointee) frames at \(sampleRate)Hz")
-    #endif
-    
-    // Process the audio directly (already on audio thread)
+
     analyzer.processAudioBuffer(
         bufferListInOut,
         frameCount: Int(numberFramesOut.pointee),
         sampleRate: sampleRate
     )
-    
-    #if DEBUG
-    logger.debug("🔊 processAudioBuffer call completed")
-    #endif
 }
