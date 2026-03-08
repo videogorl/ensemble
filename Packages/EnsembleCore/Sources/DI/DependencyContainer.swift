@@ -232,9 +232,9 @@ public final class DependencyContainer: @unchecked Sendable {
             }
         }
         
-        // Audio analyzer for real-time frequency analysis
+        // Pre-computed frequency analyzer (decoupled from audio pipeline)
         let audioAnalyzerRef = MainActor.assumeIsolated {
-            AudioAnalyzer()
+            FrequencyAnalysisService()
         }
         audioAnalyzer = audioAnalyzerRef
 

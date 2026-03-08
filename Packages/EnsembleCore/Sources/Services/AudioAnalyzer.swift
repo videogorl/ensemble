@@ -10,459 +10,589 @@ private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "Audio
 
 // MARK: - Audio Analyzer Protocol
 
-/// Protocol for real-time audio frequency analysis
+/// Protocol for pre-computed frequency analysis decoupled from the audio pipeline.
+/// Timelines are analyzed from audio files on disk, then played back in sync with
+/// AVPlayer's current time via a 30Hz display timer.
+@MainActor
 public protocol AudioAnalyzerProtocol: AnyObject {
     /// Current frequency bands (24 bands from 60Hz to 16kHz)
     var frequencyBands: [Double] { get }
-    
+
     /// Publisher for frequency band updates (~30 Hz)
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
-    
-    /// Setup audio tap for an AVPlayerItem (tears down any existing tap first)
-    @MainActor func setupAudioTap(for playerItem: AVPlayerItem)
 
-    /// Install audio tap on a prefetched item without disrupting the current tap.
-    /// The tap is ready when AVQueuePlayer gapless-transitions to this item.
-    /// Pass the pre-loaded audio track to avoid synchronous asset loading on MainActor.
-    @MainActor func preinstallAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack)
+    /// Pre-compute frequency data for a track (call during prefetch or item creation).
+    /// Loads from sidecar file if available, otherwise runs FFT analysis on background thread.
+    @MainActor func loadTimeline(for trackId: String, fileURL: URL) async
 
-    /// Remove audio tap and stop analysis
+    /// Activate a loaded timeline as the current display source.
+    /// Starts the 30Hz display timer.
+    @MainActor func activateTimeline(for trackId: String)
+
+    /// Remove a track's cached timeline from memory.
+    @MainActor func evictTimeline(for trackId: String)
+
+    /// Update the playback position (drives band lookup from timeline).
+    /// Called from the periodic time observer (~0.5s) and scrubber drag.
+    @MainActor func updatePlaybackPosition(_ time: TimeInterval)
+
+    /// Stop analysis and clear all state.
     @MainActor func stopAnalysis()
-    
-    /// Pause frequency band updates (keeps tap alive but stops publishing)
+
+    /// Pause frequency band updates (shows silent bands).
     @MainActor func pauseUpdates()
-    
-    /// Resume frequency band updates
+
+    /// Resume frequency band updates.
     @MainActor func resumeUpdates()
 }
 
-// MARK: - Audio Analyzer
+// MARK: - Frequency Snapshot
 
-/// Real-time audio frequency analyzer using MTAudioProcessingTap and FFT
-/// Extracts 24 frequency bands from 60Hz to 16kHz for visualization
-public final class AudioAnalyzer: AudioAnalyzerProtocol {
-    
+/// One frame of frequency data: 24 bands as UInt8 (0-255)
+public struct FrequencySnapshot {
+    public let bands: [UInt8] // 24 values
+}
+
+// MARK: - Frequency Timeline
+
+/// Time-indexed frequency data for an entire track.
+/// A 5-min song at 30fps = ~9000 frames × 24 bytes = ~216KB.
+public struct FrequencyTimeline {
+    public let snapshots: [FrequencySnapshot]
+    public let framesPerSecond: Double // 30.0
+    public let duration: TimeInterval
+
+    /// Look up bands at a playback position, normalized to 0.0-1.0
+    public func bands(at time: TimeInterval) -> [Double] {
+        guard !snapshots.isEmpty, duration > 0 else {
+            return Array(repeating: 0, count: 24)
+        }
+        let index = Int((time / duration) * Double(snapshots.count))
+        let clamped = max(0, min(snapshots.count - 1, index))
+        return snapshots[clamped].bands.map { Double($0) / 255.0 }
+    }
+}
+
+// MARK: - Frequency Timeline Persistence
+
+/// Binary sidecar format for persisting pre-computed timelines alongside downloaded tracks.
+/// Format: 16-byte header (magic, version, count, fps as UInt16, duration as Float32)
+///         + count × 24 bytes of UInt8 band data.
+public struct FrequencyTimelinePersistence {
+    /// Magic bytes: "FREQ"
+    private static let magic: UInt32 = 0x46524551
+    private static let version: UInt16 = 1
+    private static let bandCount: Int = 24
+
+    /// Save a timeline to a binary sidecar file
+    public static func save(_ timeline: FrequencyTimeline, to url: URL) throws {
+        var data = Data()
+        // Header: magic (4) + version (2) + count (4) + fps (2) + duration (4) = 16 bytes
+        var m = magic; data.append(Data(bytes: &m, count: 4))
+        var v = version; data.append(Data(bytes: &v, count: 2))
+        var count = UInt32(timeline.snapshots.count); data.append(Data(bytes: &count, count: 4))
+        var fps = UInt16(timeline.framesPerSecond); data.append(Data(bytes: &fps, count: 2))
+        var dur = Float32(timeline.duration); data.append(Data(bytes: &dur, count: 4))
+
+        // Band data: count × 24 UInt8
+        for snapshot in timeline.snapshots {
+            data.append(contentsOf: snapshot.bands)
+        }
+
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Load a timeline from a binary sidecar file
+    public static func load(from url: URL) throws -> FrequencyTimeline {
+        let data = try Data(contentsOf: url)
+        guard data.count >= 16 else { throw FrequencyAnalysisError.invalidSidecar }
+
+        // Parse header
+        let m = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self) }
+        guard m == magic else { throw FrequencyAnalysisError.invalidSidecar }
+
+        let v = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self) }
+        guard v == version else { throw FrequencyAnalysisError.invalidSidecar }
+
+        let count = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt32.self) })
+        let fps = Double(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self) })
+        let dur = TimeInterval(data.withUnsafeBytes { $0.load(fromByteOffset: 12, as: Float32.self) })
+
+        let expectedSize = 16 + count * bandCount
+        guard data.count >= expectedSize else { throw FrequencyAnalysisError.invalidSidecar }
+
+        // Parse band data
+        var snapshots: [FrequencySnapshot] = []
+        snapshots.reserveCapacity(count)
+        for i in 0..<count {
+            let offset = 16 + i * bandCount
+            let bands = Array(data[offset..<(offset + bandCount)])
+            snapshots.append(FrequencySnapshot(bands: bands))
+        }
+
+        return FrequencyTimeline(snapshots: snapshots, framesPerSecond: fps, duration: dur)
+    }
+}
+
+// MARK: - Frequency Analysis Error
+
+public enum FrequencyAnalysisError: Error {
+    case cannotOpenFile
+    case invalidSidecar
+}
+
+// MARK: - Frequency Analysis Service
+
+/// Pre-computed frequency analyzer. Reads audio files on a background thread, runs FFT
+/// to produce time-indexed frequency snapshots, and drives a 30Hz display timer synced
+/// to AVPlayer's current playback position. Completely decoupled from the audio pipeline.
+@MainActor
+public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
+
     // MARK: - Configuration
-    
-    /// Number of frequency bands to extract
+
     private let bandCount = 24
-    
-    /// FFT size (must be power of 2)
     private let fftSize = 1024
-    
-    /// Frequency range for analysis
     private let minFrequency: Double = 60.0
     private let maxFrequency: Double = 16000.0
-    
-    /// Update rate limiter (max 30 fps)
-    private let updateInterval: TimeInterval = 1.0 / 30.0
-    private var lastUpdateTime: TimeInterval = 0
-    
-    // MARK: - State
-    
+    private let targetFPS: Double = 30.0
+
+    // MARK: - Published State
+
     @Published public private(set) var frequencyBands: [Double] = []
-    
+
     public var frequencyBandsPublisher: AnyPublisher<[Double], Never> {
         $frequencyBands.eraseToAnyPublisher()
     }
-    
-    /// FFT setup for frequency analysis
-    private var fftSetup: FFTSetup?
-    
-    /// Current audio tap
-    private var audioMix: AVAudioMix?
-    
-    /// Frequency band edges (in Hz)
-    private var bandEdges: [Double] = []
-    
-    /// Whether updates are paused (thread-safe via NSLock)
-    private let isPausedLock = NSLock()
-    private var _isPaused: Bool = false
-    private var isPaused: Bool {
-        get {
-            isPausedLock.lock()
-            defer { isPausedLock.unlock() }
-            return _isPaused
-        }
-        set {
-            isPausedLock.lock()
-            defer { isPausedLock.unlock() }
-            _isPaused = newValue
-        }
-    }
-    
+
+    // MARK: - Internal State
+
+    /// Cached timelines keyed by trackId (max 3: current + 2 prefetched)
+    private var timelines: [String: FrequencyTimeline] = [:]
+
+    /// Which timeline is currently being displayed
+    private var activeTrackId: String?
+
+    /// 30Hz display timer
+    private var displayTimer: Timer?
+
+    /// Last known playback position (set by updatePlaybackPosition)
+    private var currentPlaybackTime: TimeInterval = 0
+
+    /// Wall-clock time when playback position was last updated (for interpolation)
+    private var positionUpdateWallTime: TimeInterval = 0
+
+    /// Whether updates are paused
+    private var isPaused: Bool = false
+
+    /// In-flight analysis tasks (to avoid duplicate work)
+    private var analysisTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Init
-    
+
     public init() {
-        setupFFT()
-        calculateBandEdges()
-        
-        // Initialize with silent bands
         frequencyBands = Array(repeating: 0.0, count: bandCount)
-        
+
         #if DEBUG
-        logger.debug("AudioAnalyzer initialized with \(self.bandCount) bands (\(Int(self.minFrequency))Hz - \(Int(self.maxFrequency))Hz)")
+        logger.debug("FrequencyAnalysisService initialized (pre-computed, no audio tap)")
         #endif
     }
-    
+
     deinit {
-        if let fftSetup = fftSetup {
-            vDSP_destroy_fftsetup(fftSetup)
-        }
-    }
-    
-    // MARK: - FFT Setup
-    
-    /// Setup FFT for frequency analysis using Accelerate framework
-    private func setupFFT() {
-        let log2n = vDSP_Length(log2(Double(fftSize)))
-        fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))
-        
-        guard fftSetup != nil else {
-            #if DEBUG
-            logger.error("Failed to create FFT setup")
-            #endif
-            return
-        }
-    }
-    
-    /// Calculate logarithmic frequency band edges
-    /// Bass-heavy distribution with more resolution in lower frequencies
-    private func calculateBandEdges() {
-        bandEdges = []
-        
-        let logMin = log10(minFrequency)
-        let logMax = log10(maxFrequency)
-        let logRange = logMax - logMin
-        
-        for i in 0...bandCount {
-            let logFreq = logMin + (Double(i) / Double(bandCount)) * logRange
-            let freq = pow(10, logFreq)
-            bandEdges.append(freq)
-        }
-        
-        #if DEBUG
-        logger.debug("Band edges: \(self.bandEdges.map { Int($0) })")
-        #endif
-    }
-    
-    // MARK: - Audio Tap
-    
-    @MainActor
-    public func setupAudioTap(for playerItem: AVPlayerItem) {
-        stopAnalysis()
-        // For setupAudioTap (used in loadAndPlay), synchronous track access is
-        // acceptable because the item was just created and tracks are loaded.
-        guard let audioTrack = playerItem.asset.tracks(withMediaType: .audio).first else {
-            #if DEBUG
-            logger.debug("No audio track found in player item")
-            #endif
-            return
-        }
-        installAudioTap(on: playerItem, audioTrack: audioTrack, storeMix: true)
+        displayTimer?.invalidate()
+        for task in analysisTasks.values { task.cancel() }
     }
 
-    /// Install an audio tap on a player item without tearing down the current
-    /// analysis session.  Used for prefetched items so the tap is ready before
-    /// AVQueuePlayer's gapless transition — avoids setting audioMix mid-playback
-    /// which disrupts gapless audio.
-    /// The audio track is pre-loaded off MainActor to avoid blocking.
-    @MainActor
-    public func preinstallAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack) {
-        // Don't touch stopAnalysis or self.audioMix — the current item is
-        // still playing and its tap should keep running.
-        installAudioTap(on: playerItem, audioTrack: audioTrack, storeMix: false)
-    }
+    // MARK: - Timeline Loading
 
-    /// Shared tap installation.  When `storeMix` is true the mix reference is
-    /// kept in `self.audioMix` (primary / current-item path).
-    @MainActor
-    private func installAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack, storeMix: Bool) {
-        #if DEBUG
-        logger.debug("🎵 installAudioTap called (storeMix=\(storeMix))")
-        #endif
-
-        guard let fftSetup = fftSetup else {
-            #if DEBUG
-            logger.error("Cannot setup audio tap: FFT not initialized")
-            #endif
+    public func loadTimeline(for trackId: String, fileURL: URL) async {
+        // Already cached or loading
+        if timelines[trackId] != nil || analysisTasks[trackId] != nil {
             return
         }
 
-        // Skip if this item already has an audio mix (e.g., pre-installed during prefetch)
-        if playerItem.audioMix != nil { return }
+        // Only analyze local files (not remote stream URLs)
+        guard fileURL.isFileURL else { return }
 
-        var callbacks = MTAudioProcessingTapCallbacks(
-            version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
-            init: tapInit,
-            finalize: tapFinalize,
-            prepare: tapPrepare,
-            unprepare: tapUnprepare,
-            process: tapProcess
-        )
-
-        var tap: MTAudioProcessingTap?
-        let status = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault,
-            &callbacks,
-            kMTAudioProcessingTapCreationFlag_PostEffects,
-            &tap
-        )
-
-        guard status == noErr, let audioTap = tap else {
-            #if DEBUG
-            logger.error("Failed to create audio processing tap: \(status)")
-            #endif
-            return
+        // Check for sidecar file first
+        let sidecarURL = fileURL.appendingPathExtension("freq")
+        if FileManager.default.fileExists(atPath: sidecarURL.path) {
+            do {
+                let timeline = try FrequencyTimelinePersistence.load(from: sidecarURL)
+                timelines[trackId] = timeline
+                #if DEBUG
+                logger.debug("Loaded sidecar timeline for \(trackId): \(timeline.snapshots.count) frames")
+                #endif
+                return
+            } catch {
+                #if DEBUG
+                logger.debug("Failed to load sidecar for \(trackId), will re-analyze: \(error)")
+                #endif
+            }
         }
 
-        let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
-        inputParams.audioTapProcessor = audioTap
+        // Analyze on background thread
+        let capturedFileURL = fileURL
+        let analysisTask = Task { [weak self] in
+            let timeline = await Self.analyzeInBackground(fileURL: capturedFileURL)
+            guard !Task.isCancelled, let self else { return }
 
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = [inputParams]
+            if let timeline {
+                self.timelines[trackId] = timeline
 
-        playerItem.audioMix = audioMix
-        if storeMix {
-            self.audioMix = audioMix
+                // Save sidecar for downloaded files (not temp/cache files)
+                // Downloaded files live in the app's Documents/Downloads directory
+                if capturedFileURL.path.contains("Downloads") {
+                    Task.detached(priority: .utility) {
+                        try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
+                    }
+                }
+
+                #if DEBUG
+                logger.debug("Analyzed timeline for \(trackId): \(timeline.snapshots.count) frames, \(String(format: "%.1f", timeline.duration))s")
+                #endif
+            } else {
+                #if DEBUG
+                logger.debug("Analysis returned nil for \(trackId) — file may be unsupported")
+                #endif
+            }
+
+            self.analysisTasks.removeValue(forKey: trackId)
         }
-
-        #if DEBUG
-        logger.debug("✅ Audio tap setup complete")
-        #endif
+        analysisTasks[trackId] = analysisTask
+        await analysisTask.value
     }
-    
-    @MainActor
-    public func stopAnalysis() {
-        audioMix = nil
+
+    // MARK: - Timeline Activation
+
+    public func activateTimeline(for trackId: String) {
+        activeTrackId = trackId
         isPaused = false
-        
-        // Reset bands to silent
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
-        
+        currentPlaybackTime = 0
+        positionUpdateWallTime = CACurrentMediaTime()
+        startDisplayTimer()
+
         #if DEBUG
-        logger.debug("Audio analysis stopped")
+        let hasTimeline = timelines[trackId] != nil
+        logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline)")
         #endif
     }
-    
-    @MainActor
+
+    // MARK: - Eviction
+
+    public func evictTimeline(for trackId: String) {
+        timelines.removeValue(forKey: trackId)
+        analysisTasks[trackId]?.cancel()
+        analysisTasks.removeValue(forKey: trackId)
+
+        // If we evicted the active timeline, clear the display
+        if activeTrackId == trackId {
+            activeTrackId = nil
+            stopDisplayTimer()
+            frequencyBands = Array(repeating: 0.0, count: bandCount)
+        }
+    }
+
+    // MARK: - Playback Position
+
+    public func updatePlaybackPosition(_ time: TimeInterval) {
+        currentPlaybackTime = time
+        positionUpdateWallTime = CACurrentMediaTime()
+    }
+
+    // MARK: - Lifecycle
+
+    public func stopAnalysis() {
+        displayTimer?.invalidate()
+        displayTimer = nil
+        activeTrackId = nil
+        isPaused = false
+        timelines.removeAll()
+        for task in analysisTasks.values { task.cancel() }
+        analysisTasks.removeAll()
+        frequencyBands = Array(repeating: 0.0, count: bandCount)
+
+        #if DEBUG
+        logger.debug("Frequency analysis stopped")
+        #endif
+    }
+
     public func pauseUpdates() {
         isPaused = true
-        
+
         #if DEBUG
-        logger.debug("Audio analysis paused")
+        logger.debug("Frequency updates paused")
         #endif
     }
-    
-    @MainActor
+
     public func resumeUpdates() {
         guard isPaused else { return }
         isPaused = false
-        
+        positionUpdateWallTime = CACurrentMediaTime()
+
         #if DEBUG
-        logger.debug("Audio analysis resumed")
+        logger.debug("Frequency updates resumed")
         #endif
     }
-    
-    // MARK: - Audio Processing
-    
-    /// Process audio samples and extract frequency bands
-    fileprivate func processAudioBuffer(_ bufferList: UnsafePointer<AudioBufferList>, frameCount: Int, sampleRate: Double) {
-        // Skip processing if paused
-        guard !isPaused else { return }
-        
-        guard let fftSetup = fftSetup else {
-            #if DEBUG
-            logger.error("⚠️ FFT setup is nil, cannot process audio")
-            #endif
+
+    // MARK: - Display Timer
+
+    /// Start a 30Hz timer that reads the active timeline and publishes bands
+    private func startDisplayTimer() {
+        displayTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / targetFPS, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tickDisplay()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        displayTimer = timer
+    }
+
+    private func stopDisplayTimer() {
+        displayTimer?.invalidate()
+        displayTimer = nil
+    }
+
+    /// Called ~30 times per second by the display timer
+    private func tickDisplay() {
+        guard !isPaused,
+              let trackId = activeTrackId,
+              let timeline = timelines[trackId] else {
             return
         }
-        
-        // Rate limit updates to ~30 fps
-        let currentTime = CACurrentMediaTime()
-        guard currentTime - lastUpdateTime >= updateInterval else { return }
-        lastUpdateTime = currentTime
 
-        // Get audio samples from first channel
-        let audioBuffer = UnsafeBufferPointer<AudioBufferList>(start: bufferList, count: 1)
-        guard let firstBuffer = audioBuffer.first?.mBuffers else { return }
+        // Interpolate playback position using wall-clock time since last update
+        // This gives smooth 30fps updates between the 0.5s periodic observer ticks
+        let wallElapsed = CACurrentMediaTime() - positionUpdateWallTime
+        let interpolatedTime = currentPlaybackTime + wallElapsed
 
-        let samples = firstBuffer.mData?.assumingMemoryBound(to: Float.self)
-        let sampleCount = min(Int(firstBuffer.mDataByteSize) / MemoryLayout<Float>.size, fftSize)
-        guard let samples = samples, sampleCount > 0 else { return }
-        
-        // Prepare FFT input
+        frequencyBands = timeline.bands(at: interpolatedTime)
+    }
+
+    // MARK: - Static FFT Analysis (runs on background thread)
+
+    /// Public entry point for sidecar generation after offline downloads.
+    /// Runs FFT analysis on a background thread. Returns nil if the file can't be read.
+    public nonisolated static func analyzeForSidecar(fileURL: URL) async -> FrequencyTimeline? {
+        return await analyzeInBackground(fileURL: fileURL)
+    }
+
+    /// Analyze an audio file and produce a FrequencyTimeline.
+    /// Runs entirely off the main thread. Returns nil if the file can't be read.
+    private nonisolated static func analyzeInBackground(fileURL: URL) async -> FrequencyTimeline? {
+        return await Task.detached(priority: .utility) {
+            return analyzeFile(at: fileURL)
+        }.value
+    }
+
+    /// Core FFT analysis: opens file, reads PCM chunks, runs windowed FFT, maps to 24 bands.
+    /// Reuses the same parameters as the old real-time tap (1024 FFT, 24 log bands, pow(0.7) smoothing).
+    private nonisolated static func analyzeFile(at fileURL: URL) -> FrequencyTimeline? {
+        // Open audio file — try directly first, then fall back to symlink probing
+        // for files with unrecognized extensions (e.g. ".audio" from stream cache).
+        // AVAudioFile relies on the file extension to determine the container format.
+        var tempSymlink: URL? = nil
+        let audioFile: AVAudioFile
+        if let file = try? AVAudioFile(forReading: fileURL) {
+            audioFile = file
+        } else if let (file, symlink) = openWithExtensionProbing(fileURL) {
+            audioFile = file
+            tempSymlink = symlink
+        } else {
+            let exists = FileManager.default.fileExists(atPath: fileURL.path)
+            let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? -1
+            #if DEBUG
+            NSLog("[FrequencyAnalysis] Failed to open file: %@ (exists=%d, size=%lld)", fileURL.lastPathComponent, exists, size)
+            #endif
+            return nil
+        }
+        // Clean up temp symlink after all reading is done
+        defer { if let tempSymlink { try? FileManager.default.removeItem(at: tempSymlink) } }
+
+        let sampleRate = audioFile.processingFormat.sampleRate
+        let totalFrames = AVAudioFrameCount(audioFile.length)
+        guard sampleRate > 0, totalFrames > 0 else { return nil }
+
+        let duration = Double(totalFrames) / sampleRate
+        let fps: Double = 30.0
+        let fftSize = 1024
+        let bandCount = 24
+
+        // Hop size for 30fps
+        let hopSize = Int(sampleRate / fps)
+        guard hopSize > 0 else { return nil }
+
+        // Setup FFT
+        let log2n = vDSP_Length(log2(Double(fftSize)))
+        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
+            return nil
+        }
+        defer { vDSP_destroy_fftsetup(fftSetup) }
+
+        // Calculate logarithmic band edges (60Hz - 16kHz)
+        let minFreq: Double = 60.0
+        let maxFreq: Double = 16000.0
+        let logMin = log10(minFreq)
+        let logMax = log10(maxFreq)
+        var bandEdges = [Double]()
+        for i in 0...bandCount {
+            let logFreq = logMin + (Double(i) / Double(bandCount)) * (logMax - logMin)
+            bandEdges.append(pow(10, logFreq))
+        }
+
+        // Pre-compute Hann window
+        var hannWindow = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&hannWindow, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+
+        // Read using the file's native processing format (preserves channel count)
+        let processingFormat = audioFile.processingFormat
+        let channelCount = Int(processingFormat.channelCount)
+        let chunkSize = AVAudioFrameCount(hopSize * 100) // Read in larger chunks for efficiency
+        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkSize) else {
+            return nil
+        }
+
+        var allSamples = [Float]()
+        allSamples.reserveCapacity(Int(totalFrames))
+
+        // Read all samples, mix down to mono if stereo/multichannel
+        do {
+            while audioFile.framePosition < audioFile.length {
+                let remaining = AVAudioFrameCount(audioFile.length - audioFile.framePosition)
+                let toRead = min(chunkSize, remaining)
+                readBuffer.frameLength = 0
+                try audioFile.read(into: readBuffer, frameCount: toRead)
+                guard readBuffer.frameLength > 0, let channelData = readBuffer.floatChannelData else { break }
+                let frameCount = Int(readBuffer.frameLength)
+
+                if channelCount == 1 {
+                    // Mono — use directly
+                    let ptr = channelData[0]
+                    allSamples.append(contentsOf: UnsafeBufferPointer(start: ptr, count: frameCount))
+                } else {
+                    // Mix down to mono by averaging all channels
+                    for i in 0..<frameCount {
+                        var sum: Float = 0
+                        for ch in 0..<channelCount {
+                            sum += channelData[ch][i]
+                        }
+                        allSamples.append(sum / Float(channelCount))
+                    }
+                }
+            }
+        } catch {
+            return nil
+        }
+
+        guard !allSamples.isEmpty else { return nil }
+
+        // Process frames: hop through samples, apply FFT, extract bands
+        var snapshots = [FrequencySnapshot]()
+        let expectedFrames = Int(ceil(duration * fps))
+        snapshots.reserveCapacity(expectedFrames)
+
         var realParts = [Float](repeating: 0, count: fftSize / 2)
         var imagParts = [Float](repeating: 0, count: fftSize / 2)
-        
-        // Copy and window the samples (Hann window)
         var windowedSamples = [Float](repeating: 0, count: fftSize)
-        for i in 0..<sampleCount {
-            let window = 0.5 * (1.0 - cos(2.0 * Float.pi * Float(i) / Float(sampleCount - 1)))
-            windowedSamples[i] = samples[i] * window
-        }
-        
-        // Convert to split complex format
-        var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-        windowedSamples.withUnsafeBytes { ptr in
-            ptr.withMemoryRebound(to: DSPComplex.self) { complexPtr in
-                vDSP_ctoz(complexPtr.baseAddress!, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
-            }
-        }
-        
-        // Perform FFT
-        let log2n = vDSP_Length(log2(Double(fftSize)))
-        vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-        
-        // Calculate magnitude spectrum
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-        vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-        
-        // Convert to dB scale with normalization
-        var normalizedMagnitudes = [Float](repeating: 0, count: fftSize / 2)
-        var divisor = Float(fftSize * 2)
-        vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMagnitudes, 1, vDSP_Length(fftSize / 2))
-        
-        // Extract frequency bands
-        let bands = extractFrequencyBands(from: normalizedMagnitudes, sampleRate: sampleRate)
-        
-        // Update on main thread
-        Task { @MainActor in
-            self.frequencyBands = bands
-        }
-    }
-    
-    /// Extract logarithmic frequency bands from FFT magnitude spectrum
-    private func extractFrequencyBands(from magnitudes: [Float], sampleRate: Double) -> [Double] {
-        var bands = [Double](repeating: 0.0, count: bandCount)
-        
-        let binSize = sampleRate / Double(fftSize)
-        
-        for i in 0..<bandCount {
-            let lowerFreq = bandEdges[i]
-            let upperFreq = bandEdges[i + 1]
-            
-            let lowerBin = Int(lowerFreq / binSize)
-            let upperBin = Int(upperFreq / binSize)
-            
-            guard lowerBin < magnitudes.count else { continue }
+        var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
 
-            // Average magnitude in this frequency range
-            var sum: Float = 0.0
-            var count: Int = 0
-            
-            for bin in lowerBin..<min(upperBin, magnitudes.count) {
-                sum += magnitudes[bin]
-                count += 1
+        var sampleOffset = 0
+        while sampleOffset < allSamples.count {
+            // Zero-fill windowed buffer
+            for i in 0..<fftSize { windowedSamples[i] = 0 }
+
+            // Copy samples and apply Hann window
+            let available = min(fftSize, allSamples.count - sampleOffset)
+            for i in 0..<available {
+                windowedSamples[i] = allSamples[sampleOffset + i] * hannWindow[i]
             }
-            
-            guard count > 0 else { continue }
-            
-            let average = sum / Float(count)
-            
-            // Convert to dB and normalize to 0.0-1.0 range
-            // Typical audio range: -60dB to 0dB
-            let db = 20.0 * log10(Double(max(average, 1e-10)))
-            let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
-            
-            // Apply subtle smoothing curve for better visualization
-            bands[i] = pow(normalized, 0.7)
+
+            // Convert to split complex format
+            realParts = [Float](repeating: 0, count: fftSize / 2)
+            imagParts = [Float](repeating: 0, count: fftSize / 2)
+            var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
+            windowedSamples.withUnsafeBytes { ptr in
+                ptr.withMemoryRebound(to: DSPComplex.self) { complexPtr in
+                    vDSP_ctoz(complexPtr.baseAddress!, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                }
+            }
+
+            // FFT
+            vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+
+            // Magnitude spectrum
+            vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+
+            // Normalize
+            var divisor = Float(fftSize * 2)
+            vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
+
+            // Extract 24 logarithmic bands
+            let binSize = sampleRate / Double(fftSize)
+            var bandValues = [UInt8](repeating: 0, count: bandCount)
+
+            for i in 0..<bandCount {
+                let lowerBin = Int(bandEdges[i] / binSize)
+                let upperBin = Int(bandEdges[i + 1] / binSize)
+                guard lowerBin < normalizedMags.count else { continue }
+
+                var sum: Float = 0
+                var count = 0
+                for bin in lowerBin..<min(upperBin, normalizedMags.count) {
+                    sum += normalizedMags[bin]
+                    count += 1
+                }
+                guard count > 0 else { continue }
+
+                let average = sum / Float(count)
+                let db = 20.0 * log10(Double(max(average, 1e-10)))
+                let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
+
+                // Same pow(0.7) smoothing curve as the old real-time analyzer
+                let curved = pow(normalized, 0.7)
+                bandValues[i] = UInt8(min(255, max(0, curved * 255.0)))
+            }
+
+            snapshots.append(FrequencySnapshot(bands: bandValues))
+            sampleOffset += hopSize
         }
-        
-        return bands
+
+        return FrequencyTimeline(
+            snapshots: snapshots,
+            framesPerSecond: fps,
+            duration: duration
+        )
     }
-}
 
-// MARK: - Audio Tap Callbacks
+    /// Try opening a file using temporary symlinks with common audio extensions.
+    /// AVAudioFile uses the file extension to determine the container format, so files
+    /// with unrecognized extensions (e.g. ".audio" from the stream cache) need this workaround.
+    /// Returns the opened AVAudioFile and the symlink URL (caller must clean up the symlink).
+    private nonisolated static func openWithExtensionProbing(_ fileURL: URL) -> (AVAudioFile, URL)? {
+        let extensions = ["mp3", "flac", "m4a", "caf", "aac", "wav"]
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+        let tempDir = FileManager.default.temporaryDirectory
 
-/// Audio tap initialization callback
-private func tapInit(
-    tap: MTAudioProcessingTap,
-    clientInfo: UnsafeMutableRawPointer?,
-    tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>
-) {
-    #if DEBUG
-    logger.debug("🔊 tapInit called, storing analyzer reference...")
-    #endif
-    
-    // Store the analyzer instance in tap storage so we can retrieve it in tapProcess
-    guard let clientInfo = clientInfo else {
-        #if DEBUG
-        logger.error("❌ clientInfo is nil in tapInit!")
-        #endif
-        return
+        for ext in extensions {
+            let symlink = tempDir.appendingPathComponent("\(baseName)_probe.\(ext)")
+            try? FileManager.default.removeItem(at: symlink)
+
+            do {
+                try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: fileURL)
+                if let file = try? AVAudioFile(forReading: symlink) {
+                    #if DEBUG
+                    NSLog("[FrequencyAnalysis] Opened file via extension probe: .%@ for %@", ext, fileURL.lastPathComponent)
+                    #endif
+                    return (file, symlink)
+                }
+                try? FileManager.default.removeItem(at: symlink)
+            } catch {
+                continue
+            }
+        }
+
+        return nil
     }
-    
-    // Store the clientInfo pointer in the tap's storage
-    tapStorageOut.pointee = clientInfo
-    
-    #if DEBUG
-    logger.debug("✅ Audio tap initialized and analyzer stored")
-    #endif
-}
-
-/// Audio tap finalization callback
-private func tapFinalize(tap: MTAudioProcessingTap) {
-    #if DEBUG
-    logger.debug("Audio tap finalized")
-    #endif
-}
-
-/// Audio tap preparation callback
-private func tapPrepare(
-    tap: MTAudioProcessingTap,
-    maxFrames: CMItemCount,
-    processingFormat: UnsafePointer<AudioStreamBasicDescription>
-) {
-    #if DEBUG
-    logger.debug("Audio tap prepared for \(maxFrames) frames at \(processingFormat.pointee.mSampleRate)Hz")
-    #endif
-}
-
-/// Audio tap unprepare callback
-private func tapUnprepare(tap: MTAudioProcessingTap) {
-    #if DEBUG
-    logger.debug("Audio tap unprepared")
-    #endif
-}
-
-/// Audio tap process callback - called for each audio buffer (~12 Hz).
-/// This runs on the real-time audio render thread — keep it as lean as
-/// possible: no logging, no allocations, no locks beyond what's strictly
-/// required. Logger calls here cause audible glitches on low-RAM devices.
-private func tapProcess(
-    tap: MTAudioProcessingTap,
-    numberFrames: CMItemCount,
-    flags: MTAudioProcessingTapFlags,
-    bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
-    numberFramesOut: UnsafeMutablePointer<CMItemCount>,
-    flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
-) {
-    var timeRange = CMTimeRange()
-
-    let status = MTAudioProcessingTapGetSourceAudio(
-        tap,
-        numberFrames,
-        bufferListInOut,
-        flagsOut,
-        &timeRange,
-        numberFramesOut
-    )
-
-    guard status == noErr else { return }
-
-    // Retrieve the AudioAnalyzer stored during tapInit
-    let clientInfo = MTAudioProcessingTapGetStorage(tap)
-    guard clientInfo != nil else { return }
-    let analyzer = Unmanaged<AudioAnalyzer>.fromOpaque(clientInfo).takeUnretainedValue()
-
-    // Default to 44.1 kHz if we can't determine format
-    let sampleRate: Double = 44100.0
-
-    analyzer.processAudioBuffer(
-        bufferListInOut,
-        frameCount: Int(numberFramesOut.pointee),
-        sampleRate: sampleRate
-    )
 }

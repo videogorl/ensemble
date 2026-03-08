@@ -461,6 +461,12 @@ public final class NowPlayingViewModel: ObservableObject {
         seek(to: time)
     }
 
+    /// Update the visualizer position during scrubber drag for instant aurora feedback
+    public func updateVisualizerPosition(_ progress: Double) {
+        let time = progress * scrubberDuration
+        playbackService.updateVisualizerPosition(time)
+    }
+
     /// Begin rate-based audible scrubbing (long-press skip buttons).
     public func startFastSeeking(forward: Bool) {
         playbackService.startFastSeeking(forward: forward)

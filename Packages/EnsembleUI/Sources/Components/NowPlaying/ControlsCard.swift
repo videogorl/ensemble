@@ -281,6 +281,9 @@ public struct ControlsCard: View {
                             let progressChange = (deltaX / sliderWidth) * scrubRate
                             localProgress = max(0, min(1, localProgress + progressChange))
                             lastDragX = value.location.x
+
+                            // Update visualizer in real-time during scrubber drag
+                            viewModel.updateVisualizerPosition(localProgress)
                         }
                         .onEnded { _ in
                             viewModel.seekToProgress(localProgress)

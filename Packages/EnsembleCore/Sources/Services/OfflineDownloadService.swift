@@ -970,6 +970,14 @@ public final class OfflineDownloadService: ObservableObject {
             await cacheArtworkForDownloadedTrack(track)
             await refreshAllTargetProgresses()
 
+            // Pre-compute frequency analysis sidecar for the visualizer
+            let sidecarURL = destinationURL.appendingPathExtension("freq")
+            Task.detached(priority: .utility) {
+                if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
+                    try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
+                }
+            }
+
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.
@@ -1150,6 +1158,15 @@ public final class OfflineDownloadService: ObservableObject {
         )
         await cacheArtworkForDownloadedTrack(track)
         await refreshAllTargetProgresses()
+
+        // Pre-compute frequency analysis sidecar for the visualizer
+        let sidecarURL2 = destinationURL.appendingPathExtension("freq")
+        Task.detached(priority: .utility) {
+            if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
+                try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL2)
+            }
+        }
+
         scheduleDownloadChangeNotification()
         return true
     }
