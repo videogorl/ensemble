@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
 ---
 
 # Ensemble Architecture
@@ -89,6 +89,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
+- `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -204,13 +205,25 @@ Displays audio waveforms in NowPlayingView:
 
 5. WaveformView (EnsembleUI) -- Horizontal bars with playback progress
 
+## Subsystem: Pre-Computed Frequency Visualizer
+
+Frequency analysis is pre-computed on disk and decoupled from the audio pipeline:
+
+1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines.
+2. **FrequencyTimeline** -- Model containing an array of `FrequencySnapshot` frames with timestamps and band magnitudes. Supports binary serialization for sidecar persistence.
+3. **FrequencyTimelinePersistence** -- Reads/writes `.freq` binary sidecar files alongside offline downloads for instant visualizer load on cached tracks.
+4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A 30Hz display timer reads `player.currentTime()` and looks up the matching frame from the active timeline. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
+5. **Scrubber Sync** -- `ControlsCard` scrubber drag calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
+6. **Offline Sidecar** -- `OfflineDownloadService` generates `.freq` sidecar after downloading a track. `DownloadManager` cleans up sidecars when downloads are removed.
+7. **Extension Probing** -- `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio formats before attempting analysis.
+
 ## Subsystem: Aurora Visualization
 
 Dynamic background effect that reacts to music intensity:
 
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
-2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and waveform heights (loudness data).
-3. **Sampling** -- `AuroraVisualizationView` samples `waveformHeights` using `currentTime / duration` to drive real-time animation intensity.
+2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
+3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
 4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation)` to draw overlapping fan-shaped sectors with radial gradients.
 5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.

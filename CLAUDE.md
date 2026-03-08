@@ -78,6 +78,25 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Pre-Computed Frequency Visualizer (Mar 2026)
+Replaced the MTAudioProcessingTap-based real-time audio visualizer with a pre-computed frequency analysis system, fully decoupling the visualizer from the audio pipeline:
+
+- **Accelerate FFT analysis:** Audio files are analyzed on disk using a 1024-pt FFT with 24 log-spaced frequency bands (60Hz-16kHz). Results stored as `FrequencyTimeline` (time-indexed snapshots at 30fps, ~216KB per 5-min song).
+- **Display timer:** A 30Hz timer reads `player.currentTime()` and looks up the matching frame from the active timeline -- no audio tap or mix required.
+- **Binary sidecar files:** `.freq` files are generated alongside offline downloads for instant visualizer load on cached tracks. `DownloadManager` cleans up sidecars on download removal.
+- **Removed:** `MTAudioProcessingTap`, `audioMix`, fade timers, and simulated frequency bands are all gone from `PlaybackService`.
+- **Scrubber sync:** Scrubber drag in `ControlsCard` calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
+- **Extension probing:** `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio before attempting analysis.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - FrequencyTimeline model, FrequencyAnalysisService, FrequencyTimelinePersistence
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - removed tap/fade/simulated-bands; wires loadTimeline/activateTimeline/evictTimeline/updatePlaybackPosition
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/ControlsCard.swift` - scrubber drag syncs visualizer
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - updateVisualizerPosition method
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - swapped AudioAnalyzer for FrequencyAnalysisService
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .freq sidecar cleanup
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - sidecar generation after download
+
 ### WebSocket Enhancements + Download Spinners (Mar 2026)
 Six improvements building on the WebSocket infrastructure:
 

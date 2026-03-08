@@ -124,9 +124,14 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Extra API traffic (~1400 tracks fetched redundantly). Correctness is unaffected — rating comparison still works.
 - **Potential fix:** Only fetch `ratedAfter` when the since-timestamp is very recent, or compare ratings against the `updatedAt` result set only.
 
+### Pre-Computed Frequency Visualizer: Brief Delay on First Play
+- **Location:** `AudioAnalyzer.swift` (`FrequencyAnalysisService`)
+- **Issue:** When a track is played for the first time (no cached `.freq` sidecar), the frequency analysis runs asynchronously on the audio file. The visualizer shows no data until analysis completes (typically <1s for local files, longer for streamed files that must buffer first).
+- **Impact:** Minor visual delay; playback itself is unaffected since the visualizer is fully decoupled from the audio pipeline.
+- **Mitigation:** Offline downloads generate `.freq` sidecars immediately after download, so cached tracks have instant visualizer data.
+
 ## Future Enhancements (Waveform System)
 
-- Cache waveform data locally to reduce repeated API calls
 - Implement waveform seeking (jump to specific parts of track)
 - Show visual indicators for silent portions or hidden tracks
 - Extract colors from waveform for additional UI theming
