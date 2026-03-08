@@ -156,6 +156,8 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func next()
     func previous()
     func seek(to time: TimeInterval)
+    func startFastSeeking(forward: Bool)
+    func stopFastSeeking()
     func addToQueue(_ track: Track)
     func addToQueue(_ tracks: [Track])
     func playNext(_ track: Track)
@@ -743,6 +745,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var audioSessionRouteChangeObserver: Any?
     private var activeSeek: SeekOperation?
     private var seekCounter: UInt64 = 0
+    /// Seek requested while player item was loading; applied when readyToPlay.
+    private var pendingLoadSeekTime: TimeInterval?
+    /// True while rate-based fast-seeking (long-press skip) is active.
+    private var isFastSeeking = false
+    private var fastSeekForward = true
+    private var fallbackReverseTimer: Timer?
     private var adaptiveBufferingState = AdaptiveBufferingState()
     private var activeBufferingProfile = PlaybackBufferingProfile.cellularOrOther
     private var nowPlayingArtworkTask: Task<Void, Never>?
@@ -1912,10 +1920,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         cleanup()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
+        fallbackReverseTimer?.invalidate()
+        fallbackReverseTimer = nil
+        isFastSeeking = false
         currentTrack = nil
         playbackState = .stopped
         currentTime = 0
         bufferedProgress = 0
+        pendingLoadSeekTime = nil
         consecutivePlaybackFailures = 0
         isSkipTransitionInProgress = false
         seekCompletedAt = nil
@@ -2035,8 +2047,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Seeking on a non-ready item silently fails — update UI time optimistically and bail.
+        // Seeking on a non-ready item silently fails — store the target
+        // so it can be applied once the item becomes readyToPlay.
         guard player.currentItem?.status == .readyToPlay else {
+            pendingLoadSeekTime = clampedTime
             return
         }
 
@@ -2130,6 +2144,69 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 self.clearActiveSeek()
+            }
+        }
+    }
+
+    // MARK: - Fast Seeking (Long-Press Scrubbing)
+
+    /// Begin rate-based audible scrubbing in the given direction.
+    /// Forward uses player.rate = 4.0; backward tries negative rate and
+    /// falls back to timer-based seeking if the format doesn't support it.
+    public func startFastSeeking(forward: Bool) {
+        guard let player, player.currentItem?.status == .readyToPlay else { return }
+        isFastSeeking = true
+        fastSeekForward = forward
+
+        if forward {
+            player.rate = 4.0
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = 4.0
+        } else {
+            // Try negative rate for reverse playback
+            player.rate = -3.0
+
+            // Check if reverse rate took effect after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self, self.isFastSeeking, !self.fastSeekForward else { return }
+                if self.player?.rate ?? 0 >= 0 {
+                    // Reverse rate not supported — fall back to timer-based seeking
+                    self.startFallbackReverseSeeking()
+                } else {
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = -3.0
+                }
+            }
+        }
+    }
+
+    /// Stop rate-based scrubbing and restore normal playback rate.
+    public func stopFastSeeking() {
+        fallbackReverseTimer?.invalidate()
+        fallbackReverseTimer = nil
+        isFastSeeking = false
+
+        guard let player else { return }
+        if playbackState == .playing || playbackState == .buffering {
+            player.rate = 1.0
+        } else {
+            player.pause()
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = player.rate == 0 ? 0.0 : 1.0
+        updateNowPlayingInfo()
+    }
+
+    /// Timer-based backward seek fallback when the format doesn't support negative rate.
+    private func startFallbackReverseSeeking() {
+        player?.pause()
+
+        fallbackReverseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.isFastSeeking else {
+                    self?.fallbackReverseTimer?.invalidate()
+                    self?.fallbackReverseTimer = nil
+                    return
+                }
+                let newTime = max(0, self.currentTime - 2.0)
+                self.seek(to: newTime)
             }
         }
     }
@@ -2871,6 +2948,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // The "unexpected pause" handler is no longer a concern since we're
             // about to replace the player item.
             isSkipTransitionInProgress = false
+            // Show loading immediately so the UI reflects the transition
+            // instead of showing a stale play/pause button with silence.
+            playbackState = .loading
         }
 
         // Reset adaptive buffering state for fresh playback attempts
@@ -2897,6 +2977,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await MainActor.run {
                 self.currentTrack = track
                 self.currentTime = 0
+                self.pendingLoadSeekTime = nil
                 self.bufferedProgress = 0
                 self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
                 self.updateNowPlayingInfo()
@@ -2911,24 +2992,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // No cached item ready - set current track but delay loading state
+        // No cached item ready - set current track info
         await MainActor.run {
             self.currentTrack = track
             self.currentTime = 0
+            self.pendingLoadSeekTime = nil
             self.bufferedProgress = 0
             self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
             self.updateNowPlayingInfo()
         }
 
-        // Start delayed loading state (150ms) to prevent flash on quick loads
-        loadingStateTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)  // 150ms
-            guard !Task.isCancelled, let self = self else { return }
-            // Only show loading if we're not already playing
-            if self.playbackState != .playing && self.playbackState != .paused {
-                self.playbackState = .loading
-            }
-        }
+        // Loading state is already set above when pausing old playback,
+        // so no delayed transition is needed here.
 
         // Generate waveform asynchronously (doesn't affect state)
         generateWaveform(for: track.id)
@@ -3796,6 +3871,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Don't automatically set state to .playing - let timeControlStatus handle this
                     // Just update the now playing info
                     self?.updateNowPlayingInfo()
+                    // Apply any seek that was requested while the item was loading
+                    if let pendingTime = self?.pendingLoadSeekTime {
+                        self?.pendingLoadSeekTime = nil
+                        self?.seek(to: pendingTime)
+                    }
                 case .failed:
                     let errorDescription = item.error?.localizedDescription ?? "Unknown error"
                     #if DEBUG
@@ -4172,7 +4252,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
             let rawTime = time.seconds
-            self.currentTime = rawTime
+            // While a pending seek is waiting for readyToPlay, pin the
+            // displayed time to the user's seek target instead of the
+            // real (likely 0) playback position.
+            if let pendingTime = self.pendingLoadSeekTime {
+                self.currentTime = pendingTime
+            } else {
+                self.currentTime = rawTime
+            }
 
             #if DEBUG
             // Log once per track for duration diagnostics (filter: SCRUBBER_DIAG)

@@ -461,6 +461,16 @@ public final class NowPlayingViewModel: ObservableObject {
         seek(to: time)
     }
 
+    /// Begin rate-based audible scrubbing (long-press skip buttons).
+    public func startFastSeeking(forward: Bool) {
+        playbackService.startFastSeeking(forward: forward)
+    }
+
+    /// Stop rate-based scrubbing and restore normal playback.
+    public func stopFastSeeking() {
+        playbackService.stopFastSeeking()
+    }
+
     // MARK: - Queue Management
 
     public func addToQueue(_ track: Track) {

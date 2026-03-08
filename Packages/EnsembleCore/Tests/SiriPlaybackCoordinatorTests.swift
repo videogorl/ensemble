@@ -103,6 +103,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func next() {}
         func previous() {}
         func seek(to time: TimeInterval) {}
+        func startFastSeeking(forward: Bool) {}
+        func stopFastSeeking() {}
         func addToQueue(_ track: Track) {}
         func addToQueue(_ tracks: [Track]) {}
         func playNext(_ track: Track) {}
