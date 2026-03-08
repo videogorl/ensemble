@@ -162,6 +162,19 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 **DO NOT revert to giving AVPlayer remote transcode URLs.** The CFHTTP issue is in Apple's CoreMedia framework and cannot be worked around with AVURLAsset options or headers.
 
 
+## RESOLVED: VBR MP3 duration overestimate / FigFilePlayer err=-12864
+
+**Root cause:** PMS's universal transcode produces VBR MP3 files without XING/LAME headers. AVPlayer can't determine the true duration or frame layout, causing duration overestimation (e.g., 270s vs actual 195s), FigFilePlayer errors at file boundaries, and broken gapless transitions.
+
+**Fix:** `MP3VBRHeaderUtility.injectXingHeaderIfNeeded()` scans the downloaded file's MPEG frames and prepends a XING header frame with accurate frame count and total byte count. Called automatically after `downloadUniversalStreamToFile()` for non-original quality.
+
+**Key facts:**
+- PMS always outputs MP3 regardless of transcode profile or start path (tested AAC-only profile, `start.m4a`, `start` — all return `audio/mpeg`)
+- The XING frame uses the lowest valid bitrate (32kbps for MPEG1) to minimize size (~104 bytes)
+- Frame count duration matches Plex metadata: 195.81s vs 195.78s (previously AVPlayer reported 270.29s)
+- `effectiveDuration()` caps AVPlayer's duration to metadata when >10% over, as a safety net
+
+
 ## CRITICAL: PMS start.mp3 is sensitive to query params and URL encoding
 
 Two issues cause `start.mp3` to return **400 Bad Request** while `decision` returns 200:

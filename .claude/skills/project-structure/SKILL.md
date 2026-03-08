@@ -64,6 +64,7 @@ Sources/
 |   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
 |   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
+|   +-- MP3VBRHeaderUtility.swift      # XING VBR header injection for transcoded MP3 files
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
 +-- EnsembleLogger.swift               # Package logger categories
