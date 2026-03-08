@@ -78,6 +78,22 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Playback & Scroll Performance Optimization (Mar 2026)
+Three-phase optimization targeting tap-to-play latency, visualizer timing, and scroll performance:
+
+- **Fire-and-forget FFT analysis:** `loadTimeline()` is no longer `await`ed before `loadAndPlay()`. Uses `Task.detached` to avoid MainActor contention during multi-second FFT analysis. Visualizer shows zeros until analysis completes, then smoothly starts. Current-track analysis runs at `.userInitiated` priority; prefetch uses `.utility`.
+- **Visualizer timing fix:** `activateTimeline()` now starts paused (`isPaused = true`). Visualizer only begins interpolating when `resumeUpdates()` is called after `timeControlStatus == .playing` is confirmed. Gapless transitions call `resumeUpdates()` immediately since audio is already playing.
+- **Selective player item cache:** Queue start paths use `evictPlayerItemsNotIn()` instead of `clearPlayerItemCache()`, preserving prefetched items that overlap with the new queue.
+- **Scroll performance:** Artwork URL cache TTL increased from 5s to 60s. `TrackAvailabilityResolver.bumpGeneration()` debounced at 100ms to coalesce rapid launch-time bumps.
+- **Gapless over AirPlay:** Wall-clock boundary timer suppressed when AVQueuePlayer has items queued, preventing premature `handleQueueExhausted()` that caused gaps over AirPlay.
+- **Memory alignment fixes:** FFT analysis uses `withUnsafeBufferPointer` on `[Float]` for aligned DSPComplex reinterpretation. Sidecar loading uses `loadUnaligned()` for `Data` buffer reads.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - fire-and-forget loadTimeline, visualizer resume on .playing, selective cache eviction, wall-clock boundary suppression
+- `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - activateTimeline starts paused, priority-aware analysis, alignment fixes
+- `Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift` - increased URL cache TTL
+- `Packages/EnsembleCore/Sources/Services/TrackAvailabilityResolver.swift` - debounced bumpGeneration
+
 ### Pre-Computed Frequency Visualizer (Mar 2026)
 Replaced the MTAudioProcessingTap-based real-time audio visualizer with a pre-computed frequency analysis system, fully decoupling the visualizer from the audio pipeline:
 

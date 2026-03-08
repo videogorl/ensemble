@@ -124,6 +124,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Extra API traffic (~1400 tracks fetched redundantly). Correctness is unaffected — rating comparison still works.
 - **Potential fix:** Only fetch `ratedAfter` when the since-timestamp is very recent, or compare ratings against the `updatedAt` result set only.
 
+### Wall-Clock Boundary Timer Limitations
+- **Location:** `PlaybackService.swift` (wall-clock boundary section in periodic time observer)
+- **Issue:** The wall-clock safety timer estimates track end based on elapsed wall time since last seek. Over AirPlay or with high-latency outputs, actual playback can lag behind wall time. The timer is now suppressed when AVQueuePlayer has items queued (gapless case), but may still fire prematurely for the last track in a queue over high-latency outputs.
+- **Impact:** Minor — only affects the last track in a queue over AirPlay/high-latency. Gapless transitions are protected.
+- **Mitigation:** Grace period is 1.0s; could be increased for AirPlay sessions if needed.
+
 ### Pre-Computed Frequency Visualizer: Brief Delay on First Play
 - **Location:** `AudioAnalyzer.swift` (`FrequencyAnalysisService`)
 - **Issue:** When a track is played for the first time (no cached `.freq` sidecar), the frequency analysis runs asynchronously on the audio file. The visualizer shows no data until analysis completes (typically <1s for local files, longer for streamed files that must buffer first).
