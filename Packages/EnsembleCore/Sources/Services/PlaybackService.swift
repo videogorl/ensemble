@@ -3051,7 +3051,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // brief loadTimeline entry/exit points, not the entire suspension.
                 if let fileURL {
                     Task.detached { [audioAnalyzer] in
-                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL)
+                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
                     }
                 }
                 await loadAndPlay(item: item, track: track)
@@ -3754,7 +3754,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if let fileURL {
                         let analyzer = self.audioAnalyzer
                         Task.detached {
-                            await analyzer.loadTimeline(for: track.id, fileURL: fileURL)
+                            await analyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .utility)
                         }
                     }
                 }

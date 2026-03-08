@@ -23,7 +23,8 @@ public protocol AudioAnalyzerProtocol: AnyObject {
 
     /// Pre-compute frequency data for a track (call during prefetch or item creation).
     /// Loads from sidecar file if available, otherwise runs FFT analysis on background thread.
-    @MainActor func loadTimeline(for trackId: String, fileURL: URL) async
+    /// Use `.userInitiated` priority for the current track, `.utility` for prefetch.
+    @MainActor func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority) async
 
     /// Activate a loaded timeline as the current display source.
     /// Starts the 30Hz display timer.
@@ -205,7 +206,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     // MARK: - Timeline Loading
 
-    public func loadTimeline(for trackId: String, fileURL: URL) async {
+    public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility) async {
         // Already cached or loading
         if timelines[trackId] != nil || analysisTasks[trackId] != nil {
             return
@@ -231,10 +232,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
         }
 
-        // Analyze on background thread
+        // Analyze on background thread at the requested priority
         let capturedFileURL = fileURL
+        let capturedPriority = priority
         let analysisTask = Task { [weak self] in
-            let timeline = await Self.analyzeInBackground(fileURL: capturedFileURL)
+            let timeline = await Self.analyzeInBackground(fileURL: capturedFileURL, priority: capturedPriority)
             guard !Task.isCancelled, let self else { return }
 
             if let timeline {
@@ -380,8 +382,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// Analyze an audio file and produce a FrequencyTimeline.
     /// Runs entirely off the main thread. Returns nil if the file can't be read.
-    private nonisolated static func analyzeInBackground(fileURL: URL) async -> FrequencyTimeline? {
-        return await Task.detached(priority: .utility) {
+    private nonisolated static func analyzeInBackground(fileURL: URL, priority: TaskPriority = .utility) async -> FrequencyTimeline? {
+        return await Task.detached(priority: priority) {
             return analyzeFile(at: fileURL)
         }.value
     }
