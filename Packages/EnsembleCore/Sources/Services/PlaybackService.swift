@@ -1933,6 +1933,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !queue.isEmpty else { return }
         consecutivePlaybackFailures = 0
 
+        // Stop old audio immediately so it doesn't continue playing while the
+        // async task below resolves the next track and loads it.
+        player?.pause()
+
         // Record current track to history before advancing
         if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
             recordToHistory(queue[currentQueueIndex])
@@ -1984,6 +1988,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             seek(to: 0)
             return
         }
+
+        // Stop old audio immediately so it doesn't continue playing while the
+        // async task below resolves the previous track and loads it.
+        player?.pause()
 
         // Set flag to prevent recording to history when navigating backward
         isNavigatingBackward = true
@@ -3314,14 +3322,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
-        // For downloaded transcode files (file:// URLs), set forwardPlaybackEndTime to
-        // the metadata duration. VBR MP3 files from PMS lack XING/LAME headers, causing
-        // AVPlayer to wildly overestimate duration. Without this, AVPlayer tries to read
-        // past actual audio data end, triggers FigFilePlayer errors, and introduces gaps
-        // during gapless transitions. This tells AVPlayer exactly when to stop and advance.
-        if streamURL.isFileURL && track.duration > 0 {
-            item.forwardPlaybackEndTime = CMTime(seconds: track.duration, preferredTimescale: 600)
-        }
+        // NOTE: Do NOT set forwardPlaybackEndTime on VBR transcode files. AVPlayer's
+        // time coordinate is warped when XING/LAME headers are missing (it overestimates
+        // duration), so a metadata-based end time operates in the wrong time space and
+        // can cut off audio or extend past the real end. Let AVPlayer detect end-of-file
+        // naturally — it's more reliable for gapless transitions with VBR files.
 
         #if DEBUG
         EnsembleLogger.debug(
