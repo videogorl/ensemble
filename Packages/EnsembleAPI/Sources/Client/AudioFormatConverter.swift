@@ -61,18 +61,46 @@ enum AudioFormatConverter {
 
             guard outputFrameCount > 0 else { return nil }
 
-            // Write trimmed PCM to CAF container.
-            // Use the input's exact processing format so a single buffer works
-            // for both read() and write().
-            let outputFile = try AVAudioFile(
-                forWriting: cafURL,
-                settings: processingFormat.settings,
-                commonFormat: processingFormat.commonFormat,
-                interleaved: processingFormat.isInterleaved
+            // Write trimmed PCM to CAF container using Int16 format.
+            // MP3 sources decode to 16-bit precision, so Int16 is lossless
+            // and halves file size vs Float32 (~48MB vs ~95MB per 5-min track).
+            let channelCount = processingFormat.channelCount
+            let int16Format = AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: sampleRate,
+                channels: channelCount,
+                interleaved: true
             )
 
+            // Set up output file and converter for Int16 output
+            let outputFile: AVAudioFile
+            let int16Converter: AVAudioConverter?
+            let useInt16: Bool
+
+            if let fmt = int16Format,
+               let converter = AVAudioConverter(from: processingFormat, to: fmt) {
+                outputFile = try AVAudioFile(
+                    forWriting: cafURL,
+                    settings: fmt.settings,
+                    commonFormat: .pcmFormatInt16,
+                    interleaved: true
+                )
+                int16Converter = converter
+                useInt16 = true
+            } else {
+                // Fallback: write Float32 if Int16 setup fails
+                outputFile = try AVAudioFile(
+                    forWriting: cafURL,
+                    settings: processingFormat.settings,
+                    commonFormat: processingFormat.commonFormat,
+                    interleaved: processingFormat.isInterleaved
+                )
+                int16Converter = nil
+                useInt16 = false
+            }
+
             let bufferCapacity: AVAudioFrameCount = 8192
-            guard let buffer = AVAudioPCMBuffer(
+            guard let readBuffer = AVAudioPCMBuffer(
                 pcmFormat: processingFormat,
                 frameCapacity: bufferCapacity
             ) else {
@@ -89,11 +117,22 @@ enum AudioFormatConverter {
             while framesWritten < outputFrameCount {
                 let remaining = AVAudioFrameCount(outputFrameCount - framesWritten)
                 let toRead = min(bufferCapacity, remaining)
-                buffer.frameLength = 0  // Reset before read
-                try inputFile.read(into: buffer, frameCount: toRead)
-                if buffer.frameLength == 0 { break }  // EOF
-                try outputFile.write(from: buffer)
-                framesWritten += AVAudioFramePosition(buffer.frameLength)
+                readBuffer.frameLength = 0  // Reset before read
+                try inputFile.read(into: readBuffer, frameCount: toRead)
+                if readBuffer.frameLength == 0 { break }  // EOF
+
+                if useInt16, let converter = int16Converter, let fmt = int16Format {
+                    // Convert Float32 -> Int16 before writing
+                    guard let int16Buffer = AVAudioPCMBuffer(
+                        pcmFormat: fmt,
+                        frameCapacity: readBuffer.frameLength
+                    ) else { break }
+                    try converter.convert(to: int16Buffer, from: readBuffer)
+                    try outputFile.write(from: int16Buffer)
+                } else {
+                    try outputFile.write(from: readBuffer)
+                }
+                framesWritten += AVAudioFramePosition(readBuffer.frameLength)
             }
 
             // Remove the source MP3 — we only need the CAF for playback
@@ -103,8 +142,9 @@ enum AudioFormatConverter {
             let cafSize = (try? FileManager.default.attributesOfItem(atPath: cafURL.path)[.size] as? Int) ?? 0
             let trimmedStart = skipFrames
             let trimmedEnd = totalDecodedFrames - skipFrames - outputFrameCount
+            let formatLabel = useInt16 ? "Int16" : "Float32"
             EnsembleLogger.debug(
-                "🎵 Converted MP3→CAF: \(cafURL.lastPathComponent) "
+                "🎵 Converted MP3→CAF (\(formatLabel)): \(cafURL.lastPathComponent) "
                 + "(\(cafSize / 1024)KB, \(framesWritten) samples, "
                 + "trimmed start=\(trimmedStart) end=\(trimmedEnd))"
             )

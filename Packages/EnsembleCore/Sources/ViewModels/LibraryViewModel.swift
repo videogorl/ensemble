@@ -135,6 +135,7 @@ public final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] statuses in
                 #if DEBUG
                 EnsembleLogger.debug("📚 LibraryViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")

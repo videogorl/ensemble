@@ -38,6 +38,10 @@ public final class HomeViewModel: ObservableObject {
     private var pendingHubSnapshot: [Hub]?
     private var pendingHubApplyTask: Task<Void, Never>?
     private var unfilteredHubs: [Hub] = []
+
+    // Startup suppression: the explicit .task load IS the startup load;
+    // auto-refresh should not fire additional loads until it completes.
+    private var initialLoadCompleted = false
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -154,6 +158,17 @@ public final class HomeViewModel: ObservableObject {
                 self?.applyVisibilityToPublishedHubs()
             }
             .store(in: &cancellables)
+
+        // Safety timeout: if the initial .task load never completes (e.g. no
+        // configured accounts), unblock auto-refresh after 15 seconds.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, !self.initialLoadCompleted else { return }
+            self.initialLoadCompleted = true
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
+            #endif
+        }
     }
     
     deinit {
@@ -435,7 +450,8 @@ public final class HomeViewModel: ObservableObject {
             }
             
             isLoading = false
-            
+            initialLoadCompleted = true
+
             // Persist to cache for offline access
             let hubsToCache = hubs
             Task.detached(priority: .background) { [hubRepository] in
@@ -479,6 +495,15 @@ public final class HomeViewModel: ObservableObject {
     private func requestAutoRefresh(reason: AutoRefreshReason) {
         guard hasEnabledLibraries else {
             clearHubContentForUnavailableSources()
+            return
+        }
+
+        // Suppress auto-refresh until the initial .task load completes.
+        // The explicit loadHubs() from HomeView.task IS the startup load.
+        guard initialLoadCompleted else {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh suppressed (initial load in flight) reason=\(reason.rawValue)")
+            #endif
             return
         }
 
@@ -622,6 +647,11 @@ public final class HomeViewModel: ObservableObject {
         pendingAutoRefreshReasons.removeAll()
         deferredAutoRefreshTask?.cancel()
         deferredAutoRefreshTask = nil
+    }
+
+    /// Mark the initial load as complete so auto-refresh tests can proceed
+    internal func markInitialLoadCompletedForTesting() {
+        initialLoadCompleted = true
     }
 
     internal static func filterHubsForVisibility(

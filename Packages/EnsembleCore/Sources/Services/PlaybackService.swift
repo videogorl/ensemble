@@ -5519,9 +5519,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Load History
         if let historyData = UserDefaults.standard.data(forKey: historyKey),
            let historyItems = try? JSONDecoder().decode([QueueItem].self, from: historyData) {
-            playbackHistory = historyItems
+            await MainActor.run {
+                playbackHistory = historyItems
+            }
             #if DEBUG
-            EnsembleLogger.debug("🔄 Restored \(playbackHistory.count) history items")
+            EnsembleLogger.debug("🔄 Restored \(historyItems.count) history items")
             #endif
         }
 
@@ -5574,28 +5576,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func restoreQueueFromItems(_ items: [QueueItem], index: Int, time: TimeInterval) async {
         guard !items.isEmpty, index >= 0, index < items.count else { return }
 
-        // Disable shuffle on restore
-        if isShuffleEnabled {
-            isShuffleEnabled = false
-            UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
-        }
-
-        // Set up queue preserving source tags
-        queue = items
-        originalQueue = items
-        currentQueueIndex = index
+        // Resolve the track off-main-thread (may do file I/O)
         let track = await resolveTrackForPlaybackIfNeeded(items[index].track)
-        currentTrack = track
-        currentTime = time
-        waveformHeights = []  // Clear old waveform immediately
 
-        // Don't load the player item yet — defer the network request until the
-        // user explicitly taps play. This prevents auto-play when the server isn't
-        // ready at app launch (health checks/reconnects would otherwise trigger
-        // playback from a .failed state).
-        generateWaveform(for: track.id)
-        playbackState = .paused
-        updateNowPlayingInfo()
+        // All @Published property mutations must happen on the main thread
+        await MainActor.run {
+            // Disable shuffle on restore
+            if isShuffleEnabled {
+                isShuffleEnabled = false
+                UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
+            }
+
+            // Set up queue preserving source tags
+            queue = items
+            originalQueue = items
+            currentQueueIndex = index
+            currentTrack = track
+            currentTime = time
+            waveformHeights = []  // Clear old waveform immediately
+
+            // Don't load the player item yet — defer the network request until the
+            // user explicitly taps play. This prevents auto-play when the server isn't
+            // ready at app launch (health checks/reconnects would otherwise trigger
+            // playback from a .failed state).
+            generateWaveform(for: track.id)
+            playbackState = .paused
+            updateNowPlayingInfo()
+        }
     }
 
     private func resolveTrackForPlaybackIfNeeded(_ track: Track) async -> Track {

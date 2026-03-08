@@ -45,6 +45,11 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     private let artworkURLTracker = ArtworkURLTracker()
 
+    /// Minimum interval between bulk URL cache invalidations to coalesce
+    /// rapid startup events (reconnect, interface switch, health check, etc.)
+    private var lastBulkInvalidationDate: Date?
+    private static let bulkInvalidationCooldown: TimeInterval = 5
+
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
         private struct Entry {
@@ -123,7 +128,18 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     /// Invalidate all cached artwork URLs.
     /// Called when server connection changes to clear stale URLs pointing to unreachable endpoints.
+    /// Coalesces rapid successive calls (e.g. startup reconnect + health check) within a 5s window.
     public func invalidateURLCache() async {
+        // Coalesce rapid invalidations during startup
+        if let lastDate = lastBulkInvalidationDate,
+           Date().timeIntervalSince(lastDate) < Self.bulkInvalidationCooldown {
+            #if DEBUG
+            EnsembleLogger.debug("🎨 ArtworkLoader: Coalesced URL cache invalidation (last was <\(Int(Self.bulkInvalidationCooldown))s ago)")
+            #endif
+            return
+        }
+
+        lastBulkInvalidationDate = Date()
         await urlCache.clearAll()
         // Connection changed — all tracked URLs are stale
         await artworkURLTracker.clearAll()

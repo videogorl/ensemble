@@ -178,6 +178,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testSyncCompleteTriggerDefersWhileInteracting() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
@@ -195,6 +196,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testMultipleDeferredTriggersCoalesceToSingleRefresh() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
@@ -213,6 +215,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testDeferredRefreshRunsAfterIdleTransition() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
@@ -231,6 +234,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testManualRefreshBypassesInteractionDeferral() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var loadCount = 0
         var deferFlags: [Bool] = []
@@ -251,6 +255,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
         var refreshCount = 0
         sut.autoRefreshRunnerForTesting = { _ in refreshCount += 1 }
