@@ -509,13 +509,14 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 windowedSamples[i] = allSamples[sampleOffset + i] * hannWindow[i]
             }
 
-            // Convert to split complex format
+            // Convert to split complex format (interleaved real pairs → split real/imag)
             realParts = [Float](repeating: 0, count: fftSize / 2)
             imagParts = [Float](repeating: 0, count: fftSize / 2)
             var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-            windowedSamples.withUnsafeBytes { ptr in
-                ptr.withMemoryRebound(to: DSPComplex.self) { complexPtr in
-                    vDSP_ctoz(complexPtr.baseAddress!, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+            windowedSamples.withUnsafeBufferPointer { bufferPtr in
+                // Reinterpret Float pairs as DSPComplex (same memory layout, guaranteed aligned)
+                bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                    vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
                 }
             }
 
