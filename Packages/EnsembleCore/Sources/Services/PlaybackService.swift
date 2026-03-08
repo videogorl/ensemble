@@ -980,6 +980,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                         // Activate the pre-computed frequency timeline for the new track
                         self.audioAnalyzer.activateTimeline(for: newTrack.id)
+                        self.audioAnalyzer.resumeUpdates()  // Gapless: already playing, resume immediately
 
                         // Non-state-changing operations
                         self.generateWaveform(for: newTrack.id)
@@ -3010,9 +3011,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 let (item, fileURL) = try await createPlayerItem(for: track)
-                // Load frequency timeline for the visualizer (non-blocking if URL is remote)
+                // Fire-and-forget frequency analysis so it doesn't block playback start
                 if let fileURL {
-                    await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL)
+                    Task { @MainActor in
+                        await self.audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL)
+                    }
                 }
                 await loadAndPlay(item: item, track: track)
                 if let recoverySeekTime, recoverySeekTime > 0 {
@@ -4001,6 +4004,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             EnsembleLogger.debug("✅ AVPlayer actually playing audio")
                             #endif
                             self.playbackState = .playing
+                            self.audioAnalyzer.resumeUpdates()  // Visualizer starts only after audio confirmed
                             self.adaptiveBufferingState.conservativeWaitCycles = 0
 
                             // Audio is confirmed flowing — safe to reset the circuit breaker.

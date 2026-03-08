@@ -267,7 +267,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func activateTimeline(for trackId: String) {
         activeTrackId = trackId
-        isPaused = false
+        isPaused = true  // Start paused — timer won't interpolate until resumeUpdates() on confirmed playback
         currentPlaybackTime = 0
         positionUpdateWallTime = CACurrentMediaTime()
         startDisplayTimer()

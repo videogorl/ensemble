@@ -18,7 +18,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
-    private static let asyncArtworkURLCacheTTL: TimeInterval = 5
+    private static let asyncArtworkURLCacheTTL: TimeInterval = 60
     private static let legacyArtworkURLCacheTTL: TimeInterval = 60
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
