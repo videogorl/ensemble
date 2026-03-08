@@ -722,10 +722,11 @@ public final class HomeViewModel: ObservableObject {
     /// rather than title normalization, so dynamic hubs like "More in Pop/Rock"
     /// don't get incorrectly merged.
     private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
+        // Server key is first 3 components: "plex:{acct}:{srv}"
         func getServerKey(_ hubId: String) -> String {
             let components = hubId.split(separator: ":")
-            if components.count >= 2 {
-                return "\(components[0]):\(components[1])"
+            if components.count >= 3 {
+                return "\(components[0]):\(components[1]):\(components[2])"
             }
             return "global"
         }
@@ -794,11 +795,13 @@ public final class HomeViewModel: ObservableObject {
     }
     
     // MARK: - Edit Mode
-    
+
+    /// Extract the server key from a hub ID.
+    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubId}" — server key is the first 3 components.
     private func serverKey(from hubId: String) -> String? {
         let components = hubId.split(separator: ":")
-        guard components.count >= 2 else { return nil }
-        return "\(components[0]):\(components[1])"
+        guard components.count >= 3 else { return nil }
+        return "\(components[0]):\(components[1]):\(components[2])"
     }
     
     private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
@@ -815,7 +818,8 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Determine the primary source key (first enabled server) and its display name
+    /// Determine the primary source key (first enabled server) and its display name.
+    /// Source key format matches the first 3 components of hub IDs: "plex:{acct}:{srv}"
     private func updateCurrentSource() {
         let servers = accountManager.plexAccounts.flatMap { $0.servers }
         let hasMultipleServers = servers.count > 1
@@ -824,7 +828,7 @@ public final class HomeViewModel: ObservableObject {
             for server in account.servers {
                 let enabledLibraries = server.libraries.filter { $0.isEnabled }
                 if !enabledLibraries.isEmpty {
-                    currentSourceKey = "\(account.id):\(server.id)"
+                    currentSourceKey = "plex:\(account.id):\(server.id)"
                     if hasMultipleServers {
                         currentSourceName = "Editing Music (on \(server.name))"
                     } else {
