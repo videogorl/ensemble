@@ -8,12 +8,14 @@ public final class AccountManager: ObservableObject {
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
 
     private let keychain: KeychainServiceProtocol
+    private let connectionRegistry: ServerConnectionRegistry?
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private static let authMigrationVersionKey = "plex_auth_migration_version"
     private static let authMigrationVersion = 2
 
-    public init(keychain: KeychainServiceProtocol) {
+    public init(keychain: KeychainServiceProtocol, connectionRegistry: ServerConnectionRegistry? = nil) {
         self.keychain = keychain
+        self.connectionRegistry = connectionRegistry
     }
 
     // MARK: - Load / Save
@@ -296,7 +298,12 @@ public final class AccountManager: ObservableObject {
             name: server.name
         )
 
-        let client = PlexAPIClient(connection: connection, keychain: keychain)
+        let client = PlexAPIClient(
+            connection: connection,
+            keychain: keychain,
+            connectionRegistry: connectionRegistry,
+            serverKey: cacheKey
+        )
         apiClientCache[cacheKey] = client
         #if DEBUG
         EnsembleLogger.debug("✅ API client created and cached")

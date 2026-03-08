@@ -7,14 +7,6 @@ description: "Load before building or modifying any SwiftUI view. Ensemble UI/UX
 
 These are core design decisions that must be maintained throughout the app.
 
-## UI Vocabulary
-
-See **`VOCABULARY.md`** at the project root for canonical names of all Views and UI elements. When:
-- Adding a new View: add a section to VOCABULARY.md with the view name, area, platforms, and element list
-- Adding new UI elements to existing views: add them to the view's element table
-- Renaming or removing elements: update VOCABULARY.md to match
-- Writing documentation, accessibility identifiers, or user-facing copy: use the canonical element names
-
 ## Navigation Behavior
 
 ### Tab Navigation
@@ -29,20 +21,6 @@ See **`VOCABULARY.md`** at the project root for canonical names of all Views and
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
-
-### Music Sources Navigation
-- **Account-centric source list:** Settings → Music Sources lists accounts/sources, not individual server rows.
-- **Account row content:** title is source type (currently `Plex`), subtitle is account identifier (email-first fallback chain).
-- **Detail destination:** tapping an account opens `MusicSourceAccountDetailView` with server headings and library checklists.
-- **Sync controls location:** per-library status and manual sync actions live in account detail; do not add standalone Sync Panel entry points.
-
-### Offline Manager Navigation
-- Offline management lives in **Settings only** (`Manage Downloads`), not in the tab-level `DownloadsView`.
-- `Manage Downloads` opens `DownloadManagerSettingsView` with:
-  - default `Servers` entry for library-wide offline toggles
-  - itemized album/artist/playlist target rows with progress/status
-- `Servers` opens `OfflineServersView` grouped by server headings.
-- Show only sync-enabled libraries in `OfflineServersView`.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
@@ -125,11 +103,6 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it
 - Global toast window must stay above mini player and modal sheets for consistent feedback visibility
 
-### Add-Account Plex Flow
-- PIN code in `AddPlexAccountView` should support copy-on-tap with toast confirmation.
-- Server/library selection UI should be grouped by server heading with library checkboxes.
-- Keep server cards full width even when no music libraries are found to avoid narrow/uneven layout.
-
 ### Gesture Actions (iOS/iPadOS)
 - Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)
 - Slot 1 on each edge is full-swipe enabled; slot 2 is reveal-only
@@ -140,17 +113,10 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions
-- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Download/Remove Download`, `Pin/Unpin`
-- Artist menu: `Play`, `Shuffle`, `Radio`, `Download/Remove Download`, `Pin/Unpin`
-- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Download/Remove Download`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
-- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Download/Remove Download`, `Pin/Unpin` (non-destructive only)
-
-### Offline Row Behavior
-- When app/network state is offline, rows for tracks that are not downloaded should:
-  - render dimmed (reduced opacity)
-  - block primary tap playback
-  - show a warning toast (`Not available offline`)
-- Apply this behavior consistently in `TrackRow`, `MediaTrackList`, and compact search rows.
+- Album menu: `Play`, `Shuffle`, `Play Next`, `Play Last`, `Radio`, `Add to Playlist…`, `Pin/Unpin`
+- Artist menu: `Play`, `Shuffle`, `Radio`, `Pin/Unpin`
+- Playlist menu (Playlists screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin`, plus (for non-smart playlists) `Rename…`, `Edit Playlist`, `Delete`
+- Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
 ## Visual Design
 
@@ -164,14 +130,6 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **System fonts:** SF Pro with semantic styles (.headline, .subheadline, etc.)
 - **Line limits:** `.lineLimit(1)` or `MarqueeText` for auto-scrolling long titles
 - **Information density:** Dense layouts without clutter
-
-### Aurora Visualization
-- **Aurora effect:** Animated gradient sectors at the bottom of the screen that pulse and grow based on current music loudness.
-- **Positioning:** Placed at the very bottom of the view hierarchy in `RootView`, behind all main navigation and content.
-- **Interactions:** Hidden on modal sheets (like `NowPlayingView`) to avoid visual clutter.
-- **Reactivity:** Uses `playbackService.waveformHeights` and `currentTime` to sample loudness in real-time.
-- **Customization:** Respects the user's chosen accent color and can be disabled in Settings → Appearance.
-- **Implementation:** Uses `TimelineView` and `Canvas` for performance; views above it must use `.auroraBackgroundSupport()` to be transparent.
 
 ## Loading & Error States
 

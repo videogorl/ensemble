@@ -43,6 +43,7 @@ public final class LibraryViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
@@ -55,12 +56,14 @@ public final class LibraryViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         accountManager: AccountManager,
-        visibilityStore: LibraryVisibilityStore? = nil
+        visibilityStore: LibraryVisibilityStore? = nil,
+        toastCenter: ToastCenter
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.toastCenter = toastCenter
 
         // Load saved filter options
         let savedTracks = FilterPersistence.load(for: "Songs")
@@ -112,16 +115,32 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes (full or incremental)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] syncing in
                 if !syncing {
-                    // Sync just completed, reload library
+                    // Full sync just completed, reload library
                     Task { @MainActor in
                         await self?.loadLibrary()
                     }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Auto-reload when any source status changes (catches WebSocket-triggered incremental syncs
+        // which update sourceStatuses but don't toggle isSyncing)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] statuses in
+                #if DEBUG
+                EnsembleLogger.debug("📚 LibraryViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+                #endif
+                Task { @MainActor in
+                    await self?.loadLibrary()
                 }
             }
             .store(in: &cancellables)
@@ -301,6 +320,15 @@ public final class LibraryViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("⏳ Sync already in progress - waiting for it to complete")
             #endif
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Sync in progress",
+                    message: "A background sync is already running.",
+                    dedupeKey: "sync-already-in-progress"
+                )
+            )
             await loadLibrary()
             return
         }

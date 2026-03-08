@@ -67,28 +67,14 @@ public struct MusicSourceAccountDetailView: View {
                 }
             }
 
-            // Pending offline mutations banner
+            // Pending offline mutations — navigate to detail
             if viewModel.pendingMutationCount > 0 {
                 Section {
-                    HStack(spacing: 10) {
-                        Image(systemName: deps.networkMonitor.isConnected ? "arrow.clockwise" : "clock.arrow.circlepath")
-                            .foregroundColor(deps.networkMonitor.isConnected ? .accentColor : .orange)
-                        VStack(alignment: .leading, spacing: 2) {
-                            let count = viewModel.pendingMutationCount
-                            let noun = count == 1 ? "change" : "changes"
-                            if deps.networkMonitor.isConnected {
-                                Text("Syncing \(count) pending \(noun)…")
-                                    .font(.subheadline)
-                            } else {
-                                Text("\(count) pending \(noun)")
-                                    .font(.subheadline)
-                                Text("Will sync when back online")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                    NavigationLink {
+                        PendingMutationsView()
+                    } label: {
+                        PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
-                    .padding(.vertical, 2)
                 }
             }
 
@@ -106,6 +92,23 @@ public struct MusicSourceAccountDetailView: View {
                 } else {
                     ForEach(viewModel.sections) { server in
                         Section {
+                            // Show scan progress bar when server is scanning
+                            if let scanProgress = viewModel.scanProgressByServer[server.id] {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.caption)
+                                            .foregroundColor(.accentColor)
+                                        Text("Scanning library…")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    ProgressView(value: Double(scanProgress), total: 100)
+                                        .tint(.accentColor)
+                                }
+                                .padding(.vertical, 2)
+                            }
+
                             if let refreshError = viewModel.serverLibraryErrors[server.id] {
                                 Text(refreshError)
                                     .font(.caption)

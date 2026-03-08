@@ -19,6 +19,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
+    private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
@@ -26,11 +27,13 @@ public final class PlaylistViewModel: ObservableObject {
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        toastCenter: ToastCenter
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
+        self.toastCenter = toastCenter
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -58,7 +61,27 @@ public final class PlaylistViewModel: ObservableObject {
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] notification in
+                #if DEBUG
+                let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
+                EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
+                #endif
+                Task { @MainActor in
+                    await self?.loadPlaylists()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (e.g. WebSocket-triggered sync completes)
+        // This catches playlist updates from other devices that may not fire playlistsDidRefresh.
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] statuses in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+                #endif
                 Task { @MainActor in
                     await self?.loadPlaylists()
                 }
@@ -84,6 +107,24 @@ public final class PlaylistViewModel: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("📴 Offline - loading playlists from cache only")
             #endif
+            await loadPlaylists()
+            return
+        }
+
+        // Check if sync is already in progress
+        if syncCoordinator.isSyncing {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ Sync already in progress - loading playlists from cache")
+            #endif
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Sync in progress",
+                    message: "A background sync is already running.",
+                    dedupeKey: "sync-already-in-progress"
+                )
+            )
             await loadPlaylists()
             return
         }
@@ -409,6 +450,22 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private func observePlaylistRefresh() {
         NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
+                #endif
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (catches WebSocket-triggered
+        // incremental syncs that include playlist data)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     await self?.loadTracks()

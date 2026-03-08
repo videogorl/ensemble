@@ -23,6 +23,9 @@ public struct RootView: View {
         .task {
             let deps = DependencyContainer.shared
             deps.accountManager.loadAccounts()
+            // Pre-populate server health states so tracks from unchecked servers
+            // are dimmed until health checks confirm reachability.
+            deps.serverHealthChecker.prepopulateUnknownStates()
             deps.syncCoordinator.refreshProviders()
             _ = await deps.siriMediaIndexStore.rebuildIndex()
         }

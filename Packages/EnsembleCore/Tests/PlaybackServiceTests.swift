@@ -185,7 +185,8 @@ final class PlaybackServiceTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(profile, .conservative)
-        XCTAssertEqual(profile.prefetchDepth, 0)
+        // Conservative keeps prefetchDepth=1 to preserve gapless transitions
+        XCTAssertEqual(profile.prefetchDepth, 1)
     }
 
     func testResolvedBufferingProfileFallsBackToBaseProfileAfterEscalationExpires() {
@@ -280,10 +281,23 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
-    func testPrefetchThrottleDropsDepthToZeroWhenActive() {
-        let profile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
-        XCTAssertEqual(profile.prefetchDepth, 0)
-        XCTAssertTrue(profile.label.contains("prefetch-throttled"))
+    func testPrefetchThrottlePreservesMinimumDepthForGapless() {
+        // wifiOrWired has prefetchDepth=1 — throttle is a no-op (preserves gapless)
+        let wifiProfile = PlaybackService.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
+        XCTAssertEqual(wifiProfile.prefetchDepth, 1)
+        XCTAssertEqual(wifiProfile, .wifiOrWired)
+
+        // Profiles with depth > 1 get reduced to 1, not 0
+        let deepProfile = PlaybackService.PlaybackBufferingProfile(
+            waitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: 8,
+            prefetchDepth: 3,
+            stallRecoveryTimeout: 8,
+            label: "deep"
+        )
+        let throttled = PlaybackService.throttledPrefetchProfileIfNeeded(deepProfile, throttleActive: true)
+        XCTAssertEqual(throttled.prefetchDepth, 1)
+        XCTAssertTrue(throttled.label.contains("prefetch-throttled"))
     }
 
     func testPrefetchThrottleLeavesProfileUntouchedWhenInactive() {
@@ -482,6 +496,78 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(result.removedCurrentQueueItem)
         XCTAssertEqual(result.removedQueueItemCount, 2)
     }
+
+    // MARK: - effectiveDuration edge cases
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNil() {
+        // When AVPlayerItem hasn't resolved its duration yet (e.g. progressive MP3 still loading),
+        // we fall back to metadata duration from Plex.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: nil)
+        XCTAssertEqual(result, 180)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsInfinite() {
+        // HLS/progressive streams may report .indefinite (infinity) before duration resolves.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 240, itemDuration: .infinity)
+        XCTAssertEqual(result, 240)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNaN() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 120, itemDuration: .nan)
+        XCTAssertEqual(result, 120)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsZero() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 300, itemDuration: 0)
+        XCTAssertEqual(result, 300)
+    }
+
+    func testEffectiveDurationReturnsMetadataWhenItemDurationIsNegative() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: 200, itemDuration: -5)
+        XCTAssertEqual(result, 200)
+    }
+
+    func testEffectiveDurationRejectsAbsurdlyLongItemDuration() {
+        // Guard against malformed media reporting 24h+ durations
+        let absurdDuration = 25 * 60 * 60.0  // 25 hours
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: absurdDuration)
+        XCTAssertEqual(result, 180)
+    }
+
+    func testEffectiveDurationClampsNegativeMetadataToZero() {
+        let result = PlaybackService.effectiveDuration(metadataDuration: -10, itemDuration: nil)
+        XCTAssertEqual(result, 0)
+    }
+
+    func testEffectiveDurationPreferslongerDuration() {
+        // Transcoded streams may produce slightly more or fewer audio frames than metadata says.
+        // Prefer the longer value so the progress bar doesn't prematurely reach 100%.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 183)
+        XCTAssertEqual(result, 183)
+    }
+
+    func testEffectiveDurationUsesMetadataWhenItemIsShorter() {
+        // Metadata says 240s but AVPlayerItem resolved to 238s. Keep the longer value.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 240, itemDuration: 238)
+        XCTAssertEqual(result, 240)
+    }
+
+    func testEffectiveDurationCapsVBROverestimate() {
+        // VBR MP3 files from PMS transcode cause AVPlayer to wildly overestimate
+        // duration (e.g., 195s → 270s) due to missing XING/LAME headers.
+        // When AVPlayer reports >10% longer than metadata, trust metadata.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 195.78, itemDuration: 270.29)
+        XCTAssertEqual(result, 195.78)
+    }
+
+    func testEffectiveDurationAllowsSmallItemOvershoot() {
+        // AVPlayer reporting slightly longer (within 10%) is normal for transcoded
+        // streams — allow it so progress bar doesn't complete early.
+        let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 195)
+        XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
+    }
+
+    // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
         let current = QueueItem(

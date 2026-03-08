@@ -50,6 +50,21 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let mutationCoordinator: MutationCoordinator
 
+    // MARK: - Network Infrastructure
+
+    /// Single source of truth for per-server active endpoints.
+    /// Shared by PlexAPIClient (writes on failover), ServerHealthChecker (writes on probe),
+    /// and SyncCoordinator (subscribes to keep API clients in sync).
+    public let connectionRegistry: ServerConnectionRegistry
+
+    /// Manages WebSocket connections to Plex servers for real-time notifications.
+    /// Start on foreground, stop on background.
+    public let webSocketCoordinator: PlexWebSocketCoordinator
+
+    /// Reactive track availability combining device connectivity, per-server health,
+    /// and local download state. Used by UI surfaces for dimming/blocking unavailable tracks.
+    public let trackAvailabilityResolver: TrackAvailabilityResolver
+
     // MARK: - Legacy (kept for add-account flow)
 
     public let authService: PlexAuthService
@@ -61,6 +76,10 @@ public final class DependencyContainer: @unchecked Sendable {
         keychain = KeychainService.shared
         coreDataStack = CoreDataStack.shared
         authService = PlexAuthService(keychain: keychain)
+
+        // Network infrastructure — single source of truth for endpoint state
+        let registry = ServerConnectionRegistry()
+        connectionRegistry = registry
 
         // Repositories
         libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
@@ -81,7 +100,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let artworkDownloadRef = artworkDownloadManager
 
         let am = MainActor.assumeIsolated {
-            AccountManager(keychain: keychainRef)
+            AccountManager(keychain: keychainRef, connectionRegistry: registry)
         }
         accountManager = am
         accountDiscoveryService = PlexAccountDiscoveryService(keychain: keychainRef)
@@ -94,7 +113,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
         // Server health checking (must be created before SyncCoordinator)
         let shc = MainActor.assumeIsolated {
-            ServerHealthChecker(accountManager: am, networkMonitor: nm)
+            ServerHealthChecker(accountManager: am, networkMonitor: nm, connectionRegistry: registry)
         }
         serverHealthChecker = shc
 
@@ -105,10 +124,67 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: playlistRef,
                 artworkDownloadManager: artworkDownloadRef,
                 networkMonitor: nm,
-                serverHealthChecker: shc
+                serverHealthChecker: shc,
+                connectionRegistry: registry
             )
         }
         let syncCoordinatorRef = syncCoordinator
+
+        // Read Plex client identifier for WebSocket headers
+        let plexClientId = (try? keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
+
+        // WebSocket coordinator for real-time server notifications
+        let wsc = MainActor.assumeIsolated {
+            PlexWebSocketCoordinator(
+                accountManager: am,
+                connectionRegistry: registry,
+                serverHealthChecker: shc,
+                clientIdentifier: plexClientId
+            )
+        }
+        webSocketCoordinator = wsc
+
+        // Wire WebSocket events to SyncCoordinator
+        MainActor.assumeIsolated {
+            wsc.onLibraryUpdate = { [weak syncCoordinatorRef] sectionKey in
+                await syncCoordinatorRef?.syncSectionIncremental(sectionKey: sectionKey)
+            }
+            wsc.onPlaylistUpdate = { [weak syncCoordinatorRef] serverKey in
+                await syncCoordinatorRef?.syncServerPlaylistsIncremental(serverKey: serverKey)
+            }
+            wsc.onServerOffline = { serverKey in
+                // Parse serverKey and trigger health check
+                let parts = serverKey.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { return }
+                let accountId = String(parts[0])
+                let serverId = String(parts[1])
+                _ = await shc.checkServer(accountId: accountId, serverId: serverId)
+            }
+            wsc.onServerHealthy = { [weak shc] serverKey in
+                // Reset health check TTL by updating state directly
+                let parts = serverKey.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let shc else { return }
+                let accountId = String(parts[0])
+                let serverId = String(parts[1])
+                let currentState = await MainActor.run {
+                    shc.getServerState(accountId: accountId, serverId: serverId)
+                }
+                // If server was unknown/offline, run a health check to establish proper state
+                if !currentState.isAvailable {
+                    _ = await shc.checkServer(accountId: accountId, serverId: serverId)
+                }
+            }
+
+        }
+
+        // Track availability resolver — reactive per-server + per-download availability
+        trackAvailabilityResolver = MainActor.assumeIsolated {
+            TrackAvailabilityResolver(
+                networkMonitor: nm,
+                serverHealthChecker: shc,
+                downloadManager: downloadManagerRef
+            )
+        }
 
         let offlineBackgroundCoordinatorRef = MainActor.assumeIsolated {
             OfflineBackgroundExecutionCoordinator()
@@ -141,10 +217,24 @@ public final class DependencyContainer: @unchecked Sendable {
         // Note: artworkLoader must be created before playbackService since it's a dependency
         let artworkLoaderRef = ArtworkLoader(syncCoordinator: syncCoordinator)
         artworkLoader = artworkLoaderRef
+
+        // Wire artwork invalidation from WebSocket events to the artwork loader
+        let artworkLoaderForWS = artworkLoaderRef
+        MainActor.assumeIsolated {
+            wsc.onArtworkInvalidation = { ratingKey, typeString in
+                let type: ArtworkType
+                switch typeString {
+                case "album": type = .album
+                case "artist": type = .artist
+                default: type = .album
+                }
+                await artworkLoaderForWS.invalidateArtwork(ratingKey: ratingKey, type: type)
+            }
+        }
         
-        // Audio analyzer for real-time frequency analysis
+        // Pre-computed frequency analyzer (decoupled from audio pipeline)
         let audioAnalyzerRef = MainActor.assumeIsolated {
-            AudioAnalyzer()
+            FrequencyAnalysisService()
         }
         audioAnalyzer = audioAnalyzerRef
 
@@ -248,7 +338,8 @@ public final class DependencyContainer: @unchecked Sendable {
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             accountManager: accountManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            toastCenter: toastCenter
         )
     }
 
@@ -260,7 +351,8 @@ public final class DependencyContainer: @unchecked Sendable {
             libraryRepository: libraryRepository,
             navigationCoordinator: navigationCoordinator,
             toastCenter: toastCenter,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            trackAvailabilityResolver: trackAvailabilityResolver
         )
     }
 
@@ -287,7 +379,8 @@ public final class DependencyContainer: @unchecked Sendable {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            toastCenter: toastCenter
         )
     }
 
@@ -386,7 +479,8 @@ public final class DependencyContainer: @unchecked Sendable {
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: mutationCoordinator
+            mutationCoordinator: mutationCoordinator,
+            webSocketCoordinator: webSocketCoordinator
         )
     }
 

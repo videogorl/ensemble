@@ -153,14 +153,29 @@ public actor PlexAPIClient {
     private let selectedLibrary: PlexLibrarySelection?
     private var currentServerURL: String  // The currently active server URL
 
+    // Centralized endpoint registry — when set, failover results are reported back
+    private let connectionRegistry: ServerConnectionRegistry?
+    private let serverKey: String?
+
     private static let plexTVBaseURL = "https://plex.tv"
 
     /// Initialize with a direct server connection
+    /// - Parameters:
+    ///   - connection: Server connection configuration
+    ///   - librarySelection: Optional library selection
+    ///   - keychain: Keychain for token persistence
+    ///   - failoverManager: Manages connection failover probing
+    ///   - connectionRegistry: Centralized endpoint registry — failover results are written back here
+    ///   - serverKey: Registry key for this server (required when registry is provided)
+    ///   - productName: Client product name for Plex headers
+    ///   - productVersion: Client product version for Plex headers
     public init(
         connection: PlexServerConnection,
         librarySelection: PlexLibrarySelection? = nil,
         keychain: KeychainServiceProtocol = KeychainService.shared,
         failoverManager: ConnectionFailoverManager = ConnectionFailoverManager(),
+        connectionRegistry: ServerConnectionRegistry? = nil,
+        serverKey: String? = nil,
         productName: String = "Ensemble",
         productVersion: String = "1.0"
     ) {
@@ -169,6 +184,8 @@ public actor PlexAPIClient {
         self.selectedLibrary = librarySelection
         self.currentServerURL = connection.url
         self.failoverManager = failoverManager
+        self.connectionRegistry = connectionRegistry
+        self.serverKey = serverKey
         self.productName = productName
         self.productVersion = productVersion
         #if os(iOS)
@@ -216,6 +233,14 @@ public actor PlexAPIClient {
             #if DEBUG
             EnsembleLogger.debug("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
             #endif
+        }
+
+        // Seed the registry with the initial endpoint so consumers (e.g. WebSocket
+        // coordinator) have a valid URL before the first health check completes.
+        if let registry = connectionRegistry, let key = serverKey {
+            let endpoint = connection.endpoints.first
+                ?? PlexEndpointDescriptor(url: connection.url, local: false, relay: false)
+            Task { await registry.updateEndpoint(for: key, endpoint: endpoint, source: .connectionRefresh) }
         }
     }
 
@@ -422,6 +447,25 @@ public actor PlexAPIClient {
                 "includeMedia": "1",
                 "includeElements": "Media",
                 "updatedAt>=": String(unixTime)
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
+    /// Get tracks rated after a specific timestamp (for syncing rating changes from other devices)
+    public func getTracks(sectionKey: String, ratedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
+        let unixTime = Int(timestamp)
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "includeMedia": "1",
+                "includeElements": "Media",
+                "lastRatedAt>=": String(unixTime)
             ]
         )
         let container = try JSONDecoder().decode(
@@ -1145,85 +1189,290 @@ public actor PlexAPIClient {
     /// Generate streaming URL for a track using universal transcode endpoint
     /// This endpoint works for both Plex Pass and non-Plex Pass users by intelligently
     /// choosing between direct play, direct stream, or transcode based on server capabilities
+    /// Get a universal stream URL for a track.
+    /// Delegates to the ratingKey overload which handles the decision endpoint call.
     public func getUniversalStreamURL(
         for track: PlexTrack,
         quality: StreamingQuality = .original,
         sessionId: String? = nil
-    ) throws -> URL {
+    ) async throws -> URL {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL: \(track.title) [quality: \(quality.rawValue)]")
         #endif
-        
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-        
-        // Use Plex's universal transcode endpoint. The extension doesn't determine the output
-        // format — that's controlled by the audioCodec query parameter and profile extra.
-        components.path = "/music/:/transcode/universal/start.mp3"
+        return try await getUniversalStreamURL(
+            ratingKey: track.ratingKey,
+            quality: quality,
+            sessionId: sessionId
+        )
+    }
+
+    /// Get a universal stream URL for a track, warming up the transcode session first.
+    /// The decision endpoint MUST be called before start.mp3 or PMS returns 400.
+    /// Get a universal stream URL for a track, warming up the transcode session first.
+    /// The decision endpoint MUST be called before start.mp3 or PMS returns 400.
+    public func getUniversalStreamURL(
+        ratingKey: String,
+        quality: StreamingQuality = .original,
+        sessionId: String? = nil
+    ) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
+        #endif
 
         let resolvedSessionId = sessionId ?? UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId
+        )
+
+        // Step 1: Call the decision endpoint to warm up the transcode session.
+        // Without this, PMS returns 400 on the start endpoint.
+        try await callTranscodeDecision(queryItems: queryItems)
+
+        // Step 2: Build the start.mp3 URL with manual encoding (see buildTranscodeURL)
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal stream URL")
+        #endif
+
+        return url
+    }
+
+    /// Download a universal transcode stream to a temporary file and return the file URL.
+    ///
+    /// AVPlayer's CoreMedia HTTP stack (CFHTTP) fails to parse chunked responses from PMS's
+    /// transcode endpoint (Transfer-Encoding: chunked, no Content-Length, Connection: close).
+    /// This manifests as CFHTTP error -16845 / NSURLErrorResourceUnavailable. Downloading via
+    /// URLSession (which handles chunked encoding correctly) and playing from a local file
+    /// bypasses the issue entirely.
+    ///
+    /// The decision endpoint MUST be called before start.mp3. Without it, PMS returns HTTP 400.
+    /// Each download uses a unique session ID, so concurrent prefetch downloads do not conflict.
+    public func downloadUniversalStreamToFile(
+        ratingKey: String,
+        quality: StreamingQuality = .original,
+        sessionId: String? = nil,
+        metadataDurationSeconds: Double? = nil
+    ) async throws -> URL {
+        #if DEBUG
+        EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
+        #endif
+
+        let resolvedSessionId = sessionId ?? UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId
+        )
+
+        // Warm up the transcode session — PMS requires this before start.mp3.
+        // Decision tolerates URLComponents encoding, so it can use queryItems directly.
+        try await callTranscodeDecision(queryItems: queryItems)
+
+        // Build the start.mp3 URL with manual query encoding.
+        // URLComponents encodes `=` as `%3D` inside query values, but PMS's start.mp3
+        // endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
+        // (e.g., `type=musicProfile`). The decision endpoint tolerates %3D but start.mp3
+        // returns 400. We manually encode only `&` (as %26) and leave `=` literal.
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
+        #endif
+
+        // Download the stream to a temp file via URLSession.download.
+        // URLSession handles chunked encoding and Connection: close correctly.
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let (tempURL, response) = try await session.download(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
+            #endif
+            throw PlexAPIError.httpError(statusCode: statusCode)
+        }
+
+        // Move to a stable temp location (URLSession temp files get cleaned up)
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+        let fileExtension = quality == .original ? "audio" : "mp3"
+        let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
+
+        // Remove stale file if it exists (e.g., from a crashed session)
+        if FileManager.default.fileExists(atPath: destURL.path) {
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        try FileManager.default.moveItem(at: tempURL, to: destURL)
+
+        // PMS's universal transcode produces VBR MP3 files that cause AVPlayer
+        // FigFilePlayer errors at gapless transition boundaries. Convert to CAF
+        // (uncompressed PCM) which AVPlayer handles natively for true zero-gap
+        // gapless playback. Falls back to XING header injection if conversion fails.
+        if quality != .original {
+            if let cafURL = AudioFormatConverter.convertToCAF(
+                mp3URL: destURL,
+                metadataDurationSeconds: metadataDurationSeconds
+            ) {
+                #if DEBUG
+                let cafSize = (try? FileManager.default.attributesOfItem(atPath: cafURL.path)[.size] as? Int) ?? 0
+                EnsembleLogger.debug("✅ Converted stream to CAF: \(cafURL.lastPathComponent) (\(cafSize) bytes)")
+                #endif
+                return cafURL
+            }
+
+            // Conversion failed — fall back to XING header injection for basic
+            // duration accuracy and LAME gapless metadata.
+            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
+                at: destURL,
+                metadataDurationSeconds: metadataDurationSeconds
+            )
+        }
+
+        #if DEBUG
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
+        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        #endif
+
+        return destURL
+    }
+
+    /// Build a universal download URL for offline use, skipping the decision endpoint.
+    /// The decision call is only needed for AVPlayer streaming (session warmup); URLSession
+    /// downloads work without it, saving an unnecessary HTTP roundtrip per download.
+    public func getUniversalDownloadURL(
+        ratingKey: String,
+        quality: StreamingQuality = .original
+    ) throws -> URL {
+        let sessionId = UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: sessionId
+        )
+
+        // Use manual encoding — see buildTranscodeURL for rationale
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Created universal download URL (no decision): \(url)")
+        #endif
+
+        return url
+    }
+
+    /// Build query items for universal transcode endpoints (shared by decision and start).
+    private func buildUniversalStreamQueryItems(
+        ratingKey: String,
+        quality: StreamingQuality,
+        sessionId: String
+    ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
-            // Path to the media item
-            URLQueryItem(name: "path", value: "/library/metadata/\(track.ratingKey)"),
-
-            // Protocol for streaming - http for simple progressive download
+            URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
             URLQueryItem(name: "protocol", value: "http"),
-
-            // Media type
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
-
-            // Authentication
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: resolvedSessionId))
+        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
 
-        // Add quality-specific parameters.
+        // Quality-specific bitrate hints.
         switch quality {
         case .original:
-            // Original: server decides direct play / direct stream (flags already set above)
             break
-
         case .high:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "320"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "320"))
-
         case .medium:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "192"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "192"))
-
         case .low:
             queryItems.append(URLQueryItem(name: "musicBitrate", value: "128"))
             queryItems.append(URLQueryItem(name: "audioBitrate", value: "128"))
         }
 
-        // For non-original quality, force transcoding by disabling direct play/stream
-        // and specifying the target audio codec. Without an explicit audioCodec param
-        // PMS may silently fall back to serving the original file.
-        if quality != .original {
-            queryItems.removeAll { $0.name == "directPlay" }
-            queryItems.removeAll { $0.name == "directStream" }
-            queryItems.removeAll { $0.name == "directStreamAudio" }
-            queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStream", value: "0"))
-            queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
-            // Tell PMS what codec to transcode to — this is required for PMS
-            // to actually start a transcode session instead of direct playing
-            queryItems.append(URLQueryItem(name: "audioCodec", value: "aac"))
+        return queryItems
+    }
+
+    /// Call the transcode decision endpoint to warm up the session.
+    /// This must be called before start.mp3 or PMS returns 400.
+    private func callTranscodeDecision(queryItems: [URLQueryItem]) async throws {
+        // Use the same manual encoding as start.mp3 for consistency
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/decision",
+            queryItems: queryItems
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
+        #endif
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let (_, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PlexAPIError.invalidResponse
         }
-        
-        components.queryItems = queryItems
-        
-        guard let url = components.url else {
+
+        // Only accept 200 — if decision returns 400, the session wasn't warmed up
+        // and the subsequent start.mp3 download will also fail with 400
+        guard httpResponse.statusCode == 200 else {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
+            #endif
+            throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("✅ Transcode decision completed")
+        #endif
+    }
+
+    /// Build a transcode URL with manual query encoding.
+    ///
+    /// PMS's start.mp3 endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
+    /// values (e.g., `type=musicProfile&context=streaming`). Swift's `URLComponents` encodes
+    /// `=` as `%3D` in query values, which the decision endpoint tolerates but start.mp3
+    /// rejects with 400. This method encodes only `&` (to `%26`) and percent-encodes spaces,
+    /// leaving `=`, `+`, `/`, and other characters that PMS expects literal.
+    private func buildTranscodeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        let query = queryItems.map { item -> String in
+            let value = item.value ?? ""
+            // Encode & as %26 to prevent splitting into separate params.
+            // Encode spaces as %20. Leave = + / literal (PMS expects them).
+            let encoded = value
+                .replacingOccurrences(of: "&", with: "%26")
+                .replacingOccurrences(of: " ", with: "%20")
+            return "\(item.name)=\(encoded)"
+        }.joined(separator: "&")
+
+        guard let url = URL(string: "\(currentServerURL)\(path)?\(query)") else {
             throw PlexAPIError.invalidURL
         }
-        
-        #if DEBUG
-        EnsembleLogger.debug("✅ Created universal stream URL: \(url)")
-        #endif
-        
         return url
     }
 
@@ -1239,9 +1488,14 @@ public actor PlexAPIClient {
             URLQueryItem(name: "X-Plex-Platform", value: platformName),
             URLQueryItem(name: "X-Plex-Device", value: deviceName),
             URLQueryItem(name: "X-Plex-Device-Name", value: deviceName),
-            URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "generic"),
+            // DO NOT include X-Plex-Client-Profile-Name — "generic" causes PMS to
+            // return 400 on start.mp3 (decision tolerates it, but the stream rejects it).
             URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: transcodeClientProfileExtra()),
-            URLQueryItem(name: "directPlay", value: "1"),
+            // directPlay=0 prevents PMS from redirecting to the raw file URL.
+            // Non-Plex Pass servers limit raw file downloads (~655KB), which cuts
+            // off playback mid-stream. directStream=1 tells PMS to stream the
+            // original codec through its pipeline without transcoding.
+            URLQueryItem(name: "directPlay", value: "0"),
             URLQueryItem(name: "directStream", value: "1"),
             URLQueryItem(name: "directStreamAudio", value: "1"),
             URLQueryItem(name: "hasMDE", value: "1")
@@ -1249,12 +1503,17 @@ public actor PlexAPIClient {
     }
 
     private func transcodeClientProfileExtra() -> String {
-        // Tell PMS what audio codecs we can accept for transcoded output.
-        // add-transcode-target-codec declares supported output codecs for the musicProfile.
-        // We declare both AAC (preferred, better quality/bitrate) and MP3 (widely supported fallback).
+        // Transcode targets: codecs PMS should transcode TO when original isn't compatible.
+        // Direct-play codecs: codecs AVPlayer can play natively, so PMS can direct-stream them.
+        // Both are needed -- without direct-play declarations, PMS may refuse to stream
+        // formats like FLAC even when the client supports them.
         [
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)",
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)",
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)",
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=flac)",
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=alac)",
         ].joined(separator: "+")
     }
 
@@ -1745,19 +2004,24 @@ public actor PlexAPIClient {
         }
 
         currentServerURL = endpoint.url
+
+        // Report winning endpoint back to the centralized registry
+        if let registry = connectionRegistry, let key = serverKey {
+            await registry.updateEndpoint(for: key, endpoint: endpoint, source: .requestFailover)
+        }
+
         #if DEBUG
         EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
         #endif
         return selection
     }
-    
+
     /// Get the current active server URL
     public func getCurrentServerURL() -> String {
         currentServerURL
     }
 
-    /// Update the current server URL (e.g., from external health checks)
-    /// This allows proactive failover based on network changes
+    /// Update the current server URL (e.g., from external health checks or registry sync).
     public func updateCurrentServerURL(_ url: String) {
         #if DEBUG
         EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server URL to: \(url)")
@@ -1981,32 +2245,7 @@ public actor PlexAPIClient {
     }
 
     private func shouldAttemptFailover(after error: Error) -> Bool {
-        if error is CancellationError {
-            return false
-        }
-
-        if let plexError = error as? PlexAPIError {
-            switch plexError {
-            case .networkError, .invalidResponse:
-                return true
-            case .httpError, .decodingError, .invalidURL, .notAuthenticated, .noServerSelected:
-                return false
-            }
-        }
-
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .timedOut, .cannotFindHost, .cannotConnectToHost,
-                    .networkConnectionLost, .dnsLookupFailed, .dataNotAllowed:
-                return true
-            case .cancelled:
-                return false
-            default:
-                return false
-            }
-        }
-
-        return false
+        PlexErrorClassification.classify(error).shouldFailover
     }
 
     internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {

@@ -85,6 +85,17 @@ public struct PlaylistDeleteMutationPayload: Codable, Sendable {
     }
 }
 
+/// Payload for a scrobble mutation (mark track as played)
+public struct ScrobbleMutationPayload: Codable, Sendable {
+    public let trackRatingKey: String
+    public let sourceCompositeKey: String
+
+    public init(trackRatingKey: String, sourceCompositeKey: String) {
+        self.trackRatingKey = trackRatingKey
+        self.sourceCompositeKey = sourceCompositeKey
+    }
+}
+
 // MARK: - MutationCoordinator
 
 /// Unified entry point for all server-side mutations. Handles online execution and offline queuing.
@@ -291,6 +302,38 @@ public final class MutationCoordinator: ObservableObject {
         return try await addTracksToPlaylist(tracks, playlist: playlist)
     }
 
+    /// Scrobble a track (mark as played). Queues when offline or server unreachable
+    /// so play counts are not lost on flaky connections.
+    @discardableResult
+    public func scrobbleTrack(_ track: Track) async -> MutationOutcome {
+        guard let sourceKey = track.sourceCompositeKey else { return .completed }
+
+        if syncCoordinator.isOffline {
+            let payload = ScrobbleMutationPayload(
+                trackRatingKey: track.id, sourceCompositeKey: sourceKey
+            )
+            await enqueueMutation(type: .scrobble, payload: payload, sourceCompositeKey: sourceKey)
+            return .queued
+        }
+
+        do {
+            try await syncCoordinator.scrobbleTrackThrowing(track)
+            return .completed
+        } catch where isConnectionFailure(error) {
+            let payload = ScrobbleMutationPayload(
+                trackRatingKey: track.id, sourceCompositeKey: sourceKey
+            )
+            await enqueueMutation(type: .scrobble, payload: payload, sourceCompositeKey: sourceKey)
+            return .queued
+        } catch {
+            // Non-retryable error (semantic) — log and drop
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ MutationCoordinator: Scrobble failed with non-retryable error: \(error)")
+            #endif
+            return .completed
+        }
+    }
+
     // MARK: - Queue Management
 
     /// Drain queued mutations now (called on app launch when online, or after reconnect)
@@ -307,11 +350,33 @@ public final class MutationCoordinator: ObservableObject {
             EnsembleLogger.debug("📬 MutationCoordinator: Draining \(mutations.count) mutations")
             #endif
 
+            var consecutiveFailures = 0
+
             for mutation in mutations {
+                // If too many consecutive failures, stop draining — server is likely down.
+                // Queue will re-drain on next connectivity event.
+                if consecutiveFailures >= 5 {
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ MutationCoordinator: Stopping drain after \(consecutiveFailures) consecutive failures")
+                    #endif
+                    break
+                }
+
+                // Progressive backoff after 2+ consecutive failures
+                if consecutiveFailures >= 2 {
+                    let delaySeconds = min(Double(1 << consecutiveFailures), 30.0)
+                    #if DEBUG
+                    EnsembleLogger.debug("⏳ MutationCoordinator: Backoff \(delaySeconds)s before next drain attempt")
+                    #endif
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+
                 let success = await replayMutation(mutation)
                 if success {
                     try? await repository.deleteMutation(id: mutation.id)
+                    consecutiveFailures = 0
                 } else {
+                    consecutiveFailures += 1
                     try? await repository.incrementRetryCount(id: mutation.id)
                     if mutation.retryCount + 1 >= Self.maxRetries {
                         try? await repository.markFailed(id: mutation.id)
@@ -341,31 +406,7 @@ public final class MutationCoordinator: ObservableObject {
     /// timeout, connection reset) rather than a semantic API error (bad request, auth, etc.).
     /// Connection failures are safe to queue for retry; semantic errors should propagate.
     private func isConnectionFailure(_ error: Error) -> Bool {
-        // URLSession transport errors (connection refused, timeout, DNS, etc.)
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .networkConnectionLost, .timedOut,
-                 .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
-                 .secureConnectionFailed, .serverCertificateUntrusted,
-                 .internationalRoamingOff, .dataNotAllowed:
-                return true
-            default:
-                return false
-            }
-        }
-
-        // PlexAPIError wrapping a network error
-        if case PlexAPIError.networkError(let underlying) = error {
-            return isConnectionFailure(underlying)
-        }
-
-        // Server-side failures (5xx) indicate the server is up but struggling
-        if case PlexAPIError.httpError(let statusCode) = error,
-           (500...599).contains(statusCode) {
-            return true
-        }
-
-        return false
+        PlexErrorClassification.classify(error).isRetryable
     }
 
     // MARK: - Private Enqueue Helpers
@@ -433,7 +474,7 @@ public final class MutationCoordinator: ObservableObject {
             if let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: mutation.payload) {
                 return payload.playlistRatingKey == playlistRatingKey
             }
-        case .trackRating, .playlistDelete:
+        case .trackRating, .playlistDelete, .scrobble:
             break
         }
         return false
@@ -455,6 +496,8 @@ public final class MutationCoordinator: ObservableObject {
             return await replayPlaylistRename(mutation)
         case .playlistDelete:
             return await replayPlaylistDelete(mutation)
+        case .scrobble:
+            return await replayScrobble(mutation)
         }
     }
 
@@ -591,6 +634,31 @@ public final class MutationCoordinator: ObservableObject {
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistDelete: \(error)")
+            #endif
+            return false
+        }
+    }
+
+    private func replayScrobble(_ mutation: CDPendingMutation) async -> Bool {
+        guard let payload = try? JSONDecoder().decode(ScrobbleMutationPayload.self, from: mutation.payload) else {
+            return false
+        }
+
+        let track = Track(
+            id: payload.trackRatingKey,
+            key: "/library/metadata/\(payload.trackRatingKey)",
+            title: "",
+            sourceCompositeKey: payload.sourceCompositeKey
+        )
+        do {
+            try await syncCoordinator.scrobbleTrackThrowing(track)
+            #if DEBUG
+            EnsembleLogger.debug("✅ MutationCoordinator: Replayed scrobble for \(payload.trackRatingKey)")
+            #endif
+            return true
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying scrobble: \(error)")
             #endif
             return false
         }

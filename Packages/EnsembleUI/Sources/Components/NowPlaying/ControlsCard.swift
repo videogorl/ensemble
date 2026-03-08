@@ -20,7 +20,6 @@ public struct ControlsCard: View {
     @Environment(\.dismiss) private var dismiss
     
     // Long-press seek state
-    @State private var seekTimer: Timer?
     @State private var seekWorkItem: DispatchWorkItem?
     @State private var isSeekingForward = false
     @State private var isSeekingBackward = false
@@ -282,6 +281,9 @@ public struct ControlsCard: View {
                             let progressChange = (deltaX / sliderWidth) * scrubRate
                             localProgress = max(0, min(1, localProgress + progressChange))
                             lastDragX = value.location.x
+
+                            // Update visualizer in real-time during scrubber drag
+                            viewModel.updateVisualizerPosition(localProgress)
                         }
                         .onEnded { _ in
                             viewModel.seekToProgress(localProgress)
@@ -366,7 +368,7 @@ public struct ControlsCard: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if seekTimer == nil && seekWorkItem == nil {
+                        if !isSeekingBackward && seekWorkItem == nil {
                             let item = DispatchWorkItem {
                                 if !isSeekingBackward {
                                     startSeeking(forward: false)
@@ -379,7 +381,7 @@ public struct ControlsCard: View {
                     .onEnded { _ in
                         seekWorkItem?.cancel()
                         seekWorkItem = nil
-                        
+
                         if isSeekingBackward {
                             stopSeeking()
                         } else {
@@ -387,15 +389,16 @@ public struct ControlsCard: View {
                         }
                     }
             )
-            
-            // Play/Pause
+
+            // Play/Pause — disabled when track isn't yet confirmed playable
+            // (e.g. after queue restoration, before server health check completes)
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
                     if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 80))
                             .opacity(0.3)
-                        
+
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(1.5)
@@ -405,6 +408,8 @@ public struct ControlsCard: View {
                     }
                 }
             }
+            .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
+            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
             
             // Next / Seek Forward
             ZStack {
@@ -421,7 +426,7 @@ public struct ControlsCard: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if seekTimer == nil && seekWorkItem == nil {
+                        if !isSeekingForward && seekWorkItem == nil {
                             let item = DispatchWorkItem {
                                 if !isSeekingForward {
                                     startSeeking(forward: true)
@@ -434,7 +439,7 @@ public struct ControlsCard: View {
                     .onEnded { _ in
                         seekWorkItem?.cancel()
                         seekWorkItem = nil
-                        
+
                         if isSeekingForward {
                             stopSeeking()
                         } else {
@@ -569,21 +574,12 @@ public struct ControlsCard: View {
         } else {
             isSeekingBackward = true
         }
-        
-        seekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak viewModel] _ in
-            Task { @MainActor in
-                guard let viewModel = viewModel else { return }
-                let currentTime = viewModel.currentTime
-                let seekAmount: TimeInterval = forward ? 2.0 : -2.0
-                let newTime = max(0, min(currentTime + seekAmount, viewModel.scrubberDuration))
-                viewModel.seek(to: newTime)
-            }
-        }
+        // Use rate-based scrubbing for audible feedback
+        viewModel.startFastSeeking(forward: forward)
     }
-    
+
     private func stopSeeking() {
-        seekTimer?.invalidate()
-        seekTimer = nil
+        viewModel.stopFastSeeking()
         isSeekingForward = false
         isSeekingBackward = false
     }

@@ -18,6 +18,12 @@ public struct TrackRow: View {
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     @Environment(\.dependencies) private var deps
+    /// Observed to trigger re-render when server health or download state changes.
+    /// Accessed via DependencyContainer.shared since @Environment values don't
+    /// create SwiftUI observation bindings for nested ObservableObjects.
+    @ObservedObject private var availabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    /// Tracks availability state changes to trigger dimming updates when server health changes
+    @State private var availabilityGeneration: UInt64 = 0
 
     public init(
         track: Track,
@@ -89,7 +95,12 @@ public struct TrackRow: View {
 
                 Spacer()
 
-                if track.isDownloaded {
+                // Download status: spinner while queued/downloading, icon when complete
+                if isActivelyDownloading {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                } else if track.isDownloaded {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -158,25 +169,38 @@ public struct TrackRow: View {
         }
     }
 
+    /// Whether this track is currently queued or actively downloading.
+    private var isActivelyDownloading: Bool {
+        deps.offlineDownloadService.activeDownloadRatingKeys.contains(track.id)
+    }
+
+    /// Track availability resolved from device connectivity, per-server health, and download state.
+    /// Uses the @ObservedObject resolver so SwiftUI re-evaluates when availability changes.
+    private var trackAvailability: TrackAvailability {
+        // Read the generation to create a SwiftUI dependency on the published property
+        _ = availabilityResolver.availabilityGeneration
+        return availabilityResolver.availability(for: track)
+    }
+
     private var isUnavailableOffline: Bool {
-        !deps.networkMonitor.isConnected && !track.isDownloaded
+        trackAvailability.shouldDim
     }
 
     private func handleTap() {
-        guard isUnavailableOffline else {
-            onTap()
+        let availability = trackAvailability
+        guard availability.canPlay else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "wifi.slash",
+                    title: availability.userMessage ?? "Not available offline",
+                    message: "Download this track before going offline.",
+                    dedupeKey: "offline-track-blocked-\(track.id)"
+                )
+            )
             return
         }
-
-        deps.toastCenter.show(
-            ToastPayload(
-                style: .warning,
-                iconSystemName: "wifi.slash",
-                title: "Not available offline",
-                message: "Download this track before going offline.",
-                dedupeKey: "offline-track-blocked-\(track.id)"
-            )
-        )
+        onTap()
     }
 
     private var effectiveIsFavorited: Bool {

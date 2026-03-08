@@ -268,6 +268,9 @@ public struct MiniPlayer: View {
                                 }
                             }
                         }
+                        // Disable play when track not yet confirmed playable (e.g. pending health check)
+                        .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
+                        .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
 
                         Button(action: viewModel.next) {
                             Image(systemName: "forward.fill")

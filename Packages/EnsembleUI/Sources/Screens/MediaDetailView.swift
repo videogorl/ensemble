@@ -504,6 +504,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
+                ratingKey: headerData.ratingKey,
                 size: .medium,
                 cornerRadius: 12
             )

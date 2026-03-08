@@ -60,7 +60,12 @@ Sources/
 +-- Client/
 |   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
+|   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
+|   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
+|   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
+|   +-- AudioFormatConverter.swift      # MP3→CAF conversion for zero-gap gapless playback
+|   +-- MP3VBRHeaderUtility.swift      # XING VBR header injection for transcoded MP3 files
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
 +-- EnsembleLogger.swift               # Package logger categories
@@ -142,7 +147,10 @@ Sources/
 |   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
+|   +-- PlexWebSocketCoordinator.swift # Routes WebSocket events to sync/health systems (@MainActor)
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
+|   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
+|   +-- AudioAnalyzer.swift            # Pre-computed frequency analysis (FrequencyTimeline, FrequencyAnalysisService, FrequencyTimelinePersistence)
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -214,6 +222,7 @@ Sources/
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states

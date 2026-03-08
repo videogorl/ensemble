@@ -38,6 +38,16 @@ When a problem is mentioned, **interview the user first** to help hone in on whe
 
 When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
 
+### Plex Streaming Issues — MUST READ
+
+**ALWAYS test Plex endpoints with curl BEFORE making code changes.** A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing. Load the `plex-api` skill for endpoint details and testing patterns.
+
+**DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed:
+- **Universal transcode endpoint WORKS** (200, valid audio/mpeg)
+- **Direct file stream returns 503** — falling back to direct stream makes things WORSE
+- The "resource unavailable" error is an **AVPlayer-specific issue**, not a server problem
+- See the `plex-api` skill for the full diagnosis and testing patterns
+
 
 ## Using the Gemini CLI
 
@@ -67,6 +77,75 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 
 ## Recent Major Changes
+
+### Pre-Computed Frequency Visualizer (Mar 2026)
+Replaced the MTAudioProcessingTap-based real-time audio visualizer with a pre-computed frequency analysis system, fully decoupling the visualizer from the audio pipeline:
+
+- **Accelerate FFT analysis:** Audio files are analyzed on disk using a 1024-pt FFT with 24 log-spaced frequency bands (60Hz-16kHz). Results stored as `FrequencyTimeline` (time-indexed snapshots at 30fps, ~216KB per 5-min song).
+- **Display timer:** A 30Hz timer reads `player.currentTime()` and looks up the matching frame from the active timeline -- no audio tap or mix required.
+- **Binary sidecar files:** `.freq` files are generated alongside offline downloads for instant visualizer load on cached tracks. `DownloadManager` cleans up sidecars on download removal.
+- **Removed:** `MTAudioProcessingTap`, `audioMix`, fade timers, and simulated frequency bands are all gone from `PlaybackService`.
+- **Scrubber sync:** Scrubber drag in `ControlsCard` calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
+- **Extension probing:** `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio before attempting analysis.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - FrequencyTimeline model, FrequencyAnalysisService, FrequencyTimelinePersistence
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - removed tap/fade/simulated-bands; wires loadTimeline/activateTimeline/evictTimeline/updatePlaybackPosition
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/ControlsCard.swift` - scrubber drag syncs visualizer
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - updateVisualizerPosition method
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - swapped AudioAnalyzer for FrequencyAnalysisService
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .freq sidecar cleanup
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - sidecar generation after download
+
+### WebSocket Enhancements + Download Spinners (Mar 2026)
+Six improvements building on the WebSocket infrastructure:
+
+- **Playlist auto-update:** `PlaylistViewModel` now subscribes to `syncCoordinator.$sourceStatuses` (1s debounce) as defensive fallback for WebSocket-triggered playlist changes.
+- **Download spinners:** `OfflineDownloadService` publishes `activeDownloadRatingKeys: Set<String>`. `TrackRow` and `MediaTrackList` show a spinner for actively downloading tracks, replaced by download icon on completion.
+- **Scan progress indicator:** `PlexWebSocketCoordinator` tracks `serverScanProgress: [String: Int]` from activity events. `MusicSourceAccountDetailView` shows a linear progress bar per server during library scans.
+- **Smart playlist auto-refresh:** `SyncCoordinator.rateTrack()` triggers a debounced (5s) playlist sync after rating changes so smart playlists reflect new state.
+- **Artwork cache invalidation:** WebSocket album/artist metadata updates (type=9/8, state=5) fire `onArtworkInvalidation`. `ArtworkLoader.invalidateArtwork()` clears URL cache + local file + Nuke cache and posts notification. `ArtworkView` re-triggers load on invalidation.
+- **Incremental sync timestamp buffer:** 5s subtracted from `since` timestamp to avoid missing near-boundary changes.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/ViewModels/PlaylistViewModel.swift` - sourceStatuses observer
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - activeDownloadRatingKeys
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - download spinner
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - UIKit download spinner
+- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - serverScanProgress, onArtworkInvalidation
+- `Packages/EnsembleCore/Sources/ViewModels/MusicSourceAccountDetailViewModel.swift` - scanProgressByServer
+- `Packages/EnsembleUI/Sources/Screens/MusicSourceAccountDetailView.swift` - scan progress bar UI
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - post-rating playlist sync, 5s timestamp buffer
+- `Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift` - invalidateArtwork, artworkDidInvalidate notification
+- `Packages/EnsemblePersistence/Sources/Downloads/ArtworkDownloadManager.swift` - deleteArtwork
+- `Packages/EnsembleUI/Sources/Components/ArtworkView.swift` - invalidation listener
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - onArtworkInvalidation wiring
+
+### Network Resilience & Offline Architecture v1 (Mar 2026)
+Five-phase overhaul of network resilience, push-based server updates, reactive track availability, queue resilience, and unified error handling:
+
+- **Phase 1 -- ServerConnectionRegistry:** New actor (`ServerConnectionRegistry`) is the single source of truth for per-server endpoints. `PlexAPIClient` reports failover results back to the registry; `ServerHealthChecker` writes probe results; `SyncCoordinator` subscribes to registry changes; `AccountManager` owns the registry; `DependencyContainer` wires it.
+- **Phase 2 -- PlexWebSocketManager + PlexWebSocketCoordinator:** `PlexWebSocketManager` (actor) manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect. `PlexWebSocketCoordinator` (@MainActor) routes WS events to sync and health systems. `SyncCoordinator` gains adjustable timer policy and incremental section-level sync. `AppDelegate` starts/stops WebSocket connections on foreground/background.
+- **Phase 3 -- TrackAvailabilityResolver:** New @MainActor ObservableObject publishes per-track availability by combining per-server connection state with per-track download state. `TrackAvailability` enum (`.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`) replaces inline offline checks in `TrackRow`, `CompactSearchRows`, and `MediaTrackList`.
+- **Phase 4 -- Queue Resilience:** `PlaybackService` circuit breaker scans for downloaded alternatives; `retryCurrentTrack()` falls back to local downloads; cache eviction for newly downloaded queue items; auto-resume on health check completion.
+- **Phase 5 -- Mutation Queue Hardening:** `PlexErrorClassification` provides unified error taxonomy (transport vs. semantic). `PlexAPIClient` and `MutationCoordinator` use it for failover/retry decisions. `MutationCoordinator` queues failed scrobbles as `CDPendingMutation` (`.scrobble` type). `PlaybackService` routes scrobbles through the mutation coordinator via `SyncCoordinator.scrobbleTrackThrowing()`. `PendingMutationsViewModel` and `PendingMutationsView` display queued scrobbles.
+
+**Key files:**
+- `Packages/EnsembleAPI/Sources/Client/ServerConnectionRegistry.swift` - actor, per-server endpoint truth
+- `Packages/EnsembleAPI/Sources/Client/PlexWebSocketManager.swift` - actor, per-server WebSocket with backoff
+- `Packages/EnsembleAPI/Sources/Client/PlexErrorClassification.swift` - unified error taxonomy
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - failover reports to registry, uses error classification
+- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - routes WS events to sync/health
+- `Packages/EnsembleCore/Sources/Services/TrackAvailabilityResolver.swift` - reactive per-track availability
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - registry subscription, adjustable timers, scrobbleTrackThrowing
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - queue resilience, download fallback, scrobble routing
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires registry, WS coordinator, availability resolver
+- `Packages/EnsemblePersistence/Sources/CoreData/ManagedObjects.swift` - CDPendingMutation .scrobble type
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Components/CompactSearchRows.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - uses TrackAvailabilityResolver
+- `Packages/EnsembleUI/Sources/Screens/PendingMutationsView.swift` - shows queued scrobbles
+- `Ensemble/App/AppDelegate.swift` - WS start/stop on foreground/background
 
 ### Offline Download Manager v1 (Settings-Managed, Target-Based) (Mar 2026)
 Offline downloads now use target-based management with source-safe reconciliation and optional iOS 26 continued background processing acceleration:
@@ -103,18 +182,20 @@ Offline downloads now use target-based management with source-safe reconciliatio
 - `Ensemble/Info.plist`
 
 ### Universal Transcode Endpoint + Quality Settings (Mar 2026)
-Streaming now uses Plex's universal transcode endpoint with full quality settings support, fixing playback for non-Plex Pass accounts:
+Streaming now uses Plex's universal transcode endpoint with quality settings support, fixing playback for non-Plex Pass accounts:
 
-- **Universal endpoint:** All streaming uses `/music/:/transcode/universal/start.m3u8` instead of direct file URLs.
-- **Quality-aware routing:** "Original" quality uses `directPlay=1&directStream=1` flags (server chooses best method); reduced qualities force transcode with explicit bitrates.
-- **Non-Plex Pass fix:** Servers were cutting off direct file URLs at ~655KB for non-Plex Pass users; universal endpoint works reliably for all account types.
-- **Quality mapping:** original=server decides, high=320kbps AAC, medium=192kbps AAC, low=128kbps AAC.
-- **Settings integration:** `streamingQuality` AppStorage value (from Settings → Audio Quality) is now respected during playback.
+- **Universal endpoint:** All streaming routes through `/music/:/transcode/universal/start.mp3` with `protocol=http` (progressive download). Falls back to direct file URLs if the universal endpoint fails (URL construction error).
+- **Decision endpoint required:** The `/music/:/transcode/universal/decision` endpoint MUST be called before `/start.mp3` to warm up the transcode session. Without this, PMS returns 400. The `getUniversalStreamURL()` method handles this automatically.
+- **Quality-aware routing:** "Original" quality uses `directPlay=0&directStream=1` (PMS direct-streams original codec through its pipeline); reduced qualities add `musicBitrate`/`audioBitrate` params and PMS transcodes to MP3 at the target bitrate.
+- **Non-Plex Pass fix:** Direct file URLs were cut off at ~655KB for non-Plex Pass users; universal endpoint streams through PMS's pipeline and works for all account types.
+- **Quality mapping:** original=direct-stream, high=320kbps MP3, medium=192kbps MP3, low=128kbps MP3.
+- **Client profile:** `transcodeClientProfileExtra()` declares both transcode output codecs (AAC, MP3) and direct-play codecs (AAC, MP3, FLAC, ALAC) so PMS knows what the client can handle natively.
+- **Settings integration:** `streamingQuality` AppStorage value (from Settings -> Audio Quality) is respected during playback via `PlexMusicSourceSyncProvider.getStreamURL()`.
 
 **Key files:**
-- `PlexAPIClient.swift` - `StreamingQuality` enum + `getUniversalStreamURL()` method
-- `MusicSourceSyncProvider.swift` + `PlexMusicSourceSyncProvider.swift` - protocol and implementation updated to pass quality
-- `SyncCoordinator.swift` - quality parameter added to `getStreamURL()`
+- `PlexAPIClient.swift` - `StreamingQuality` enum, `getUniversalStreamURL()` method, `callTranscodeDecision()`, `transcodeClientProfileExtra()`
+- `PlexMusicSourceSyncProvider.swift` - quality-aware routing through universal endpoint with direct-stream fallback
+- `SyncCoordinator.swift` - quality parameter routing to provider
 - `PlaybackService.swift` - reads `streamingQuality` from UserDefaults and passes to stream URL generation
 
 ### Siri Media Intents v1.1 (In-App-First) (Feb 2026)

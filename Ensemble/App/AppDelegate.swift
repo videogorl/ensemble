@@ -57,7 +57,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // This is critical for cold launches from Siri where the coordinator
         // needs accounts loaded before RootView.task has a chance to run.
         DependencyContainer.shared.accountManager.loadAccounts()
-        
+
+        // Pre-populate server health states with .unknown immediately after accounts load.
+        // This ensures TrackAvailabilityResolver treats tracks from unchecked servers as
+        // unavailable (dimmed) until health checks confirm reachability, preventing the
+        // brief window where all tracks appear available at startup.
+        DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
+
         // Start network monitoring immediately (non-blocking)
         // Network monitor will publish initial state asynchronously
         Task.detached(priority: .utility) {
@@ -120,6 +126,33 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
         
+        // Start WebSocket connections after accounts are loaded and network is starting.
+        // This enables real-time push notifications from Plex servers.
+        Task { @MainActor in
+            DependencyContainer.shared.webSocketCoordinator.start()
+        }
+
+        // Run health checks early so track availability is resolved before the user interacts.
+        // This is separate from the full startup sync (which waits 5s for Siri) because
+        // health checks are lightweight and don't interfere with audio session setup.
+        Task { @MainActor in
+            // Wait for network monitor to report a non-Unknown state
+            let nm = DependencyContainer.shared.networkMonitor
+            var healthAttempts = 0
+            while healthAttempts < 20 {
+                if nm.networkState != .unknown { break }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+                healthAttempts += 1
+            }
+
+            let shc = DependencyContainer.shared.serverHealthChecker
+            let sc = DependencyContainer.shared.syncCoordinator
+            AppLogger.debug("📱 AppDelegate: Running early health checks...")
+            await shc.checkAllServers()
+            sc.updateSourceConnectionStatesFromAppDelegate()
+            AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
+        }
+
         // Perform startup sync (non-blocking, runs in background)
         Task.detached(priority: .utility) {
             // Wait longer to ensure any Siri playback has a chance to start first.
@@ -561,26 +594,30 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
     
     func applicationDidEnterBackground(_ application: UIApplication) {
-        // Stop network monitoring to save battery
+        // Stop network monitoring and WebSocket connections to save battery
         Task { @MainActor in
             DependencyContainer.shared.networkMonitor.stopMonitoring()
-            
+            DependencyContainer.shared.webSocketCoordinator.stop()
+
             // Stop periodic sync timers
             DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
         }
     }
-    
+
     func applicationWillEnterForeground(_ application: UIApplication) {
-        // Resume network monitoring when app returns to foreground
+        // Resume network monitoring and WebSocket connections
         Task { @MainActor in
             DependencyContainer.shared.networkMonitor.startMonitoring()
+            DependencyContainer.shared.webSocketCoordinator.start()
 
             // Route foreground refresh through SyncCoordinator to coalesce
             // with network state transitions and cooldown/staleness guards.
             await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
 
-            // Restart periodic sync timers
-            DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+            // Adjust periodic sync timers based on WebSocket availability.
+            // With active WebSocket, polling is relaxed (4h); without it, default (1h).
+            let hasWebSocket = !DependencyContainer.shared.webSocketCoordinator.connectedServerKeys.isEmpty
+            DependencyContainer.shared.syncCoordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasWebSocket)
 
             // Drain any pending offline mutations now that connectivity may have resumed.
             // The queue also drains automatically when isConnected transitions to true,

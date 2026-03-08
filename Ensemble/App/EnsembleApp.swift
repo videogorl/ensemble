@@ -240,11 +240,17 @@ private func performBackgroundRefresh() async {
     // Reschedule next refresh immediately for continuity
     BackgroundSyncScheduler.shared.scheduleAppRefresh()
 
-    // Perform lightweight hub refresh
+    // Incremental library + playlist sync so the app is fresh before the user opens it.
+    // This is cheap — only fetches items added/updated since the last sync timestamp.
+    let syncCoordinator = await MainActor.run {
+        DependencyContainer.shared.syncCoordinator
+    }
+    await syncCoordinator.syncAllIncremental()
+
+    // Hub refresh for the home screen
     let homeVM = await MainActor.run {
         DependencyContainer.shared.makeHomeViewModel()
     }
-
     await homeVM.refresh()
 
     AppLogger.debug("✅ Background refresh complete")

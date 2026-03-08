@@ -80,6 +80,8 @@ public final class OfflineDownloadService: ObservableObject {
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
+    /// Track ratingKeys currently pending or actively downloading — used by TrackRow to show spinners.
+    @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -215,6 +217,13 @@ public final class OfflineDownloadService: ObservableObject {
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: album.title
             )
+            // Cache album artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: album.id,
+                thumbPath: album.thumbPath,
+                sourceKey: sourceCompositeKey,
+                type: .album
+            )
         } else {
             await disableTarget(key: key)
         }
@@ -231,6 +240,13 @@ public final class OfflineDownloadService: ObservableObject {
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: artist.name
             )
+            // Cache artist artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: artist.id,
+                thumbPath: artist.thumbPath,
+                sourceKey: sourceCompositeKey,
+                type: .artist
+            )
         } else {
             await disableTarget(key: key)
         }
@@ -246,6 +262,13 @@ public final class OfflineDownloadService: ObservableObject {
                 ratingKey: playlist.id,
                 sourceCompositeKey: sourceCompositeKey,
                 displayName: playlist.title
+            )
+            // Cache playlist composite artwork for offline use
+            await cacheArtworkForTarget(
+                ratingKey: playlist.id,
+                thumbPath: playlist.compositePath,
+                sourceKey: sourceCompositeKey,
+                type: .playlist
             )
         } else {
             await disableTarget(key: key)
@@ -871,7 +894,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             // Original quality or download queue failed — download the original file directly.
-            selectedURL = try await syncCoordinator.getStreamURL(for: domainTrack, quality: .original)
+            selectedURL = try await syncCoordinator.getDownloadURL(for: domainTrack, quality: .original)
             selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             effectiveQuality = .original
 
@@ -937,14 +960,23 @@ public final class OfflineDownloadService: ObservableObject {
             )
             #endif
 
+            // Store filename only (not absolute path) — sandbox-stable across reinstalls.
             try await downloadManager.completeDownload(
                 download.objectID,
-                filePath: destinationURL.path,
+                filePath: destinationURL.lastPathComponent,
                 fileSize: persistedFileSize,
                 quality: effectiveQuality.rawValue
             )
             await cacheArtworkForDownloadedTrack(track)
             await refreshAllTargetProgresses()
+
+            // Pre-compute frequency analysis sidecar for the visualizer
+            let sidecarURL = destinationURL.appendingPathExtension("freq")
+            Task.detached(priority: .utility) {
+                if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
+                    try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
+                }
+            }
 
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
@@ -1117,14 +1149,24 @@ public final class OfflineDownloadService: ObservableObject {
         )
         #endif
 
+        // Store filename only (not absolute path) — sandbox-stable across reinstalls.
         try await downloadManager.completeDownload(
             download.objectID,
-            filePath: destinationURL.path,
+            filePath: destinationURL.lastPathComponent,
             fileSize: queueFileSize,
             quality: quality.rawValue
         )
         await cacheArtworkForDownloadedTrack(track)
         await refreshAllTargetProgresses()
+
+        // Pre-compute frequency analysis sidecar for the visualizer
+        let sidecarURL2 = destinationURL.appendingPathExtension("freq")
+        Task.detached(priority: .utility) {
+            if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
+                try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL2)
+            }
+        }
+
         scheduleDownloadChangeNotification()
         return true
     }
@@ -1195,6 +1237,49 @@ public final class OfflineDownloadService: ObservableObject {
                 )
                 #endif
             }
+        }
+    }
+
+    /// Cache artwork for a download target (album, artist, or playlist) so it's available offline.
+    private func cacheArtworkForTarget(
+        ratingKey: String,
+        thumbPath: String?,
+        sourceKey: String,
+        type: ArtworkType
+    ) async {
+        guard let thumbPath, !thumbPath.isEmpty else { return }
+
+        // Skip if already cached
+        let typeString: String
+        switch type {
+        case .album: typeString = "album"
+        case .artist: typeString = "artist"
+        case .playlist: typeString = "playlist"
+        case .track: typeString = "track"
+        }
+        let cachedPath = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_\(typeString).jpg").path
+        if FileManager.default.fileExists(atPath: cachedPath) { return }
+
+        do {
+            guard let artworkURL = try await syncCoordinator.getArtworkURL(
+                path: thumbPath,
+                sourceKey: sourceKey,
+                size: 500
+            ) else { return }
+
+            try await artworkDownloadManager.downloadAndCacheArtwork(
+                from: artworkURL,
+                ratingKey: ratingKey,
+                type: type
+            )
+            #if DEBUG
+            EnsembleLogger.debug("🖼️ Cached \(typeString) artwork for download target: \(ratingKey)")
+            #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Failed caching \(typeString) artwork for target \(ratingKey): \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -1352,9 +1437,25 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshTargetProgress(forTargetKey: target.key)
             }
             await refreshTargetSnapshots()
+            await refreshActiveDownloadRatingKeys()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Recomputes the set of track ratingKeys that are pending or actively downloading.
+    private func refreshActiveDownloadRatingKeys() async {
+        do {
+            let pending = try await downloadManager.fetchPendingDownloads()
+            let keys = Set(pending.compactMap { $0.track?.ratingKey })
+            if keys != activeDownloadRatingKeys {
+                activeDownloadRatingKeys = keys
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed refreshing active download ratingKeys: \(error.localizedDescription)")
             #endif
         }
     }
@@ -1481,6 +1582,8 @@ public final class OfflineDownloadService: ObservableObject {
             // Force-refault all view context objects so the next fetch reads
             // the latest store data (localFilePath, download status, etc.).
             CoreDataStack.shared.refreshViewContext()
+            // Update active download set so TrackRow spinners reflect completions
+            await self?.refreshActiveDownloadRatingKeys()
             NotificationCenter.default.post(
                 name: OfflineDownloadService.downloadsDidChange,
                 object: nil

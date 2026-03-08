@@ -55,6 +55,46 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         }
     }
 
+    /// Mock network with configurable per-host delays to test early-exit probing.
+    private actor DelayedHostNetwork {
+        private let statusCodesByHost: [String: Int]
+        private let delaysByHost: [String: UInt64]  // nanoseconds
+        private var hits: [String: Int] = [:]
+
+        init(statusCodesByHost: [String: Int], delaysByHost: [String: UInt64] = [:]) {
+            self.statusCodesByHost = statusCodesByHost
+            self.delaysByHost = delaysByHost
+        }
+
+        func hitCount(for host: String) -> Int {
+            hits[host, default: 0]
+        }
+
+        func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            guard let url = request.url, let host = url.host else {
+                throw URLError(.badURL)
+            }
+
+            // Check for cancellation before the delay to allow early exit
+            try Task.checkCancellation()
+
+            if let delay = delaysByHost[host] {
+                try await Task.sleep(nanoseconds: delay)
+            }
+
+            hits[host, default: 0] += 1
+
+            let statusCode = statusCodesByHost[host, default: 500]
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+    }
+
     private actor HostStatusNetwork {
         private let statusCodesByHost: [String: Int]
 
@@ -188,5 +228,133 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         )
 
         XCTAssertEqual(result.selected?.url, "https://relay.example")
+    }
+
+    // MARK: - Early Exit Tests
+
+    func testEarlyExitWhenBestClassEndpointSucceedsFirst() async throws {
+        // Local endpoint succeeds immediately; remote endpoint has a long delay.
+        // With early exit, the method should return without waiting for the slow probe.
+        let network = DelayedHostNetwork(
+            statusCodesByHost: [
+                "local.example": 200,
+                "slow-remote.example": 200
+            ],
+            delaysByHost: [
+                "slow-remote.example": 5_000_000_000  // 5s delay
+            ]
+        )
+        let manager = ConnectionFailoverManager(timeout: 10.0) { request in
+            try await network.perform(request)
+        }
+
+        let start = Date()
+        let result = await manager.findBestConnection(
+            endpoints: [
+                PlexEndpointDescriptor(url: "https://local.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://slow-remote.example", local: false, relay: false)
+            ],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        // Should select the local endpoint and exit early (well under 5s)
+        XCTAssertEqual(result.selected?.url, "https://local.example")
+        XCTAssertLessThan(elapsed, 2.0, "Early exit should not wait for the slow remote probe")
+    }
+
+    func testNoEarlyExitWhenBetterClassStillPending() async throws {
+        // Remote endpoint succeeds fast; local endpoint is slow but should still
+        // be waited for since it has a higher-priority class.
+        let network = DelayedHostNetwork(
+            statusCodesByHost: [
+                "local.example": 200,
+                "remote.example": 200
+            ],
+            delaysByHost: [
+                "local.example": 200_000_000  // 200ms delay
+            ]
+        )
+        let manager = ConnectionFailoverManager(timeout: 2.0) { request in
+            try await network.perform(request)
+        }
+
+        let result = await manager.findBestConnection(
+            endpoints: [
+                PlexEndpointDescriptor(url: "https://local.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+            ],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        // Should still pick local (best class) even though remote was faster
+        XCTAssertEqual(result.selected?.url, "https://local.example")
+    }
+
+    func testGracePeriodExitsEarlyWhenLocalEndpointsAreUnreachable() async throws {
+        // Remote endpoint succeeds immediately; local endpoints are unreachable
+        // (long delay simulates timeout). The grace period should allow returning
+        // the remote result without waiting for local endpoints to fully timeout.
+        let network = DelayedHostNetwork(
+            statusCodesByHost: [
+                "remote.example": 200,
+                "slow-local-1.example": 500,  // Will fail after 5s delay
+                "slow-local-2.example": 500   // Will fail after 5s delay
+            ],
+            delaysByHost: [
+                "slow-local-1.example": 5_000_000_000,
+                "slow-local-2.example": 5_000_000_000
+            ]
+        )
+        let manager = ConnectionFailoverManager(timeout: 10.0) { request in
+            try await network.perform(request)
+        }
+
+        let start = Date()
+        let result = await manager.findBestConnection(
+            endpoints: [
+                PlexEndpointDescriptor(url: "https://slow-local-1.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://slow-local-2.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+            ],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        // Should select remote and exit via grace period (well under 5s)
+        XCTAssertEqual(result.selected?.url, "https://remote.example")
+        XCTAssertLessThan(elapsed, 3.0, "Grace period should exit without waiting for slow local endpoints")
+    }
+
+    func testFallsToRemoteWhenLocalFails() async throws {
+        // Local endpoint fails; remote succeeds. Verifies correct selection
+        // when the best-class endpoint is unavailable.
+        let network = HostStatusNetwork(
+            statusCodesByHost: [
+                "local.example": 500,
+                "remote.example": 200
+            ]
+        )
+        let manager = ConnectionFailoverManager(timeout: 2.0) { request in
+            try await network.perform(request)
+        }
+
+        let result = await manager.findBestConnection(
+            endpoints: [
+                PlexEndpointDescriptor(url: "https://local.example", local: true, relay: false),
+                PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+            ],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        XCTAssertEqual(result.selected?.url, "https://remote.example")
     }
 }

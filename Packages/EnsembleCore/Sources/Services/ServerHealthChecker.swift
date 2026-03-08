@@ -25,6 +25,7 @@ public final class ServerHealthChecker: ObservableObject {
 
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
+    private let connectionRegistry: ServerConnectionRegistry?
     private let cacheTTL: TimeInterval
     private let unavailableCacheTTL: TimeInterval
     private let resourceRefreshCooldown: TimeInterval
@@ -35,10 +36,15 @@ public final class ServerHealthChecker: ObservableObject {
     private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
     private var lastResourceRefreshAt: [String: Date] = [:]
 
-    public init(accountManager: AccountManager, networkMonitor: NetworkMonitor) {
+    public init(
+        accountManager: AccountManager,
+        networkMonitor: NetworkMonitor,
+        connectionRegistry: ServerConnectionRegistry? = nil
+    ) {
         self.accountManager = accountManager
         // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
         self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = 120
         self.unavailableCacheTTL = 10
         self.resourceRefreshCooldown = 60
@@ -49,6 +55,7 @@ public final class ServerHealthChecker: ObservableObject {
     internal init(
         accountManager: AccountManager,
         failoverManager: ConnectionFailoverManager,
+        connectionRegistry: ServerConnectionRegistry? = nil,
         cacheTTL: TimeInterval = 120,
         unavailableCacheTTL: TimeInterval = 10,
         resourceRefreshCooldown: TimeInterval = 60,
@@ -57,6 +64,7 @@ public final class ServerHealthChecker: ObservableObject {
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = cacheTTL
         self.unavailableCacheTTL = unavailableCacheTTL
         self.resourceRefreshCooldown = resourceRefreshCooldown
@@ -80,6 +88,24 @@ public final class ServerHealthChecker: ObservableObject {
     }
 
     // MARK: - Public Methods
+
+    /// Pre-populate serverStates with `.unknown` for all configured servers.
+    /// Call this at startup (after accounts are loaded, before UI renders) so that
+    /// TrackAvailabilityResolver treats tracks from unchecked servers as unavailable
+    /// instead of defaulting to available.
+    public func prepopulateUnknownStates() {
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
+                if serverStates[serverKey] == nil {
+                    serverStates[serverKey] = .unknown
+                    #if DEBUG
+                    EnsembleLogger.debug("🏥 ServerHealthChecker: Pre-populated \(serverKey) as .unknown")
+                    #endif
+                }
+            }
+        }
+    }
 
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
@@ -315,6 +341,12 @@ public final class ServerHealthChecker: ObservableObject {
                 "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
             )
             #endif
+
+            // Write working endpoint to the centralized registry
+            if let registry = connectionRegistry {
+                await registry.updateEndpoint(for: serverKey, endpoint: workingEndpoint, source: .healthCheck)
+            }
+
             await MainActor.run {
                 serverFailureReasons.removeValue(forKey: serverKey)
             }
@@ -354,6 +386,12 @@ public final class ServerHealthChecker: ObservableObject {
                         "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
                     #endif
+
+                    // Write recovered endpoint to the centralized registry
+                    if let registry = connectionRegistry {
+                        await registry.updateEndpoint(for: serverKey, endpoint: refreshedWorkingEndpoint, source: .healthCheck)
+                    }
+
                     await MainActor.run {
                         serverFailureReasons.removeValue(forKey: serverKey)
                     }

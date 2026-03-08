@@ -132,6 +132,8 @@ public final class PendingMutationsViewModel: ObservableObject {
             return await describePlaylistRename(mutation)
         case .playlistDelete:
             return await describePlaylistDelete(mutation)
+        case .scrobble:
+            return await describeScrobble(mutation)
         }
     }
 
@@ -200,6 +202,18 @@ public final class PendingMutationsViewModel: ObservableObject {
             sourceCompositeKey: payload.playlistSourceCompositeKey
         )
         return "Delete \(playlistTitle)"
+    }
+
+    private func describeScrobble(_ mutation: CDPendingMutation) async -> String {
+        guard let payload = try? JSONDecoder().decode(ScrobbleMutationPayload.self, from: mutation.payload) else {
+            return "Mark as played"
+        }
+
+        let trackTitle = await resolveTrackTitle(
+            ratingKey: payload.trackRatingKey,
+            sourceCompositeKey: payload.sourceCompositeKey
+        )
+        return "Mark \(trackTitle) as played"
     }
 
     // MARK: - Title Resolution

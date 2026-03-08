@@ -13,11 +13,38 @@ public protocol ArtworkLoaderProtocol {
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
+    /// Posted when a specific artwork is invalidated. `userInfo` contains `"ratingKey"`.
+    public static let artworkDidInvalidate = Notification.Name("ArtworkLoaderArtworkDidInvalidate")
+
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private static let asyncArtworkURLCacheTTL: TimeInterval = 5
     private static let legacyArtworkURLCacheTTL: TimeInterval = 60
     
+    /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
+    /// instead of wiping the entire pipeline cache when a single artwork changes.
+    private actor ArtworkURLTracker {
+        private var urlsByRatingKey: [String: Set<URL>] = [:]
+
+        func record(url: URL, forRatingKey ratingKey: String) {
+            urlsByRatingKey[ratingKey, default: []].insert(url)
+        }
+
+        func urls(forRatingKey ratingKey: String) -> Set<URL> {
+            urlsByRatingKey[ratingKey] ?? []
+        }
+
+        func clear(forRatingKey ratingKey: String) {
+            urlsByRatingKey.removeValue(forKey: ratingKey)
+        }
+
+        func clearAll() {
+            urlsByRatingKey.removeAll()
+        }
+    }
+
+    private let artworkURLTracker = ArtworkURLTracker()
+
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
         private struct Entry {
@@ -43,6 +70,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         /// Clear all cached URL entries (used when server connection changes)
         func clearAll() {
             cache.removeAll()
+        }
+
+        /// Clear cached URL entries whose key contains the given substring (e.g. a ratingKey)
+        func clearEntries(matching substring: String) {
+            for key in cache.keys where key.contains(substring) {
+                cache.removeValue(forKey: key)
+            }
         }
     }
     
@@ -91,8 +125,44 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Called when server connection changes to clear stale URLs pointing to unreachable endpoints.
     public func invalidateURLCache() async {
         await urlCache.clearAll()
+        // Connection changed — all tracked URLs are stale
+        await artworkURLTracker.clearAll()
         #if DEBUG
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
+        #endif
+    }
+
+    /// Invalidate a specific artwork so views re-fetch from the server.
+    /// Clears both the in-memory URL cache and local file, then posts a notification.
+    public func invalidateArtwork(ratingKey: String, type: ArtworkType) async {
+        // Clear URL cache entries containing this ratingKey
+        await urlCache.clearEntries(matching: ratingKey)
+
+        // Remove the local file
+        artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: type)
+
+        // Evict tracked URLs from Nuke's cache (targeted instead of clearing all)
+        let trackedURLs = await artworkURLTracker.urls(forRatingKey: ratingKey)
+        if !trackedURLs.isEmpty {
+            for url in trackedURLs {
+                let request = ImageRequest(url: url)
+                ImagePipeline.shared.cache.removeCachedImage(for: request)
+            }
+            await artworkURLTracker.clear(forRatingKey: ratingKey)
+        } else {
+            // No tracked URLs (edge case) — fall back to clearing all
+            ImagePipeline.shared.cache.removeAll()
+        }
+
+        // Post notification so ArtworkView can re-trigger loads
+        NotificationCenter.default.post(
+            name: Self.artworkDidInvalidate,
+            object: nil,
+            userInfo: ["ratingKey": ratingKey]
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
         #endif
     }
 
@@ -115,6 +185,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
             
             if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
+                // Track the URL for targeted cache eviction on invalidation
+                if let ratingKey = Self.extractRatingKey(from: path) {
+                    await self.artworkURLTracker.record(url: url, forRatingKey: ratingKey)
+                }
                 await urlCache.set(cacheKey, url: url, ttl: Self.legacyArtworkURLCacheTTL)
             }
         }
@@ -161,69 +235,105 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         
         guard let finalPath = actualPath else { return nil }
         let isOffline = await syncCoordinator.isOffline
-        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(isOffline ? "offline" : "online")"
+        let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
+        let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
+        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
 
         if let cachedURL = await urlCache.get(cacheKey) {
             return cachedURL
         }
 
-        // Only use local file cache when offline
-        // When online, always use network to get fresh artwork (Nuke handles efficient caching)
-        if isOffline, let key = actualRatingKey {
-            // Try album artwork cache
-            let albumFilename = "\(key)_album.jpg"
-            let albumCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(albumFilename).path
-            if FileManager.default.fileExists(atPath: albumCachePath) {
-                let url = URL(fileURLWithPath: albumCachePath)
-                #if DEBUG
-                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(albumFilename)")
-                #endif
-                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
-                return url
-            }
+        // When offline or server is known to be unreachable, use local cache directly.
+        // This avoids building a network URL that Nuke would time out fetching.
+        let serverUnavailable = !isOffline && !serverAvailable
+        if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+            #if DEBUG
+            let reason = isOffline ? "Offline" : "Server unavailable"
+            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: \(reason) - using local file: \(localURL.lastPathComponent)")
+            #endif
+            await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
+            return localURL
+        }
 
-            // Try artist artwork cache
-            let artistFilename = "\(key)_artist.jpg"
-            let artistCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(artistFilename).path
-            if FileManager.default.fileExists(atPath: artistCachePath) {
-                let url = URL(fileURLWithPath: artistCachePath)
-                #if DEBUG
-                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(artistFilename)")
-                #endif
-                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
-                return url
-            }
-
-            // Try playlist artwork cache
-            let playlistFilename = "\(key)_playlist.jpg"
-            let playlistCachePath = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(playlistFilename).path
-            if FileManager.default.fileExists(atPath: playlistCachePath) {
-                let url = URL(fileURLWithPath: playlistCachePath)
-                #if DEBUG
-                EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Offline - using local file: \(playlistFilename)")
-                #endif
-                await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
-                return url
-            }
+        // Server is unavailable and no local cache — return nil immediately
+        // rather than building a URL that will time out
+        if serverUnavailable {
+            #if DEBUG
+            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Server unavailable, no local cache for ratingKey:\(actualRatingKey ?? "nil")")
+            #endif
+            return nil
         }
 
         // Use network to fetch artwork
         let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
-            if usedFallback {
-                #if DEBUG
-                EnsembleLogger.debug("✅ ArtworkLoader[\(size)]: Network fallback URL - \(url.absoluteString)")
-                #endif
-            } else {
-                #if DEBUG
-                EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: Network URL - \(url.absoluteString)")
-                #endif
+            #if DEBUG
+            let label = usedFallback ? "Network fallback" : "Network"
+            EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: \(label) URL - \(url.absoluteString)")
+            #endif
+            // Track the URL for targeted cache eviction on invalidation
+            if let key = actualRatingKey {
+                await artworkURLTracker.record(url: url, forRatingKey: key)
             }
             await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
+            return url
         }
-        return networkURL
+
+        // Network URL resolution failed — fall back to local cache if available
+        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+            #if DEBUG
+            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Network failed, using local file: \(localURL.lastPathComponent)")
+            #endif
+            await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
+            return localURL
+        }
+
+        return nil
     }
     
+    /// Extract ratingKey from an artwork path like `/library/metadata/{ratingKey}/thumb/...`
+    private static func extractRatingKey(from path: String) -> String? {
+        let components = path.split(separator: "/")
+        // Expected: ["library", "metadata", "{ratingKey}", "thumb", ...]
+        guard components.count >= 3,
+              components[0] == "library",
+              components[1] == "metadata" else { return nil }
+        return String(components[2])
+    }
+
+    /// Look up locally cached artwork file for a given ratingKey.
+    /// Checks album, artist, and playlist artwork caches in order.
+    /// Falls back to extracting the ratingKey from the artwork path when the
+    /// passed ratingKey doesn't match a cached file (e.g., track ratingKey vs.
+    /// album ratingKey embedded in the inherited parentThumb path).
+    private func localCachedArtworkURL(ratingKey: String?, path: String? = nil) -> URL? {
+        let artworkDir = ArtworkDownloadManager.artworkDirectory
+
+        // Try the passed ratingKey first
+        if let key = ratingKey {
+            for suffix in ["album", "artist", "playlist"] {
+                let filePath = artworkDir.appendingPathComponent("\(key)_\(suffix).jpg").path
+                if FileManager.default.fileExists(atPath: filePath) {
+                    return URL(fileURLWithPath: filePath)
+                }
+            }
+        }
+
+        // Fall back to the ratingKey embedded in the artwork path.
+        // Tracks inherit their album's thumbPath (`parentThumb`), so the path
+        // contains the album ratingKey while the passed ratingKey is the track's.
+        if let path, let pathKey = Self.extractRatingKey(from: path), pathKey != ratingKey {
+            for suffix in ["album", "artist", "playlist"] {
+                let filePath = artworkDir.appendingPathComponent("\(pathKey)_\(suffix).jpg").path
+                if FileManager.default.fileExists(atPath: filePath) {
+                    return URL(fileURLWithPath: filePath)
+                }
+            }
+        }
+
+        return nil
+    }
+
     // MARK: - Pre-downloading
     
     /// Pre-download album artwork for offline viewing

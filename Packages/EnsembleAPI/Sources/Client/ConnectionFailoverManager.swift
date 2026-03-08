@@ -143,27 +143,87 @@ public actor ConnectionFailoverManager {
             )
         }
 
-        let probes = await withTaskGroup(of: ConnectionProbeResult.self) { group in
+        // Determine the best possible endpoint class among candidates so we know
+        // when an early exit is safe (no remaining probe could beat the current best).
+        let bestPossibleClass = candidates.map(\.endpointClass).min() ?? .relay
+
+        // Use Optional to distinguish real probe results from the grace-period
+        // deadline sentinel (nil). When a working endpoint is found but higher-priority
+        // probes are still pending, we inject a deadline task that fires after 0.5s.
+        // If nothing better arrives by then, we cancel remaining probes and return.
+        let gracePeriodNs: UInt64 = 500_000_000  // 0.5s
+
+        let (selected, probes) = await withTaskGroup(of: ConnectionProbeResult?.self) { group -> (PlexEndpointDescriptor?, [ConnectionProbeResult]) in
             for endpoint in candidates {
+                // Local endpoints respond in <100ms when reachable; use a shorter
+                // timeout to avoid blocking on unreachable LAN addresses.
+                let localTimeout = endpoint.local ? min(2.0, adaptiveTimeout) : adaptiveTimeout
                 group.addTask {
-                    await self.probeConnection(endpoint: endpoint, token: token, probeTimeout: adaptiveTimeout)
+                    await self.probeConnection(endpoint: endpoint, token: token, probeTimeout: localTimeout)
                 }
             }
 
             var collected: [ConnectionProbeResult] = []
-            for await result in group {
-                collected.append(result)
+            var bestSoFar: ConnectionProbeResult?
+            var graceTaskAdded = false
+
+            for await optionalProbe in group {
+                // nil = grace period deadline expired
+                guard let probe = optionalProbe else {
+                    if bestSoFar != nil {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar!.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
+                        )
+                        #endif
+                        group.cancelAll()
+                        break
+                    }
+                    continue
+                }
+
+                collected.append(probe)
+
+                if probe.success {
+                    // Keep the best successful probe (lowest class, then fastest)
+                    if let current = bestSoFar {
+                        if probe.endpoint.endpointClass < current.endpoint.endpointClass
+                            || (probe.endpoint.endpointClass == current.endpoint.endpointClass
+                                && probe.duration < current.duration) {
+                            bestSoFar = probe
+                        }
+                    } else {
+                        bestSoFar = probe
+                    }
+
+                    // Early exit: we already have the highest-priority class possible,
+                    // so no remaining probe can beat it. Cancel the rest immediately.
+                    if bestSoFar?.endpoint.endpointClass == bestPossibleClass {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⚡️ ConnectionFailover: Early exit — best-class endpoint found (\(bestPossibleClass.rawValue)), cancelling \(candidates.count - collected.count) remaining probe(s)"
+                        )
+                        #endif
+                        group.cancelAll()
+                        break
+                    }
+
+                    // Inject a deadline task so we don't wait indefinitely for
+                    // higher-priority probes that may be timing out on unreachable hosts.
+                    if !graceTaskAdded {
+                        graceTaskAdded = true
+                        group.addTask {
+                            try? await Task.sleep(nanoseconds: gracePeriodNs)
+                            return nil  // Sentinel: grace period expired
+                        }
+                    }
+                }
             }
-            return collected
+
+            return (bestSoFar?.endpoint, collected)
         }
 
-        let successful = probes.filter(\.success)
-        guard let selected = successful.sorted(by: { lhs, rhs in
-            if lhs.endpoint.endpointClass == rhs.endpoint.endpointClass {
-                return lhs.duration < rhs.duration
-            }
-            return lhs.endpoint.endpointClass < rhs.endpoint.endpointClass
-        }).first?.endpoint else {
+        guard let selected else {
             #if DEBUG
             EnsembleLogger.debug("❌ ConnectionFailover: No successful endpoints from \(candidates.count) probes")
             #endif

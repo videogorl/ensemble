@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
 ---
 
 # Ensemble Architecture
@@ -32,6 +32,9 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
+- `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
+- `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
+- `PlexWebSocketManager` (actor) -- Per-server WebSocket connections with exponential backoff reconnect
 - `KeychainService` -- Token persistence using KeychainAccess library
 - `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
 
@@ -80,10 +83,13 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
+- `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
+- `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
+- `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -149,20 +155,26 @@ Persistent artwork caching that survives app restarts:
 1. **ArtworkDownloadManager** (`EnsemblePersistence`) -- Downloads and stores artwork files locally
    - Stores in `Library/Application Support/Ensemble/Artwork/`
    - Filename format: `{ratingKey}_album.jpg` or `{ratingKey}_artist.jpg`
-   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`
+   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`, `deleteArtwork(ratingKey:type:)`
 
 2. **ArtworkLoader** (`EnsembleCore`) -- Coordinates with local-first strategy
    - `artworkURLAsync()` checks local cache first using `ratingKey`
    - Falls back to network fetch via `SyncCoordinator` if not cached
    - `predownloadArtwork()` methods for batch downloading during sync
    - Configures Nuke's `ImagePipeline` with 100MB disk cache
+   - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + targeted Nuke cache eviction (per ratingKey via `ArtworkURLTracker`) and posts `artworkDidInvalidate` notification
 
 3. **ArtworkView** (`EnsembleUI`) -- SwiftUI component
    - Passes `ratingKey` to enable local cache lookups
    - Convenience initializers for `Track`, `Album`, `Artist`, `Playlist`
+   - Listens for `artworkDidInvalidate` notification and re-triggers load when matching ratingKey is invalidated
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
    - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+
+5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction
+   - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
+   - `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` so UI refreshes automatically
 
 **Usage:**
 ```swift
@@ -193,13 +205,25 @@ Displays audio waveforms in NowPlayingView:
 
 5. WaveformView (EnsembleUI) -- Horizontal bars with playback progress
 
+## Subsystem: Pre-Computed Frequency Visualizer
+
+Frequency analysis is pre-computed on disk and decoupled from the audio pipeline:
+
+1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines.
+2. **FrequencyTimeline** -- Model containing an array of `FrequencySnapshot` frames with timestamps and band magnitudes. Supports binary serialization for sidecar persistence.
+3. **FrequencyTimelinePersistence** -- Reads/writes `.freq` binary sidecar files alongside offline downloads for instant visualizer load on cached tracks.
+4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A 30Hz display timer reads `player.currentTime()` and looks up the matching frame from the active timeline. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
+5. **Scrubber Sync** -- `ControlsCard` scrubber drag calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
+6. **Offline Sidecar** -- `OfflineDownloadService` generates `.freq` sidecar after downloading a track. `DownloadManager` cleans up sidecars when downloads are removed.
+7. **Extension Probing** -- `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio formats before attempting analysis.
+
 ## Subsystem: Aurora Visualization
 
 Dynamic background effect that reacts to music intensity:
 
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
-2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and waveform heights (loudness data).
-3. **Sampling** -- `AuroraVisualizationView` samples `waveformHeights` using `currentTime / duration` to drive real-time animation intensity.
+2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
+3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
 4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation)` to draw overlapping fan-shaped sectors with radial gradients.
 5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
@@ -269,6 +293,7 @@ Dynamic home screen powered by Plex's hub system:
   - enqueuing missing track downloads
   - reconciling after sync/playlist updates
   - reference-counted cleanup of shared tracks when targets are removed
+  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
 - `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
 - Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
 - Sync integration:
@@ -305,6 +330,49 @@ Dynamic home screen powered by Plex's hub system:
 
 ## Subsystem: Network Resilience
 
+Multi-layered network resilience spanning endpoint management, push-based updates, reactive availability, queue resilience, and unified error classification.
+
+### Endpoint Truth -- ServerConnectionRegistry
+- **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
+- `PlexAPIClient` seeds the registry on init with the first discovered endpoint, and reports failover results back so all consumers share the latest healthy endpoint.
+- `ServerHealthChecker` writes probe results into the registry after health checks.
+- `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
+- `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
+
+### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
+- **`PlexWebSocketManager`** (`EnsembleAPI`, actor) -- Manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
+- **`PlexWebSocketCoordinator`** (`EnsembleCore`, @MainActor) -- Routes incoming WebSocket events to sync and health systems.
+  - `onLibraryUpdate` / `onPlaylistUpdate` -- Debounced section/playlist sync triggers (3s / 5s)
+  - `onArtworkInvalidation` -- Fires on album/artist metadata updates for cache eviction
+  - `onServerOffline` / `onServerHealthy` -- Server health signal callbacks
+  - `@Published serverScanProgress: [String: Int]` -- Per-server library scan progress (0-100) from activity events
+- `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
+- `SyncCoordinator.rateTrack()` triggers debounced post-rating playlist sync (5s) for smart playlist freshness.
+- `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
+
+### Reactive Track Availability -- TrackAvailabilityResolver
+- **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
+- `TrackAvailability` enum: `.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`.
+- `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
+- Exposed via `DependencyContainer.trackAvailabilityResolver`.
+
+### Queue Resilience (PlaybackService)
+- Circuit breaker scans for downloaded alternatives when server is unreachable.
+- `retryCurrentTrack()` falls back to local download if available.
+- Cache eviction for newly downloaded queue items so AVPlayer picks up fresh local files.
+- Auto-resume playback when `ServerHealthChecker` completes a successful health check.
+
+### Unified Error Taxonomy -- PlexErrorClassification
+- **`PlexErrorClassification`** (`EnsembleAPI`) -- Classifies errors as transport (retryable/failover-eligible), rate-limited (retryable, no failover), or semantic (not retryable). HTTP 429 is classified as `.rateLimited`.
+- `PlexAPIClient` uses `PlexErrorClassification` for failover gating instead of ad-hoc status code checks.
+- `MutationCoordinator` uses it to decide which failed mutations to queue for retry vs. discard. `drainQueue()` applies exponential backoff (capped at 30s) after 2+ consecutive failures and breaks out after 5.
+
+### Scrobble Queuing
+- `MutationCoordinator` now queues failed scrobble calls as `CDPendingMutation` (`.scrobble` type).
+- `SyncCoordinator` exposes `scrobbleTrackThrowing()` so `PlaybackService` can route scrobbles through the mutation coordinator.
+- `PendingMutationsViewModel` and `PendingMutationsView` display queued scrobbles alongside playlist mutations.
+
+### Foundation Layer (unchanged)
 - **NetworkMonitor** -- `NWPathMonitor` with 1s debouncing, states: `.online`/`.offline`/`.limited`/`.unknown`
   - Lifecycle-safe restart behavior: `stopMonitoring()` cancels/releases the current monitor and `startMonitoring()` creates a new monitor instance.
 - **SyncCoordinator** -- Transition-aware health orchestration for reconnects and interface switches
@@ -319,8 +387,28 @@ Dynamic home screen powered by Plex's hub system:
 - **Resources discovery parity** -- resources requests include HTTPS/relay/IPv6 parameters plus common Plex client headers.
 - **Auth lifecycle enforcement** -- `AccountManager` enforces auth migration cutover and token expiry checks on load/foreground.
 
+### Dependency Flow
+```
+PlexWebSocketManager ──events──> PlexWebSocketCoordinator ──> SyncCoordinator (incremental section sync)
+                                                          ──> ServerHealthChecker (probe triggers)
+PlexAPIClient ──failover──> ServerConnectionRegistry <──writes── ServerHealthChecker
+                                        |
+                                        v
+                               SyncCoordinator (subscribes to endpoint changes)
+                                        |
+                                        v
+                            TrackAvailabilityResolver (server state + download state -> per-track availability)
+                                        |
+                                        v
+                             TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+
+PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
+PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
+```
+
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
+- iOS: WebSocket connections start on foreground, stop on background (`AppDelegate`)
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
 - macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
@@ -388,7 +476,7 @@ Plex mood/vibe categories for discovery:
 Two sync modes to balance freshness and speed:
 
 - **Full sync:** `SyncCoordinator.syncAll()` -- fetches entire library from Plex
-- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items
+- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items (with 5s timestamp buffer to avoid missing near-boundary changes)
 - **Startup:** full sync if last sync >24h ago; incremental if >1h; skip if <1h
 - **Periodic (foreground):** incremental library sync every 1h, hub refresh every 10min
 - **Background (iOS):** `BackgroundSyncScheduler` registers `BGAppRefreshTask`; system triggers hub refresh approximately every 15min

@@ -161,6 +161,8 @@ private struct MutationRowView: View {
             return "pencil"
         case .playlistDelete:
             return "trash"
+        case .scrobble:
+            return "music.note"
         }
     }
 

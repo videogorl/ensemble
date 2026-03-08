@@ -523,6 +523,29 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## MusicSourceAccountDetailView
+
+- **View name:** `MusicSourceAccountDetailView`
+- **Canonical name:** MusicSourceAccountDetailView
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Server section | region | Section per server with library checkboxes and status | `Section(server.name)` |
+| Library checkbox row | control | Toggle to enable/disable library sync | `libraryRow(library:server:)` |
+| Library status indicator | indicator | Per-library sync status text (e.g., "Synced", "Offline") | `libraryStatusText` |
+| Scan progress bar | indicator | Linear progress bar showing real-time library scan progress (0-100%) from WebSocket activity events | `ProgressView(value:total:)`, `scanProgressByServer` |
+| Scan progress label | text | "Scanning library..." text with magnifying glass icon | `magnifyingglass` |
+| Sync button | action | Triggers sync for all enabled libraries on this account | `Sync Enabled Libraries` |
+| Reconcile button | action | Re-discovers servers/libraries from Plex API | `Reconcile` |
+| Remove account button | action | Destructive button to remove the account | `Remove Account` |
+
+---
+
 ## DownloadManagerSettingsView
 
 - **View name:** `DownloadManagerSettingsView`
@@ -717,6 +740,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Track title | text | Song name with accent color when playing | `track.title` |
 | Autoplay indicator | indicator | Sparkles icon for auto-generated recommendations | `sparkles` |
 | Artist name | text | Artist name subtitle | `track.artistName` |
+| Download spinner | indicator | Spinning progress indicator for tracks being actively downloaded | `ProgressView()`, `isActivelyDownloading` |
 | Downloaded indicator | indicator | Arrow icon for locally downloaded tracks | `arrow.down.circle.fill` |
 | Duration | text | Track length in mm:ss format | `formattedDuration` |
 | Context menu | menu | Long-press menu with queue and playlist actions | `contextMenu` |
