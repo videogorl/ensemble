@@ -1325,7 +1325,10 @@ public actor PlexAPIClient {
         // (uncompressed PCM) which AVPlayer handles natively for true zero-gap
         // gapless playback. Falls back to XING header injection if conversion fails.
         if quality != .original {
-            if let cafURL = AudioFormatConverter.convertToCAF(mp3URL: destURL) {
+            if let cafURL = AudioFormatConverter.convertToCAF(
+                mp3URL: destURL,
+                metadataDurationSeconds: metadataDurationSeconds
+            ) {
                 #if DEBUG
                 let cafSize = (try? FileManager.default.attributesOfItem(atPath: cafURL.path)[.size] as? Int) ?? 0
                 EnsembleLogger.debug("✅ Converted stream to CAF: \(cafURL.lastPathComponent) (\(cafSize) bytes)")
