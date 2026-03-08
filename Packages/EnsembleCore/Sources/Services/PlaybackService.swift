@@ -3416,16 +3416,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return false
     }
 
-    /// Detect whether a player item is a temporary transcoded stream file (VBR MP3
-    /// from PMS universal transcode). These files lack XING/LAME headers and cause
-    /// FigFilePlayer errors and AudioUnitRender failures in the audio tap.
-    private func isTranscodedStreamFile(_ item: AVPlayerItem? = nil) -> Bool {
-        let targetItem = item ?? player?.currentItem
-        guard let urlAsset = targetItem?.asset as? AVURLAsset else { return false }
-        return urlAsset.url.isFileURL
-            && urlAsset.url.path.contains("EnsembleStreamCache")
-    }
-
     /// Normalize local playback URL so container/extension mismatches do not prevent decode.
     /// Some servers return MPEG data via queue flow without a filename extension.
     private func preparedLocalPlaybackURL(forPath path: String) -> URL {

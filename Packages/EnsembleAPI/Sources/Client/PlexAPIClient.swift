@@ -1319,6 +1319,14 @@ public actor PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
+        // PMS's universal transcode produces VBR MP3 files without XING headers.
+        // AVPlayer can't determine true duration or frame layout, causing
+        // FigFilePlayer errors at track boundaries and broken gapless transitions.
+        // Injecting a XING header gives AVPlayer accurate metadata.
+        if quality != .original {
+            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(at: destURL)
+        }
+
         #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
         EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
