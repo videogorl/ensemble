@@ -2951,58 +2951,39 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             adaptiveBufferingState.conservativeWaitCycles = 0
         }
 
-        // Check if we have a cached player item — either ready or still loading from prefetch
+        // Check if we have a cached player item from prefetch.
+        // Use it regardless of .status — AVPlayerItem only evaluates status when
+        // attached to a player, so prefetched items backed by local files may still
+        // be .unknown. loadAndPlay() inserts it into the player, triggering evaluation.
         if let cachedItem = await MainActor.run(body: { getCachedPlayerItem(for: track.id) }),
+           cachedItem.status != .failed,
            !forcingFreshItem {
-
-            // If the prefetched item isn't ready yet, wait briefly for it
-            // instead of re-downloading the entire stream from scratch.
-            if cachedItem.status != .readyToPlay {
-                #if DEBUG
-                EnsembleLogger.debug("   ⏳ Cached item not ready yet, waiting for prefetch...")
-                #endif
-                let waitStart = CACurrentMediaTime()
-                let maxWait: TimeInterval = 8.0 // Don't wait longer than 8s
-                while cachedItem.status != .readyToPlay && cachedItem.status != .failed {
-                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms poll
-                    if CACurrentMediaTime() - waitStart > maxWait { break }
-                }
-            }
-
-            if cachedItem.status == .readyToPlay {
-                #if DEBUG
-                EnsembleLogger.debug("   ✅ Using cached player item (ready)")
-                #endif
-
-                // Seek to beginning since cached items retain their position
-                await MainActor.run {
-                    cachedItem.seek(to: .zero, completionHandler: nil)
-                }
-
-                // Use cached item - no loading state needed
-                await MainActor.run {
-                    self.currentTrack = track
-                    self.currentTime = 0
-                    self.pendingLoadSeekTime = nil
-                    self.bufferedProgress = 0
-                    self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
-                    self.updateNowPlayingInfo()
-                }
-
-                generateWaveform(for: track.id)
-                await loadAndPlay(item: cachedItem, track: track)
-                Task { await prefetchNextItem() }
-                #if DEBUG
-                EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
-                #endif
-                return
-            }
-
-            // Prefetch item failed — fall through to create a fresh one
             #if DEBUG
-            EnsembleLogger.debug("   ⚠️ Cached item failed/timed out, creating fresh item")
+            EnsembleLogger.debug("   ✅ Using cached player item (status: \(cachedItem.status.rawValue))")
             #endif
-            await MainActor.run { removeCachedPlayerItem(for: track.id) }
+
+            // Seek to beginning since cached items retain their position
+            await MainActor.run {
+                cachedItem.seek(to: .zero, completionHandler: nil)
+            }
+
+            // Use cached item
+            await MainActor.run {
+                self.currentTrack = track
+                self.currentTime = 0
+                self.pendingLoadSeekTime = nil
+                self.bufferedProgress = 0
+                self.waveformHeights = []  // Clear old waveform immediately to prevent stale UI
+                self.updateNowPlayingInfo()
+            }
+
+            generateWaveform(for: track.id)
+            await loadAndPlay(item: cachedItem, track: track)
+            Task { await prefetchNextItem() }
+            #if DEBUG
+            EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
+            #endif
+            return
         }
 
         // No cached item ready - set current track info
