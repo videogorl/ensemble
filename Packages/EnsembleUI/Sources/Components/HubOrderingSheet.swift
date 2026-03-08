@@ -121,7 +121,7 @@ public struct HubOrderingSheet: View {
             Button("Done") {
                 viewModel.exitEditMode(save: true)
             }
-            .fontWeight(.semibold)
+            .font(.body.bold())
         }
         #else
         ToolbarItem(placement: .cancellationAction) {
