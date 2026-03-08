@@ -4279,12 +4279,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 let elapsed = Date().timeIntervalSince(seekTime)
                 // Add 1s grace period to account for timing imprecision
                 if elapsed > remaining + 1.0 {
-                    self.hasTriggeredWallClockBoundary = true
-                    #if DEBUG
-                    EnsembleLogger.debug("SCRUBBER_DIAG: wall-clock boundary triggered — elapsed=\(String(format: "%.1f", elapsed))s, expected remaining=\(String(format: "%.1f", remaining))s, advancing track")
-                    #endif
-                    Task { @MainActor [weak self] in
-                        await self?.handleQueueExhausted()
+                    // If AVQueuePlayer has more items queued, let it handle the
+                    // gapless transition naturally instead of forcing a stop-and-restart.
+                    // The wall-clock estimate can fire early over AirPlay where buffering
+                    // causes actual playback to lag behind wall time.
+                    let queuedItemCount = self.player?.items().count ?? 0
+                    if queuedItemCount > 1 {
+                        #if DEBUG
+                        EnsembleLogger.debug("SCRUBBER_DIAG: wall-clock boundary suppressed — \(queuedItemCount) items in AVQueuePlayer, deferring to gapless advance")
+                        #endif
+                    } else {
+                        self.hasTriggeredWallClockBoundary = true
+                        #if DEBUG
+                        EnsembleLogger.debug("SCRUBBER_DIAG: wall-clock boundary triggered — elapsed=\(String(format: "%.1f", elapsed))s, expected remaining=\(String(format: "%.1f", remaining))s, advancing track")
+                        #endif
+                        Task { @MainActor [weak self] in
+                            await self?.handleQueueExhausted()
+                        }
                     }
                     return
                 }
