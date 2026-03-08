@@ -25,31 +25,23 @@ enum AudioFormatConverter {
 
         do {
             let inputFile = try AVAudioFile(forReading: mp3URL)
-            let format = inputFile.processingFormat
+            let processingFormat = inputFile.processingFormat
 
             // Write as uncompressed PCM in CAF container — AVPlayer's native format
             // for gapless playback with exact sample-level precision.
-            let outputSettings: [String: Any] = [
-                AVFormatIDKey: Int(kAudioFormatLinearPCM),
-                AVSampleRateKey: format.sampleRate,
-                AVNumberOfChannelsKey: format.channelCount,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false,
-                AVLinearPCMIsNonInterleaved: false
-            ]
-
+            // Use the input's exact processing format (Float32 non-interleaved) for
+            // the output so a single buffer works for both read() and write().
             let outputFile = try AVAudioFile(
                 forWriting: cafURL,
-                settings: outputSettings,
-                commonFormat: .pcmFormatInt16,
-                interleaved: true
+                settings: processingFormat.settings,
+                commonFormat: processingFormat.commonFormat,
+                interleaved: processingFormat.isInterleaved
             )
 
-            // Decode and write in chunks to keep memory usage low
+            // Single buffer compatible with both input read() and output write()
             let bufferCapacity: AVAudioFrameCount = 8192
             guard let buffer = AVAudioPCMBuffer(
-                pcmFormat: inputFile.processingFormat,
+                pcmFormat: processingFormat,
                 frameCapacity: bufferCapacity
             ) else {
                 return nil
