@@ -23,7 +23,8 @@ public protocol AudioAnalyzerProtocol: AnyObject {
 
     /// Install audio tap on a prefetched item without disrupting the current tap.
     /// The tap is ready when AVQueuePlayer gapless-transitions to this item.
-    @MainActor func preinstallAudioTap(on playerItem: AVPlayerItem)
+    /// Pass the pre-loaded audio track to avoid synchronous asset loading on MainActor.
+    @MainActor func preinstallAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack)
 
     /// Remove audio tap and stop analysis
     @MainActor func stopAnalysis()
@@ -150,24 +151,33 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     @MainActor
     public func setupAudioTap(for playerItem: AVPlayerItem) {
         stopAnalysis()
-        installAudioTap(on: playerItem, storeMix: true)
+        // For setupAudioTap (used in loadAndPlay), synchronous track access is
+        // acceptable because the item was just created and tracks are loaded.
+        guard let audioTrack = playerItem.asset.tracks(withMediaType: .audio).first else {
+            #if DEBUG
+            logger.debug("No audio track found in player item")
+            #endif
+            return
+        }
+        installAudioTap(on: playerItem, audioTrack: audioTrack, storeMix: true)
     }
 
     /// Install an audio tap on a player item without tearing down the current
     /// analysis session.  Used for prefetched items so the tap is ready before
     /// AVQueuePlayer's gapless transition — avoids setting audioMix mid-playback
     /// which disrupts gapless audio.
+    /// The audio track is pre-loaded off MainActor to avoid blocking.
     @MainActor
-    public func preinstallAudioTap(on playerItem: AVPlayerItem) {
+    public func preinstallAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack) {
         // Don't touch stopAnalysis or self.audioMix — the current item is
         // still playing and its tap should keep running.
-        installAudioTap(on: playerItem, storeMix: false)
+        installAudioTap(on: playerItem, audioTrack: audioTrack, storeMix: false)
     }
 
     /// Shared tap installation.  When `storeMix` is true the mix reference is
     /// kept in `self.audioMix` (primary / current-item path).
     @MainActor
-    private func installAudioTap(on playerItem: AVPlayerItem, storeMix: Bool) {
+    private func installAudioTap(on playerItem: AVPlayerItem, audioTrack: AVAssetTrack, storeMix: Bool) {
         #if DEBUG
         logger.debug("🎵 installAudioTap called (storeMix=\(storeMix))")
         #endif
@@ -181,13 +191,6 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
 
         // Skip if this item already has an audio mix (e.g., pre-installed during prefetch)
         if playerItem.audioMix != nil { return }
-
-        guard let audioTrack = playerItem.asset.tracks(withMediaType: .audio).first else {
-            #if DEBUG
-            logger.debug("No audio track found in player item")
-            #endif
-            return
-        }
 
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,

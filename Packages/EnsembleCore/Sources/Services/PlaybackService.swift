@@ -768,6 +768,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
     private var audioAnalyzerCancellable: AnyCancellable?
+    /// Serialization guard: cancels any in-flight prefetch before starting a new one
+    private var activePrefetchTask: Task<Void, Never>?
     private var externalPlaybackObservation: NSKeyValueObservation?
     private var simulatedBandsTimer: Timer?
     private var simulatedBandsStartTime: TimeInterval = 0
@@ -3631,7 +3633,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
     
     private func prefetchNextItem() async {
-        await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
+        // Cancel any in-flight prefetch to ensure only one runs at a time
+        activePrefetchTask?.cancel()
+        let task = Task {
+            await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
+        }
+        activePrefetchTask = task
+        await task.value
     }
 
     /// Remove all prefetched items from AVQueuePlayer's internal queue.
@@ -3717,9 +3725,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     cacheMisses += 1
                 }
 
+                // Load audio track off MainActor to avoid synchronous asset loading
+                // during the critical gapless transition window.
+                let audioTrack = item.asset.tracks(withMediaType: .audio).first
+
                 // Pre-install audio tap so the visualizer works immediately on
                 // gapless transitions (no need to set it up in handleItemChange).
-                await MainActor.run { audioAnalyzer.preinstallAudioTap(on: item) }
+                if let audioTrack {
+                    await MainActor.run { audioAnalyzer.preinstallAudioTap(on: item, audioTrack: audioTrack) }
+                }
 
                 prefetchedItems.append(item)
             } catch {
@@ -3736,12 +3750,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // let AVQueuePlayer auto-advance past the failed track.
             if case .failed = playbackState { return }
 
-            var insertAfter = player.currentItem
-            for item in player.items().dropFirst() {
+            // Incremental diff: only add/remove what changed, preserving items
+            // already in AVQueuePlayer's pipeline. This is critical for gapless
+            // transitions — removing the next item mid-transition destroys the
+            // internal buffer handoff.
+            let currentQueuedItems = Array(player.items().dropFirst())
+            let desiredSet = Set(queuedItems.map { ObjectIdentifier($0) })
+            let currentSet = Set(currentQueuedItems.map { ObjectIdentifier($0) })
+
+            // Remove items no longer in the desired set
+            for item in currentQueuedItems where !desiredSet.contains(ObjectIdentifier(item)) {
                 player.remove(item)
             }
 
-            for item in queuedItems where !player.items().contains(where: { $0 === item }) {
+            // Insert new items not already present, after the last existing item
+            var insertAfter: AVPlayerItem? = player.items().last ?? player.currentItem
+            for item in queuedItems where !currentSet.contains(ObjectIdentifier(item)) {
                 player.insert(item, after: insertAfter)
                 insertAfter = item
             }
