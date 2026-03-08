@@ -1865,21 +1865,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Setup audio tap if not already set up (e.g., after state restoration).
-        // Skip the tap for transcoded VBR MP3 files to avoid AudioUnitRender errors.
+        // Setup audio tap if not already set up (e.g., after state restoration)
         if let currentItem = player?.currentItem, currentItem.audioMix == nil {
-            if isTranscodedStreamFile(currentItem) {
-                #if DEBUG
-                EnsembleLogger.debug("🎵 Skipping audio tap on resume for transcoded stream file")
-                #endif
-                startSimulatedFrequencyBands()
-            } else {
-                #if DEBUG
-                EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
-                #endif
-                Task { @MainActor in
-                    audioAnalyzer.setupAudioTap(for: currentItem)
-                }
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
+            #endif
+            Task { @MainActor in
+                audioAnalyzer.setupAudioTap(for: currentItem)
             }
         }
 
@@ -3756,17 +3748,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
 
         // Setup audio tap BEFORE playback starts (must be done before play() is called).
-        // Skip the tap for transcoded VBR MP3 files — their irregular frame boundaries
-        // cause AudioUnitRender error -1, which produces brief audio dropouts.
-        // Use simulated frequency bands instead so the aurora still reacts.
-        if isTranscodedStreamFile(item) {
-            #if DEBUG
-            EnsembleLogger.debug("🎵 Skipping audio tap for transcoded stream file (VBR MP3)")
-            #endif
-            startSimulatedFrequencyBands()
-        } else {
-            audioAnalyzer.setupAudioTap(for: item)
-        }
+        // NOTE: Transcoded VBR MP3 files may produce occasional AudioUnitRender error -1
+        // at frame boundaries, but the real audio tap is preferred over simulated bands
+        // because the live visualizer is a better user experience.
+        audioAnalyzer.setupAudioTap(for: item)
 
         // Cancel loading state delay - we're about to play
         loadingStateTask?.cancel()
