@@ -773,6 +773,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private let maxHistorySize = 100  // Cap for 2GB RAM devices
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
+    private var isSkipTransitionInProgress = false  // Suppresses "unexpected pause" handler during next/previous
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
 
     // Wall-clock based duration tracking: AVPlayer's reported position can diverge from
@@ -1864,13 +1865,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Setup audio tap if not already set up (e.g., after state restoration)
+        // Setup audio tap if not already set up (e.g., after state restoration).
+        // Skip the tap for transcoded VBR MP3 files to avoid AudioUnitRender errors.
         if let currentItem = player?.currentItem, currentItem.audioMix == nil {
-            #if DEBUG
-            EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
-            #endif
-            Task { @MainActor in
-                audioAnalyzer.setupAudioTap(for: currentItem)
+            if isTranscodedStreamFile(currentItem) {
+                #if DEBUG
+                EnsembleLogger.debug("🎵 Skipping audio tap on resume for transcoded stream file")
+                #endif
+                startSimulatedFrequencyBands()
+            } else {
+                #if DEBUG
+                EnsembleLogger.debug("🎵 Setting up audio tap on resume (state restoration)")
+                #endif
+                Task { @MainActor in
+                    audioAnalyzer.setupAudioTap(for: currentItem)
+                }
             }
         }
 
@@ -1916,6 +1925,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime = 0
         bufferedProgress = 0
         consecutivePlaybackFailures = 0
+        isSkipTransitionInProgress = false
         seekCompletedAt = nil
         remainingDurationAtSeek = nil
         hasTriggeredWallClockBoundary = false
@@ -1935,6 +1945,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Stop old audio immediately so it doesn't continue playing while the
         // async task below resolves the next track and loads it.
+        // The skip flag prevents the "unexpected pause" handler from resuming
+        // the old track while we load the new one.
+        isSkipTransitionInProgress = true
         player?.pause()
 
         // Record current track to history before advancing
@@ -1991,6 +2004,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Stop old audio immediately so it doesn't continue playing while the
         // async task below resolves the previous track and loads it.
+        // The skip flag prevents the "unexpected pause" handler from resuming
+        // the old track while we load the new one.
+        isSkipTransitionInProgress = true
         player?.pause()
 
         // Set flag to prevent recording to history when navigating backward
@@ -2859,6 +2875,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 player?.removeTimeObserver(observer)
                 timeObserver = nil
             }
+            // Clear skip flag now that we've paused and torn down the old track.
+            // The "unexpected pause" handler is no longer a concern since we're
+            // about to replace the player item.
+            isSkipTransitionInProgress = false
         }
 
         // Reset adaptive buffering state for fresh playback attempts
@@ -3404,6 +3424,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return false
     }
 
+    /// Detect whether a player item is a temporary transcoded stream file (VBR MP3
+    /// from PMS universal transcode). These files lack XING/LAME headers and cause
+    /// FigFilePlayer errors and AudioUnitRender failures in the audio tap.
+    private func isTranscodedStreamFile(_ item: AVPlayerItem? = nil) -> Bool {
+        let targetItem = item ?? player?.currentItem
+        guard let urlAsset = targetItem?.asset as? AVURLAsset else { return false }
+        return urlAsset.url.isFileURL
+            && urlAsset.url.path.contains("EnsembleStreamCache")
+    }
+
     /// Normalize local playback URL so container/extension mismatches do not prevent decode.
     /// Some servers return MPEG data via queue flow without a filename extension.
     private func preparedLocalPlaybackURL(forPath path: String) -> URL {
@@ -3725,14 +3755,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🎵 PlayerItem: \(item)")
         #endif
 
-        // Setup audio tap BEFORE playback starts (must be done before play() is called)
-        #if DEBUG
-        EnsembleLogger.debug("🎵 CALLING setupAudioTap NOW...")
-        #endif
-        audioAnalyzer.setupAudioTap(for: item)
-        #if DEBUG
-        EnsembleLogger.debug("🎵 setupAudioTap call COMPLETED")
-        #endif
+        // Setup audio tap BEFORE playback starts (must be done before play() is called).
+        // Skip the tap for transcoded VBR MP3 files — their irregular frame boundaries
+        // cause AudioUnitRender error -1, which produces brief audio dropouts.
+        // Use simulated frequency bands instead so the aurora still reacts.
+        if isTranscodedStreamFile(item) {
+            #if DEBUG
+            EnsembleLogger.debug("🎵 Skipping audio tap for transcoded stream file (VBR MP3)")
+            #endif
+            startSimulatedFrequencyBands()
+        } else {
+            audioAnalyzer.setupAudioTap(for: item)
+        }
 
         // Cancel loading state delay - we're about to play
         loadingStateTask?.cancel()
@@ -3938,6 +3972,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                         if self.activeSeek != nil {
                             // Intentional pause — AVPlayer repositioning for an in-flight seek.
+                            return
+                        }
+
+                        // Intentional pause from next()/previous() — don't resume old audio
+                        // while the skip transition loads the new track.
+                        if self.isSkipTransitionInProgress {
                             return
                         }
 
