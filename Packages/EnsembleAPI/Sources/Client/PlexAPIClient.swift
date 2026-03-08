@@ -820,12 +820,14 @@ public actor PlexAPIClient {
     // MARK: - Hubs (Home Screen Content)
     
     /// Get all hubs for a library section (Recently Added, Recently Played, etc.)
-    public func getHubs(sectionKey: String) async throws -> [PlexHub] {
-        // Adding count and includeLibrary ensures we get items back in the Metadata array
+    public func getHubs(sectionKey: String, count: String = "12") async throws -> [PlexHub] {
+        // Adding count and includeLibrary ensures we get items back in the Metadata array.
+        // Different count values cause PMS to select different dynamic hub content
+        // (e.g. "More by...", "More in..." sections rotate based on count).
         let data = try await serverRequest(
             path: "/hubs/sections/\(sectionKey)",
             query: [
-                "count": "12",
+                "count": count,
                 "includeLibrary": "1",
                 "includeExternalMedia": "1",
                 "excludeFields": "summary" // Reduce payload size

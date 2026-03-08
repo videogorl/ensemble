@@ -50,6 +50,18 @@ public final class HomeViewModel: ObservableObject {
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
     private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
+
+    // Rotating count for hub requests — different counts cause PMS to select
+    // different dynamic hub content (e.g. "More by...", "More in..." sections)
+    private var refreshCount: Int = 0
+    private static let hubCountOptions = [12, 15, 18, 20]
+
+    /// Returns a count parameter that rotates on each pull-to-refresh,
+    /// encouraging PMS to pick different dynamic hub content
+    private var currentHubCount: String {
+        let index = refreshCount % Self.hubCountOptions.count
+        return String(Self.hubCountOptions[index])
+    }
     internal private(set) var deferredAutoRefreshCount = 0
     internal private(set) var coalescedAutoRefreshCount = 0
     internal var autoRefreshRunnerForTesting: ((AutoRefreshReason) async -> Void)?
@@ -247,6 +259,7 @@ public final class HomeViewModel: ObservableObject {
             // Progressive updates are only used for empty-state loads to avoid in-scroll churn.
             var collectedHubs: [Hub] = []
             let shouldApplyProgressiveUpdates = self.hubs.isEmpty
+            let hubCount = self.currentHubCount
 
             await withTaskGroup(of: [Hub].self) { group in
                 // Fetch section-specific hubs in parallel
@@ -254,7 +267,7 @@ public final class HomeViewModel: ObservableObject {
                     group.addTask {
                         var hubs: [Hub] = []
                         do {
-                            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+                            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey, count: hubCount)
 
                             // Process hub items in parallel
                             await withTaskGroup(of: Hub?.self) { hubGroup in
@@ -463,8 +476,11 @@ public final class HomeViewModel: ObservableObject {
     }
     
     /// Refresh hubs (clears debounce to force immediate reload)
+    /// Uses a rotated count to encourage PMS to pick different dynamic hub content
+    /// (e.g. different "More by...", "More in..." selections)
     public func refresh() async {
         lastLoadTime = nil
+        refreshCount += 1
         await loadHubs(deferUIUpdatesWhileInteracting: false)
     }
 
@@ -670,21 +686,48 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
+    /// Normalize hub titles by removing " in [Library Name]" suffix
+    /// Only strips the suffix for known hub title patterns (e.g. "Recently Added in Music")
+    /// to avoid breaking titles like "More in Pop/Rock"
     private static nonisolated func normalizeHubTitle(_ title: String) -> String {
-        var normalized = title
-
-        // Remove " in [Library Name]" pattern (e.g. "Recently Added in Music")
-        if let range = normalized.range(of: " in ", options: .backwards) {
-            normalized = String(normalized[..<range.lowerBound])
+        // Only strip " in ..." for titles that start with known prefixes
+        // Dynamic hubs like "More in Pop/Rock" should keep their full title
+        let stripPrefixes = ["Recently Added", "Recently Played", "Most Played"]
+        for prefix in stripPrefixes {
+            if title.hasPrefix(prefix), let range = title.range(of: " in ", options: .backwards) {
+                return String(title[..<range.lowerBound])
+            }
         }
-
-        return normalized
+        return title
     }
 
-    /// Merge and group hubs by server and normalized title
+    /// Extract the hub type identifier from a hub ID for merging across libraries.
+    /// Hub IDs are formatted as "plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}"
+    /// where hubIdentifier is like "music.recent.added.3". The trailing section number
+    /// is stripped so hubs from different libraries can be grouped together.
+    private static nonisolated func hubTypeIdentifier(from hubId: String) -> String {
+        // Extract the hubIdentifier portion (after the 4th colon)
+        let components = hubId.split(separator: ":")
+        if components.count >= 5 {
+            // hubIdentifier is everything after the 4th ":"
+            let hubIdentifier = components[4...].joined(separator: ":")
+            // Strip trailing section number (e.g. "music.recent.added.3" -> "music.recent.added")
+            if let lastDot = hubIdentifier.lastIndex(of: ".") {
+                let suffix = hubIdentifier[hubIdentifier.index(after: lastDot)...]
+                if suffix.allSatisfy(\.isNumber) {
+                    return String(hubIdentifier[..<lastDot])
+                }
+            }
+            return hubIdentifier
+        }
+        return hubId
+    }
+
+    /// Merge and group hubs by server and hub type identifier.
+    /// Uses the stable hubIdentifier (e.g. "music.recent.added") for grouping
+    /// rather than title normalization, so dynamic hubs like "More in Pop/Rock"
+    /// don't get incorrectly merged.
     private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
-        // Helper to get server key
         func getServerKey(_ hubId: String) -> String {
             let components = hubId.split(separator: ":")
             if components.count >= 2 {
@@ -693,14 +736,14 @@ public final class HomeViewModel: ObservableObject {
             return "global"
         }
 
-        // Group hubs by server and normalized title to merge libraries on the same server
+        // Group hubs by server and hub type identifier to merge libraries on the same server
         var hubGroups: [String: [Hub]] = [:]
         var groupOrder: [String] = []
 
         for hub in hubs {
             let serverKey = getServerKey(hub.id)
-            let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
-            let groupingKey = "\(serverKey)|\(normalizedTitle)"
+            let typeId = HomeViewModel.hubTypeIdentifier(from: hub.id)
+            let groupingKey = "\(serverKey)|\(typeId)"
 
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
@@ -718,7 +761,6 @@ public final class HomeViewModel: ObservableObject {
             let normalizedTitle = HomeViewModel.normalizeHubTitle(firstHub.title)
 
             if group.count == 1 {
-                // Even if not merged, use normalized title for consistency
                 mergedResults.append(Hub(
                     id: firstHub.id,
                     title: normalizedTitle,
@@ -726,7 +768,7 @@ public final class HomeViewModel: ObservableObject {
                     items: firstHub.items
                 ))
             } else {
-                // Merge items from all hubs in group
+                // Merge items from all hubs in this group
                 var allItems: [HubItem] = []
                 var seenItems = Set<String>()
 
@@ -743,12 +785,12 @@ public final class HomeViewModel: ObservableObject {
                 // Sort merged items by dateAdded descending
                 allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
 
-                // Create merged hub with a stable ID for ordering
+                let typeId = HomeViewModel.hubTypeIdentifier(from: firstHub.id)
                 let mergedHub = Hub(
-                    id: "\(serverKey):merged:\(normalizedTitle)",
+                    id: "\(serverKey):merged:\(typeId)",
                     title: normalizedTitle,
                     type: firstHub.type,
-                    items: Array(allItems.prefix(40)) // Higher limit for merged hubs
+                    items: Array(allItems.prefix(40))
                 )
                 mergedResults.append(mergedHub)
             }
