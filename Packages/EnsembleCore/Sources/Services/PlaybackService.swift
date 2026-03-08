@@ -4688,6 +4688,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        // If the buffer is healthy (likelyToKeepUp + substantial data buffered),
+        // just resume playback instead of restarting the track. This handles cases
+        // like screen lock where AVPlayer pauses but the buffer is fine.
+        if isLikelyToKeepUp && totalBuffered > 5.0 {
+            #if DEBUG
+            EnsembleLogger.debug("▶️ Buffer healthy during stall recovery (buffered=\(String(format: "%.1f", totalBuffered))s) — resuming instead of retrying")
+            #endif
+            resumePlayerFromBuffering(forceImmediate: true, reason: "stall-healthy-buffer")
+            scheduleStallRecovery(timeout: activeBufferingProfile.stallRecoveryTimeout)
+            return
+        }
+
         if let lastRecoveryAttemptAt = adaptiveBufferingState.lastRecoveryAttemptAt,
            now.timeIntervalSince(lastRecoveryAttemptAt) < Self.recoveryCooldown {
             #if DEBUG
