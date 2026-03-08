@@ -2939,15 +2939,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // periodic time observer to prevent it from overwriting currentTime with
         // the old track's position during the transition.
         await MainActor.run {
+            // Suppress the "unexpected pause" handler so it doesn't call
+            // player?.play() on the OLD track while we load the new one.
+            // Cleared in loadAndPlay() once the player item is replaced,
+            // or in the error path at the end of this method.
+            isSkipTransitionInProgress = true
             player?.pause()
             if let observer = timeObserver {
                 player?.removeTimeObserver(observer)
                 timeObserver = nil
             }
-            // Clear skip flag now that we've paused and torn down the old track.
-            // The "unexpected pause" handler is no longer a concern since we're
-            // about to replace the player item.
-            isSkipTransitionInProgress = false
             // Show loading immediately so the UI reflects the transition
             // instead of showing a stale play/pause button with silence.
             playbackState = .loading
@@ -3090,6 +3091,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
         await MainActor.run {
+            self.isSkipTransitionInProgress = false
             self.player?.pause()
             self.playbackState = .failed(errorMessage)
         }
@@ -3811,7 +3813,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         player?.removeAllItems()
         player?.insert(item, after: nil)
-        
+
+        // Old item is gone — safe to allow "unexpected pause" handling again
+        isSkipTransitionInProgress = false
+
         #if DEBUG
         EnsembleLogger.debug("🎵 Player item inserted, about to setup audio analyzer")
         EnsembleLogger.debug("🎵 AudioAnalyzer instance: \(type(of: audioAnalyzer))")
