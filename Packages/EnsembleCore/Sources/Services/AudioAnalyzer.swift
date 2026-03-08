@@ -18,9 +18,13 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Publisher for frequency band updates (~30 Hz)
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
     
-    /// Setup audio tap for an AVPlayerItem
+    /// Setup audio tap for an AVPlayerItem (tears down any existing tap first)
     @MainActor func setupAudioTap(for playerItem: AVPlayerItem)
-    
+
+    /// Install audio tap on a prefetched item without disrupting the current tap.
+    /// The tap is ready when AVQueuePlayer gapless-transitions to this item.
+    @MainActor func preinstallAudioTap(on playerItem: AVPlayerItem)
+
     /// Remove audio tap and stop analysis
     @MainActor func stopAnalysis()
     
@@ -146,27 +150,45 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
     @MainActor
     public func setupAudioTap(for playerItem: AVPlayerItem) {
         stopAnalysis()
-        
+        installAudioTap(on: playerItem, storeMix: true)
+    }
+
+    /// Install an audio tap on a player item without tearing down the current
+    /// analysis session.  Used for prefetched items so the tap is ready before
+    /// AVQueuePlayer's gapless transition — avoids setting audioMix mid-playback
+    /// which disrupts gapless audio.
+    @MainActor
+    public func preinstallAudioTap(on playerItem: AVPlayerItem) {
+        // Don't touch stopAnalysis or self.audioMix — the current item is
+        // still playing and its tap should keep running.
+        installAudioTap(on: playerItem, storeMix: false)
+    }
+
+    /// Shared tap installation.  When `storeMix` is true the mix reference is
+    /// kept in `self.audioMix` (primary / current-item path).
+    @MainActor
+    private func installAudioTap(on playerItem: AVPlayerItem, storeMix: Bool) {
         #if DEBUG
-        logger.debug("🎵 setupAudioTap called for player item - using REAL audio tap")
+        logger.debug("🎵 installAudioTap called (storeMix=\(storeMix))")
         #endif
-        
+
         guard let fftSetup = fftSetup else {
             #if DEBUG
             logger.error("Cannot setup audio tap: FFT not initialized")
             #endif
             return
         }
-        
-        // Get audio tracks
+
+        // Skip if this item already has an audio mix (e.g., pre-installed during prefetch)
+        if playerItem.audioMix != nil { return }
+
         guard let audioTrack = playerItem.asset.tracks(withMediaType: .audio).first else {
             #if DEBUG
             logger.debug("No audio track found in player item")
             #endif
             return
         }
-        
-        // Create audio processing tap callbacks
+
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
@@ -176,7 +198,7 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             unprepare: tapUnprepare,
             process: tapProcess
         )
-        
+
         var tap: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(
             kCFAllocatorDefault,
@@ -184,25 +206,25 @@ public final class AudioAnalyzer: AudioAnalyzerProtocol {
             kMTAudioProcessingTapCreationFlag_PostEffects,
             &tap
         )
-        
+
         guard status == noErr, let audioTap = tap else {
             #if DEBUG
             logger.error("Failed to create audio processing tap: \(status)")
             #endif
             return
         }
-        
-        // Create audio mix with the tap
+
         let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
         inputParams.audioTapProcessor = audioTap
-        
+
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = [inputParams]
-        
-        // Apply the audio mix to the player item
+
         playerItem.audioMix = audioMix
-        self.audioMix = audioMix
-        
+        if storeMix {
+            self.audioMix = audioMix
+        }
+
         #if DEBUG
         logger.debug("✅ Audio tap setup complete")
         #endif

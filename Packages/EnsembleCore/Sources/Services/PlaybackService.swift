@@ -985,11 +985,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         self.remainingDurationAtSeek = nil
                         self.hasTriggeredWallClockBoundary = false
 
-                        // Install audio tap on the new item so the visualizer works.
-                        // loadAndPlay() isn't called during gapless transitions, so
-                        // the tap must be set up here.
-                        self.audioAnalyzer.setupAudioTap(for: item)
-
                         // Non-state-changing operations
                         self.generateWaveform(for: newTrack.id)
                         self.updateNowPlayingInfo()
@@ -1012,9 +1007,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         // Reset timeline tracking for the repeat
                         self.lastTimelineReportTime = 0
                         self.hasScrobbled = false
-
-                        // Re-install audio tap on the new item for the visualizer
-                        self.audioAnalyzer.setupAudioTap(for: item)
 
                         // Queue it again for the next repeat
                         await self.prefetchNextItem()
@@ -3724,6 +3716,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await MainActor.run { cachePlayerItem(item, for: track.id) }
                     cacheMisses += 1
                 }
+
+                // Pre-install audio tap so the visualizer works immediately on
+                // gapless transitions (no need to set it up in handleItemChange).
+                await MainActor.run { audioAnalyzer.preinstallAudioTap(on: item) }
 
                 prefetchedItems.append(item)
             } catch {
