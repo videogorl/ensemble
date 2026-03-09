@@ -791,6 +791,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxHistorySize = 100  // Cap for 2GB RAM devices
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
     private var isSkipTransitionInProgress = false  // Suppresses "unexpected pause" handler during next/previous
+    private var isReplacingPlayerItem = false  // Suppresses KVO during loadAndPlay remove/insert transition
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
 
     // Wall-clock based duration tracking: AVPlayer's reported position can diverge from
@@ -915,6 +916,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentItemObservation = player?.observe(\.currentItem, options: [.new, .old]) { [weak self] _, change in
             guard let self = self else { return }
             DispatchQueue.main.async {
+                // Suppress KVO during loadAndPlay's removeAllItems/insert transition.
+                // removeAllItems() can cause intermediate currentItem changes as the player
+                // steps through each queued item before reaching nil. Without this guard,
+                // handleItemChange fires for stale prefetched items and corrupts currentQueueIndex.
+                if self.isReplacingPlayerItem {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎵 Suppressing currentItem KVO during player item replacement")
+                    #endif
+                    return
+                }
+
                 if let newItem = change.newValue as? AVPlayerItem {
                     self.handleItemChange(newItem)
                 } else if (change.oldValue as? AVPlayerItem) != nil {
@@ -1087,7 +1099,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let nextIndex = findNextPlayableTrackIndex(after: currentQueueIndex)
         if let nextIndex, nextIndex < queue.count {
             currentQueueIndex = nextIndex
-            await playCurrentQueueItem()
+            await playCurrentQueueItem(caller: "handleQueueExhausted-next")
             savePlaybackState()
             await checkAndRefreshAutoplayQueue()
             return
@@ -1095,7 +1107,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         if repeatMode == .all {
             currentQueueIndex = 0
-            await playCurrentQueueItem()
+            await playCurrentQueueItem(caller: "handleQueueExhausted-repeatAll")
             savePlaybackState()
             await checkAndRefreshAutoplayQueue()
             return
@@ -1108,7 +1120,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let refreshedNextIndex = currentQueueIndex + 1
             if queue.count > previousCount, refreshedNextIndex < queue.count {
                 currentQueueIndex = refreshedNextIndex
-                await playCurrentQueueItem()
+                await playCurrentQueueItem(caller: "handleQueueExhausted-autoplay")
                 savePlaybackState()
                 await checkAndRefreshAutoplayQueue()
             } else {
@@ -1637,7 +1649,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrackIds = Set(queueTracks.map { $0.id })
         await MainActor.run { evictPlayerItemsNotIn(newTrackIds) }
 
-        await playCurrentQueueItem()
+        await playCurrentQueueItem(caller: "play(tracks:)")
         savePlaybackState()
 
         // Check queue population after starting new playback
@@ -1685,7 +1697,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrackIds = Set(queueTracks.map { $0.id })
         await MainActor.run { evictPlayerItemsNotIn(newTrackIds) }
 
-        await playCurrentQueueItem()
+        await playCurrentQueueItem(caller: "shufflePlay")
         savePlaybackState()
 
         // Check queue population after starting new playback
@@ -1821,7 +1833,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = index
 
         // Don't reset auto-generated tracking - preserve it when jumping within queue
-        await playCurrentQueueItem()
+        await playCurrentQueueItem(caller: "jumpToQueueIndex(\(index))")
         savePlaybackState()
 
         // Check queue after jumping
@@ -1852,7 +1864,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isNavigatingBackward = true
             currentQueueIndex = existingIndex
 
-            await playCurrentQueueItem()
+            await playCurrentQueueItem(caller: "playFromHistory-existing")
             savePlaybackState()
         } else {
             // Track not in queue - insert it at current position
@@ -1871,7 +1883,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Set flag to prevent re-adding to history
             isNavigatingBackward = true
 
-            await playCurrentQueueItem()
+            await playCurrentQueueItem(caller: "playFromHistory-inserted")
             savePlaybackState()
         }
 
@@ -1909,7 +1921,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // the network request), load and play the current queue item now.
         if player?.currentItem == nil, currentTrack != nil {
             Task { @MainActor in
-                await playCurrentQueueItem(seekTo: currentTime)
+                await playCurrentQueueItem(seekTo: currentTime, caller: "restorePlaybackState")
             }
             return
         }
@@ -1962,6 +1974,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         pendingLoadSeekTime = nil
         consecutivePlaybackFailures = 0
         isSkipTransitionInProgress = false
+        isReplacingPlayerItem = false
         seekCompletedAt = nil
         remainingDurationAtSeek = nil
         hasTriggeredWallClockBoundary = false
@@ -1997,7 +2010,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             if let nextIndex = self.findNextPlayableTrackIndex(after: self.currentQueueIndex) {
                 self.currentQueueIndex = nextIndex
-                await self.playCurrentQueueItem()
+                await self.playCurrentQueueItem(caller: "next()")
                 self.savePlaybackState()
                 await self.checkAndRefreshAutoplayQueue()
             } else {
@@ -2006,7 +2019,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Wrap around — find first playable from start
                     if let wrappedIndex = self.findNextPlayableTrackIndex(after: -1) {
                         self.currentQueueIndex = wrappedIndex
-                        await self.playCurrentQueueItem()
+                        await self.playCurrentQueueItem(caller: "next()-repeatAll")
                         self.savePlaybackState()
                     } else {
                         self.stop()
@@ -2056,7 +2069,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         
         currentQueueIndex -= 1
         Task {
-            await playCurrentQueueItem()
+            await playCurrentQueueItem(caller: "previous()")
             savePlaybackState()
             await checkAndRefreshAutoplayQueue()
         }
@@ -2837,7 +2850,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if DEBUG
         EnsembleLogger.debug("🔄 Starting playback...")
         #endif
-        await playCurrentQueueItem()
+        await playCurrentQueueItem(caller: "beginRadio")
         savePlaybackState()
         
         // Populate autoplay queue with sonically similar tracks
@@ -2964,7 +2977,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func playCurrentQueueItem(
         forcingFreshItem: Bool = false,
-        seekTo startTime: TimeInterval? = nil
+        seekTo startTime: TimeInterval? = nil,
+        caller: String = #function
     ) async {
         // Keep the app alive during track transitions in background.
         // iOS may suspend the app between tracks when no audio is playing.
@@ -2982,13 +2996,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if DEBUG
         let isCached = await MainActor.run { playerItems[track.id] != nil }
         EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
-        EnsembleLogger.debug("🎵 playCurrentQueueItem() called")
+        EnsembleLogger.debug("🎵 playCurrentQueueItem() called [caller: \(caller)]")
         EnsembleLogger.debug("   Track: \(track.title)")
         EnsembleLogger.debug("   Artist: \(track.artistName ?? "Unknown")")
         EnsembleLogger.debug("   Queue index: \(currentQueueIndex)/\(queue.count)")
         EnsembleLogger.debug("   Has local file: \(track.localFilePath != nil)")
         EnsembleLogger.debug("   Cached: \(isCached)")
         #endif
+
+        // Clear stale wall-clock tracking from the previous track's seek.
+        // Without this, a seek in track A followed by next() to track B leaves
+        // seekCompletedAt set, and the wall-clock boundary could eventually fire
+        // during track B's playback, triggering a spurious handleQueueExhausted().
+        await MainActor.run {
+            seekCompletedAt = nil
+            remainingDurationAtSeek = nil
+            hasTriggeredWallClockBoundary = false
+        }
 
         // Cancel any pending loading state transition
         loadingStateTask?.cancel()
@@ -3225,7 +3249,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
                 // Evict stale cached player item so it re-creates from local file
                 await MainActor.run { removeCachedPlayerItem(for: track.id) }
-                await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime)
+                await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack-downloadFallback(\(reason))")
                 return
             }
         }
@@ -3240,7 +3264,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime)
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack(\(reason))")
     }
 
     /// Handle playback failure due to TLS errors.
@@ -3295,7 +3319,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if DEBUG
         EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
         #endif
-        await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil)
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil, caller: "handleTLSPlaybackFailure")
     }
 
     /// Handle playback failure when the server is unreachable (timeout, can't connect, etc.).
@@ -3899,8 +3923,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // making the circuit breaker unreachable. The counter resets when
         // timeControlStatus transitions to .playing (confirmed audio output).
 
+        // Suppress currentItem KVO during the remove/insert transition.
+        // removeAllItems() can cause intermediate currentItem changes as AVQueuePlayer
+        // steps through each queued prefetched item before reaching nil. These
+        // intermediate KVO events would fire handleItemChange with stale items,
+        // corrupting currentQueueIndex and causing backward jumps in the queue.
+        isReplacingPlayerItem = true
         player?.removeAllItems()
         player?.insert(item, after: nil)
+        isReplacingPlayerItem = false
 
         // Old item is gone — safe to allow "unexpected pause" handling again
         isSkipTransitionInProgress = false
@@ -4909,7 +4940,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         // Replay from the saved position
-        await playCurrentQueueItem(forcingFreshItem: true, seekTo: seekPosition)
+        await playCurrentQueueItem(forcingFreshItem: true, seekTo: seekPosition, caller: "qualityChange")
     }
 
     /// Re-stamp streamingQuality on all non-downloaded queue items
@@ -5089,9 +5120,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if didReplaceCurrentTrack {
             switch previousPlaybackState {
             case .playing, .loading, .buffering:
-                await playCurrentQueueItem(forcingFreshItem: true)
+                await playCurrentQueueItem(forcingFreshItem: true, caller: "sourcePrune-playing")
             case .paused:
-                await playCurrentQueueItem(forcingFreshItem: true)
+                await playCurrentQueueItem(forcingFreshItem: true, caller: "sourcePrune-paused")
                 pause()
             case .stopped, .failed:
                 currentTrack = queue[currentQueueIndex].track
