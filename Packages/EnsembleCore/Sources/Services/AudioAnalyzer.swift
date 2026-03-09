@@ -404,12 +404,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Reuses the same parameters as the old real-time tap (1024 FFT, 24 log bands, pow(0.7) smoothing).
     private nonisolated static func analyzeFile(at fileURL: URL) -> FrequencyTimeline? {
         #if DEBUG
+        let startTime = CACurrentMediaTime()
         NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
         #endif
 
         // Open audio file — try directly first, then fall back to symlink probing
         // for files with unrecognized extensions (e.g. ".audio" from stream cache).
-        // AVAudioFile relies on the file extension to determine the container format.
         var tempSymlink: URL? = nil
         let audioFile: AVAudioFile
         if let file = try? AVAudioFile(forReading: fileURL) {
@@ -418,10 +418,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             audioFile = file
             tempSymlink = symlink
         } else {
+            #if DEBUG
             let exists = FileManager.default.fileExists(atPath: fileURL.path)
             let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? -1
-            #if DEBUG
-            NSLog("[FrequencyAnalysis] Failed to open file: %@ (exists=%d, size=%lld)", fileURL.lastPathComponent, exists, size)
+            NSLog("[FrequencyAnalysis] Failed to open: %@ (exists=%d, size=%lld)", fileURL.lastPathComponent, exists, size)
             #endif
             return nil
         }
@@ -429,151 +429,136 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         let sampleRate = audioFile.processingFormat.sampleRate
         let totalFrames = AVAudioFrameCount(audioFile.length)
-        guard sampleRate > 0, totalFrames > 0 else {
-            #if DEBUG
-            NSLog("[FrequencyAnalysis] Invalid format: sampleRate=%.0f, frames=%u", sampleRate, totalFrames)
-            #endif
-            return nil
-        }
+        guard sampleRate > 0, totalFrames > 0 else { return nil }
 
         let duration = Double(totalFrames) / sampleRate
+        let processingFormat = audioFile.processingFormat
+        let channelCount = Int(processingFormat.channelCount)
         #if DEBUG
-        NSLog("[FrequencyAnalysis] File opened: %.1fs, %.0fHz, %u frames, channels=%u",
-              duration, sampleRate, totalFrames, audioFile.processingFormat.channelCount)
+        NSLog("[FrequencyAnalysis] Opened: %.1fs, %.0fHz, ch=%u", duration, sampleRate, channelCount)
         #endif
-        let fps: Double = 30.0
+
+        // Seek-based analysis: instead of reading the entire file sequentially
+        // (which decodes all audio — 57MB PCM for a 5-min stereo track and takes
+        // minutes on older devices), seek to each analysis point and only decode
+        // fftSize (1024) samples per frame. For a 5-min song at 10fps:
+        //   Sequential: decode 15M frames (~2min on A9)
+        //   Seek-based:  decode 30K frames total (~1-2sec)
+        //
+        // The display timer interpolates between 10fps keyframes at 30Hz,
+        // which is visually smooth and indistinguishable from true 30fps data.
+        let analysisFPS: Double = 10.0
+        let outputFPS: Double = 30.0
         let fftSize = 1024
         let bandCount = 24
-
-        // Hop size for 30fps
-        let hopSize = Int(sampleRate / fps)
-        guard hopSize > 0 else { return nil }
+        let hopFrames = Int(sampleRate / analysisFPS)
 
         // Setup FFT
         let log2n = vDSP_Length(log2(Double(fftSize)))
-        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
-            return nil
-        }
+        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else { return nil }
         defer { vDSP_destroy_fftsetup(fftSetup) }
 
-        // Calculate logarithmic band edges (60Hz - 16kHz)
-        let minFreq: Double = 60.0
-        let maxFreq: Double = 16000.0
-        let logMin = log10(minFreq)
-        let logMax = log10(maxFreq)
-        var bandEdges = [Double]()
-        for i in 0...bandCount {
-            let logFreq = logMin + (Double(i) / Double(bandCount)) * (logMax - logMin)
-            bandEdges.append(pow(10, logFreq))
+        // Log-spaced frequency band edges (60Hz - 16kHz, 24 bands)
+        let logMin = log10(60.0), logMax = log10(16000.0)
+        var bandEdges = (0...bandCount).map { i in
+            pow(10, logMin + (Double(i) / Double(bandCount)) * (logMax - logMin))
         }
 
-        // Pre-compute Hann window
         var hannWindow = [Float](repeating: 0, count: fftSize)
         vDSP_hann_window(&hannWindow, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
 
-        // Streaming analysis: process FFT frames as we read, keeping only a small
-        // rolling buffer instead of loading the entire file into memory (~57MB for
-        // a 5-min stereo track). Peak memory is ~100KB regardless of file duration.
-        let processingFormat = audioFile.processingFormat
-        let channelCount = Int(processingFormat.channelCount)
-        // Read enough to produce several FFT frames per chunk (~1s of audio)
-        let chunkFrames = AVAudioFrameCount(hopSize * 30)
-        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkFrames) else {
-            return nil
-        }
+        // Read buffer for exactly one FFT window of audio
+        guard let readBuffer = AVAudioPCMBuffer(
+            pcmFormat: processingFormat,
+            frameCapacity: AVAudioFrameCount(fftSize)
+        ) else { return nil }
 
-        let expectedSnapshots = Int(ceil(duration * fps))
-        var snapshots = [FrequencySnapshot]()
-        snapshots.reserveCapacity(expectedSnapshots)
-
-        // Reusable FFT buffers (allocated once, reused per frame)
+        // Reusable FFT buffers
         var windowedSamples = [Float](repeating: 0, count: fftSize)
         var realParts = [Float](repeating: 0, count: fftSize / 2)
         var imagParts = [Float](repeating: 0, count: fftSize / 2)
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)
         var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
-
-        // Rolling mono sample buffer — only keeps enough for one FFT window
-        // plus leftover samples from the previous chunk read.
-        var monoBuffer = [Float]()
-        monoBuffer.reserveCapacity(Int(chunkFrames) + fftSize)
         let binSize = sampleRate / Double(fftSize)
 
-        do {
-            while audioFile.framePosition < audioFile.length {
-                let remaining = AVAudioFrameCount(audioFile.length - audioFile.framePosition)
-                let toRead = min(chunkFrames, remaining)
-                readBuffer.frameLength = 0
-                try audioFile.read(into: readBuffer, frameCount: toRead)
-                guard readBuffer.frameLength > 0, let channelData = readBuffer.floatChannelData else { break }
-                let frameCount = Int(readBuffer.frameLength)
+        // Analyze at 10fps keyframes by seeking to each point
+        let keyframeCount = Int(ceil(duration * analysisFPS))
+        var keyframes = [FrequencySnapshot]()
+        keyframes.reserveCapacity(keyframeCount)
 
-                // Mix down to mono and append to rolling buffer
+        do {
+            for k in 0..<keyframeCount {
+                let seekFrame = AVAudioFramePosition(k * hopFrames)
+                guard seekFrame + AVAudioFramePosition(fftSize) <= audioFile.length else {
+                    // Near end of file — duplicate last frame if we have one
+                    if let last = keyframes.last {
+                        keyframes.append(last)
+                    }
+                    continue
+                }
+
+                // Seek and read only fftSize samples
+                audioFile.framePosition = seekFrame
+                readBuffer.frameLength = 0
+                try audioFile.read(into: readBuffer, frameCount: AVAudioFrameCount(fftSize))
+                guard readBuffer.frameLength > 0,
+                      let channelData = readBuffer.floatChannelData else { continue }
+
+                let readCount = min(Int(readBuffer.frameLength), fftSize)
+
+                // Mix to mono + apply Hann window in one pass
+                for i in 0..<fftSize { windowedSamples[i] = 0 }
                 if channelCount == 1 {
                     let ptr = channelData[0]
-                    monoBuffer.append(contentsOf: UnsafeBufferPointer(start: ptr, count: frameCount))
+                    for i in 0..<readCount {
+                        windowedSamples[i] = ptr[i] * hannWindow[i]
+                    }
                 } else {
-                    for i in 0..<frameCount {
+                    let invCh = 1.0 / Float(channelCount)
+                    for i in 0..<readCount {
                         var sum: Float = 0
-                        for ch in 0..<channelCount {
-                            sum += channelData[ch][i]
-                        }
-                        monoBuffer.append(sum / Float(channelCount))
+                        for ch in 0..<channelCount { sum += channelData[ch][i] }
+                        windowedSamples[i] = sum * invCh * hannWindow[i]
                     }
                 }
 
-                // Process all complete FFT frames in the buffer
-                while monoBuffer.count >= fftSize {
-                    // Apply Hann window
-                    for i in 0..<fftSize {
-                        windowedSamples[i] = monoBuffer[i] * hannWindow[i]
-                    }
-
-                    // Convert to split complex and run FFT
-                    realParts = [Float](repeating: 0, count: fftSize / 2)
-                    imagParts = [Float](repeating: 0, count: fftSize / 2)
-                    var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-                    windowedSamples.withUnsafeBufferPointer { bufferPtr in
-                        bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
-                            vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
-                        }
-                    }
-                    vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-                    vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-                    var divisor = Float(fftSize * 2)
-                    vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
-
-                    // Extract 24 logarithmic frequency bands
-                    var bandValues = [UInt8](repeating: 0, count: bandCount)
-                    for i in 0..<bandCount {
-                        let lowerBin = Int(bandEdges[i] / binSize)
-                        let upperBin = Int(bandEdges[i + 1] / binSize)
-                        guard lowerBin < normalizedMags.count else { continue }
-
-                        var sum: Float = 0
-                        var count = 0
-                        for bin in lowerBin..<min(upperBin, normalizedMags.count) {
-                            sum += normalizedMags[bin]
-                            count += 1
-                        }
-                        guard count > 0 else { continue }
-
-                        let average = sum / Float(count)
-                        let db = 20.0 * log10(Double(max(average, 1e-10)))
-                        let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
-                        let curved = pow(normalized, 0.7)
-                        bandValues[i] = UInt8(min(255, max(0, curved * 255.0)))
-                    }
-
-                    snapshots.append(FrequencySnapshot(bands: bandValues))
-
-                    // Advance by hopSize, dropping consumed samples from the front
-                    if hopSize <= monoBuffer.count {
-                        monoBuffer.removeFirst(hopSize)
-                    } else {
-                        monoBuffer.removeAll()
+                // FFT
+                realParts = [Float](repeating: 0, count: fftSize / 2)
+                imagParts = [Float](repeating: 0, count: fftSize / 2)
+                var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
+                windowedSamples.withUnsafeBufferPointer { bufferPtr in
+                    bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                        vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
                     }
                 }
+                vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+                vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                var divisor = Float(fftSize * 2)
+                vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
+
+                // Extract 24 logarithmic frequency bands
+                var bandValues = [UInt8](repeating: 0, count: bandCount)
+                for i in 0..<bandCount {
+                    let lowerBin = Int(bandEdges[i] / binSize)
+                    let upperBin = Int(bandEdges[i + 1] / binSize)
+                    guard lowerBin < normalizedMags.count else { continue }
+
+                    var sum: Float = 0
+                    var count = 0
+                    for bin in lowerBin..<min(upperBin, normalizedMags.count) {
+                        sum += normalizedMags[bin]
+                        count += 1
+                    }
+                    guard count > 0 else { continue }
+
+                    let average = sum / Float(count)
+                    let db = 20.0 * log10(Double(max(average, 1e-10)))
+                    let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
+                    let curved = pow(normalized, 0.7)
+                    bandValues[i] = UInt8(min(255, max(0, curved * 255.0)))
+                }
+
+                keyframes.append(FrequencySnapshot(bands: bandValues))
             }
         } catch {
             #if DEBUG
@@ -582,13 +567,46 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             return nil
         }
 
+        guard !keyframes.isEmpty else { return nil }
+
+        // Upsample 10fps keyframes to 30fps by interpolating between neighbors.
+        // This produces smooth visual output from the sparse analysis data.
+        let outputFrameCount = Int(ceil(duration * outputFPS))
+        var snapshots = [FrequencySnapshot]()
+        snapshots.reserveCapacity(outputFrameCount)
+
+        for f in 0..<outputFrameCount {
+            let timeInSeconds = Double(f) / outputFPS
+            let keyframeIndex = timeInSeconds * analysisFPS
+            let lo = Int(keyframeIndex)
+            let hi = min(lo + 1, keyframes.count - 1)
+            let frac = Float(keyframeIndex - Double(lo))
+
+            if lo >= keyframes.count {
+                snapshots.append(keyframes.last!)
+                continue
+            }
+
+            // Linearly interpolate between adjacent keyframes
+            let a = keyframes[lo].bands
+            let b = keyframes[hi].bands
+            var interpolated = [UInt8](repeating: 0, count: bandCount)
+            for i in 0..<bandCount {
+                let val = Float(a[i]) * (1 - frac) + Float(b[i]) * frac
+                interpolated[i] = UInt8(min(255, max(0, val)))
+            }
+            snapshots.append(FrequencySnapshot(bands: interpolated))
+        }
+
         #if DEBUG
-        NSLog("[FrequencyAnalysis] Complete: %d snapshots for %.1fs", snapshots.count, duration)
+        let elapsed = CACurrentMediaTime() - startTime
+        NSLog("[FrequencyAnalysis] Complete: %d keyframes -> %d snapshots for %.1fs (took %.2fs)",
+              keyframes.count, snapshots.count, duration, elapsed)
         #endif
 
         return FrequencyTimeline(
             snapshots: snapshots,
-            framesPerSecond: fps,
+            framesPerSecond: outputFPS,
             duration: duration
         )
     }

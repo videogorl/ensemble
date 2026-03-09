@@ -73,9 +73,9 @@ public extension View {
 
     /// Adds bottom spacing for the mini player/tab bar area.
     /// iOS 16+ uses safeAreaInset for scroll-behind-chrome behavior.
-    /// iOS 15 uses additionalSafeAreaInsets on the nearest view controller,
-    /// which propagates through NavigationView without triggering SwiftUI's
-    /// host-preference recursion that safeAreaInset causes on iOS 15.
+    /// iOS 15 is a no-op here — the inset is applied once at the container
+    /// level via `miniPlayerContainerInset()` in MainTabView, which sets
+    /// additionalSafeAreaInsets on the TabView's hosting controller.
     @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = 140) -> some View {
         #if os(iOS)
@@ -84,14 +84,34 @@ public extension View {
                 Color.clear.frame(height: height)
             }
         } else {
-            self.background(
-                AdditionalSafeAreaInsetter(bottomInset: height)
-            )
+            // No-op on iOS 15: container-level additionalSafeAreaInsets
+            // handles this via miniPlayerContainerInset() in MainTabView
+            self
         }
         #else
         self.safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: height)
         }
+        #endif
+    }
+
+    /// Applies additionalSafeAreaInsets.bottom to the TabView container on iOS 15.
+    /// Applied once in MainTabView — propagates to all child navigation controllers
+    /// and their content, including pushed views. This is the Apple Music approach:
+    /// the mini player controller manages the inset, not each content view.
+    @ViewBuilder
+    func miniPlayerContainerInset(_ height: CGFloat, isVisible: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            // iOS 16+ uses per-view safeAreaInset, no container inset needed
+            self
+        } else {
+            self.background(
+                MiniPlayerContainerInsetter(bottomInset: isVisible ? height : 0)
+            )
+        }
+        #else
+        self
         #endif
     }
 
@@ -134,72 +154,71 @@ private struct CoverFlowRotationSupportModifier: ViewModifier {
     }
 }
 
-/// Sets `additionalSafeAreaInsets.bottom` on the nearest parent view controller.
-/// This is the UIKit-native way to add safe area insets — it propagates through
-/// the entire child view controller hierarchy (including NavigationController
-/// children) without triggering SwiftUI preference recursion.
-/// Used on iOS 15 where SwiftUI's safeAreaInset causes infinite layout loops
-/// in NavigationView contexts.
-private struct AdditionalSafeAreaInsetter: UIViewControllerRepresentable {
+/// Applied once as a background on the TabView container in MainTabView.
+/// Finds every child UINavigationController under the UITabBarController
+/// and sets additionalSafeAreaInsets.bottom on each. This propagates to
+/// all pushed views, matching how Apple Music handles mini player insets.
+///
+/// Uses UIViewRepresentable (not UIViewControllerRepresentable) to avoid
+/// inserting a child VC that could cause layout feedback loops.
+private struct MiniPlayerContainerInsetter: UIViewRepresentable {
     let bottomInset: CGFloat
 
-    func makeUIViewController(context: Context) -> InsetViewController {
-        InsetViewController(bottomInset: bottomInset)
+    func makeUIView(context: Context) -> InsetProbeView {
+        let view = InsetProbeView()
+        view.bottomInset = bottomInset
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        return view
     }
 
-    func updateUIViewController(_ controller: InsetViewController, context: Context) {
-        controller.updateInset(bottomInset)
+    func updateUIView(_ view: InsetProbeView, context: Context) {
+        view.bottomInset = bottomInset
+        view.applyInsets()
     }
 
-    /// Tiny child view controller whose only job is to set additionalSafeAreaInsets
-    /// on its parent. When SwiftUI hosts this as a background, the VC is added as
-    /// a child of the hosting controller, and setting additionalSafeAreaInsets on
-    /// the parent propagates to all sibling content views.
-    final class InsetViewController: UIViewController {
-        private var bottomInset: CGFloat
+    final class InsetProbeView: UIView {
+        var bottomInset: CGFloat = 0
+        private var appliedInset: CGFloat = -1
 
-        init(bottomInset: CGFloat) {
-            self.bottomInset = bottomInset
-            super.init(nibName: nil, bundle: nil)
-            view.backgroundColor = .clear
-            view.isUserInteractionEnabled = false
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Defer to next runloop to ensure the VC hierarchy is fully set up
+            DispatchQueue.main.async { [weak self] in
+                self?.applyInsets()
+            }
         }
 
-        required init?(coder: NSCoder) { fatalError() }
+        func applyInsets() {
+            guard bottomInset != appliedInset else { return }
 
-        override func didMove(toParent parent: UIViewController?) {
-            super.didMove(toParent: parent)
-            applyInset()
-        }
+            // Find the UITabBarController in the ancestor chain
+            guard let tabBarController = findTabBarController() else { return }
 
-        func updateInset(_ newInset: CGFloat) {
-            guard newInset != bottomInset else { return }
-            bottomInset = newInset
-            applyInset()
-        }
-
-        private func applyInset() {
-            // Walk up to find the hosting controller that owns the content area.
-            // On iOS 15, SwiftUI wraps each tab's content in a hosting controller
-            // inside a UINavigationController. We want the navigation controller's
-            // additionalSafeAreaInsets so all pushed views inherit the inset.
-            var candidate = parent
-            while let vc = candidate {
-                if vc is UINavigationController || vc is UITabBarController {
-                    break
+            // Set insets on each child navigation controller so all tabs get the inset
+            for child in tabBarController.children {
+                if let navController = child as? UINavigationController {
+                    var insets = navController.additionalSafeAreaInsets
+                    if insets.bottom != bottomInset {
+                        insets.bottom = bottomInset
+                        navController.additionalSafeAreaInsets = insets
+                    }
                 }
-                candidate = vc.parent
             }
 
-            // Fall back to direct parent if we didn't find a navigation controller
-            let target = candidate ?? parent
-            guard let target else { return }
+            appliedInset = bottomInset
+        }
 
-            var insets = target.additionalSafeAreaInsets
-            if insets.bottom != bottomInset {
-                insets.bottom = bottomInset
-                target.additionalSafeAreaInsets = insets
+        private func findTabBarController() -> UITabBarController? {
+            var responder: UIResponder? = self
+            while let next = responder?.next {
+                if let tabBarController = next as? UITabBarController {
+                    return tabBarController
+                }
+                responder = next
             }
+            return nil
         }
     }
 }

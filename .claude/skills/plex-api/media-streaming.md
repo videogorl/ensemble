@@ -45,13 +45,13 @@ Stream the transcoded audio. Uses the same query parameters as the decision call
 
 **Client profile extra (codec declarations):**
 ```
-add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)
-+add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)
+add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)
 +add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)
 +add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)
 +add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=flac)
 +add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=alac)
 ```
+**Note:** AAC is a direct-play codec only, NOT a transcode target. PMS silently produces 0-byte output when transcoding high-sample-rate FLAC (96kHz/24-bit) → AAC. MP3 is the only safe transcode output codec.
 
 **Response characteristics (important for AVPlayer):**
 ```
@@ -157,9 +157,11 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 
 **Root cause:** AVPlayer's CoreMedia HTTP stack (CFHTTP) cannot handle PMS's chunked transcode response (`Transfer-Encoding: chunked`, no `Content-Length`, `Connection: close`). This causes CFHTTP error -16845, which surfaces as `NSURLErrorResourceUnavailable` (-1008). After the first failure, the stale transcode session on PMS causes subsequent requests to return HTTP 400.
 
-**Fix:** `PlexAPIClient.downloadUniversalStreamToFile()` downloads the stream via URLSession (which handles chunked encoding correctly) to a temp file. AVPlayer receives a `file://` URL instead of a remote URL, bypassing CFHTTP entirely.
+**Fix:** `PlexAPIClient.downloadUniversalStreamToFile()` downloads the stream via URLSession (which handles chunked encoding correctly) to a temp file, then injects a XING header for VBR duration accuracy. AVPlayer receives a `file://` URL instead of a remote URL, bypassing CFHTTP entirely.
 
 **DO NOT revert to giving AVPlayer remote transcode URLs.** The CFHTTP issue is in Apple's CoreMedia framework and cannot be worked around with AVURLAsset options or headers.
+
+**DO NOT re-add CAF conversion.** A previous approach converted downloaded MP3s to uncompressed CAF (PCM) for zero-gap gapless playback. This created ~60MB files per 5-min track (vs ~6MB for MP3), causing linear memory growth on low-RAM devices and 13-second blocking downloads. XING header injection provides sufficient gapless metadata at negligible cost.
 
 
 ## RESOLVED: VBR MP3 duration overestimate / FigFilePlayer err=-12864
@@ -182,4 +184,4 @@ Two issues cause `start.mp3` to return **400 Bad Request** while `decision` retu
 
 1. **`X-Plex-Client-Profile-Name=generic`** — DO NOT include this query parameter. The decision endpoint tolerates it, but start.mp3 rejects it with 400.
 
-2. **URLComponents `%3D` encoding** — Swift's `URLComponents` encodes `=` as `%3D` inside query parameter values. PMS's start.mp3 requires literal `=` inside `X-Plex-Client-Profile-Extra`. **Use `PlexAPIClient.buildTranscodeURL(path:queryItems:)`** instead, which manually encodes only `&` (as `%26`) and spaces (as `%20`).
+2. **URLComponents `%3D` encoding** — Swift's `URLComponents` encodes `=` as `%3D` inside query parameter values. PMS's start.mp3 requires literal `=` inside `X-Plex-Client-Profile-Extra`. **Use `PlexAPIClient.buildTranscodeURL(path:queryItems:)`** instead, which uses `addingPercentEncoding(withAllowedCharacters:)` with `urlQueryAllowed` minus `&` — this keeps `=`, `+`, `(`, `)` literal as PMS requires while properly encoding non-ASCII characters (critical for iOS 15 URL parser compatibility).
