@@ -229,11 +229,8 @@ struct HubSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Section header
-            Text(hub.title)
-                .font(.title2)
-                .fontWeight(.bold)
-                .padding(.horizontal)
+            // Section header — navigable when hub has an associated artist
+            sectionHeader
 
             // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
@@ -248,6 +245,46 @@ struct HubSection: View {
                 }
                 .padding(.horizontal)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sectionHeader: some View {
+        if let artistId = hub.contextArtistId {
+            // Tappable header that navigates to the artist detail view
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
+                    sectionHeaderLabel
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+            } else {
+                NavigationLink {
+                    ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    sectionHeaderLabel
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+            }
+        } else {
+            Text(hub.title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+        }
+    }
+
+    private var sectionHeaderLabel: some View {
+        HStack(spacing: 4) {
+            Text(hub.title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+
+            Image(systemName: "chevron.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
         }
     }
 }

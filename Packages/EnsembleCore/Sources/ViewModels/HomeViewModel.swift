@@ -297,7 +297,8 @@ public final class HomeViewModel: ObservableObject {
                                                 id: hubId,
                                                 title: plexHub.title,
                                                 type: plexHub.type ?? "mixed",
-                                                items: hubItems
+                                                items: hubItems,
+                                                context: plexHub.context
                                             )
                                         }
                                         return nil

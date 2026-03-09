@@ -564,12 +564,29 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let title: String
     public let type: String
     public let items: [HubItem]
-    
-    public init(id: String, title: String, type: String, items: [HubItem]) {
+    public let context: String?  // Plex hub context (e.g. "hub.music.artist" for artist-scoped hubs)
+
+    public init(id: String, title: String, type: String, items: [HubItem], context: String? = nil) {
         self.id = id
         self.title = title
         self.type = type
         self.items = items
+        self.context = context
+    }
+
+    /// Artist ratingKey for artist-scoped hubs (e.g. "More by X"),
+    /// derived from the first album or track item's parent artist reference.
+    public var contextArtistId: String? {
+        guard let first = items.first else { return nil }
+        // Album items: artistRatingKey is the parent artist
+        if let artistKey = first.album?.artistRatingKey {
+            return artistKey
+        }
+        // Track items: artistRatingKey is the grandparent artist
+        if let artistKey = first.track?.artistRatingKey {
+            return artistKey
+        }
+        return nil
     }
 }
 

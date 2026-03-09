@@ -655,7 +655,9 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let key: String
     public let type: String?  // "album", "track", "playlist"
     public let title: String
+    public let parentRatingKey: String?  // Artist ratingKey for albums, album ratingKey for tracks
     public let parentTitle: String?  // Artist name for albums/tracks
+    public let grandparentRatingKey: String?  // Artist ratingKey for tracks
     public let grandparentTitle: String?  // Artist name for tracks
     public let summary: String?
     public let thumb: String?
@@ -669,6 +671,6 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let viewCount: Int?
     public let duration: Int?
     public let leafCount: Int?  // Track count for albums
-    
+
     public var id: String { ratingKey }
 }
