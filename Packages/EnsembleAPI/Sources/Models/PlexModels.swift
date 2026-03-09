@@ -669,6 +669,65 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let viewCount: Int?
     public let duration: Int?
     public let leafCount: Int?  // Track count for albums
-    
+
     public var id: String { ratingKey }
+}
+
+// MARK: - Tag (reusable for Genre/Country/Similar/Style tags)
+
+/// Generic tag element returned by Plex for artist detail metadata.
+/// Plex uses the same `{ "tag": "value" }` shape for Genre, Country, Similar, Style, etc.
+public struct PlexTag: Codable, Sendable, Hashable {
+    public let tag: String
+
+    public init(tag: String) {
+        self.tag = tag
+    }
+}
+
+// MARK: - GUID Reference
+
+/// External identifier reference (e.g. MusicBrainz, Last.fm)
+public struct PlexGuid: Codable, Sendable, Hashable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+// MARK: - Artist Detail (full metadata from /library/metadata/{id})
+
+/// Rich artist metadata returned by the single-item metadata endpoint.
+/// Includes tag-based fields (Genre, Country, Similar, Style) and external GUIDs
+/// that are not present in the lightweight section listing response.
+public struct PlexArtistDetail: Codable, Sendable {
+    public let ratingKey: String
+    public let key: String
+    public let title: String
+    public let summary: String?
+    public let thumb: String?
+    public let art: String?
+    public let addedAt: Int?
+    public let updatedAt: Int?
+    public let viewCount: Int?
+
+    // Tag-based metadata
+    public let genre: [PlexTag]?
+    public let country: [PlexTag]?
+    public let similar: [PlexTag]?
+    public let style: [PlexTag]?
+
+    // External identifiers (MusicBrainz, Last.fm, etc.)
+    public let guid: [PlexGuid]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey, key, title, summary, thumb, art
+        case addedAt, updatedAt, viewCount
+        case genre = "Genre"
+        case country = "Country"
+        case similar = "Similar"
+        case style = "Style"
+        case guid = "Guid"
+    }
 }

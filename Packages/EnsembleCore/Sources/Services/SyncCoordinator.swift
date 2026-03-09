@@ -1462,10 +1462,19 @@ public final class SyncCoordinator: ObservableObject {
         guard let provider = syncProviders[sourceKey] else {
             throw PlexAPIError.noServerSelected
         }
-        
+
         return try await provider.getArtistTracks(artistKey: artistId)
     }
-    
+
+    /// Get detailed artist metadata (genres, country, similar artists, styles) from the source
+    public func getArtistDetail(artistId: String, sourceKey: String) async throws -> ArtistDetail? {
+        guard let provider = syncProviders[sourceKey] else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        return try await provider.getArtistDetail(artistKey: artistId)
+    }
+
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
         do {

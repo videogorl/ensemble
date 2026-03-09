@@ -177,6 +177,19 @@ public extension Artist {
     }
 }
 
+public extension ArtistDetail {
+    /// Maps the rich PlexArtistDetail response into a lightweight domain model
+    init(from plex: PlexArtistDetail) {
+        self.init(
+            genres: plex.genre?.map(\.tag) ?? [],
+            country: plex.country?.first?.tag,
+            similarArtists: plex.similar?.map(\.tag) ?? [],
+            styles: plex.style?.map(\.tag) ?? [],
+            artistName: plex.title
+        )
+    }
+}
+
 public extension Genre {
     init(from plex: PlexGenre) {
         self.init(

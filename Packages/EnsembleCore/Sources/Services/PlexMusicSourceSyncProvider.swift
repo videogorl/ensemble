@@ -717,4 +717,11 @@ public func getStreamURL(
         let plexTracks = try await apiClient.getArtistTracks(artistKey: artistKey)
         return plexTracks.map { Track(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
+
+    public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? {
+        guard let plexDetail = try await apiClient.getArtistDetail(artistKey: artistKey) else {
+            return nil
+        }
+        return ArtistDetail(from: plexDetail)
+    }
 }

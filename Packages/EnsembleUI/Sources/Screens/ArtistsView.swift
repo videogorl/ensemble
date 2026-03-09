@@ -275,6 +275,7 @@ public struct ArtistDetailView: View {
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @Environment(\.openURL) private var openURL
 
     public init(
         artist: Artist,
@@ -315,11 +316,28 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
 
+                    // Quick Facts (genre, country, styles)
+                    if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
+                        quickFactsSection(detail: detail)
+                            .padding(.horizontal)
+                            .padding(.top, 32)
+                    }
+
                     // Artist Bio
                     if let summary = viewModel.artist.summary, !summary.isEmpty {
                         bioSection(summary: summary)
                             .padding(.horizontal)
                             .padding(.top, 32)
+                    }
+
+                    // Related Artists
+                    if let detail = viewModel.artistDetail,
+                       !detail.similarArtists.isEmpty {
+                        relatedArtistsSection(
+                            similarNames: detail.similarArtists,
+                            resolvedArtists: viewModel.resolvedSimilarArtists
+                        )
+                        .padding(.top, 32)
                     }
                 }
             }
@@ -344,6 +362,7 @@ public struct ArtistDetailView: View {
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
+            await viewModel.loadArtistDetail()
             await loadArtworkImage()
         }
         .sheet(item: $playlistPickerPayload) { payload in
@@ -547,6 +566,61 @@ public struct ArtistDetailView: View {
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 
+    // MARK: - Quick Facts Section
+
+    /// Whether we have any facts to show
+    private func hasQuickFacts(_ detail: ArtistDetail) -> Bool {
+        detail.country != nil || !detail.genres.isEmpty || !detail.styles.isEmpty
+    }
+
+    private func quickFactsSection(detail: ArtistDetail) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Quick Facts")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            // Fact rows in a flowing layout
+            VStack(alignment: .leading, spacing: 10) {
+                if let country = detail.country {
+                    factRow(label: "From", value: country)
+                }
+                if !detail.genres.isEmpty {
+                    factRow(label: "Genre", value: detail.genres.joined(separator: ", "))
+                }
+                if !detail.styles.isEmpty {
+                    factRow(label: "Style", value: detail.styles.joined(separator: ", "))
+                }
+            }
+
+            // Wikipedia link
+            if let url = detail.wikipediaURL {
+                Button {
+                    openURL(url)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "book.closed")
+                        Text("Wikipedia")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.accentColor)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func factRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+        }
+    }
+
     // MARK: - Bio Section
 
     private func bioSection(summary: String) -> some View {
@@ -555,28 +629,112 @@ public struct ArtistDetailView: View {
                 .font(.title2)
                 .fontWeight(.bold)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(summary)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .lineLimit(isBioExpanded ? nil : 3)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 0) {
+                // Split bio into paragraphs and render each with top spacing
+                let paragraphs = summary.components(separatedBy: "\n\n")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
 
-                if !isBioExpanded && summary.count > 150 {
-                    Button(action: {
-                        withAnimation {
-                            isBioExpanded = true
+                if isBioExpanded {
+                    // Expanded: show all paragraphs with spacing
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                        Text(paragraph)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, index > 0 ? 12 : 0)
+                    }
+                } else {
+                    // Collapsed: show truncated text
+                    Text(summary)
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Expand/collapse toggle
+                if summary.count > 200 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isBioExpanded.toggle()
                         }
-                    }) {
-                        Text("Read more")
+                    } label: {
+                        Text(isBioExpanded ? "Show less" : "Read more")
                             .font(.body)
                             .fontWeight(.medium)
                             .foregroundColor(.accentColor)
                     }
+                    .padding(.top, 8)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Related Artists Section
+
+    private func relatedArtistsSection(similarNames: [String], resolvedArtists: [Artist]) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Related Artists")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(similarNames, id: \.self) { name in
+                        // Check if this name resolves to a local artist
+                        let resolvedArtist = resolvedArtists.first {
+                            $0.name.caseInsensitiveCompare(name) == .orderedSame
+                        }
+
+                        if let artist = resolvedArtist {
+                            // Navigable artist card (in user's library)
+                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                                similarArtistCard(name: artist.name, artist: artist)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            // Non-navigable card (not in user's library)
+                            similarArtistCard(name: name, artist: nil)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    /// Card for a similar artist - shows artwork if in local library, placeholder otherwise
+    private func similarArtistCard(name: String, artist: Artist?) -> some View {
+        VStack(spacing: 8) {
+            if let artist = artist {
+                ArtworkView(
+                    artist: artist,
+                    size: .thumbnail,
+                    cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2
+                )
+            } else {
+                // Placeholder for artists not in local library
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: ArtworkSize.thumbnail.cgSize.width,
+                           height: ArtworkSize.thumbnail.cgSize.height)
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .font(.title)
+                            .foregroundColor(.secondary)
+                    )
+            }
+
+            Text(name)
+                .font(.caption)
+                .fontWeight(.medium)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        }
     }
 
     // MARK: - Albums Section
