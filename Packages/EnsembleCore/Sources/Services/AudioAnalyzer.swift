@@ -207,13 +207,25 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Loading
 
     public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility) async {
+        #if DEBUG
+        logger.debug("loadTimeline called for \(trackId), url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
+        #endif
+
         // Already cached or loading
         if timelines[trackId] != nil || analysisTasks[trackId] != nil {
+            #if DEBUG
+            logger.debug("loadTimeline skipped \(trackId): cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
+            #endif
             return
         }
 
         // Only analyze local files (not remote stream URLs)
-        guard fileURL.isFileURL else { return }
+        guard fileURL.isFileURL else {
+            #if DEBUG
+            logger.debug("loadTimeline skipped \(trackId): not a file URL")
+            #endif
+            return
+        }
 
         // Check for sidecar file first
         let sidecarURL = fileURL.appendingPathExtension("freq")

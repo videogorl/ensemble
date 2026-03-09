@@ -3170,9 +3170,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // multi-second FFT analysis await — only hops to MainActor for the
                 // brief loadTimeline entry/exit points, not the entire suspension.
                 if let fileURL {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎛️ Launching detached loadTimeline for \(track.title) — \(fileURL.lastPathComponent)")
+                    #endif
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
                     }
+                } else {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎛️ No fileURL for loadTimeline — \(track.title)")
+                    #endif
                 }
                 await loadAndPlay(item: item, track: track)
                 if let recoverySeekTime, recoverySeekTime > 0 {
