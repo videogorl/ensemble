@@ -3125,6 +3125,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.updateNowPlayingInfo()
             }
 
+            // Trigger frequency analysis for the cached item (prefetch may have
+            // been skipped if another analysis was running at the time)
+            if let urlAsset = cachedItem.asset as? AVURLAsset, urlAsset.url.isFileURL {
+                let fileURL = urlAsset.url
+                Task.detached { [audioAnalyzer] in
+                    await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
+                }
+            }
+
             generateWaveform(for: track.id)
             await loadAndPlay(item: cachedItem, track: track)
             Task { await prefetchNextItem() }
