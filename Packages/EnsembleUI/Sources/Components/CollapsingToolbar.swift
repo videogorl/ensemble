@@ -66,6 +66,9 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                 }
             }
             #if os(iOS)
+            // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
+            .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
+            // iOS 15 fallback: UIKit appearance configurator
             .background(
                 NavigationBarAppearanceConfigurator(isTransparent: !showToolbarTitle)
             )
@@ -89,6 +92,26 @@ struct TitleOffsetTracker: View {
         }
     }
 }
+
+// MARK: - Toolbar Background Modifier (iOS 16+)
+
+#if os(iOS)
+/// Uses SwiftUI's `.toolbarBackground` API (iOS 16+) to hide/show the nav bar background.
+/// On iOS 26+ this correctly suppresses the Liquid Glass bar material that the UIKit
+/// appearance configurator alone cannot control.
+private struct ToolbarBackgroundModifier: ViewModifier {
+    let isTransparent: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+                .toolbarBackground(isTransparent ? .hidden : .visible, for: .navigationBar)
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 // MARK: - Navigation Bar Appearance Configurator (iOS)
 
