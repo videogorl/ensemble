@@ -276,11 +276,13 @@ struct HubSection: View {
     }
 
     private var sectionHeaderLabel: some View {
-        HStack(spacing: 4) {
+        HStack {
             Text(hub.title)
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+
+            Spacer()
 
             Image(systemName: "chevron.right")
                 .font(.subheadline.weight(.semibold))
