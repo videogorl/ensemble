@@ -1506,11 +1506,14 @@ public actor PlexAPIClient {
 
     private func transcodeClientProfileExtra() -> String {
         // Transcode targets: codecs PMS should transcode TO when original isn't compatible.
+        // Only MP3 here — AAC was removed because PMS silently produces 0-byte output
+        // when transcoding high-sample-rate FLAC (e.g. 96kHz/24-bit) to AAC.
+        //
         // Direct-play codecs: codecs AVPlayer can play natively, so PMS can direct-stream them.
+        // AAC stays here (client can *play* AAC, just shouldn't ask PMS to *transcode to* it).
         // Both are needed -- without direct-play declarations, PMS may refuse to stream
         // formats like FLAC even when the client supports them.
         [
-            "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=aac)",
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
             "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)",
             "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)",
