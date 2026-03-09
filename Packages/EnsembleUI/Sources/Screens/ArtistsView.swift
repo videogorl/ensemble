@@ -316,28 +316,17 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
 
-                    // Quick Facts (genre, country, styles)
-                    if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
-                        quickFactsSection(detail: detail)
+                    // About section (quick facts + bio + Wikipedia)
+                    if hasAboutContent {
+                        aboutSection
                             .padding(.horizontal)
                             .padding(.top, 32)
                     }
 
-                    // Artist Bio
-                    if let summary = viewModel.artist.summary, !summary.isEmpty {
-                        bioSection(summary: summary)
-                            .padding(.horizontal)
+                    // Related Artists (only those in user's library)
+                    if !viewModel.resolvedSimilarArtists.isEmpty {
+                        relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
                             .padding(.top, 32)
-                    }
-
-                    // Related Artists
-                    if let detail = viewModel.artistDetail,
-                       !detail.similarArtists.isEmpty {
-                        relatedArtistsSection(
-                            similarNames: detail.similarArtists,
-                            resolvedArtists: viewModel.resolvedSimilarArtists
-                        )
-                        .padding(.top, 32)
                     }
                 }
             }
@@ -566,39 +555,53 @@ public struct ArtistDetailView: View {
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 
-    // MARK: - Quick Facts Section
+    // MARK: - About Section (Quick Facts + Description + Wikipedia)
 
-    /// Whether we have any facts to show
+    /// Whether there's any content to show in the About section
+    private var hasAboutContent: Bool {
+        let hasDetail = viewModel.artistDetail != nil
+        let hasFacts = hasDetail && hasQuickFacts(viewModel.artistDetail!)
+        let hasBio = viewModel.artist.summary != nil && !viewModel.artist.summary!.isEmpty
+        return hasFacts || hasBio
+    }
+
     private func hasQuickFacts(_ detail: ArtistDetail) -> Bool {
         detail.country != nil || !detail.genres.isEmpty || !detail.styles.isEmpty
     }
 
-    private func quickFactsSection(detail: ArtistDetail) -> some View {
+    private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Quick Facts")
+            Text("About \(viewModel.artist.name)")
                 .font(.title2)
                 .fontWeight(.bold)
 
-            // Fact rows in a flowing layout
-            VStack(alignment: .leading, spacing: 10) {
-                if let country = detail.country {
-                    factRow(label: "From", value: country)
-                }
-                if !detail.genres.isEmpty {
-                    factRow(label: "Genre", value: detail.genres.joined(separator: ", "))
-                }
-                if !detail.styles.isEmpty {
-                    factRow(label: "Style", value: detail.styles.joined(separator: ", "))
+            // Quick facts
+            if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let country = detail.country {
+                        factRow(label: "From", value: country)
+                    }
+                    if !detail.genres.isEmpty {
+                        factRow(label: "Genre", value: detail.genres.joined(separator: ", "))
+                    }
+                    if !detail.styles.isEmpty {
+                        factRow(label: "Style", value: detail.styles.joined(separator: ", "))
+                    }
                 }
             }
 
-            // Wikipedia link
-            if let url = detail.wikipediaURL {
+            // Description
+            if let summary = viewModel.artist.summary, !summary.isEmpty {
+                descriptionContent(summary: summary)
+            }
+
+            // Wikipedia link (below description)
+            if let url = viewModel.artistDetail?.wikipediaURL {
                 Button {
                     openURL(url)
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "book.closed")
+                        Image(systemName: "arrow.up.forward.app")
                         Text("Wikipedia")
                     }
                     .font(.subheadline.weight(.medium))
@@ -609,34 +612,20 @@ public struct ArtistDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func factRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(width: 50, alignment: .leading)
-            Text(value)
-                .font(.subheadline)
+    private func descriptionContent(summary: String) -> some View {
+        let paragraphs = summary.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Description")
+                .font(.headline)
                 .foregroundColor(.primary)
-        }
-    }
 
-    // MARK: - Bio Section
-
-    private func bioSection(summary: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("About")
-                .font(.title2)
-                .fontWeight(.bold)
-
+            // Tappable description text to toggle expanded/collapsed
             VStack(alignment: .leading, spacing: 0) {
-                // Split bio into paragraphs and render each with top spacing
-                let paragraphs = summary.components(separatedBy: "\n\n")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-
                 if isBioExpanded {
-                    // Expanded: show all paragraphs with spacing
+                    // Expanded: show all paragraphs with paragraph spacing
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)
                             .font(.body)
@@ -652,29 +641,32 @@ public struct ArtistDetailView: View {
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                // Expand/collapse toggle
-                if summary.count > 200 {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            isBioExpanded.toggle()
-                        }
-                    } label: {
-                        Text(isBioExpanded ? "Show less" : "Read more")
-                            .font(.body)
-                            .fontWeight(.medium)
-                            .foregroundColor(.accentColor)
-                    }
-                    .padding(.top, 8)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isBioExpanded.toggle()
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func factRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+        }
     }
 
     // MARK: - Related Artists Section
 
-    private func relatedArtistsSection(similarNames: [String], resolvedArtists: [Artist]) -> some View {
+    /// Shows only related artists that exist in the user's library (across all sources)
+    private func relatedArtistsSection(artists: [Artist]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Related Artists")
                 .font(.title2)
@@ -683,21 +675,19 @@ public struct ArtistDetailView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 16) {
-                    ForEach(similarNames, id: \.self) { name in
-                        // Check if this name resolves to a local artist
-                        let resolvedArtist = resolvedArtists.first {
-                            $0.name.caseInsensitiveCompare(name) == .orderedSame
-                        }
-
-                        if let artist = resolvedArtist {
-                            // Navigable artist card (in user's library)
+                    ForEach(artists) { artist in
+                        if #available(iOS 16.0, macOS 13.0, *) {
                             NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
-                                similarArtistCard(name: artist.name, artist: artist)
+                                similarArtistCard(artist: artist)
                             }
                             .buttonStyle(.plain)
                         } else {
-                            // Non-navigable card (not in user's library)
-                            similarArtistCard(name: name, artist: nil)
+                            NavigationLink {
+                                ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                            } label: {
+                                similarArtistCard(artist: artist)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -706,29 +696,16 @@ public struct ArtistDetailView: View {
         }
     }
 
-    /// Card for a similar artist - shows artwork if in local library, placeholder otherwise
-    private func similarArtistCard(name: String, artist: Artist?) -> some View {
+    /// Card for a related artist in the user's library
+    private func similarArtistCard(artist: Artist) -> some View {
         VStack(spacing: 8) {
-            if let artist = artist {
-                ArtworkView(
-                    artist: artist,
-                    size: .thumbnail,
-                    cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2
-                )
-            } else {
-                // Placeholder for artists not in local library
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: ArtworkSize.thumbnail.cgSize.width,
-                           height: ArtworkSize.thumbnail.cgSize.height)
-                    .overlay(
-                        Image(systemName: "person.fill")
-                            .font(.title)
-                            .foregroundColor(.secondary)
-                    )
-            }
+            ArtworkView(
+                artist: artist,
+                size: .thumbnail,
+                cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2
+            )
 
-            Text(name)
+            Text(artist.name)
                 .font(.caption)
                 .fontWeight(.medium)
                 .lineLimit(2)
