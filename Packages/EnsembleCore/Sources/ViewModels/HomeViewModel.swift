@@ -465,6 +465,7 @@ public final class HomeViewModel: ObservableObject {
             
             isLoading = false
             initialLoadCompleted = true
+            loadTask = nil
 
             // Persist to cache for offline access
             let hubsToCache = hubs
@@ -472,7 +473,7 @@ public final class HomeViewModel: ObservableObject {
                 try? await hubRepository.saveHubs(hubsToCache)
             }
         }
-        
+
         await loadTask?.value
     }
     
@@ -544,6 +545,14 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
+        // Coalesce immediate refreshes: if a load is already in progress, skip
+        guard loadTask == nil else {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh coalesced (load in progress) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+
         deferredAutoRefreshTask?.cancel()
         deferredAutoRefreshTask = nil
 
@@ -564,7 +573,6 @@ public final class HomeViewModel: ObservableObject {
 
     private func performAutoRefresh(triggeringReason reason: AutoRefreshReason) async {
         pendingAutoRefreshReasons.removeAll()
-        lastLoadTime = nil
 
         if let autoRefreshRunnerForTesting {
             await autoRefreshRunnerForTesting(reason)

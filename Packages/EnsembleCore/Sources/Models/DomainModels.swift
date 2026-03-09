@@ -580,19 +580,38 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public var contextArtistId: String? {
         guard items.count > 1 else { return nil }
 
-        // Extract artist ratingKey from each item
+        // Try ratingKey-based match first (available when albums come from CoreData cache)
         let artistKeys: [String] = items.compactMap { item in
             item.album?.artistRatingKey ?? item.track?.artistRatingKey
         }
+        if artistKeys.count == items.count,
+           let firstKey = artistKeys.first,
+           artistKeys.allSatisfy({ $0 == firstKey }) {
+            return firstKey
+        }
 
-        // All items must have an artist key and they must all match
-        guard artistKeys.count == items.count,
-              let firstKey = artistKeys.first,
-              artistKeys.allSatisfy({ $0 == firstKey }) else {
+        return nil
+    }
+
+    /// Artist name shared by all items in the hub, or nil if items have different artists.
+    /// Used to look up artist ratingKey from CoreData when the hub metadata
+    /// doesn't include parentRatingKey (which is typical for Plex hub responses).
+    public var contextArtistName: String? {
+        guard items.count > 1 else { return nil }
+
+        // For album hubs, check artistName; for track hubs, check artistName
+        let artistNames: [String] = items.compactMap { item in
+            item.album?.artistName ?? item.track?.artistName ?? item.subtitle
+        }
+
+        guard artistNames.count == items.count,
+              let firstName = artistNames.first,
+              !firstName.isEmpty,
+              artistNames.allSatisfy({ $0 == firstName }) else {
             return nil
         }
 
-        return firstKey
+        return firstName
     }
 }
 
