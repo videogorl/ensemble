@@ -736,11 +736,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
     private var healthCheckCompletionObservation: AnyCancellable?
+    /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
+    private var pendingPreBufferTime: TimeInterval?
     private var qualityChangeObserver: NSObjectProtocol?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
+    /// Tracks the in-progress next()/previous() transition task so it can be
+    /// cancelled if the user presses next/previous again before it completes.
+    private var skipTransitionTask: Task<Void, Never>?
     private var isInterrupted = false
     private var isRouteChangeInProgress = false
     private var lastRouteChangeAt: Date?
@@ -1917,8 +1922,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
 
-        // If no player item is loaded (e.g., after state restoration where we deferred
-        // the network request), load and play the current queue item now.
+        // Clear pre-buffer flag — user is taking action now
+        pendingPreBufferTime = nil
+
+        // If no player item is loaded (e.g., after state restoration where pre-buffer
+        // hasn't completed yet), load and play the current queue item now.
         if player?.currentItem == nil, currentTrack != nil {
             Task { @MainActor in
                 await playCurrentQueueItem(seekTo: currentTime, caller: "restorePlaybackState")
@@ -1990,7 +1998,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func next() {
         guard !queue.isEmpty else { return }
+
+        #if DEBUG
+        let currentTrackTitle = currentTrack?.title ?? "nil"
+        let currentState = playbackState
+        EnsembleLogger.debug("⏭️ next() called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
+        #endif
+
         consecutivePlaybackFailures = 0
+
+        // Cancel any in-progress skip transition (e.g., a previous next() that's
+        // still downloading the stream). Without this, rapid next() calls pile up
+        // concurrent downloads, each creating large temp files.
+        skipTransitionTask?.cancel()
+        skipTransitionTask = nil
 
         // Stop old audio immediately so it doesn't continue playing while the
         // async task below resolves the next track and loads it.
@@ -2005,12 +2026,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         // Find the next playable track on MainActor (server availability is MainActor-isolated).
-        Task { @MainActor [weak self] in
+        skipTransitionTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             if let nextIndex = self.findNextPlayableTrackIndex(after: self.currentQueueIndex) {
                 self.currentQueueIndex = nextIndex
+                // Update currentTrack immediately so the UI reflects the new track
+                // even while the stream download is in progress.
+                let nextTrack = self.queue[nextIndex].track
+                self.currentTrack = nextTrack
+                self.playbackState = .loading
+
+                guard !Task.isCancelled else { return }
                 await self.playCurrentQueueItem(caller: "next()")
+                guard !Task.isCancelled else { return }
                 self.savePlaybackState()
                 await self.checkAndRefreshAutoplayQueue()
             } else {
@@ -2019,7 +2048,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // Wrap around — find first playable from start
                     if let wrappedIndex = self.findNextPlayableTrackIndex(after: -1) {
                         self.currentQueueIndex = wrappedIndex
+                        let wrappedTrack = self.queue[wrappedIndex].track
+                        self.currentTrack = wrappedTrack
+                        self.playbackState = .loading
+
+                        guard !Task.isCancelled else { return }
                         await self.playCurrentQueueItem(caller: "next()-repeatAll")
+                        guard !Task.isCancelled else { return }
                         self.savePlaybackState()
                     } else {
                         self.stop()
@@ -2895,7 +2930,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playerItemsLRU.insert(trackId, at: 0)
         playerItems[trackId] = item
 
-        // Evict oldest items if over limit
+        // Evict oldest items if over limit, cleaning up associated temp files
         while playerItemsLRU.count > maxCachedPlayerItems {
             if let oldestId = playerItemsLRU.popLast() {
                 playerItems.removeValue(forKey: oldestId)
@@ -2904,6 +2939,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
             }
         }
+        // Clean up temp files for evicted items
+        cleanupStreamCacheFiles()
     }
 
     /// Get a cached player item if available, updating LRU order.
@@ -2955,13 +2992,32 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
+    /// Only deletes files whose ratingKey prefix is NOT in the current playerItems cache,
+    /// preventing deletion of files still referenced by active AVPlayerItems.
     private func cleanupStreamCacheFiles() {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
-        try? FileManager.default.removeItem(at: cacheDir)
+
+        let activeIds = Set(playerItems.keys)
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
+            // Can't list — fall back to removing the whole directory
+            try? FileManager.default.removeItem(at: cacheDir)
+            return
+        }
+
+        var removedCount = 0
+        for file in files {
+            // Filenames are "{ratingKey}_{sessionId}.mp3" or ".caf" or ".audio"
+            let ratingKey = file.prefix(while: { $0 != "_" })
+            if !ratingKey.isEmpty && !activeIds.contains(String(ratingKey)) {
+                try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
+                removedCount += 1
+            }
+        }
+
         #if DEBUG
-        EnsembleLogger.debug("🗑️ Cleaned up stream cache directory")
+        EnsembleLogger.debug("🗑️ Cleaned up \(removedCount) stream cache files, kept \(files.count - removedCount)")
         #endif
     }
 
@@ -3074,6 +3130,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.updateNowPlayingInfo()
             }
 
+            // Trigger frequency analysis for the cached item (prefetch may have
+            // been skipped if another analysis was running at the time)
+            if let urlAsset = cachedItem.asset as? AVURLAsset, urlAsset.url.isFileURL {
+                let fileURL = urlAsset.url
+                Task.detached { [audioAnalyzer] in
+                    await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
+                }
+            }
+
             generateWaveform(for: track.id)
             await loadAndPlay(item: cachedItem, track: track)
             Task { await prefetchNextItem() }
@@ -3119,9 +3184,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // multi-second FFT analysis await — only hops to MainActor for the
                 // brief loadTimeline entry/exit points, not the entire suspension.
                 if let fileURL {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎛️ Launching detached loadTimeline for \(track.title) — \(fileURL.lastPathComponent)")
+                    #endif
                     Task.detached { [audioAnalyzer] in
                         await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
                     }
+                } else {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎛️ No fileURL for loadTimeline — \(track.title)")
+                    #endif
                 }
                 await loadAndPlay(item: item, track: track)
                 if let recoverySeekTime, recoverySeekTime > 0 {
@@ -3507,21 +3579,52 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("   ✅ Got stream URL host: \(streamURL.host ?? "unknown")")
+        EnsembleLogger.debug("   ✅ Got stream URL: \(streamURL.lastPathComponent) (host: \(streamURL.host ?? "file"))")
         #endif
-        let asset = AVURLAsset(url: streamURL)
+
+        // AVPlayer relies on file extensions to identify codecs. If the stream cache
+        // file has an unrecognized extension (e.g. ".audio" from original quality
+        // before content-type detection was added), create a symlink with a known
+        // extension so AVPlayer can parse it. Try common extensions via symlink
+        // probing — AVAudioFile validates the format synchronously.
+        var playbackURL = streamURL
+        let knownExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "wav", "caf", "aiff", "alac"]
+        if streamURL.isFileURL && !knownExtensions.contains(streamURL.pathExtension.lowercased()) {
+            let baseName = streamURL.deletingPathExtension().lastPathComponent
+            let tempDir = FileManager.default.temporaryDirectory
+            for ext in ["flac", "mp3", "m4a", "aac", "wav"] {
+                let symlink = tempDir.appendingPathComponent("\(baseName)_play.\(ext)")
+                try? FileManager.default.removeItem(at: symlink)
+                do {
+                    try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: streamURL)
+                    // AVAudioFile validates the format synchronously
+                    if let _ = try? AVAudioFile(forReading: symlink) {
+                        playbackURL = symlink
+                        #if DEBUG
+                        EnsembleLogger.debug("   🔗 Using .\(ext) symlink for '.\(streamURL.pathExtension)' extension")
+                        #endif
+                        break
+                    }
+                    try? FileManager.default.removeItem(at: symlink)
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        let asset = AVURLAsset(url: playbackURL)
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
-        // For VBR MP3 fallback files (when CAF conversion fails), set
-        // forwardPlaybackEndTime to prevent reading into padded tail frames.
-        // CAF files don't need this — they have exact sample counts.
-        let isMp3Fallback = quality != .original && streamURL.isFileURL
+        // For VBR MP3 stream files, set forwardPlaybackEndTime to prevent
+        // reading into padded tail frames. The XING header provides duration
+        // hints but AVPlayer may still read past the actual audio end.
+        let isStreamedMP3 = quality != .original && streamURL.isFileURL
             && streamURL.pathExtension.lowercased() == "mp3" && track.duration > 0
-        if isMp3Fallback {
+        if isStreamedMP3 {
             item.forwardPlaybackEndTime = CMTime(seconds: track.duration, preferredTimescale: 44100)
             #if DEBUG
-            EnsembleLogger.debug("   ⏱️ Set forwardPlaybackEndTime=\(track.duration)s for VBR MP3 fallback")
+            EnsembleLogger.debug("   ⏱️ Set forwardPlaybackEndTime=\(track.duration)s for streamed VBR MP3")
             #endif
         }
 
@@ -4835,6 +4938,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Called when SyncCoordinator completes health checks.
     /// Auto-resumes playback if it was previously failed due to server unavailability.
+    /// Also triggers pre-buffering of restored tracks once a server is confirmed reachable.
     /// Does NOT rebuild the prefetch queue — proactively destroying prefetched items
     /// on every health check breaks gapless playback. Stale URLs (rare) are handled
     /// reactively by the network transition handler and error recovery paths.
@@ -4846,6 +4950,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // conditions have changed, so give playback a fresh failure budget.
         consecutivePlaybackFailures = 0
 
+        // Pre-buffer a restored track now that the server is confirmed reachable
+        if pendingPreBufferTime != nil {
+            await preBufferRestoredTrack()
+            return
+        }
+
         // Auto-resume: if playback failed because a server was offline, and a
         // health check just passed, retry the current track automatically.
         if case .failed = playbackState,
@@ -4855,6 +4965,66 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #endif
             await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
             return
+        }
+    }
+
+    /// Pre-buffer the restored track: create player item, insert paused, seek to saved position.
+    /// Called either immediately (local files) or after health check confirms server reachable.
+    @MainActor
+    private func preBufferRestoredTrack() async {
+        guard let savedTime = pendingPreBufferTime,
+              playbackState == .paused,
+              player?.currentItem == nil,
+              let track = currentTrack else {
+            pendingPreBufferTime = nil
+            return
+        }
+
+        pendingPreBufferTime = nil
+
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Pre-buffering restored track: \(track.title)")
+        #endif
+
+        do {
+            let (item, fileURL) = try await createPlayerItem(for: track)
+
+            // Bail if user already tapped play while we were downloading
+            guard playbackState == .paused else { return }
+
+            // Cache and insert into player without playing
+            cachePlayerItem(item, for: track.id)
+            player?.removeAllItems()
+            player?.insert(item, after: nil)
+            setupObservers(for: item)
+
+            // Seek to saved position
+            if savedTime > 0 {
+                let seekTime = CMTime(seconds: savedTime, preferredTimescale: 600)
+                await item.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+
+            // Pre-load frequency timeline and activate it so the visualizer
+            // is ready when the user taps play (resume() calls resumeUpdates())
+            if let fileURL {
+                Task.detached { [audioAnalyzer] in
+                    await audioAnalyzer.loadTimeline(
+                        for: track.id, fileURL: fileURL, priority: .utility
+                    )
+                }
+            }
+            audioAnalyzer.activateTimeline(for: track.id)
+
+            // Prefetch next items too
+            Task { await prefetchNextItem() }
+
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Pre-buffer complete for \(track.title)")
+            #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Pre-buffer failed (will retry on play): \(error)")
+            #endif
         }
     }
 
@@ -5603,7 +5773,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
-    /// Restore queue from QueueItem array without starting playback
+    /// Restore queue from QueueItem array without starting playback.
+    /// Pre-buffers the current track in the background so tapping play is instant.
     private func restoreQueueFromItems(_ items: [QueueItem], index: Int, time: TimeInterval) async {
         guard !items.isEmpty, index >= 0, index < items.count else { return }
 
@@ -5626,13 +5797,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             currentTime = time
             waveformHeights = []  // Clear old waveform immediately
 
-            // Don't load the player item yet — defer the network request until the
-            // user explicitly taps play. This prevents auto-play when the server isn't
-            // ready at app launch (health checks/reconnects would otherwise trigger
-            // playback from a .failed state).
             generateWaveform(for: track.id)
             playbackState = .paused
             updateNowPlayingInfo()
+
+            // Signal that we need to pre-buffer once a server is reachable.
+            // For local files or if the server is already confirmed reachable,
+            // pre-buffer immediately. Otherwise handleHealthCheckCompletion()
+            // will trigger it when the next health check passes.
+            pendingPreBufferTime = time
+        }
+
+        // Pre-buffer immediately if: (a) track is downloaded locally, or
+        // (b) a health check has already completed (server is reachable).
+        // Otherwise, handleHealthCheckCompletion() will trigger it later.
+        let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
+        if track.localFilePath != nil || serverReady {
+            await preBufferRestoredTrack()
         }
     }
 

@@ -286,52 +286,50 @@ public struct ArtistDetailView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .top) {
-            // Background gradient
-            backgroundGradient
-                .ignoresSafeArea()
-            
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Hero Banner
-                    heroBanner
+        ScrollView {
+            VStack(spacing: 0) {
+                // Hero Banner
+                heroBanner
 
-                    // Action Buttons
-                    actionButtons
+                // Action Buttons
+                actionButtons
+                    .padding(.horizontal)
+                    .padding(.top, 24)
+
+                // Albums Section
+                if viewModel.isLoading && viewModel.albums.isEmpty {
+                    ProgressView()
+                        .padding(.top, 40)
+                } else if !viewModel.albums.isEmpty {
+                    albumsSection
+                        .padding(.top, 32)
+                }
+
+                // Favorited Tracks (4+ stars)
+                if !viewModel.favoritedTracks.isEmpty {
+                    favoritedTracksSection
+                        .padding(.top, 32)
+                }
+
+                // About section (quick facts + bio + Wikipedia)
+                if hasAboutContent {
+                    aboutSection
                         .padding(.horizontal)
-                        .padding(.top, 24)
+                        .padding(.top, 32)
+                }
 
-                    // Albums Section
-                    if viewModel.isLoading && viewModel.albums.isEmpty {
-                        ProgressView()
-                            .padding(.top, 40)
-                    } else if !viewModel.albums.isEmpty {
-                        albumsSection
-                            .padding(.top, 32)
-                    }
-
-                    // Favorited Tracks (4+ stars)
-                    if !viewModel.favoritedTracks.isEmpty {
-                        favoritedTracksSection
-                            .padding(.top, 32)
-                    }
-
-                    // About section (quick facts + bio + Wikipedia)
-                    if hasAboutContent {
-                        aboutSection
-                            .padding(.horizontal)
-                            .padding(.top, 32)
-                    }
-
-                    // Related Artists (only those in user's library)
-                    if !viewModel.resolvedSimilarArtists.isEmpty {
-                        relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
-                            .padding(.top, 32)
-                    }
+                // Related Artists (only those in user's library)
+                if !viewModel.resolvedSimilarArtists.isEmpty {
+                    relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
+                        .padding(.top, 32)
                 }
             }
-            .ignoresSafeArea(edges: .top)
         }
+        .ignoresSafeArea(edges: .top)
+        // Background gradient as background modifier so it extends behind safe areas
+        // without affecting the ScrollView's safe area layout (ZStack + ignoresSafeArea
+        // on a sibling was causing the ScrollView to ignore bottom safe area on iOS 15)
+        .background(backgroundGradient.ignoresSafeArea())
         .navigationTitle(viewModel.artist.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

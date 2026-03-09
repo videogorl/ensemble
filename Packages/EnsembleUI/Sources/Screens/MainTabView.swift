@@ -124,8 +124,16 @@ public struct MainTabView: View {
                     )
                     .tabViewStyle(sidebarAdaptableIfAvailable())
                 }
+                // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
+                // so content scrolls behind the tab bar with proper mini player clearance.
+                // The 70pt covers the mini player height + spacing above the tab bar.
+                .miniPlayerContainerInset(
+                    70,
+                    isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
+                        && nowPlayingVM.currentTrack != nil
+                )
                 .zIndex(0)
-                
+
                 // Persistent MiniPlayer (above tab bar)
                 if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
                     let isFloating: Bool = {

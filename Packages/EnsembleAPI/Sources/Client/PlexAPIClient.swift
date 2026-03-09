@@ -1324,7 +1324,35 @@ public actor PlexAPIClient {
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
-        let fileExtension = quality == .original ? "audio" : "mp3"
+        // Determine file extension from content type so AVPlayer can identify the format.
+        // For non-original quality, PMS always produces MP3 regardless of source codec.
+        let fileExtension: String
+        if quality != .original {
+            fileExtension = "mp3"
+        } else {
+            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+            switch contentType.lowercased() {
+            case let ct where ct.contains("flac"):
+                fileExtension = "flac"
+            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
+                fileExtension = "m4a"
+            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
+                fileExtension = "mp3"
+            case let ct where ct.contains("wav"):
+                fileExtension = "wav"
+            case let ct where ct.contains("aac"):
+                fileExtension = "aac"
+            default:
+                // Unknown content type — use generic extension, AVPlayer will try to sniff
+                fileExtension = "audio"
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Unknown Content-Type for original quality stream: '\(contentType)'")
+                #endif
+            }
+            #if DEBUG
+            EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
+            #endif
+        }
         let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
 
         // Remove stale file if it exists (e.g., from a crashed session)
@@ -1333,24 +1361,16 @@ public actor PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
-        // PMS's universal transcode produces VBR MP3 files that cause AVPlayer
-        // FigFilePlayer errors at gapless transition boundaries. Convert to CAF
-        // (uncompressed PCM) which AVPlayer handles natively for true zero-gap
-        // gapless playback. Falls back to XING header injection if conversion fails.
+        // PMS's universal transcode produces VBR MP3 files without XING headers.
+        // Inject a XING header with accurate frame count, byte count, and LAME
+        // gapless metadata (encoder delay/padding). This fixes AVPlayer duration
+        // overestimation and provides gapless metadata at track boundaries.
+        //
+        // Note: CAF conversion (uncompressed PCM) was previously used here for
+        // zero-gap gapless but created ~60MB files per track and took ~13 seconds,
+        // causing memory leaks and blocking playback startup on low-RAM devices.
+        // XING header injection is ~1ms and keeps the ~6MB MP3 file as-is.
         if quality != .original {
-            if let cafURL = AudioFormatConverter.convertToCAF(
-                mp3URL: destURL,
-                metadataDurationSeconds: metadataDurationSeconds
-            ) {
-                #if DEBUG
-                let cafSize = (try? FileManager.default.attributesOfItem(atPath: cafURL.path)[.size] as? Int) ?? 0
-                EnsembleLogger.debug("✅ Converted stream to CAF: \(cafURL.lastPathComponent) (\(cafSize) bytes)")
-                #endif
-                return cafURL
-            }
-
-            // Conversion failed — fall back to XING header injection for basic
-            // duration accuracy and LAME gapless metadata.
             try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
                 at: destURL,
                 metadataDurationSeconds: metadataDurationSeconds
@@ -1470,16 +1490,19 @@ public actor PlexAPIClient {
     /// PMS's start.mp3 endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
     /// values (e.g., `type=musicProfile&context=streaming`). Swift's `URLComponents` encodes
     /// `=` as `%3D` in query values, which the decision endpoint tolerates but start.mp3
-    /// rejects with 400. This method encodes only `&` (to `%26`) and percent-encodes spaces,
-    /// leaving `=`, `+`, `/`, and other characters that PMS expects literal.
+    /// rejects with 400. This method uses percent-encoding that keeps `=`, `+`, `(`, `)`,
+    /// and `/` literal while encoding `&`, spaces, and non-ASCII characters. The non-ASCII
+    /// encoding is critical for iOS 15 whose URL parser rejects non-ASCII in URL strings
+    /// (e.g., curly apostrophes in device names like "Felicity\u{2019}s iPhone").
     private func buildTranscodeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        // Character set: urlQueryAllowed minus `&` (which separates query params).
+        // This keeps = + ( ) / : @ literal while encoding & spaces and non-ASCII.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&")
+
         let query = queryItems.map { item -> String in
             let value = item.value ?? ""
-            // Encode & as %26 to prevent splitting into separate params.
-            // Encode spaces as %20. Leave = + / literal (PMS expects them).
-            let encoded = value
-                .replacingOccurrences(of: "&", with: "%26")
-                .replacingOccurrences(of: " ", with: "%20")
+            let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
             return "\(item.name)=\(encoded)"
         }.joined(separator: "&")
 
