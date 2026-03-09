@@ -193,31 +193,47 @@ private struct EditTabsView: View {
             VStack(spacing: 0) {
                 ForEach(Array(settingsManager.enabledTabs.enumerated()), id: \.element) { index, tab in
                     VStack(spacing: 0) {
-                        if index > 0 {
+                        // Insertion indicator before this row
+                        if dropTargetSection == .tabBar && dropTargetIndex == index {
+                            insertionIndicator
+                        }
+
+                        if index > 0 && !(dropTargetSection == .tabBar && dropTargetIndex == index) {
                             Divider().padding(.leading, 52)
                         }
                         tabEditRow(tab: tab)
-                            .background(
-                                // Highlight when this is the drop target position
-                                dropTargetSection == .tabBar && dropTargetIndex == index
-                                    ? Color.accentColor.opacity(0.1)
-                                    : Color.clear
-                            )
                             .onDrag {
                                 draggedTab = tab
                                 return NSItemProvider(object: tab.rawValue as NSString)
                             }
+                            .onDrop(of: [.text], delegate: TabBarRowDropDelegate(
+                                index: index,
+                                settingsManager: settingsManager,
+                                draggedTab: $draggedTab,
+                                dropTargetIndex: $dropTargetIndex,
+                                dropTargetSection: $dropTargetSection
+                            ))
                     }
                 }
+
+                // Drop zone at end of list + insertion indicator
+                if dropTargetSection == .tabBar && dropTargetIndex == settingsManager.enabledTabs.count {
+                    insertionIndicator
+                }
+
+                // Invisible drop target for appending to end
+                Color.clear
+                    .frame(height: 20)
+                    .onDrop(of: [.text], delegate: TabBarRowDropDelegate(
+                        index: settingsManager.enabledTabs.count,
+                        settingsManager: settingsManager,
+                        draggedTab: $draggedTab,
+                        dropTargetIndex: $dropTargetIndex,
+                        dropTargetSection: $dropTargetSection
+                    ))
             }
             .sectionBackground()
             .padding(.horizontal, 16)
-            .onDrop(of: [.text], delegate: TabBarDropDelegate(
-                settingsManager: settingsManager,
-                draggedTab: $draggedTab,
-                dropTargetIndex: $dropTargetIndex,
-                dropTargetSection: $dropTargetSection
-            ))
         }
     }
 
@@ -287,6 +303,20 @@ private struct EditTabsView: View {
         .padding(.vertical, 12)
     }
 
+    /// Visual indicator showing where a dragged item will be inserted
+    private var insertionIndicator: some View {
+        HStack(spacing: 0) {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 6, height: 6)
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(height: 2)
+        }
+        .padding(.horizontal, 12)
+        .transition(.opacity)
+    }
+
     private func sectionHeaderText(_ text: String) -> some View {
         Text(text)
             .font(.footnote)
@@ -298,14 +328,15 @@ private struct EditTabsView: View {
 
     // MARK: - Actions
 
-    /// Tap an available item to add it to the tab bar, bumping the last item if at capacity
+    /// Tap an available item to add it to the tab bar. Inserts at end, items beyond
+    /// 4 overflow back to available (the 4th item gets pushed out, not removed randomly).
     private func addTabToBar(_ tab: TabItem) {
         var current = settingsManager.enabledTabs
-        if current.count >= 4 {
-            // Bump the last item to available
-            current.removeLast()
-        }
         current.append(tab)
+        // Truncate to 4 — the 5th item (previously 4th) falls back to available
+        if current.count > 4 {
+            current = Array(current.prefix(4))
+        }
         withAnimation(.easeInOut(duration: 0.2)) {
             settingsManager.enabledTabs = current
         }
@@ -331,16 +362,20 @@ private extension View {
 
 // MARK: - Tab Bar Drop Delegate
 
-/// Handles drops into the tab bar section. Supports reordering within the section
-/// and accepting items from the available section (bumping last if at 4 items).
-private struct TabBarDropDelegate: DropDelegate {
+/// Per-row drop delegate for the tab bar section. Each row knows its index,
+/// so hovering over a row sets the insertion indicator at that position.
+private struct TabBarRowDropDelegate: DropDelegate {
+    let index: Int
     let settingsManager: SettingsManager
     @Binding var draggedTab: TabItem?
     @Binding var dropTargetIndex: Int?
     @Binding var dropTargetSection: EditTabDropSection?
 
     func dropEntered(info: DropInfo) {
-        dropTargetSection = .tabBar
+        withAnimation(.easeInOut(duration: 0.15)) {
+            dropTargetSection = .tabBar
+            dropTargetIndex = index
+        }
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -357,18 +392,19 @@ private struct TabBarDropDelegate: DropDelegate {
 
         if let sourceIndex = current.firstIndex(of: draggedTab) {
             // Reorder within tab bar
-            let targetIndex = dropTargetIndex ?? current.count - 1
             current.remove(at: sourceIndex)
-            let insertIndex = min(targetIndex, current.count)
+            // Adjust index if the source was before the target
+            let adjustedIndex = sourceIndex < index ? max(index - 1, 0) : index
+            let insertIndex = min(adjustedIndex, current.count)
             current.insert(draggedTab, at: insertIndex)
         } else {
-            // Moving from available to tab bar
-            if current.count >= 4 {
-                // Bump last item
-                current.removeLast()
-            }
-            let insertIndex = min(dropTargetIndex ?? current.count, current.count)
+            // Moving from available to tab bar — insert at position, overflow past 4
+            let insertIndex = min(index, current.count)
             current.insert(draggedTab, at: insertIndex)
+            // Truncate to 4 — items pushed past position 3 fall back to available
+            if current.count > 4 {
+                current = Array(current.prefix(4))
+            }
         }
 
         settingsManager.enabledTabs = current
@@ -377,9 +413,12 @@ private struct TabBarDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        if dropTargetSection == .tabBar {
-            dropTargetIndex = nil
-            dropTargetSection = nil
+        // Only clear if we're still the active target
+        if dropTargetSection == .tabBar && dropTargetIndex == index {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                dropTargetIndex = nil
+                dropTargetSection = nil
+            }
         }
     }
 

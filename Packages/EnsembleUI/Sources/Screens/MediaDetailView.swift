@@ -74,6 +74,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
+    @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
@@ -163,6 +164,38 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #endif
+            // Compact play/shuffle/radio icons appear when action buttons scroll out of view
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarLeading) {
+                if showToolbarActions {
+                    HStack(spacing: 16) {
+                        Button {
+                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                        } label: {
+                            Image(systemName: "play.fill")
+                        }
+                        .disabled(viewModel.filteredTracks.isEmpty)
+
+                        Button {
+                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                        } label: {
+                            Image(systemName: "shuffle")
+                        }
+                        .disabled(viewModel.filteredTracks.isEmpty)
+
+                        if hasRadioButton {
+                            Button {
+                                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                            } label: {
+                                Image(systemName: "dot.radiowaves.left.and.right")
+                            }
+                            .disabled(viewModel.filteredTracks.isEmpty)
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            #endif
         }
         .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
@@ -194,6 +227,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         } else {
             baseContent
         }
+    }
+
+    /// Whether the radio button should be shown (artist or album detail views)
+    private var hasRadioButton: Bool {
+        viewModel is ArtistDetailViewModel || viewModel is AlbumDetailViewModel
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -418,27 +456,36 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    // Header (artwork + title + metadata)
+                VStack(spacing: 0) {
+                    // Header
                     headerView
 
-                    // Action buttons pin when scrolled past
-                    Section(header: stickyActionButtons) {
-                        // Tracks
-                        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                            ProgressView()
-                                .padding(.top, 40)
-                        } else if viewModel.filteredTracks.isEmpty {
-                            Text("No tracks")
-                                .foregroundColor(.secondary)
-                                .padding(.top, 40)
-                        } else {
-                            tracksSection
-                        }
+                    // Action buttons
+                    actionButtons
+                        .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
+
+                    // Tracks
+                    if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                        ProgressView()
+                            .padding(.top, 40)
+                    } else if viewModel.filteredTracks.isEmpty {
+                        Text("No tracks")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        tracksSection
                     }
                 }
             }
             .coordinateSpace(name: "mediaDetailScroll")
+        }
+        .onPreferenceChange(ActionButtonsOffsetPreferenceKey.self) { maxY in
+            let shouldShow = maxY < 0
+            if shouldShow != showToolbarActions {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolbarActions = shouldShow
+                }
+            }
         }
         .collapsingToolbarTitle(
             navigationTitle,
@@ -559,23 +606,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
         .padding()
-    }
-
-    /// Sticky header wrapper for action buttons with version-adaptive background.
-    /// iOS 26+: uses glassEffect for Liquid Glass treatment.
-    /// iOS 15-25: uses ultraThinMaterial for frosted-glass effect.
-    private var stickyActionButtons: some View {
-        actionButtons
-            .padding(.top, 4)
-            .background(
-                Group {
-                    if #available(iOS 26.0, macOS 26.0, *) {
-                        Color.clear.glassEffect(.regular.interactive(), in: .rect)
-                    } else {
-                        Rectangle().fill(.ultraThinMaterial)
-                    }
-                }
-            )
     }
 
     private var actionButtons: some View {

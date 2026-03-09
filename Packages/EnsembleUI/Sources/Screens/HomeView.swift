@@ -256,6 +256,7 @@ struct HubSection: View {
                 NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
                     sectionHeaderLabel
                 }
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             } else {
@@ -264,6 +265,7 @@ struct HubSection: View {
                 } label: {
                     sectionHeaderLabel
                 }
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             }
