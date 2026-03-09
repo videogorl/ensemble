@@ -265,6 +265,45 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Artist Detail (enriched metadata)
+
+/// Rich artist metadata fetched on-demand from the single-item metadata endpoint.
+/// Contains tag-based fields (genres, country, similar artists, styles) and external
+/// identifiers (MusicBrainz, Last.fm) not available in the lightweight section listing.
+public struct ArtistDetail: Sendable {
+    public let genres: [String]
+    public let country: String?
+    public let similarArtists: [String]
+    public let styles: [String]
+
+    /// Wikipedia URL derived from the artist name
+    public var wikipediaURL: URL? {
+        // URL-encode the artist name for Wikipedia lookup
+        let encoded = artistName
+            .replacingOccurrences(of: " ", with: "_")
+            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        guard let encoded else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)")
+    }
+
+    /// Artist name (needed for Wikipedia URL generation)
+    public let artistName: String
+
+    public init(
+        genres: [String] = [],
+        country: String? = nil,
+        similarArtists: [String] = [],
+        styles: [String] = [],
+        artistName: String = ""
+    ) {
+        self.genres = genres
+        self.country = country
+        self.similarArtists = similarArtists
+        self.styles = styles
+        self.artistName = artistName
+    }
+}
+
 // MARK: - Genre
 
 public struct Genre: Identifiable, Hashable, Sendable, Codable {

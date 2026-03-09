@@ -275,6 +275,7 @@ public struct ArtistDetailView: View {
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @Environment(\.openURL) private var openURL
 
     public init(
         artist: Artist,
@@ -315,10 +316,16 @@ public struct ArtistDetailView: View {
                             .padding(.top, 32)
                     }
 
-                    // Artist Bio
-                    if let summary = viewModel.artist.summary, !summary.isEmpty {
-                        bioSection(summary: summary)
+                    // About section (quick facts + bio + Wikipedia)
+                    if hasAboutContent {
+                        aboutSection
                             .padding(.horizontal)
+                            .padding(.top, 32)
+                    }
+
+                    // Related Artists (only those in user's library)
+                    if !viewModel.resolvedSimilarArtists.isEmpty {
+                        relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
                             .padding(.top, 32)
                     }
                 }
@@ -344,6 +351,7 @@ public struct ArtistDetailView: View {
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
+            await viewModel.loadArtistDetail()
             await loadArtworkImage()
         }
         .sheet(item: $playlistPickerPayload) { payload in
@@ -547,36 +555,179 @@ public struct ArtistDetailView: View {
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 
-    // MARK: - Bio Section
+    // MARK: - About Section (Quick Facts + Description + Wikipedia)
 
-    private func bioSection(summary: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("About")
+    /// Whether there's any content to show in the About section
+    private var hasAboutContent: Bool {
+        let hasDetail = viewModel.artistDetail != nil
+        let hasFacts = hasDetail && hasQuickFacts(viewModel.artistDetail!)
+        let hasBio = viewModel.artist.summary != nil && !viewModel.artist.summary!.isEmpty
+        return hasFacts || hasBio
+    }
+
+    private func hasQuickFacts(_ detail: ArtistDetail) -> Bool {
+        detail.country != nil || !detail.genres.isEmpty || !detail.styles.isEmpty
+    }
+
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("About \(viewModel.artist.name)")
                 .font(.title2)
                 .fontWeight(.bold)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(summary)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .lineLimit(isBioExpanded ? nil : 3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if !isBioExpanded && summary.count > 150 {
-                    Button(action: {
-                        withAnimation {
-                            isBioExpanded = true
-                        }
-                    }) {
-                        Text("Read more")
-                            .font(.body)
-                            .fontWeight(.medium)
-                            .foregroundColor(.accentColor)
+            // Quick facts
+            if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let country = detail.country {
+                        factRow(label: "From", value: country)
                     }
+                    if !detail.genres.isEmpty {
+                        factRow(label: "Genre", value: detail.genres.joined(separator: ", "))
+                    }
+                    if !detail.styles.isEmpty {
+                        factRow(label: "Style", value: detail.styles.joined(separator: ", "))
+                    }
+                }
+            }
+
+            // Description
+            if let summary = viewModel.artist.summary, !summary.isEmpty {
+                descriptionContent(summary: summary)
+            }
+
+            // Wikipedia link (below description)
+            if let url = viewModel.artistDetail?.wikipediaURL {
+                Button {
+                    openURL(url)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.forward.app")
+                        Text("Wikipedia")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.accentColor)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func descriptionContent(summary: String) -> some View {
+        // Plex sends paragraphs separated by \r\n; split on any newline variant
+        let paragraphs = summary
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Description")
+                .font(.headline)
+                .foregroundColor(.secondary)
+
+            // Tappable description text to toggle expanded/collapsed
+            VStack(alignment: .leading, spacing: 0) {
+                if isBioExpanded {
+                    // Expanded: show all paragraphs with paragraph spacing
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                        Text(paragraph)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, index > 0 ? 12 : 0)
+                    }
+                } else {
+                    // Collapsed: show truncated text
+                    Text(paragraphs.first ?? summary)
+                        .font(.body)
+                        .foregroundColor(.primary)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isBioExpanded.toggle()
+                }
+            }
+
+            // Expand/collapse link
+            if paragraphs.count > 1 || summary.count > 200 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isBioExpanded.toggle()
+                    }
+                } label: {
+                    Text(isBioExpanded ? "Show less" : "Read more")
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.accentColor)
+                }
+            }
+        }
+    }
+
+    private func factRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+        }
+    }
+
+    // MARK: - Related Artists Section
+
+    /// Shows only related artists that exist in the user's library (across all sources)
+    private func relatedArtistsSection(artists: [Artist]) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Related Artists")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(artists) { artist in
+                        if #available(iOS 16.0, macOS 13.0, *) {
+                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id)) {
+                                similarArtistCard(artist: artist)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink {
+                                ArtistDetailLoader(artistId: artist.id, nowPlayingVM: nowPlayingVM)
+                            } label: {
+                                similarArtistCard(artist: artist)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    /// Card for a related artist in the user's library
+    private func similarArtistCard(artist: Artist) -> some View {
+        VStack(spacing: 8) {
+            ArtworkView(
+                artist: artist,
+                size: .thumbnail,
+                cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2
+            )
+
+            Text(artist.name)
+                .font(.caption)
+                .fontWeight(.medium)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        }
     }
 
     // MARK: - Albums Section

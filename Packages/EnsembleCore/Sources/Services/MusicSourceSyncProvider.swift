@@ -69,10 +69,14 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get all tracks for an artist directly from the source
     func getArtistTracks(artistKey: String) async throws -> [Track]
+
+    /// Get detailed artist metadata (genres, country, similar artists, styles)
+    func getArtistDetail(artistKey: String) async throws -> ArtistDetail?
 }
 
 // Default no-op for providers that don't have fallback state
 extension MusicSourceSyncProvider {
     public func resetStreamFallbackState() {}
     public func disableUniversalEndpoint() {}
+    public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? { nil }
 }
