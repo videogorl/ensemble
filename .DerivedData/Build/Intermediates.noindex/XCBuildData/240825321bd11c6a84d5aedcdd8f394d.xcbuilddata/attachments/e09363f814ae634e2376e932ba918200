@@ -1,4 +1,0 @@
-module EnsembleUI {
-header "EnsembleUI-Swift.h"
-export *
-}
