@@ -70,14 +70,11 @@ public struct FrequencyTimeline {
     public let analyzedDuration: TimeInterval
 
     /// Look up bands at a playback position, normalized to 0.0-1.0.
-    /// Returns zeros for positions beyond the analyzed portion.
+    /// Clamps to the last analyzed frame if playback is ahead of analysis,
+    /// so the visualizer holds the last known data instead of going blank.
     /// Linearly interpolates between adjacent keyframes for smooth 30Hz display.
     public func bands(at time: TimeInterval) -> [Double] {
         guard !snapshots.isEmpty, analyzedDuration > 0 else {
-            return Array(repeating: 0, count: 24)
-        }
-        // Beyond analyzed portion: return zeros
-        if time > analyzedDuration + 0.5 {
             return Array(repeating: 0, count: 24)
         }
 
