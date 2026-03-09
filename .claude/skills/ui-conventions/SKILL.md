@@ -93,6 +93,10 @@ Button("Remove", role: .destructive) { remove() }
 
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
+### Toolbar Item Ordering
+- **"More" (ellipsis) button always stays rightmost** in the trailing toolbar area. When adding contextual toolbar icons (e.g., play/shuffle that appear on scroll), place them *before* the ellipsis menu `ToolbarItem` so the more button remains the last item visually.
+- Order for detail views: filter button → contextual action icons → ellipsis "more" menu
+
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
@@ -203,11 +207,9 @@ The modifier handles:
 
 **Used in:** `ArtistDetailView` (threshold accounts for safe area + hero banner), `MediaDetailView`
 
-## Sticky Section Headers
+## Toolbar Action Icons on Scroll
 
-`MediaDetailView` uses `LazyVStack(pinnedViews: [.sectionHeaders])` to pin action buttons when scrolled past. The pinned header uses version-adaptive background:
-- **iOS 26+:** `.glassEffect()` for Liquid Glass
-- **iOS 15-25:** `.ultraThinMaterial` for frosted-glass
+`MediaDetailView` shows compact play/shuffle/radio icons in the trailing toolbar when the inline action buttons scroll out of view. Uses `ActionButtonsOffsetPreferenceKey` + `ActionButtonsOffsetTracker` (from `CollapsingToolbar.swift`) to detect when buttons cross the top edge.
 
 ## Performance Optimization
 

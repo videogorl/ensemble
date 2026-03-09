@@ -181,7 +181,6 @@ private struct EditTabsView: View {
                 availableSection
             }
         }
-        .coordinateSpace(name: "editTabsScroll")
         .onPreferenceChange(TabRowFramePreferenceKey.self) { frames in
             tabBarRowFrames = frames
         }
@@ -209,11 +208,11 @@ private struct EditTabsView: View {
                         }
                         tabEditRow(tab: tab)
                             .background(
-                                // Capture row frame for drop index calculation
+                                // Capture row frame relative to the drop target VStack
                                 GeometryReader { geo in
                                     Color.clear.preference(
                                         key: TabRowFramePreferenceKey.self,
-                                        value: [index: geo.frame(in: .named("editTabsScroll"))]
+                                        value: [index: geo.frame(in: .named("tabBarDropTarget"))]
                                     )
                                 }
                             )
@@ -229,6 +228,7 @@ private struct EditTabsView: View {
                     insertionIndicator
                 }
             }
+            .coordinateSpace(name: "tabBarDropTarget")
             .sectionBackground()
             .padding(.horizontal, 16)
             .onDrop(of: [.text], delegate: TabBarSectionDropDelegate(
@@ -425,7 +425,9 @@ private struct TabBarSectionDropDelegate: DropDelegate {
             }
         }
 
-        settingsManager.enabledTabs = current
+        withAnimation(.easeInOut(duration: 0.25)) {
+            settingsManager.enabledTabs = current
+        }
         cleanup()
         return true
     }
@@ -504,7 +506,9 @@ private struct AvailableDropDelegate: DropDelegate {
                 return false
             }
             current.remove(at: index)
-            settingsManager.enabledTabs = current
+            withAnimation(.easeInOut(duration: 0.25)) {
+                settingsManager.enabledTabs = current
+            }
         }
 
         cleanup()

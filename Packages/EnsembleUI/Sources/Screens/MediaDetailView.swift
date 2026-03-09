@@ -78,6 +78,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
     public init(
@@ -148,22 +149,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #endif
-            // Pin/Unpin menu button
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
-                }
-            }
-            #else
-            ToolbarItem(placement: .automatic) {
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
-                }
-            }
-            #endif
             // Compact play/shuffle/radio icons appear when action buttons scroll out of view
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -193,6 +178,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         }
                     }
                     .transition(.opacity)
+                }
+            }
+            #endif
+            // "More" menu button — always rightmost in trailing toolbar
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let mediaType = mediaType,
+                   let ratingKey = headerData.ratingKey {
+                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+                }
+            }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if let mediaType = mediaType,
+                   let ratingKey = headerData.ratingKey {
+                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
                 }
             }
             #endif
@@ -498,12 +499,32 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #endif
     }
     
+    private var backgroundOverlayColor: Color {
+        #if os(iOS)
+        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
+        #else
+        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
+        #endif
+    }
+
     private var backgroundGradient: some View {
-        BlurredArtworkBackground(
-            image: artworkImage,
-            topDimming: 0.1,
-            bottomDimming: 0.4
-        )
+        ZStack {
+            BlurredArtworkBackground(
+                image: artworkImage,
+                topDimming: colorScheme == .dark ? 0.1 : 0.05,
+                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
+                overlayColor: backgroundOverlayColor
+            )
+
+            // Legibility overlay matching NowPlayingView treatment
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                backgroundOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
+        }
         .mask(
             LinearGradient(
                 colors: [.white, .clear],
