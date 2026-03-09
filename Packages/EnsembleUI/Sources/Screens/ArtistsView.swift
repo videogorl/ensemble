@@ -417,12 +417,23 @@ public struct ArtistDetailView: View {
     }
 
     private var backgroundGradient: some View {
-        BlurredArtworkBackground(
-            image: artworkImage,
-            topDimming: colorScheme == .dark ? 0.1 : 0.05,
-            bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
-            overlayColor: backgroundOverlayColor
-        )
+        ZStack {
+            BlurredArtworkBackground(
+                image: artworkImage,
+                topDimming: colorScheme == .dark ? 0.1 : 0.05,
+                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
+                overlayColor: backgroundOverlayColor
+            )
+
+            // Legibility overlay matching NowPlayingView treatment
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                backgroundOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
+        }
         .mask(
             LinearGradient(
                 colors: [.white, .clear],
@@ -488,27 +499,12 @@ public struct ArtistDetailView: View {
                 // Shift up to cover the safe area + overscroll gap
                 .offset(y: -(geometry.safeAreaInsets.top + overscroll))
 
-                // Legibility scrim behind the text overlay area
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.3), location: 0.4),
-                        .init(color: .black.opacity(0.6), location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: bannerHeight * 0.4)
-                .offset(y: -overscroll)
-
                 // Artist info overlay — offset counteracts overscroll so
                 // the text stays visually pinned instead of drifting down
                 VStack(alignment: .leading, spacing: 8) {
                     Text(viewModel.artist.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
                         .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
                     if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
@@ -524,7 +520,7 @@ public struct ArtistDetailView: View {
                             }
                         }
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

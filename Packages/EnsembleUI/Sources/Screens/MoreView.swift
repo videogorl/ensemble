@@ -154,6 +154,8 @@ private struct EditTabsView: View {
     @State private var draggedTab: TabItem?
     @State private var dropTargetIndex: Int?
     @State private var dropTargetSection: EditTabDropSection?
+    // Row midpoints for computing drop index from Y position
+    @State private var tabBarRowFrames: [Int: CGRect] = [:]
 
     // Available tabs exclude settings (always in tab bar area as a fixed item)
     private var availableTabs: [TabItem] {
@@ -179,6 +181,10 @@ private struct EditTabsView: View {
                 availableSection
             }
         }
+        .coordinateSpace(name: "editTabsScroll")
+        .onPreferenceChange(TabRowFramePreferenceKey.self) { frames in
+            tabBarRowFrames = frames
+        }
         #if os(iOS)
         .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
         #endif
@@ -202,38 +208,36 @@ private struct EditTabsView: View {
                             Divider().padding(.leading, 52)
                         }
                         tabEditRow(tab: tab)
+                            .background(
+                                // Capture row frame for drop index calculation
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: TabRowFramePreferenceKey.self,
+                                        value: [index: geo.frame(in: .named("editTabsScroll"))]
+                                    )
+                                }
+                            )
                             .onDrag {
                                 draggedTab = tab
                                 return NSItemProvider(object: tab.rawValue as NSString)
                             }
-                            .onDrop(of: [.text], delegate: TabBarRowDropDelegate(
-                                index: index,
-                                settingsManager: settingsManager,
-                                draggedTab: $draggedTab,
-                                dropTargetIndex: $dropTargetIndex,
-                                dropTargetSection: $dropTargetSection
-                            ))
                     }
                 }
 
-                // Drop zone at end of list + insertion indicator
+                // Insertion indicator at end
                 if dropTargetSection == .tabBar && dropTargetIndex == settingsManager.enabledTabs.count {
                     insertionIndicator
                 }
-
-                // Invisible drop target for appending to end
-                Color.clear
-                    .frame(height: 20)
-                    .onDrop(of: [.text], delegate: TabBarRowDropDelegate(
-                        index: settingsManager.enabledTabs.count,
-                        settingsManager: settingsManager,
-                        draggedTab: $draggedTab,
-                        dropTargetIndex: $dropTargetIndex,
-                        dropTargetSection: $dropTargetSection
-                    ))
             }
             .sectionBackground()
             .padding(.horizontal, 16)
+            .onDrop(of: [.text], delegate: TabBarSectionDropDelegate(
+                settingsManager: settingsManager,
+                draggedTab: $draggedTab,
+                dropTargetIndex: $dropTargetIndex,
+                dropTargetSection: $dropTargetSection,
+                rowFrames: tabBarRowFrames
+            ))
         }
     }
 
@@ -251,6 +255,12 @@ private struct EditTabsView: View {
                     .padding(.vertical, 24)
                     .sectionBackground()
                     .padding(.horizontal, 16)
+                    .onDrop(of: [.text], delegate: AvailableDropDelegate(
+                        settingsManager: settingsManager,
+                        draggedTab: $draggedTab,
+                        dropTargetIndex: $dropTargetIndex,
+                        dropTargetSection: $dropTargetSection
+                    ))
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(availableTabs.enumerated()), id: \.element) { index, tab in
@@ -360,26 +370,35 @@ private extension View {
     }
 }
 
-// MARK: - Tab Bar Drop Delegate
+// MARK: - Tab Row Frame Preference Key
 
-/// Per-row drop delegate for the tab bar section. Each row knows its index,
-/// so hovering over a row sets the insertion indicator at that position.
-private struct TabBarRowDropDelegate: DropDelegate {
-    let index: Int
+/// Captures per-row frames so the drop delegate can compute insertion index from Y position.
+private struct TabRowFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+// MARK: - Tab Bar Section Drop Delegate
+
+/// Single drop delegate for the entire tab bar section. Computes the insertion index
+/// from the drop Y position using captured row frames.
+private struct TabBarSectionDropDelegate: DropDelegate {
     let settingsManager: SettingsManager
     @Binding var draggedTab: TabItem?
     @Binding var dropTargetIndex: Int?
     @Binding var dropTargetSection: EditTabDropSection?
+    let rowFrames: [Int: CGRect]
 
     func dropEntered(info: DropInfo) {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            dropTargetSection = .tabBar
-            dropTargetIndex = index
-        }
+        dropTargetSection = .tabBar
+        updateIndex(from: info)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        updateIndex(from: info)
+        return DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
@@ -388,20 +407,19 @@ private struct TabBarRowDropDelegate: DropDelegate {
             return false
         }
 
+        let targetIndex = dropTargetIndex ?? settingsManager.enabledTabs.count
         var current = settingsManager.enabledTabs
 
         if let sourceIndex = current.firstIndex(of: draggedTab) {
             // Reorder within tab bar
             current.remove(at: sourceIndex)
-            // Adjust index if the source was before the target
-            let adjustedIndex = sourceIndex < index ? max(index - 1, 0) : index
+            let adjustedIndex = sourceIndex < targetIndex ? max(targetIndex - 1, 0) : targetIndex
             let insertIndex = min(adjustedIndex, current.count)
             current.insert(draggedTab, at: insertIndex)
         } else {
             // Moving from available to tab bar — insert at position, overflow past 4
-            let insertIndex = min(index, current.count)
+            let insertIndex = min(targetIndex, current.count)
             current.insert(draggedTab, at: insertIndex)
-            // Truncate to 4 — items pushed past position 3 fall back to available
             if current.count > 4 {
                 current = Array(current.prefix(4))
             }
@@ -413,11 +431,34 @@ private struct TabBarRowDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        // Only clear if we're still the active target
-        if dropTargetSection == .tabBar && dropTargetIndex == index {
+        if dropTargetSection == .tabBar {
             withAnimation(.easeInOut(duration: 0.15)) {
                 dropTargetIndex = nil
                 dropTargetSection = nil
+            }
+        }
+    }
+
+    /// Compute insertion index from the drop's Y position relative to row midpoints
+    private func updateIndex(from info: DropInfo) {
+        let dropY = info.location.y
+        let count = settingsManager.enabledTabs.count
+
+        // Find which row the drop is above by checking midpoints
+        var newIndex = count // Default: append at end
+        for i in 0..<count {
+            if let frame = rowFrames[i] {
+                let midY = frame.midY
+                if dropY < midY {
+                    newIndex = i
+                    break
+                }
+            }
+        }
+
+        if newIndex != dropTargetIndex {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                dropTargetIndex = newIndex
             }
         }
     }

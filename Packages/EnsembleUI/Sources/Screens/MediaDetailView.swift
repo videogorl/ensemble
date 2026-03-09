@@ -166,7 +166,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #endif
             // Compact play/shuffle/radio icons appear when action buttons scroll out of view
             #if os(iOS)
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if showToolbarActions {
                     HStack(spacing: 16) {
                         Button {

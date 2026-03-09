@@ -255,8 +255,8 @@ struct HubSection: View {
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {
                     sectionHeaderLabel
+                        .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             } else {
@@ -264,8 +264,8 @@ struct HubSection: View {
                     ArtistDetailLoader(artistId: artistId, nowPlayingVM: nowPlayingVM)
                 } label: {
                     sectionHeaderLabel
+                        .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             }
