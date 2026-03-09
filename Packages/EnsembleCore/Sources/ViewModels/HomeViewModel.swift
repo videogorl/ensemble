@@ -391,7 +391,8 @@ public final class HomeViewModel: ObservableObject {
                                                 id: hubId,
                                                 title: plexHub.title,
                                                 type: plexHub.type ?? "mixed",
-                                                items: hubItems
+                                                items: hubItems,
+                                                context: plexHub.context
                                             ))
                                         }
                                     }
@@ -769,7 +770,8 @@ public final class HomeViewModel: ObservableObject {
                     id: firstHub.id,
                     title: normalizedTitle,
                     type: firstHub.type,
-                    items: firstHub.items
+                    items: firstHub.items,
+                    context: firstHub.context
                 ))
             } else {
                 // Merge items from all hubs in this group
@@ -794,7 +796,8 @@ public final class HomeViewModel: ObservableObject {
                     id: "\(serverKey):merged:\(typeId)",
                     title: normalizedTitle,
                     type: firstHub.type,
-                    items: Array(allItems.prefix(40))
+                    items: Array(allItems.prefix(40)),
+                    context: firstHub.context
                 )
                 mergedResults.append(mergedHub)
             }

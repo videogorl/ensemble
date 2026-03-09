@@ -226,14 +226,10 @@ struct HubSection: View {
     let hub: Hub
     let nowPlayingVM: NowPlayingViewModel
     @Binding var playlistPickerTracks: [Track]?
-    @Environment(\.dependencies) private var deps
-
-    // Resolved artist ratingKey for the section header link
-    @State private var resolvedArtistId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Section header — navigable when hub has an associated artist
+            // Section header — navigable when hub is artist-scoped
             sectionHeader
 
             // Horizontal scroll of items
@@ -250,42 +246,11 @@ struct HubSection: View {
                 .padding(.horizontal)
             }
         }
-        .task(id: hub.id) {
-            await resolveArtistId()
-        }
-    }
-
-    /// Determine the artist ratingKey for this hub's header link.
-    /// First checks if the Hub items already carry an artistRatingKey (from CoreData cache),
-    /// then falls back to looking up the shared artist name in CoreData.
-    private func resolveArtistId() async {
-        // Fast path: items already have artistRatingKey populated
-        if let directId = hub.contextArtistId {
-            resolvedArtistId = directId
-            return
-        }
-
-        // Slow path: all items share the same artist name, look up the ratingKey
-        guard let artistName = hub.contextArtistName else {
-            resolvedArtistId = nil
-            return
-        }
-
-        // Use the source key from the first item to scope the lookup
-        let sourceKey = hub.items.first?.sourceCompositeKey
-        let sourceKeys: Set<String>? = sourceKey.map { [$0] }
-
-        if let artists = try? await deps.libraryRepository.findArtistsByName(artistName, sourceCompositeKeys: sourceKeys),
-           let artist = artists.first {
-            resolvedArtistId = artist.ratingKey
-        } else {
-            resolvedArtistId = nil
-        }
     }
 
     @ViewBuilder
     private var sectionHeader: some View {
-        if let artistId = resolvedArtistId {
+        if let artistId = hub.contextArtistId {
             // Tappable header that navigates to the artist detail view
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId)) {

@@ -574,44 +574,20 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
         self.context = context
     }
 
-    /// Artist ratingKey for single-artist hubs (e.g. "More by X"),
-    /// only returns a value when ALL items in the hub share the same artist.
-    /// Returns nil for multi-artist hubs like "Most Played" or genre hubs like "More in Pop/Rock".
+    /// Artist ratingKey for artist-scoped hubs (e.g. "More by Dune Moss").
+    /// Uses the Plex `context` field to identify artist hubs, then extracts the
+    /// artist ratingKey from the first album/track item's parentRatingKey.
+    /// Returns nil for non-artist hubs (genre, label, general, etc.).
     public var contextArtistId: String? {
-        guard items.count > 1 else { return nil }
-
-        // Try ratingKey-based match first (available when albums come from CoreData cache)
-        let artistKeys: [String] = items.compactMap { item in
-            item.album?.artistRatingKey ?? item.track?.artistRatingKey
-        }
-        if artistKeys.count == items.count,
-           let firstKey = artistKeys.first,
-           artistKeys.allSatisfy({ $0 == firstKey }) {
-            return firstKey
-        }
-
-        return nil
-    }
-
-    /// Artist name shared by all items in the hub, or nil if items have different artists.
-    /// Used to look up artist ratingKey from CoreData when the hub metadata
-    /// doesn't include parentRatingKey (which is typical for Plex hub responses).
-    public var contextArtistName: String? {
-        guard items.count > 1 else { return nil }
-
-        // For album hubs, check artistName; for track hubs, check artistName
-        let artistNames: [String] = items.compactMap { item in
-            item.album?.artistName ?? item.track?.artistName ?? item.subtitle
-        }
-
-        guard artistNames.count == items.count,
-              let firstName = artistNames.first,
-              !firstName.isEmpty,
-              artistNames.allSatisfy({ $0 == firstName }) else {
+        // Only artist-scoped hubs should link to an artist
+        // Plex context values: "hub.music.recent.artist" for "More by X"
+        guard let context = context, context.contains(".artist") else {
             return nil
         }
 
-        return firstName
+        // Get artist ratingKey from the first item
+        guard let first = items.first else { return nil }
+        return first.album?.artistRatingKey ?? first.track?.artistRatingKey
     }
 }
 
