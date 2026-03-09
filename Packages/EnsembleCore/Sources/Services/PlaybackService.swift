@@ -5701,7 +5701,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
-    /// Restore queue from QueueItem array without starting playback
+    /// Restore queue from QueueItem array without starting playback.
+    /// Pre-buffers the current track in the background so tapping play is instant.
     private func restoreQueueFromItems(_ items: [QueueItem], index: Int, time: TimeInterval) async {
         guard !items.isEmpty, index >= 0, index < items.count else { return }
 
@@ -5724,13 +5725,68 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             currentTime = time
             waveformHeights = []  // Clear old waveform immediately
 
-            // Don't load the player item yet — defer the network request until the
-            // user explicitly taps play. This prevents auto-play when the server isn't
-            // ready at app launch (health checks/reconnects would otherwise trigger
-            // playback from a .failed state).
             generateWaveform(for: track.id)
             playbackState = .paused
             updateNowPlayingInfo()
+        }
+
+        // Pre-buffer the current track in the background so tapping play is instant.
+        // Waits briefly for server health checks to complete before attempting the
+        // network request. Creates the player item, inserts it paused, and seeks
+        // to the saved position. If it fails (e.g., still offline), the existing
+        // fallback in resume() will handle it on tap.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            // Wait for health checks to complete (up to 5s)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+
+            // Skip if already playing (user tapped play before pre-buffer started)
+            guard self.playbackState == .paused,
+                  self.player?.currentItem == nil,
+                  let currentTrack = self.currentTrack else { return }
+
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Pre-buffering restored track: \(currentTrack.title)")
+            #endif
+
+            do {
+                let (item, fileURL) = try await self.createPlayerItem(for: currentTrack)
+                guard !Task.isCancelled, self.playbackState == .paused else { return }
+
+                // Cache and insert into player without playing
+                self.cachePlayerItem(item, for: currentTrack.id)
+                self.player?.removeAllItems()
+                self.player?.insert(item, after: nil)
+                self.setupObservers(for: item)
+
+                // Seek to saved position
+                if time > 0 {
+                    let seekTime = CMTime(seconds: time, preferredTimescale: 600)
+                    await item.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+
+                // Pre-load frequency timeline
+                if let fileURL {
+                    Task.detached { [audioAnalyzer = self.audioAnalyzer] in
+                        await audioAnalyzer.loadTimeline(
+                            for: currentTrack.id, fileURL: fileURL, priority: .utility
+                        )
+                    }
+                }
+
+                // Prefetch next items too
+                Task { await self.prefetchNextItem() }
+
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Pre-buffer complete for \(currentTrack.title)")
+                #endif
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Pre-buffer failed (will retry on play): \(error)")
+                #endif
+            }
         }
     }
 
