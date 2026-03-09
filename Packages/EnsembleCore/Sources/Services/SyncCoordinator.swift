@@ -782,9 +782,13 @@ public final class SyncCoordinator: ObservableObject {
                 lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 sourceCompositeKey: serverSourceKey
             )
-            if isEmptyCreate {
-                try? await playlistRepository.setPlaylistTracks([], forPlaylist: createdRemotePlaylist.ratingKey, sourceCompositeKey: serverSourceKey)
-            }
+            // Link tracks immediately so the playlist detail view shows them without
+        // waiting for the background refresh pass.
+        try? await playlistRepository.setPlaylistTracks(
+            isEmptyCreate ? [] : filteredTrackIds,
+            forPlaylist: createdRemotePlaylist.ratingKey,
+            sourceCompositeKey: serverSourceKey
+        )
 
             persistLastPlaylistTarget(
                 from: Playlist(

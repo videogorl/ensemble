@@ -500,7 +500,32 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
         isLoading = false
     }
-    
+
+    /// Sync this playlist's tracks from the server, then reload from cache.
+    /// Uses a detached task to survive SwiftUI `.refreshable` cancellation.
+    public func refreshFromServer() async {
+        guard !syncCoordinator.isOffline else {
+            await loadTracks()
+            return
+        }
+        guard !syncCoordinator.isSyncing else {
+            await loadTracks()
+            return
+        }
+
+        error = nil
+
+        // Run in a detached task so SwiftUI's .refreshable cancellation doesn't kill the sync
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncPlaylistsOnly()
+                continuation.resume()
+            }
+        }
+
+        await loadTracks()
+    }
+
     // MARK: - Filtered Collections
     
     /// Filtered tracks based on current filter options

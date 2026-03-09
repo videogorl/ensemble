@@ -978,6 +978,9 @@ public struct PlaylistDetailView: View {
         } message: {
             Text("This will permanently delete \"\(viewModel.playlist.title)\" from Plex.")
         }
+        .refreshable {
+            await viewModel.refreshFromServer()
+        }
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)
         #endif
