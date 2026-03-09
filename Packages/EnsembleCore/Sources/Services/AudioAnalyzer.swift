@@ -269,16 +269,22 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
         }
 
-        // When a high-priority analysis starts (current track), cancel all
-        // lower-priority prefetch tasks so they don't compete for CPU on older devices.
+        // Serialize analysis: only one analysis at a time to avoid CPU contention
+        // on dual-core devices (A9). High-priority (current track) cancels existing
+        // tasks. Low-priority (prefetch) is skipped if anything is already running.
         if priority == .userInitiated {
             for (existingId, existingTask) in analysisTasks {
                 existingTask.cancel()
                 #if DEBUG
-                logger.debug("Cancelled prefetch analysis for \(existingId) to prioritize \(trackId)")
+                logger.debug("Cancelled analysis for \(existingId) to prioritize \(trackId)")
                 #endif
             }
             analysisTasks.removeAll()
+        } else if !analysisTasks.isEmpty {
+            #if DEBUG
+            logger.debug("Skipping prefetch analysis for \(trackId): another analysis is running")
+            #endif
+            return
         }
 
         // Analyze on background thread with progressive updates.

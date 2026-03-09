@@ -197,13 +197,8 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
         }
 
         func applyInsets() {
-            guard bottomInset != appliedInset else { return }
             guard let window = self.window else { return }
 
-            // Search the VC tree for UINavigationControllers inside a UITabBarController.
-            // On iOS 15, SwiftUI's TabView wraps each tab in a UIHostingController (not
-            // UINavigationController directly), so the nav controllers are grandchildren
-            // of the tab bar controller. We search recursively within each tab.
             guard let tabBarController = Self.findTabBarController(from: window.rootViewController) else {
                 #if DEBUG
                 NSLog("[MiniPlayerInset] No UITabBarController found in VC hierarchy")
@@ -211,23 +206,29 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
                 return
             }
 
-            // Find all UINavigationControllers under each tab's hosting controller
-            var navCount = 0
+            // Set additionalSafeAreaInsets on ALL direct children of the UITabBarController.
+            // These are UIHostingControllers that SwiftUI creates for each tab — they exist
+            // for ALL tabs from the start, even unvisited ones. The insets propagate down
+            // through to NavigationView's UINavigationController and its content.
+            //
+            // Also set on any UINavigationControllers found deeper in the hierarchy for
+            // tabs that have been visited (handles pushed views that inherit the inset).
+            var appliedCount = 0
             for child in tabBarController.children {
-                let navControllers = Self.findNavigationControllers(in: child)
-                for navController in navControllers {
-                    var insets = navController.additionalSafeAreaInsets
-                    if insets.bottom != bottomInset {
-                        insets.bottom = bottomInset
-                        navController.additionalSafeAreaInsets = insets
-                        navCount += 1
-                    }
+                // Set on the tab's hosting controller (covers all tabs including unvisited)
+                if child.additionalSafeAreaInsets.bottom != bottomInset {
+                    var insets = child.additionalSafeAreaInsets
+                    insets.bottom = bottomInset
+                    child.additionalSafeAreaInsets = insets
+                    appliedCount += 1
                 }
             }
 
             #if DEBUG
-            NSLog("[MiniPlayerInset] Applied %.0fpt inset to %d nav controllers (tabs=%d)",
-                  bottomInset, navCount, tabBarController.children.count)
+            if bottomInset != appliedInset {
+                NSLog("[MiniPlayerInset] Applied %.0fpt inset to %d/%d tab children",
+                      bottomInset, appliedCount, tabBarController.children.count)
+            }
             #endif
             appliedInset = bottomInset
         }
@@ -245,17 +246,6 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
             return nil
         }
 
-        /// Recursively find all UINavigationControllers under a view controller
-        private static func findNavigationControllers(in vc: UIViewController) -> [UINavigationController] {
-            var results: [UINavigationController] = []
-            if let nav = vc as? UINavigationController {
-                results.append(nav)
-            }
-            for child in vc.children {
-                results.append(contentsOf: findNavigationControllers(in: child))
-            }
-            return results
-        }
     }
 }
 
