@@ -413,9 +413,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         var tempSymlink: URL? = nil
         let audioFile: AVAudioFile
         if let file = try? AVAudioFile(forReading: fileURL) {
-            #if DEBUG
-            NSLog("[FrequencyAnalysis] Opened directly: %@", fileURL.lastPathComponent)
-            #endif
             audioFile = file
         } else if let (file, symlink) = openWithExtensionProbing(fileURL) {
             audioFile = file
@@ -428,7 +425,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             #endif
             return nil
         }
-        // Clean up temp symlink after all reading is done
         defer { if let tempSymlink { try? FileManager.default.removeItem(at: tempSymlink) } }
 
         let sampleRate = audioFile.processingFormat.sampleRate
@@ -442,9 +438,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         let duration = Double(totalFrames) / sampleRate
         #if DEBUG
-        let memEstimateMB = Double(totalFrames) * 4.0 / (1024 * 1024)
-        NSLog("[FrequencyAnalysis] File opened: %.1fs, %.0fHz, %u frames (~%.1fMB PCM), channels=%u",
-              duration, sampleRate, totalFrames, memEstimateMB, audioFile.processingFormat.channelCount)
+        NSLog("[FrequencyAnalysis] File opened: %.1fs, %.0fHz, %u frames, channels=%u",
+              duration, sampleRate, totalFrames, audioFile.processingFormat.channelCount)
         #endif
         let fps: Double = 30.0
         let fftSize = 1024
@@ -476,39 +471,107 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         var hannWindow = [Float](repeating: 0, count: fftSize)
         vDSP_hann_window(&hannWindow, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
 
-        // Read using the file's native processing format (preserves channel count)
+        // Streaming analysis: process FFT frames as we read, keeping only a small
+        // rolling buffer instead of loading the entire file into memory (~57MB for
+        // a 5-min stereo track). Peak memory is ~100KB regardless of file duration.
         let processingFormat = audioFile.processingFormat
         let channelCount = Int(processingFormat.channelCount)
-        let chunkSize = AVAudioFrameCount(hopSize * 100) // Read in larger chunks for efficiency
-        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkSize) else {
+        // Read enough to produce several FFT frames per chunk (~1s of audio)
+        let chunkFrames = AVAudioFrameCount(hopSize * 30)
+        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkFrames) else {
             return nil
         }
 
-        var allSamples = [Float]()
-        allSamples.reserveCapacity(Int(totalFrames))
+        let expectedSnapshots = Int(ceil(duration * fps))
+        var snapshots = [FrequencySnapshot]()
+        snapshots.reserveCapacity(expectedSnapshots)
 
-        // Read all samples, mix down to mono if stereo/multichannel
+        // Reusable FFT buffers (allocated once, reused per frame)
+        var windowedSamples = [Float](repeating: 0, count: fftSize)
+        var realParts = [Float](repeating: 0, count: fftSize / 2)
+        var imagParts = [Float](repeating: 0, count: fftSize / 2)
+        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
+
+        // Rolling mono sample buffer — only keeps enough for one FFT window
+        // plus leftover samples from the previous chunk read.
+        var monoBuffer = [Float]()
+        monoBuffer.reserveCapacity(Int(chunkFrames) + fftSize)
+        let binSize = sampleRate / Double(fftSize)
+
         do {
             while audioFile.framePosition < audioFile.length {
                 let remaining = AVAudioFrameCount(audioFile.length - audioFile.framePosition)
-                let toRead = min(chunkSize, remaining)
+                let toRead = min(chunkFrames, remaining)
                 readBuffer.frameLength = 0
                 try audioFile.read(into: readBuffer, frameCount: toRead)
                 guard readBuffer.frameLength > 0, let channelData = readBuffer.floatChannelData else { break }
                 let frameCount = Int(readBuffer.frameLength)
 
+                // Mix down to mono and append to rolling buffer
                 if channelCount == 1 {
-                    // Mono — use directly
                     let ptr = channelData[0]
-                    allSamples.append(contentsOf: UnsafeBufferPointer(start: ptr, count: frameCount))
+                    monoBuffer.append(contentsOf: UnsafeBufferPointer(start: ptr, count: frameCount))
                 } else {
-                    // Mix down to mono by averaging all channels
                     for i in 0..<frameCount {
                         var sum: Float = 0
                         for ch in 0..<channelCount {
                             sum += channelData[ch][i]
                         }
-                        allSamples.append(sum / Float(channelCount))
+                        monoBuffer.append(sum / Float(channelCount))
+                    }
+                }
+
+                // Process all complete FFT frames in the buffer
+                while monoBuffer.count >= fftSize {
+                    // Apply Hann window
+                    for i in 0..<fftSize {
+                        windowedSamples[i] = monoBuffer[i] * hannWindow[i]
+                    }
+
+                    // Convert to split complex and run FFT
+                    realParts = [Float](repeating: 0, count: fftSize / 2)
+                    imagParts = [Float](repeating: 0, count: fftSize / 2)
+                    var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
+                    windowedSamples.withUnsafeBufferPointer { bufferPtr in
+                        bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                            vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                        }
+                    }
+                    vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+                    vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                    var divisor = Float(fftSize * 2)
+                    vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
+
+                    // Extract 24 logarithmic frequency bands
+                    var bandValues = [UInt8](repeating: 0, count: bandCount)
+                    for i in 0..<bandCount {
+                        let lowerBin = Int(bandEdges[i] / binSize)
+                        let upperBin = Int(bandEdges[i + 1] / binSize)
+                        guard lowerBin < normalizedMags.count else { continue }
+
+                        var sum: Float = 0
+                        var count = 0
+                        for bin in lowerBin..<min(upperBin, normalizedMags.count) {
+                            sum += normalizedMags[bin]
+                            count += 1
+                        }
+                        guard count > 0 else { continue }
+
+                        let average = sum / Float(count)
+                        let db = 20.0 * log10(Double(max(average, 1e-10)))
+                        let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
+                        let curved = pow(normalized, 0.7)
+                        bandValues[i] = UInt8(min(255, max(0, curved * 255.0)))
+                    }
+
+                    snapshots.append(FrequencySnapshot(bands: bandValues))
+
+                    // Advance by hopSize, dropping consumed samples from the front
+                    if hopSize <= monoBuffer.count {
+                        monoBuffer.removeFirst(hopSize)
+                    } else {
+                        monoBuffer.removeAll()
                     }
                 }
             }
@@ -520,87 +583,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         }
 
         #if DEBUG
-        NSLog("[FrequencyAnalysis] Read complete: %d samples (%.1fMB)",
-              allSamples.count, Double(allSamples.count * 4) / (1024 * 1024))
-        #endif
-
-        guard !allSamples.isEmpty else { return nil }
-
-        // Process frames: hop through samples, apply FFT, extract bands
-        var snapshots = [FrequencySnapshot]()
-        let expectedFrames = Int(ceil(duration * fps))
-        snapshots.reserveCapacity(expectedFrames)
-
-        var realParts = [Float](repeating: 0, count: fftSize / 2)
-        var imagParts = [Float](repeating: 0, count: fftSize / 2)
-        var windowedSamples = [Float](repeating: 0, count: fftSize)
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-        var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
-
-        var sampleOffset = 0
-        while sampleOffset < allSamples.count {
-            // Zero-fill windowed buffer
-            for i in 0..<fftSize { windowedSamples[i] = 0 }
-
-            // Copy samples and apply Hann window
-            let available = min(fftSize, allSamples.count - sampleOffset)
-            for i in 0..<available {
-                windowedSamples[i] = allSamples[sampleOffset + i] * hannWindow[i]
-            }
-
-            // Convert to split complex format (interleaved real pairs → split real/imag)
-            realParts = [Float](repeating: 0, count: fftSize / 2)
-            imagParts = [Float](repeating: 0, count: fftSize / 2)
-            var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-            windowedSamples.withUnsafeBufferPointer { bufferPtr in
-                // Reinterpret Float pairs as DSPComplex (same memory layout, guaranteed aligned)
-                bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
-                    vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
-                }
-            }
-
-            // FFT
-            vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-
-            // Magnitude spectrum
-            vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
-
-            // Normalize
-            var divisor = Float(fftSize * 2)
-            vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
-
-            // Extract 24 logarithmic bands
-            let binSize = sampleRate / Double(fftSize)
-            var bandValues = [UInt8](repeating: 0, count: bandCount)
-
-            for i in 0..<bandCount {
-                let lowerBin = Int(bandEdges[i] / binSize)
-                let upperBin = Int(bandEdges[i + 1] / binSize)
-                guard lowerBin < normalizedMags.count else { continue }
-
-                var sum: Float = 0
-                var count = 0
-                for bin in lowerBin..<min(upperBin, normalizedMags.count) {
-                    sum += normalizedMags[bin]
-                    count += 1
-                }
-                guard count > 0 else { continue }
-
-                let average = sum / Float(count)
-                let db = 20.0 * log10(Double(max(average, 1e-10)))
-                let normalized = min(1.0, max(0.0, (db + 60.0) / 60.0))
-
-                // Same pow(0.7) smoothing curve as the old real-time analyzer
-                let curved = pow(normalized, 0.7)
-                bandValues[i] = UInt8(min(255, max(0, curved * 255.0)))
-            }
-
-            snapshots.append(FrequencySnapshot(bands: bandValues))
-            sampleOffset += hopSize
-        }
-
-        #if DEBUG
-        NSLog("[FrequencyAnalysis] FFT complete: %d snapshots for %.1fs", snapshots.count, duration)
+        NSLog("[FrequencyAnalysis] Complete: %d snapshots for %.1fs", snapshots.count, duration)
         #endif
 
         return FrequencyTimeline(
