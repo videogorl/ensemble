@@ -5800,14 +5800,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
 
             // Signal that we need to pre-buffer once a server is reachable.
-            // For local files, pre-buffer immediately. For streaming tracks,
-            // handleHealthCheckCompletion() will trigger it once the server responds.
+            // For local files or if the server is already confirmed reachable,
+            // pre-buffer immediately. Otherwise handleHealthCheckCompletion()
+            // will trigger it when the next health check passes.
             pendingPreBufferTime = time
         }
 
-        // If the track is already downloaded locally, pre-buffer immediately
-        // (no need to wait for health checks)
-        if track.localFilePath != nil {
+        // Pre-buffer immediately if: (a) track is downloaded locally, or
+        // (b) a health check has already completed (server is reachable).
+        // Otherwise, handleHealthCheckCompletion() will trigger it later.
+        let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
+        if track.localFilePath != nil || serverReady {
             await preBufferRestoredTrack()
         }
     }
