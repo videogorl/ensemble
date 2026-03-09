@@ -622,7 +622,7 @@ public struct ArtistDetailView: View {
         return VStack(alignment: .leading, spacing: 8) {
             Text("Description")
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(.secondary)
 
             // Tappable description text to toggle expanded/collapsed
             VStack(alignment: .leading, spacing: 0) {
@@ -631,7 +631,7 @@ public struct ArtistDetailView: View {
                     ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)
                             .font(.body)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, index > 0 ? 12 : 0)
                     }
@@ -639,7 +639,7 @@ public struct ArtistDetailView: View {
                     // Collapsed: show truncated text
                     Text(paragraphs.first ?? summary)
                         .font(.body)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.primary)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
