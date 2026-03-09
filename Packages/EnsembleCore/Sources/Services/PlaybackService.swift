@@ -736,6 +736,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
     private var healthCheckCompletionObservation: AnyCancellable?
+    /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
+    private var pendingPreBufferTime: TimeInterval?
     private var qualityChangeObserver: NSObjectProtocol?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
@@ -1920,8 +1922,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
 
-        // If no player item is loaded (e.g., after state restoration where we deferred
-        // the network request), load and play the current queue item now.
+        // Clear pre-buffer flag — user is taking action now
+        pendingPreBufferTime = nil
+
+        // If no player item is loaded (e.g., after state restoration where pre-buffer
+        // hasn't completed yet), load and play the current queue item now.
         if player?.currentItem == nil, currentTrack != nil {
             Task { @MainActor in
                 await playCurrentQueueItem(seekTo: currentTime, caller: "restorePlaybackState")
@@ -4933,6 +4938,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Called when SyncCoordinator completes health checks.
     /// Auto-resumes playback if it was previously failed due to server unavailability.
+    /// Also triggers pre-buffering of restored tracks once a server is confirmed reachable.
     /// Does NOT rebuild the prefetch queue — proactively destroying prefetched items
     /// on every health check breaks gapless playback. Stale URLs (rare) are handled
     /// reactively by the network transition handler and error recovery paths.
@@ -4944,6 +4950,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // conditions have changed, so give playback a fresh failure budget.
         consecutivePlaybackFailures = 0
 
+        // Pre-buffer a restored track now that the server is confirmed reachable
+        if pendingPreBufferTime != nil {
+            await preBufferRestoredTrack()
+            return
+        }
+
         // Auto-resume: if playback failed because a server was offline, and a
         // health check just passed, retry the current track automatically.
         if case .failed = playbackState,
@@ -4953,6 +4965,64 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #endif
             await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
             return
+        }
+    }
+
+    /// Pre-buffer the restored track: create player item, insert paused, seek to saved position.
+    /// Called either immediately (local files) or after health check confirms server reachable.
+    @MainActor
+    private func preBufferRestoredTrack() async {
+        guard let savedTime = pendingPreBufferTime,
+              playbackState == .paused,
+              player?.currentItem == nil,
+              let track = currentTrack else {
+            pendingPreBufferTime = nil
+            return
+        }
+
+        pendingPreBufferTime = nil
+
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Pre-buffering restored track: \(track.title)")
+        #endif
+
+        do {
+            let (item, fileURL) = try await createPlayerItem(for: track)
+
+            // Bail if user already tapped play while we were downloading
+            guard playbackState == .paused else { return }
+
+            // Cache and insert into player without playing
+            cachePlayerItem(item, for: track.id)
+            player?.removeAllItems()
+            player?.insert(item, after: nil)
+            setupObservers(for: item)
+
+            // Seek to saved position
+            if savedTime > 0 {
+                let seekTime = CMTime(seconds: savedTime, preferredTimescale: 600)
+                await item.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+
+            // Pre-load frequency timeline
+            if let fileURL {
+                Task.detached { [audioAnalyzer] in
+                    await audioAnalyzer.loadTimeline(
+                        for: track.id, fileURL: fileURL, priority: .utility
+                    )
+                }
+            }
+
+            // Prefetch next items too
+            Task { await prefetchNextItem() }
+
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Pre-buffer complete for \(track.title)")
+            #endif
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Pre-buffer failed (will retry on play): \(error)")
+            #endif
         }
     }
 
@@ -5728,65 +5798,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             generateWaveform(for: track.id)
             playbackState = .paused
             updateNowPlayingInfo()
+
+            // Signal that we need to pre-buffer once a server is reachable.
+            // For local files, pre-buffer immediately. For streaming tracks,
+            // handleHealthCheckCompletion() will trigger it once the server responds.
+            pendingPreBufferTime = time
         }
 
-        // Pre-buffer the current track in the background so tapping play is instant.
-        // Waits briefly for server health checks to complete before attempting the
-        // network request. Creates the player item, inserts it paused, and seeks
-        // to the saved position. If it fails (e.g., still offline), the existing
-        // fallback in resume() will handle it on tap.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            // Wait for health checks to complete (up to 5s)
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled else { return }
-
-            // Skip if already playing (user tapped play before pre-buffer started)
-            guard self.playbackState == .paused,
-                  self.player?.currentItem == nil,
-                  let currentTrack = self.currentTrack else { return }
-
-            #if DEBUG
-            EnsembleLogger.debug("🔄 Pre-buffering restored track: \(currentTrack.title)")
-            #endif
-
-            do {
-                let (item, fileURL) = try await self.createPlayerItem(for: currentTrack)
-                guard !Task.isCancelled, self.playbackState == .paused else { return }
-
-                // Cache and insert into player without playing
-                self.cachePlayerItem(item, for: currentTrack.id)
-                self.player?.removeAllItems()
-                self.player?.insert(item, after: nil)
-                self.setupObservers(for: item)
-
-                // Seek to saved position
-                if time > 0 {
-                    let seekTime = CMTime(seconds: time, preferredTimescale: 600)
-                    await item.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                }
-
-                // Pre-load frequency timeline
-                if let fileURL {
-                    Task.detached { [audioAnalyzer = self.audioAnalyzer] in
-                        await audioAnalyzer.loadTimeline(
-                            for: currentTrack.id, fileURL: fileURL, priority: .utility
-                        )
-                    }
-                }
-
-                // Prefetch next items too
-                Task { await self.prefetchNextItem() }
-
-                #if DEBUG
-                EnsembleLogger.debug("🔄 Pre-buffer complete for \(currentTrack.title)")
-                #endif
-            } catch {
-                #if DEBUG
-                EnsembleLogger.debug("🔄 Pre-buffer failed (will retry on play): \(error)")
-                #endif
-            }
+        // If the track is already downloaded locally, pre-buffer immediately
+        // (no need to wait for health checks)
+        if track.localFilePath != nil {
+            await preBufferRestoredTrack()
         }
     }
 
