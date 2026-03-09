@@ -403,12 +403,19 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Core FFT analysis: opens file, reads PCM chunks, runs windowed FFT, maps to 24 bands.
     /// Reuses the same parameters as the old real-time tap (1024 FFT, 24 log bands, pow(0.7) smoothing).
     private nonisolated static func analyzeFile(at fileURL: URL) -> FrequencyTimeline? {
+        #if DEBUG
+        NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
+        #endif
+
         // Open audio file — try directly first, then fall back to symlink probing
         // for files with unrecognized extensions (e.g. ".audio" from stream cache).
         // AVAudioFile relies on the file extension to determine the container format.
         var tempSymlink: URL? = nil
         let audioFile: AVAudioFile
         if let file = try? AVAudioFile(forReading: fileURL) {
+            #if DEBUG
+            NSLog("[FrequencyAnalysis] Opened directly: %@", fileURL.lastPathComponent)
+            #endif
             audioFile = file
         } else if let (file, symlink) = openWithExtensionProbing(fileURL) {
             audioFile = file
@@ -426,9 +433,19 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         let sampleRate = audioFile.processingFormat.sampleRate
         let totalFrames = AVAudioFrameCount(audioFile.length)
-        guard sampleRate > 0, totalFrames > 0 else { return nil }
+        guard sampleRate > 0, totalFrames > 0 else {
+            #if DEBUG
+            NSLog("[FrequencyAnalysis] Invalid format: sampleRate=%.0f, frames=%u", sampleRate, totalFrames)
+            #endif
+            return nil
+        }
 
         let duration = Double(totalFrames) / sampleRate
+        #if DEBUG
+        let memEstimateMB = Double(totalFrames) * 4.0 / (1024 * 1024)
+        NSLog("[FrequencyAnalysis] File opened: %.1fs, %.0fHz, %u frames (~%.1fMB PCM), channels=%u",
+              duration, sampleRate, totalFrames, memEstimateMB, audioFile.processingFormat.channelCount)
+        #endif
         let fps: Double = 30.0
         let fftSize = 1024
         let bandCount = 24
@@ -496,8 +513,16 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
             }
         } catch {
+            #if DEBUG
+            NSLog("[FrequencyAnalysis] Read error: %@", "\(error)")
+            #endif
             return nil
         }
+
+        #if DEBUG
+        NSLog("[FrequencyAnalysis] Read complete: %d samples (%.1fMB)",
+              allSamples.count, Double(allSamples.count * 4) / (1024 * 1024))
+        #endif
 
         guard !allSamples.isEmpty else { return nil }
 
@@ -573,6 +598,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             snapshots.append(FrequencySnapshot(bands: bandValues))
             sampleOffset += hopSize
         }
+
+        #if DEBUG
+        NSLog("[FrequencyAnalysis] FFT complete: %d snapshots for %.1fs", snapshots.count, duration)
+        #endif
 
         return FrequencyTimeline(
             snapshots: snapshots,

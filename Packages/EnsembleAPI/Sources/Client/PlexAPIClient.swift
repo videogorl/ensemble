@@ -1324,7 +1324,35 @@ public actor PlexAPIClient {
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
-        let fileExtension = quality == .original ? "audio" : "mp3"
+        // Determine file extension from content type so AVPlayer can identify the format.
+        // For non-original quality, PMS always produces MP3 regardless of source codec.
+        let fileExtension: String
+        if quality != .original {
+            fileExtension = "mp3"
+        } else {
+            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+            switch contentType.lowercased() {
+            case let ct where ct.contains("flac"):
+                fileExtension = "flac"
+            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
+                fileExtension = "m4a"
+            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
+                fileExtension = "mp3"
+            case let ct where ct.contains("wav"):
+                fileExtension = "wav"
+            case let ct where ct.contains("aac"):
+                fileExtension = "aac"
+            default:
+                // Unknown content type — use generic extension, AVPlayer will try to sniff
+                fileExtension = "audio"
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Unknown Content-Type for original quality stream: '\(contentType)'")
+                #endif
+            }
+            #if DEBUG
+            EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
+            #endif
+        }
         let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
 
         // Remove stale file if it exists (e.g., from a crashed session)

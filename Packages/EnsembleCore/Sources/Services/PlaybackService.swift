@@ -3565,9 +3565,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("   ✅ Got stream URL host: \(streamURL.host ?? "unknown")")
+        EnsembleLogger.debug("   ✅ Got stream URL: \(streamURL.lastPathComponent) (host: \(streamURL.host ?? "file"))")
         #endif
-        let asset = AVURLAsset(url: streamURL)
+
+        // AVPlayer relies on file extensions to identify codecs. If the stream cache
+        // file has an unrecognized extension (e.g. ".audio" from original quality
+        // before content-type detection was added), create a symlink with a known
+        // extension so AVPlayer can parse it. Try common extensions via symlink
+        // probing — AVAudioFile validates the format synchronously.
+        var playbackURL = streamURL
+        let knownExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "wav", "caf", "aiff", "alac"]
+        if streamURL.isFileURL && !knownExtensions.contains(streamURL.pathExtension.lowercased()) {
+            let baseName = streamURL.deletingPathExtension().lastPathComponent
+            let tempDir = FileManager.default.temporaryDirectory
+            for ext in ["flac", "mp3", "m4a", "aac", "wav"] {
+                let symlink = tempDir.appendingPathComponent("\(baseName)_play.\(ext)")
+                try? FileManager.default.removeItem(at: symlink)
+                do {
+                    try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: streamURL)
+                    // AVAudioFile validates the format synchronously
+                    if let _ = try? AVAudioFile(forReading: symlink) {
+                        playbackURL = symlink
+                        #if DEBUG
+                        EnsembleLogger.debug("   🔗 Using .\(ext) symlink for '.\(streamURL.pathExtension)' extension")
+                        #endif
+                        break
+                    }
+                    try? FileManager.default.removeItem(at: symlink)
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        let asset = AVURLAsset(url: playbackURL)
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
 
