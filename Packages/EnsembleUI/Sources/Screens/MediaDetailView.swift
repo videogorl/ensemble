@@ -73,6 +73,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
+    @State private var showToolbarTitle = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
     @Environment(\.dependencies) private var deps
@@ -437,8 +438,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
             }
+            .coordinateSpace(name: "mediaDetailScroll")
         }
-        .navigationTitle(navigationTitle)
+        .collapsingToolbarTitle(
+            navigationTitle,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
+        .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -515,6 +522,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
+                    .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
                 if let subtitle = headerData.subtitle {
                     if let artistId = headerData.artistRatingKey {

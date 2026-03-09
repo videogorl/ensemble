@@ -275,6 +275,7 @@ public struct ArtistDetailView: View {
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @State private var showToolbarTitle = false
     @Environment(\.openURL) private var openURL
 
     public init(
@@ -325,12 +326,18 @@ public struct ArtistDetailView: View {
                 }
             }
         }
+        .coordinateSpace(name: "artistDetailScroll")
         .ignoresSafeArea(edges: .top)
         // Background gradient as background modifier so it extends behind safe areas
         // without affecting the ScrollView's safe area layout (ZStack + ignoresSafeArea
         // on a sibling was causing the ScrollView to ignore bottom safe area on iOS 15)
         .background(backgroundGradient.ignoresSafeArea())
-        .navigationTitle(viewModel.artist.name)
+        .collapsingToolbarTitle(
+            viewModel.artist.name,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
+        .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -487,6 +494,7 @@ public struct ArtistDetailView: View {
                     Text(viewModel.artist.name)
                         .font(.largeTitle)
                         .fontWeight(.bold)
+                        .background(TitleOffsetTracker(coordinateSpace: "artistDetailScroll"))
 
                     if !viewModel.filteredAlbums.isEmpty || !viewModel.filteredTracks.isEmpty {
                         HStack(spacing: 8) {
