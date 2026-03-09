@@ -1990,6 +1990,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func next() {
         guard !queue.isEmpty else { return }
+
+        #if DEBUG
+        let currentTrackTitle = currentTrack?.title ?? "nil"
+        let currentState = playbackState
+        EnsembleLogger.debug("⏭️ next() called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
+        #endif
+
         consecutivePlaybackFailures = 0
 
         // Stop old audio immediately so it doesn't continue playing while the

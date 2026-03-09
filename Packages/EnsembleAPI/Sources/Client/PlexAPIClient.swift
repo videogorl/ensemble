@@ -1470,16 +1470,19 @@ public actor PlexAPIClient {
     /// PMS's start.mp3 endpoint requires literal `=` inside X-Plex-Client-Profile-Extra
     /// values (e.g., `type=musicProfile&context=streaming`). Swift's `URLComponents` encodes
     /// `=` as `%3D` in query values, which the decision endpoint tolerates but start.mp3
-    /// rejects with 400. This method encodes only `&` (to `%26`) and percent-encodes spaces,
-    /// leaving `=`, `+`, `/`, and other characters that PMS expects literal.
+    /// rejects with 400. This method uses percent-encoding that keeps `=`, `+`, `(`, `)`,
+    /// and `/` literal while encoding `&`, spaces, and non-ASCII characters. The non-ASCII
+    /// encoding is critical for iOS 15 whose URL parser rejects non-ASCII in URL strings
+    /// (e.g., curly apostrophes in device names like "Felicity\u{2019}s iPhone").
     private func buildTranscodeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        // Character set: urlQueryAllowed minus `&` (which separates query params).
+        // This keeps = + ( ) / : @ literal while encoding & spaces and non-ASCII.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&")
+
         let query = queryItems.map { item -> String in
             let value = item.value ?? ""
-            // Encode & as %26 to prevent splitting into separate params.
-            // Encode spaces as %20. Leave = + / literal (PMS expects them).
-            let encoded = value
-                .replacingOccurrences(of: "&", with: "%26")
-                .replacingOccurrences(of: " ", with: "%20")
+            let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
             return "\(item.name)=\(encoded)"
         }.joined(separator: "&")
 
