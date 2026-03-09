@@ -5004,7 +5004,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 await item.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
             }
 
-            // Pre-load frequency timeline
+            // Pre-load frequency timeline and activate it so the visualizer
+            // is ready when the user taps play (resume() calls resumeUpdates())
             if let fileURL {
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(
@@ -5012,6 +5013,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     )
                 }
             }
+            audioAnalyzer.activateTimeline(for: track.id)
 
             // Prefetch next items too
             Task { await prefetchNextItem() }
