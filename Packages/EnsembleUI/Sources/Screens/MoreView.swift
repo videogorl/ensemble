@@ -128,6 +128,7 @@ public struct MoreView: View {
         #else
         .listStyle(.inset)
         #endif
+        .miniPlayerBottomSpacing(140)
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
         .toolbar {
             #if os(iOS)

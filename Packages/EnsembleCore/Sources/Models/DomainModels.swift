@@ -616,13 +616,19 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     /// Artist ratingKey for artist-scoped hubs (e.g. "More by Dune Moss").
     /// Uses the Plex `context` field to identify artist hubs, then extracts the
     /// artist ratingKey from the first album/track item's parentRatingKey.
+    /// Also handles "More from" / "More by" titled hubs where the context field
+    /// may not contain ".artist" but the content is clearly artist-scoped.
     /// Returns nil for non-artist hubs (genre, label, general, etc.).
     public var contextArtistId: String? {
-        // Only artist-scoped hubs should link to an artist
-        // Plex context values: "hub.music.recent.artist" for "More by X"
-        guard let context = context, context.contains(".artist") else {
-            return nil
-        }
+        // Check 1: Plex context field explicitly identifies artist-scoped hubs
+        let isArtistContext = context?.contains(".artist") == true
+
+        // Check 2: Title-based detection for "More from X" / "More by X" hubs
+        // where Plex doesn't set an artist context
+        let lowercasedTitle = title.lowercased()
+        let isMoreFromHub = lowercasedTitle.hasPrefix("more from") || lowercasedTitle.hasPrefix("more by")
+
+        guard isArtistContext || isMoreFromHub else { return nil }
 
         // Get artist ratingKey from the first item
         guard let first = items.first else { return nil }

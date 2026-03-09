@@ -399,11 +399,22 @@ public struct ArtistDetailView: View {
         }
     }
     
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var backgroundOverlayColor: Color {
+        #if os(iOS)
+        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
+        #else
+        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
+        #endif
+    }
+
     private var backgroundGradient: some View {
         BlurredArtworkBackground(
             image: artworkImage,
-            topDimming: 0.1,
-            bottomDimming: 0.4
+            topDimming: colorScheme == .dark ? 0.1 : 0.05,
+            bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
+            overlayColor: backgroundOverlayColor
         )
         .mask(
             LinearGradient(
