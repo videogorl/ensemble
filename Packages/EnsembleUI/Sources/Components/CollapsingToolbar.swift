@@ -72,8 +72,6 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
             .background(
                 NavigationBarAppearanceConfigurator(isTransparent: !showToolbarTitle)
             )
-            // iOS 26+: suppress Liquid Glass on toolbar items when transparent
-            .modifier(GlassEffectSuppressionModifier(suppress: !showToolbarTitle))
             #endif
     }
 }
@@ -94,40 +92,6 @@ struct TitleOffsetTracker: View {
         }
     }
 }
-
-// MARK: - Glass Effect Suppression Modifier (iOS 26+)
-
-#if os(iOS)
-/// On iOS 26+, hides the system back button's Liquid Glass pill and replaces it
-/// with a plain back button when the nav bar is in transparent mode. When the bar
-/// transitions to opaque (user has scrolled), the system back button is restored.
-private struct GlassEffectSuppressionModifier: ViewModifier {
-    let suppress: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .navigationBarBackButtonHidden(suppress)
-                .toolbar {
-                    if suppress {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button {
-                                dismiss()
-                            } label: {
-                                Image(systemName: "chevron.backward")
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    }
-                }
-        } else {
-            content
-        }
-    }
-}
-#endif
 
 // MARK: - Toolbar Background Modifier (iOS 16+)
 
