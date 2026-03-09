@@ -613,8 +613,10 @@ public struct ArtistDetailView: View {
     }
 
     private func descriptionContent(summary: String) -> some View {
-        let paragraphs = summary.components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // Plex sends paragraphs separated by \r\n; split on any newline variant
+        let paragraphs = summary
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -635,7 +637,7 @@ public struct ArtistDetailView: View {
                     }
                 } else {
                     // Collapsed: show truncated text
-                    Text(summary)
+                    Text(paragraphs.first ?? summary)
                         .font(.body)
                         .foregroundColor(.secondary)
                         .lineLimit(4)
@@ -646,6 +648,20 @@ public struct ArtistDetailView: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     isBioExpanded.toggle()
+                }
+            }
+
+            // Expand/collapse link
+            if paragraphs.count > 1 || summary.count > 200 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isBioExpanded.toggle()
+                    }
+                } label: {
+                    Text(isBioExpanded ? "Show less" : "Read more")
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.accentColor)
                 }
             }
         }
