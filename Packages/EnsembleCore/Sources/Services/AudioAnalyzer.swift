@@ -57,20 +57,32 @@ public struct FrequencySnapshot {
 // MARK: - Frequency Timeline
 
 /// Time-indexed frequency data for an entire track.
-/// Stored as sparse keyframes (2fps) with interpolation at lookup time.
-/// A 5-min song at 2fps = ~600 frames × 24 bytes = ~14KB.
+/// Stored as keyframes (10fps) with interpolation at lookup time.
+/// A 5-min song at 10fps = ~3000 frames × 24 bytes = ~72KB.
+///
+/// `analyzedDuration` tracks how far analysis has reached for progressive loading.
+/// For complete timelines (sidecar-loaded or fully analyzed), it equals `duration`.
 public struct FrequencyTimeline {
     public let snapshots: [FrequencySnapshot]
     public let framesPerSecond: Double
     public let duration: TimeInterval
+    /// How much of the track has been analyzed (for progressive loading)
+    public let analyzedDuration: TimeInterval
 
     /// Look up bands at a playback position, normalized to 0.0-1.0.
-    /// Linearly interpolates between adjacent keyframes for smooth display.
+    /// Returns zeros for positions beyond the analyzed portion.
+    /// Linearly interpolates between adjacent keyframes for smooth 30Hz display.
     public func bands(at time: TimeInterval) -> [Double] {
-        guard !snapshots.isEmpty, duration > 0 else {
+        guard !snapshots.isEmpty, analyzedDuration > 0 else {
             return Array(repeating: 0, count: 24)
         }
-        let fractionalIndex = (time / duration) * Double(snapshots.count)
+        // Beyond analyzed portion: return zeros
+        if time > analyzedDuration + 0.5 {
+            return Array(repeating: 0, count: 24)
+        }
+
+        let clampedTime = min(time, analyzedDuration)
+        let fractionalIndex = (clampedTime / analyzedDuration) * Double(snapshots.count)
         let lo = max(0, min(snapshots.count - 1, Int(fractionalIndex)))
         let hi = min(lo + 1, snapshots.count - 1)
         let frac = fractionalIndex - Double(lo)
@@ -147,7 +159,7 @@ public struct FrequencyTimelinePersistence {
             snapshots.append(FrequencySnapshot(bands: bands))
         }
 
-        return FrequencyTimeline(snapshots: snapshots, framesPerSecond: fps, duration: dur)
+        return FrequencyTimeline(snapshots: snapshots, framesPerSecond: fps, duration: dur, analyzedDuration: dur)
     }
 }
 
@@ -272,11 +284,28 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             analysisTasks.removeAll()
         }
 
-        // Analyze on background thread at the requested priority
+        // Analyze on background thread with progressive updates.
+        // Every ~50 keyframes (~5s of audio at 10fps), a partial timeline
+        // is published so the visualizer starts almost immediately (~0.7s)
+        // while analysis continues in background.
         let capturedFileURL = fileURL
         let capturedPriority = priority
         let analysisTask = Task { [weak self] in
-            let timeline = await Self.analyzeInBackground(fileURL: capturedFileURL, priority: capturedPriority)
+            let timeline = await Self.analyzeInBackground(
+                fileURL: capturedFileURL,
+                priority: capturedPriority
+            ) { partialSnapshots, fps, analyzedDur, totalDur in
+                // Progressive update: publish partial timeline to main actor
+                Task { @MainActor [weak self] in
+                    guard let self, !Task.isCancelled else { return }
+                    self.timelines[trackId] = FrequencyTimeline(
+                        snapshots: partialSnapshots,
+                        framesPerSecond: fps,
+                        duration: totalDur,
+                        analyzedDuration: analyzedDur
+                    )
+                }
+            }
             guard !Task.isCancelled, let self else { return }
 
             if let timeline {
@@ -418,23 +447,35 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     // MARK: - Static FFT Analysis (runs on background thread)
 
+    /// Progress callback type: (snapshots so far, fps, analyzed duration, total duration)
+    typealias ProgressHandler = @Sendable ([FrequencySnapshot], Double, TimeInterval, TimeInterval) -> Void
+
     /// Public entry point for sidecar generation after offline downloads.
     /// Runs FFT analysis on a background thread. Returns nil if the file can't be read.
     public nonisolated static func analyzeForSidecar(fileURL: URL) async -> FrequencyTimeline? {
-        return await analyzeInBackground(fileURL: fileURL)
+        return await analyzeInBackground(fileURL: fileURL, priority: .utility, progressHandler: nil)
     }
 
     /// Analyze an audio file and produce a FrequencyTimeline.
     /// Runs entirely off the main thread. Returns nil if the file can't be read.
-    private nonisolated static func analyzeInBackground(fileURL: URL, priority: TaskPriority = .utility) async -> FrequencyTimeline? {
+    /// Optional progressHandler receives partial results for progressive display.
+    private nonisolated static func analyzeInBackground(
+        fileURL: URL,
+        priority: TaskPriority = .utility,
+        progressHandler: ProgressHandler? = nil
+    ) async -> FrequencyTimeline? {
         return await Task.detached(priority: priority) {
-            return analyzeFile(at: fileURL)
+            return analyzeFile(at: fileURL, progressHandler: progressHandler)
         }.value
     }
 
-    /// Core FFT analysis: opens file, reads PCM chunks, runs windowed FFT, maps to 24 bands.
-    /// Reuses the same parameters as the old real-time tap (1024 FFT, 24 log bands, pow(0.7) smoothing).
-    private nonisolated static func analyzeFile(at fileURL: URL) -> FrequencyTimeline? {
+    /// Core FFT analysis: opens file, seeks to analysis points, runs windowed FFT, maps to 24 bands.
+    /// Progressive: publishes partial results every ~50 keyframes (~5s of audio) so the
+    /// visualizer starts within ~0.7s. Full analysis for a 5-min song takes ~35s on A9.
+    private nonisolated static func analyzeFile(
+        at fileURL: URL,
+        progressHandler: ProgressHandler? = nil
+    ) -> FrequencyTimeline? {
         #if DEBUG
         let startTime = CACurrentMediaTime()
         NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
@@ -470,14 +511,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         NSLog("[FrequencyAnalysis] Opened: %.1fs, %.0fHz, ch=%u", duration, sampleRate, channelCount)
         #endif
 
-        // Seek-based analysis at 2fps: seeks to each analysis point and decodes
-        // only fftSize (1024) samples per frame. For a 5-min song at 2fps:
-        //   ~600 keyframes × 1024 samples = ~614K samples decoded (~7s on A9)
-        // vs sequential full decode: 15M frames (~2min on A9)
-        //
-        // The display timer interpolates between keyframes at 30Hz via
-        // FrequencyTimeline.bands(at:), producing smooth visual output.
-        let analysisFPS: Double = 2.0
+        // Seek-based analysis at 10fps with progressive loading.
+        // Each seek + decode of 1024 samples takes ~14ms on A9 (dual core).
+        // For a 5-min song: ~3000 keyframes × 14ms = ~42s total.
+        // But results are published every 50 keyframes (~0.7s), so the
+        // visualizer starts almost immediately while analysis continues.
+        // Analysis runs at ~7x real-time, staying ahead of playback.
+        let analysisFPS: Double = 10.0
         let fftSize = 1024
         let bandCount = 24
         let hopFrames = Int(sampleRate / analysisFPS)
@@ -515,8 +555,15 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         var keyframes = [FrequencySnapshot]()
         keyframes.reserveCapacity(keyframeCount)
 
+        // Publish partial results every progressInterval keyframes (~5s of audio).
+        // At 10fps, 50 keyframes = 5s of audio, analyzed in ~0.7s on A9.
+        let progressInterval = 50
+
         do {
             for k in 0..<keyframeCount {
+                // Check for cancellation periodically (every 10 keyframes)
+                if k % 10 == 0 && Task.isCancelled { return nil }
+
                 let seekFrame = AVAudioFramePosition(k * hopFrames)
                 guard seekFrame + AVAudioFramePosition(fftSize) <= audioFile.length else {
                     // Near end of file — duplicate last frame if we have one
@@ -588,11 +635,27 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
 
                 keyframes.append(FrequencySnapshot(bands: bandValues))
+
+                // Publish partial results for progressive display
+                if let progressHandler, keyframes.count % progressInterval == 0 {
+                    let analyzedSoFar = Double(keyframes.count) / analysisFPS
+                    progressHandler(Array(keyframes), analysisFPS, analyzedSoFar, duration)
+                }
             }
         } catch {
             #if DEBUG
             NSLog("[FrequencyAnalysis] Read error: %@", "\(error)")
             #endif
+            // Return whatever we have so far (partial analysis is better than nothing)
+            if !keyframes.isEmpty {
+                let analyzedSoFar = Double(keyframes.count) / analysisFPS
+                return FrequencyTimeline(
+                    snapshots: keyframes,
+                    framesPerSecond: analysisFPS,
+                    duration: duration,
+                    analyzedDuration: analyzedSoFar
+                )
+            }
             return nil
         }
 
@@ -604,12 +667,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
               keyframes.count, duration, elapsed)
         #endif
 
-        // Store keyframes directly at analysis FPS. The display timer
+        // Store keyframes at analysis FPS. The display timer
         // interpolates between them at 30Hz via bands(at:).
         return FrequencyTimeline(
             snapshots: keyframes,
             framesPerSecond: analysisFPS,
-            duration: duration
+            duration: duration,
+            analyzedDuration: duration  // fully analyzed
         )
     }
 
