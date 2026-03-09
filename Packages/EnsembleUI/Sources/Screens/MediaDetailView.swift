@@ -418,23 +418,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 0) {
-                    // Header
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    // Header (artwork + title + metadata)
                     headerView
 
-                    // Action buttons
-                    actionButtons
-
-                    // Tracks
-                    if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                        ProgressView()
-                            .padding(.top, 40)
-                    } else if viewModel.filteredTracks.isEmpty {
-                        Text("No tracks")
-                            .foregroundColor(.secondary)
-                            .padding(.top, 40)
-                    } else {
-                        tracksSection
+                    // Action buttons pin when scrolled past
+                    Section(header: stickyActionButtons) {
+                        // Tracks
+                        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                            ProgressView()
+                                .padding(.top, 40)
+                        } else if viewModel.filteredTracks.isEmpty {
+                            Text("No tracks")
+                                .foregroundColor(.secondary)
+                                .padding(.top, 40)
+                        } else {
+                            tracksSection
+                        }
                     }
                 }
             }
@@ -559,6 +559,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
         .padding()
+    }
+
+    /// Sticky header wrapper for action buttons with version-adaptive background.
+    /// iOS 26+: uses glassEffect for Liquid Glass treatment.
+    /// iOS 15-25: uses ultraThinMaterial for frosted-glass effect.
+    private var stickyActionButtons: some View {
+        actionButtons
+            .padding(.top, 4)
+            .background(
+                Group {
+                    if #available(iOS 26.0, macOS 26.0, *) {
+                        Color.clear.glassEffect(.regular.interactive(), in: .rect)
+                    } else {
+                        Rectangle().fill(.ultraThinMaterial)
+                    }
+                }
+            )
     }
 
     private var actionButtons: some View {
