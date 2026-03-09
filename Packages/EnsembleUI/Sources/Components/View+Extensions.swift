@@ -155,9 +155,15 @@ private struct CoverFlowRotationSupportModifier: ViewModifier {
 }
 
 /// Applied once as a background on the TabView container in MainTabView.
-/// Finds every child UINavigationController under the UITabBarController
-/// and sets additionalSafeAreaInsets.bottom on each. This propagates to
-/// all pushed views, matching how Apple Music handles mini player insets.
+/// Searches the window's view controller hierarchy (top-down) for the
+/// UITabBarController backing SwiftUI's TabView, then sets
+/// additionalSafeAreaInsets.bottom on each child navigation controller.
+/// This propagates to all pushed views, matching how Apple Music handles
+/// mini player insets.
+///
+/// The responder chain walk (bottom-up) doesn't work because the probe view
+/// sits in a SwiftUI hosting context that's a sibling of the tab bar controller,
+/// not a descendant. So we search downward from window.rootViewController instead.
 ///
 /// Uses UIViewRepresentable (not UIViewControllerRepresentable) to avoid
 /// inserting a child VC that could cause layout feedback loops.
@@ -192,9 +198,15 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 
         func applyInsets() {
             guard bottomInset != appliedInset else { return }
+            guard let window = self.window else { return }
 
-            // Find the UITabBarController in the ancestor chain
-            guard let tabBarController = findTabBarController() else { return }
+            // Search the VC tree top-down for the UITabBarController
+            guard let tabBarController = Self.findTabBarController(from: window.rootViewController) else {
+                #if DEBUG
+                NSLog("[MiniPlayerInset] No UITabBarController found in VC hierarchy")
+                #endif
+                return
+            }
 
             // Set insets on each child navigation controller so all tabs get the inset
             for child in tabBarController.children {
@@ -207,16 +219,22 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
                 }
             }
 
+            #if DEBUG
+            NSLog("[MiniPlayerInset] Applied %.0fpt inset to %d nav controllers",
+                  bottomInset, tabBarController.children.compactMap { $0 as? UINavigationController }.count)
+            #endif
             appliedInset = bottomInset
         }
 
-        private func findTabBarController() -> UITabBarController? {
-            var responder: UIResponder? = self
-            while let next = responder?.next {
-                if let tabBarController = next as? UITabBarController {
-                    return tabBarController
-                }
-                responder = next
+        /// Recursively search the view controller hierarchy for a UITabBarController
+        private static func findTabBarController(from vc: UIViewController?) -> UITabBarController? {
+            guard let vc else { return nil }
+            if let tbc = vc as? UITabBarController { return tbc }
+            for child in vc.children {
+                if let found = findTabBarController(from: child) { return found }
+            }
+            if let presented = vc.presentedViewController {
+                return findTabBarController(from: presented)
             }
             return nil
         }

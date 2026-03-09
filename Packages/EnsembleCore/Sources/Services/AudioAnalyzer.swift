@@ -57,20 +57,36 @@ public struct FrequencySnapshot {
 // MARK: - Frequency Timeline
 
 /// Time-indexed frequency data for an entire track.
-/// A 5-min song at 30fps = ~9000 frames × 24 bytes = ~216KB.
+/// Stored as sparse keyframes (2fps) with interpolation at lookup time.
+/// A 5-min song at 2fps = ~600 frames × 24 bytes = ~14KB.
 public struct FrequencyTimeline {
     public let snapshots: [FrequencySnapshot]
-    public let framesPerSecond: Double // 30.0
+    public let framesPerSecond: Double
     public let duration: TimeInterval
 
-    /// Look up bands at a playback position, normalized to 0.0-1.0
+    /// Look up bands at a playback position, normalized to 0.0-1.0.
+    /// Linearly interpolates between adjacent keyframes for smooth display.
     public func bands(at time: TimeInterval) -> [Double] {
         guard !snapshots.isEmpty, duration > 0 else {
             return Array(repeating: 0, count: 24)
         }
-        let index = Int((time / duration) * Double(snapshots.count))
-        let clamped = max(0, min(snapshots.count - 1, index))
-        return snapshots[clamped].bands.map { Double($0) / 255.0 }
+        let fractionalIndex = (time / duration) * Double(snapshots.count)
+        let lo = max(0, min(snapshots.count - 1, Int(fractionalIndex)))
+        let hi = min(lo + 1, snapshots.count - 1)
+        let frac = fractionalIndex - Double(lo)
+
+        // Fast path: exact frame or last frame
+        if lo == hi || frac < 0.001 {
+            return snapshots[lo].bands.map { Double($0) / 255.0 }
+        }
+
+        // Interpolate between adjacent keyframes
+        let a = snapshots[lo].bands
+        let b = snapshots[hi].bands
+        return (0..<a.count).map { i in
+            let val = Double(a[i]) * (1.0 - frac) + Double(b[i]) * frac
+            return val / 255.0
+        }
     }
 }
 
@@ -244,6 +260,18 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
         }
 
+        // When a high-priority analysis starts (current track), cancel all
+        // lower-priority prefetch tasks so they don't compete for CPU on older devices.
+        if priority == .userInitiated {
+            for (existingId, existingTask) in analysisTasks {
+                existingTask.cancel()
+                #if DEBUG
+                logger.debug("Cancelled prefetch analysis for \(existingId) to prioritize \(trackId)")
+                #endif
+            }
+            analysisTasks.removeAll()
+        }
+
         // Analyze on background thread at the requested priority
         let capturedFileURL = fileURL
         let capturedPriority = priority
@@ -284,6 +312,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         isPaused = true  // Start paused — timer won't interpolate until resumeUpdates() on confirmed playback
         currentPlaybackTime = 0
         positionUpdateWallTime = CACurrentMediaTime()
+
+        // Clear bands immediately so stale data from the previous track doesn't persist
+        frequencyBands = Array(repeating: 0.0, count: bandCount)
+
         startDisplayTimer()
 
         #if DEBUG
@@ -438,17 +470,14 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         NSLog("[FrequencyAnalysis] Opened: %.1fs, %.0fHz, ch=%u", duration, sampleRate, channelCount)
         #endif
 
-        // Seek-based analysis: instead of reading the entire file sequentially
-        // (which decodes all audio — 57MB PCM for a 5-min stereo track and takes
-        // minutes on older devices), seek to each analysis point and only decode
-        // fftSize (1024) samples per frame. For a 5-min song at 10fps:
-        //   Sequential: decode 15M frames (~2min on A9)
-        //   Seek-based:  decode 30K frames total (~1-2sec)
+        // Seek-based analysis at 2fps: seeks to each analysis point and decodes
+        // only fftSize (1024) samples per frame. For a 5-min song at 2fps:
+        //   ~600 keyframes × 1024 samples = ~614K samples decoded (~7s on A9)
+        // vs sequential full decode: 15M frames (~2min on A9)
         //
-        // The display timer interpolates between 10fps keyframes at 30Hz,
-        // which is visually smooth and indistinguishable from true 30fps data.
-        let analysisFPS: Double = 10.0
-        let outputFPS: Double = 30.0
+        // The display timer interpolates between keyframes at 30Hz via
+        // FrequencyTimeline.bands(at:), producing smooth visual output.
+        let analysisFPS: Double = 2.0
         let fftSize = 1024
         let bandCount = 24
         let hopFrames = Int(sampleRate / analysisFPS)
@@ -569,44 +598,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         guard !keyframes.isEmpty else { return nil }
 
-        // Upsample 10fps keyframes to 30fps by interpolating between neighbors.
-        // This produces smooth visual output from the sparse analysis data.
-        let outputFrameCount = Int(ceil(duration * outputFPS))
-        var snapshots = [FrequencySnapshot]()
-        snapshots.reserveCapacity(outputFrameCount)
-
-        for f in 0..<outputFrameCount {
-            let timeInSeconds = Double(f) / outputFPS
-            let keyframeIndex = timeInSeconds * analysisFPS
-            let lo = Int(keyframeIndex)
-            let hi = min(lo + 1, keyframes.count - 1)
-            let frac = Float(keyframeIndex - Double(lo))
-
-            if lo >= keyframes.count {
-                snapshots.append(keyframes.last!)
-                continue
-            }
-
-            // Linearly interpolate between adjacent keyframes
-            let a = keyframes[lo].bands
-            let b = keyframes[hi].bands
-            var interpolated = [UInt8](repeating: 0, count: bandCount)
-            for i in 0..<bandCount {
-                let val = Float(a[i]) * (1 - frac) + Float(b[i]) * frac
-                interpolated[i] = UInt8(min(255, max(0, val)))
-            }
-            snapshots.append(FrequencySnapshot(bands: interpolated))
-        }
-
         #if DEBUG
         let elapsed = CACurrentMediaTime() - startTime
-        NSLog("[FrequencyAnalysis] Complete: %d keyframes -> %d snapshots for %.1fs (took %.2fs)",
-              keyframes.count, snapshots.count, duration, elapsed)
+        NSLog("[FrequencyAnalysis] Complete: %d keyframes for %.1fs (took %.2fs)",
+              keyframes.count, duration, elapsed)
         #endif
 
+        // Store keyframes directly at analysis FPS. The display timer
+        // interpolates between them at 30Hz via bands(at:).
         return FrequencyTimeline(
-            snapshots: snapshots,
-            framesPerSecond: outputFPS,
+            snapshots: keyframes,
+            framesPerSecond: analysisFPS,
             duration: duration
         )
     }
