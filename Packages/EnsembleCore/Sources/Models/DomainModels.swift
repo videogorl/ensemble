@@ -574,19 +574,25 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
         self.context = context
     }
 
-    /// Artist ratingKey for artist-scoped hubs (e.g. "More by X"),
-    /// derived from the first album or track item's parent artist reference.
+    /// Artist ratingKey for single-artist hubs (e.g. "More by X"),
+    /// only returns a value when ALL items in the hub share the same artist.
+    /// Returns nil for multi-artist hubs like "Most Played" or genre hubs like "More in Pop/Rock".
     public var contextArtistId: String? {
-        guard let first = items.first else { return nil }
-        // Album items: artistRatingKey is the parent artist
-        if let artistKey = first.album?.artistRatingKey {
-            return artistKey
+        guard items.count > 1 else { return nil }
+
+        // Extract artist ratingKey from each item
+        let artistKeys: [String] = items.compactMap { item in
+            item.album?.artistRatingKey ?? item.track?.artistRatingKey
         }
-        // Track items: artistRatingKey is the grandparent artist
-        if let artistKey = first.track?.artistRatingKey {
-            return artistKey
+
+        // All items must have an artist key and they must all match
+        guard artistKeys.count == items.count,
+              let firstKey = artistKeys.first,
+              artistKeys.allSatisfy({ $0 == firstKey }) else {
+            return nil
         }
-        return nil
+
+        return firstKey
     }
 }
 
