@@ -304,6 +304,30 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 
 ---
 
+## MediaDetailView
+
+- **View name:** `MediaDetailView`
+- **Canonical name:** MediaDetailView
+- **Area:** Library (shared)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterized by `MediaDetailViewModelProtocol`.
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Header | region | Artwork, title, subtitle, metadata line | `headerView`, `MediaHeaderData` |
+| Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
+| Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
+| Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
+| Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
+| Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
+
+---
+
 ## ArtistsView
 
 - **View name:** `ArtistsView`
@@ -353,6 +377,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Read more button | control | Expand truncated bio text | `isBioExpanded` |
 | Pin menu | menu | Toolbar overflow menu with pin/unpin action | `artistPinMenuButton` |
 | Artist download action | action | Toggle artist offline target from toolbar menu | `Download`, `Remove Download` |
+| Collapsing toolbar title | control | Artist name appears in toolbar when hero banner scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
 
 ---
 
@@ -684,12 +709,12 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Navigation row | control | Row linking to a view not in tab bar | `NavigationLink` |
 | Edit button | control | Toolbar button to enter tab customization mode | `Edit` |
 | Done button | control | Toolbar button to exit edit mode | `Done` |
-| Tab bar items section | region | Draggable list of current tab bar items (edit mode) | `Section("Tab Bar Items")` |
-| Available items section | region | List of items not in tab bar (edit mode) | `Section("Available Items")` |
-| Remove tab button | control | Red minus button to remove tab from bar | `minus.circle.fill` |
-| Add tab button | control | Green plus button to add tab to bar | `plus.circle.fill` |
+| Tab bar items section | region | Draggable section of current tab bar items (edit mode) | `EditTabsView`, `tabBarSection` |
+| Available items section | region | Draggable section of items not in tab bar (edit mode) | `availableSection` |
 | Drag handle | control | Reorder handle for tab items | `line.3.horizontal` |
 | Instructions text | text | Help text explaining tab customization | |
+| Tab bar drop delegate | behavior | Accepts drops to add/reorder items in tab bar, bumps last if at 4 | `TabBarDropDelegate` |
+| Available drop delegate | behavior | Accepts drops from tab bar to remove (min 1 enforced) | `AvailableDropDelegate` |
 
 ---
 

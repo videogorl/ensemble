@@ -207,6 +207,7 @@ Sources/
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
 |   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
+|   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
 |   +-- ConnectionStatusBanner.swift  # Network status UI indicator

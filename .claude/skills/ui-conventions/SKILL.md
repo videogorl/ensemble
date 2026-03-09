@@ -185,6 +185,30 @@ struct AlbumDetailLoader: View {
 - Offline support: Hubs display even when full sync hasn't completed
 - Smooth UX: Loading spinner during fetch, not blocking navigation
 
+## Collapsing Toolbar Title Pattern
+
+Shared utility in `CollapsingToolbar.swift` for detail views where the inline title scrolls out of view and a toolbar title should appear:
+
+1. Add `.coordinateSpace(name: "scrollName")` to the ScrollView
+2. Attach `TitleOffsetTracker(coordinateSpace: "scrollName")` as `.background()` on the title text
+3. Add `@State var showToolbarTitle = false`
+4. Apply `.collapsingToolbarTitle("Title", threshold: 0, showToolbarTitle: $showToolbarTitle)`
+5. Set `.navigationTitle("")` (empty — the toolbar title is managed by the modifier)
+
+The modifier handles:
+- `TitleOffsetPreferenceKey` to detect when title crosses the nav bar
+- Toolbar `.principal` placement with opacity animation
+- `NavigationBarAppearanceConfigurator` (iOS) toggling transparent/default nav bar via responder chain
+- Restoring default appearance on disappear
+
+**Used in:** `ArtistDetailView` (threshold accounts for safe area + hero banner), `MediaDetailView`
+
+## Sticky Section Headers
+
+`MediaDetailView` uses `LazyVStack(pinnedViews: [.sectionHeaders])` to pin action buttons when scrolled past. The pinned header uses version-adaptive background:
+- **iOS 26+:** `.glassEffect()` for Liquid Glass
+- **iOS 15-25:** `.ultraThinMaterial` for frosted-glass
+
 ## Performance Optimization
 
 ### Memory Efficiency (iOS 15 / 2GB RAM)
