@@ -1345,9 +1345,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// AVPlayer activates the session automatically when playback starts, so
     /// we only need to set the category/mode/options here.
     /// Safe to call multiple times — only configures once.
+    ///
+    /// Note: On iOS 26, `setCategory` may fail with Code=-50 when called before
+    /// the audio system is fully ready. Playback still works because AVPlayer
+    /// auto-activates the session. We mark configured regardless to avoid
+    /// retrying on every play attempt.
     func ensureAudioSessionConfigured() {
         #if !os(macOS)
         guard !isAudioSessionConfigured else { return }
+        isAudioSessionConfigured = true
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(
@@ -1355,13 +1361,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 mode: .default,
                 options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
             )
-            isAudioSessionConfigured = true
             #if DEBUG
             EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
             #endif
         } catch {
+            // iOS 26: setCategory can fail with Code=-50 early in the app lifecycle.
+            // AVPlayer auto-activates the session on playback, so this is non-fatal.
             #if DEBUG
-            EnsembleLogger.debug("Failed to configure audio session: \(error)")
+            EnsembleLogger.debug("⚠️ Audio session setCategory failed (non-fatal, AVPlayer auto-activates): \(error)")
             #endif
         }
         #endif

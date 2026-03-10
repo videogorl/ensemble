@@ -140,8 +140,10 @@ public final class HomeViewModel: ObservableObject {
             }
         }
         
-        // Reload when accounts change
+        // Reload when accounts change (skip initial publish — only clear
+        // persisted hub keys when accounts actually change after startup)
         accountManager.$plexAccounts
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] accounts in
                 guard let self else { return }
