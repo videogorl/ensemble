@@ -42,6 +42,15 @@ public final class HomeViewModel: ObservableObject {
     // Startup suppression: the explicit .task load IS the startup load;
     // auto-refresh should not fire additional loads until it completes.
     private var initialLoadCompleted = false
+
+    // Tracks when the last network hub fetch completed, so auto-refresh
+    // can skip redundant fetches if one just happened (10s guard)
+    private var lastNetworkHubFetchTime: Date?
+    private let networkHubFetchCooldown: TimeInterval = 10.0
+
+    // Hub keys (from getHubItems) that returned errors — cached for the
+    // session to avoid re-requesting endpoints that consistently fail
+    private var failedHubKeys = Set<String>()
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -139,26 +148,19 @@ public final class HomeViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes or source statuses change.
+        // Combined into a single subscriber to avoid duplicate refreshes when both
+        // publishers fire in close succession (e.g., sync completion updates both
+        // isSyncing and sourceStatuses within the debounce window).
         syncCoordinator.$isSyncing
+            .combineLatest(syncCoordinator.$sourceStatuses)
             .receive(on: DispatchQueue.main)
-            .removeDuplicates()
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
-            .sink { [weak self] syncing in
+            .dropFirst()
+            .sink { [weak self] syncing, _ in
                 if !syncing {
                     self?.requestAutoRefresh(reason: .syncCompleted)
                 }
-            }
-            .store(in: &cancellables)
-
-        // Auto-reload when source statuses change (catches WebSocket-triggered incremental syncs)
-        syncCoordinator.$sourceStatuses
-            .receive(on: DispatchQueue.main)
-            .removeDuplicates()
-            .dropFirst()
-            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.requestAutoRefresh(reason: .syncCompleted)
             }
             .store(in: &cancellables)
 
@@ -260,17 +262,19 @@ public final class HomeViewModel: ObservableObject {
             var collectedHubs: [Hub] = []
             let shouldApplyProgressiveUpdates = self.hubs.isEmpty
             let hubCount = self.currentHubCount
+            let knownFailedHubKeys = self.failedHubKeys
 
-            await withTaskGroup(of: [Hub].self) { group in
+            await withTaskGroup(of: (hubs: [Hub], failedKeys: [String]).self) { group in
                 // Fetch section-specific hubs in parallel
                 for task in fetchTasks {
                     group.addTask {
                         var hubs: [Hub] = []
+                        var newFailedKeys: [String] = []
                         do {
                             let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey, count: hubCount)
 
                             // Process hub items in parallel
-                            await withTaskGroup(of: Hub?.self) { hubGroup in
+                            await withTaskGroup(of: (hub: Hub?, failedKey: String?).self) { hubGroup in
                                 for plexHub in plexHubs {
                                     hubGroup.addTask {
                                         let hubId = "\(task.sourceKey):\(plexHub.id)"
@@ -283,46 +287,62 @@ public final class HomeViewModel: ObservableObject {
                                             }
                                             hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
                                         } else if let key = plexHub.key ?? plexHub.hubKey {
-                                            if let metadata = try? await task.client.getHubItems(hubKey: key) {
+                                            // Skip hub keys that previously failed (e.g. 404)
+                                            guard !knownFailedHubKeys.contains(key) else {
+                                                return (hub: nil, failedKey: nil)
+                                            }
+                                            do {
+                                                let metadata = try await task.client.getHubItems(hubKey: key)
                                                 let filteredMetadata = metadata.filter { item in
                                                     let type = item.type?.lowercased() ?? ""
                                                     return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
                                                 }
                                                 hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                            } catch {
+                                                // Track the failed key so we don't retry it this session
+                                                return (hub: nil, failedKey: key)
                                             }
                                         }
 
                                         if !hubItems.isEmpty {
-                                            return Hub(
+                                            let hub = Hub(
                                                 id: hubId,
                                                 title: plexHub.title,
                                                 type: plexHub.type ?? "mixed",
                                                 items: hubItems,
                                                 context: plexHub.context
                                             )
+                                            return (hub: hub, failedKey: nil)
                                         }
-                                        return nil
+                                        return (hub: nil, failedKey: nil)
                                     }
                                 }
 
-                                for await hub in hubGroup {
-                                    if let hub = hub {
+                                for await result in hubGroup {
+                                    if let hub = result.hub {
                                         hubs.append(hub)
+                                    }
+                                    if let failedKey = result.failedKey {
+                                        newFailedKeys.append(failedKey)
                                     }
                                 }
                             }
                         } catch {
                             // Silently continue on error
                         }
-                        return hubs
+                        return (hubs: hubs, failedKeys: newFailedKeys)
                     }
                 }
 
                 // Collect hubs progressively and update UI only for first-time loads.
-                for await fetchedBatch in group {
-                    collectedHubs.append(contentsOf: fetchedBatch)
+                for await result in group {
+                    collectedHubs.append(contentsOf: result.hubs)
+                    // Cache failed hub keys for the rest of this session
+                    for key in result.failedKeys {
+                        self.failedHubKeys.insert(key)
+                    }
 
-                    guard shouldApplyProgressiveUpdates, !fetchedBatch.isEmpty else { continue }
+                    guard shouldApplyProgressiveUpdates, !result.hubs.isEmpty else { continue }
 
                     let progressiveResult = self.mergeAndGroupHubs(collectedHubs)
                     let displayHubs: [Hub]
@@ -343,6 +363,12 @@ public final class HomeViewModel: ObservableObject {
             }
 
             let fetchedHubs = collectedHubs
+
+            #if DEBUG
+            if !self.failedHubKeys.isEmpty {
+                EnsembleLogger.debug("🏠 Cached \(self.failedHubKeys.count) failed hub key(s) — will skip on future loads")
+            }
+            #endif
 
             // Fallback to global hubs if few section hubs found
             let finalHubs: [Hub]
@@ -466,6 +492,7 @@ public final class HomeViewModel: ObservableObject {
             
             isLoading = false
             initialLoadCompleted = true
+            lastNetworkHubFetchTime = Date()
             loadTask = nil
 
             // Persist to cache for offline access
@@ -529,6 +556,17 @@ public final class HomeViewModel: ObservableObject {
         guard !syncCoordinator.isOffline else {
             #if DEBUG
             EnsembleLogger.debug("📴 Home auto-refresh skipped (offline) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+
+        // Skip if we recently completed a network hub fetch (prevents
+        // duplicate fetches when sync-completed fires shortly after a load)
+        if reason != .accountChange,
+           let lastFetch = lastNetworkHubFetchTime,
+           Date().timeIntervalSince(lastFetch) < networkHubFetchCooldown {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh skipped (fetched \(String(format: "%.1f", Date().timeIntervalSince(lastFetch)))s ago) reason=\(reason.rawValue)")
             #endif
             return
         }
