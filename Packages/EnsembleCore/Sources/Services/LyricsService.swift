@@ -188,29 +188,57 @@ public final class LyricsService: ObservableObject {
     // MARK: - Fetch Pipeline
 
     private func fetchLyrics(for track: Track) async -> LyricsState {
+        #if DEBUG
+        EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
+        #endif
+
         // 1. Check for offline LRC sidecar
         if let sidecarLyrics = await loadSidecarLyrics(for: track) {
+            #if DEBUG
+            EnsembleLogger.debug("Lyrics: loaded from sidecar (\(sidecarLyrics.lines.count) lines)")
+            #endif
             return .available(sidecarLyrics)
         }
 
         // 2. Fetch track metadata to discover lyrics streams
         guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
+            #if DEBUG
+            EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
+            #endif
             return .notAvailable
         }
 
         do {
             // Fetch full track metadata (includes Stream objects)
             guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: getTrack returned nil for \(track.id)")
+                #endif
                 return .notAvailable
             }
 
+            #if DEBUG
+            let streamCount = plexTrack.media?.first?.part?.first?.stream?.count ?? 0
+            let lyricsStreams = plexTrack.media?.first?.part?.first?.stream?.filter { $0.streamType == 4 } ?? []
+            EnsembleLogger.debug("Lyrics: track has \(streamCount) streams, \(lyricsStreams.count) lyrics streams")
+            for ls in lyricsStreams {
+                EnsembleLogger.debug("Lyrics:   stream id=\(ls.id) codec=\(ls.codec ?? "nil") timed=\(ls.timed.map(String.init) ?? "nil") key=\(ls.key ?? "nil")")
+            }
+            #endif
+
             guard let lyricsStream = plexTrack.lyricsStream,
                   let streamKey = lyricsStream.key else {
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: no lyrics stream found on track metadata")
+                #endif
                 return .notAvailable
             }
 
             // 3. Fetch lyrics content
             guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else {
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey)")
+                #endif
                 return .notAvailable
             }
 
@@ -224,6 +252,10 @@ public final class LyricsService: ObservableObject {
                 parsed = LRCParser.parsePlainText(content)
             }
 
+            #if DEBUG
+            EnsembleLogger.debug("Lyrics: parsed \(parsed.lines.count) lines (timed=\(parsed.isTimed))")
+            #endif
+
             guard !parsed.lines.isEmpty else { return .notAvailable }
 
             // 5. Save sidecar for offline use if track is downloaded
@@ -233,7 +265,7 @@ public final class LyricsService: ObservableObject {
         } catch {
             if Task.isCancelled { return .notAvailable }
             #if DEBUG
-            EnsembleLogger.debug("Failed to fetch lyrics for track \(track.id): \(error.localizedDescription)")
+            EnsembleLogger.debug("Lyrics: fetch failed for track \(track.id): \(error.localizedDescription)")
             #endif
             return .notAvailable
         }

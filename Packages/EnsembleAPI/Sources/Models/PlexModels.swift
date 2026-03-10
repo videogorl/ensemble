@@ -521,9 +521,11 @@ public struct PlexStream: Codable, Sendable {
         codec = try container.decodeIfPresent(String.self, forKey: .codec)
         key = try container.decodeIfPresent(String.self, forKey: .key)
         format = try container.decodeIfPresent(String.self, forKey: .format)
-        timed = try container.decodeIfPresent(Int.self, forKey: .timed)
         provider = try container.decodeIfPresent(String.self, forKey: .provider)
-        minLines = try container.decodeIfPresent(Int.self, forKey: .minLines)
+
+        // Plex returns timed/minLines as strings ("1", "3") despite being numeric
+        timed = PlexStream.decodeIntOrString(container: container, forKey: .timed)
+        minLines = PlexStream.decodeIntOrString(container: container, forKey: .minLines)
 
         // For fields that might be Double or String, manually handle both
         loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
@@ -531,6 +533,14 @@ public struct PlexStream: Codable, Sendable {
         peak = try PlexStream.decodeDoubleOrString(container: container, forKey: .peak)
     }
     
+    /// Plex sometimes returns integer fields as strings (e.g. timed="1", minLines="3")
+    private static func decodeIntOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Int? {
+        guard container.contains(key) else { return nil }
+        if let intVal = try? container.decode(Int.self, forKey: key) { return intVal }
+        if let strVal = try? container.decode(String.self, forKey: key) { return Int(strVal) }
+        return nil
+    }
+
     private static func decodeDoubleOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double? {
         guard container.contains(key) else { return nil }
         
