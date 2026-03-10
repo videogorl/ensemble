@@ -119,10 +119,9 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 ## Performance Notes
 
 ### Incremental Sync ratedAfter Fetch Returns All Rated Tracks
-- **Location:** `PlexMusicSourceSyncProvider.syncLibraryIncremental()`
-- **Issue:** The `lastRatedAt>=` API filter matches all tracks that have *ever* been rated (not just recently rated), effectively doubling the track fetch for incremental sync.
-- **Impact:** Extra API traffic (~1400 tracks fetched redundantly). Correctness is unaffected — rating comparison still works.
-- **Potential fix:** Only fetch `ratedAfter` when the since-timestamp is very recent, or compare ratings against the `updatedAt` result set only.
+- **Resolved (March 10, 2026)**
+- **Fix:** `ratedAfter` fetch is now skipped when the sync timestamp is older than 10 minutes. Within that window (foreground/background cycling), the full rated-tracks fetch runs. Beyond 10 minutes, rating changes are caught by the next full sync.
+- **Key files:** `PlexMusicSourceSyncProvider.swift` (lines 155-167)
 
 ### Wall-Clock Boundary Timer Limitations
 - **Location:** `PlaybackService.swift` (wall-clock boundary section in periodic time observer)

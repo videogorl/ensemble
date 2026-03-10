@@ -78,6 +78,28 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Startup & Sync Performance Optimization (Mar 2026)
+Eleven-item optimization pass targeting startup latency, network traffic, CPU waste, and temp storage:
+
+- **Persisted failed hub keys:** `failedHubKeys` saved to UserDefaults so 404-returning hub endpoints are skipped across app launches. Cleared on pull-to-refresh or account changes.
+- **Quality change debounce (2s):** Rapid quality setting changes debounce the expensive stream reload. Stale prefetch items are invalidated and re-fetched at the new quality.
+- **Tighter stream cache eviction:** Cache files limited to playback neighborhood (current + next 2 + previous 1) instead of all cached player item IDs.
+- **Faster FFT cancellation:** Cancellation checks every 2 keyframes (~0.2s) instead of 10 (~1s). Cancelled tasks no longer block callers.
+- **Waveform fetch guard:** Skip waveform API call when track has no stream ID (reduces log noise, avoids unnecessary codepath).
+- **Optimistic network state:** Last-known `NetworkState` cached to UserDefaults and restored on launch, so dependents begin immediately instead of waiting ~5s for NWPathMonitor.
+- **Deferred audio session:** `configureAudioSession()` moved from `didFinishLaunching` to first playback (`ensureAudioSessionConfigured()`), avoiding Code=-50 errors. Adds `setActive(true)`.
+- **ratedAfter optimization:** Skips the `lastRatedAt>=` fetch when sync timestamp is >10 minutes old, eliminating ~1MB of redundant API traffic per hourly sync.
+- **CoreData merge policy:** `replaceMemberships()` uses `mergeByPropertyObjectTrumpMergePolicy` with single retry for concurrent target writes referencing shared tracks.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/ViewModels/HomeViewModel.swift` - persisted failedHubKeys
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - quality debounce, stream cache, audio session deferral, waveform guard
+- `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - faster FFT cancellation
+- `Packages/EnsembleCore/Sources/Services/NetworkMonitor.swift` - cached network state
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - ratedAfter optimization
+- `Packages/EnsemblePersistence/Sources/Downloads/OfflineDownloadTargetRepository.swift` - merge policy + retry
+- `Ensemble/App/AppDelegate.swift` - removed configureAudioSession from launch
+
 ### Playback & Scroll Performance Optimization (Mar 2026)
 Three-phase optimization targeting tap-to-play latency, visualizer timing, and scroll performance:
 
