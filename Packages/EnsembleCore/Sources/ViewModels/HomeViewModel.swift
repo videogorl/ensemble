@@ -48,9 +48,14 @@ public final class HomeViewModel: ObservableObject {
     private var lastNetworkHubFetchTime: Date?
     private let networkHubFetchCooldown: TimeInterval = 10.0
 
-    // Hub keys (from getHubItems) that returned errors — cached for the
-    // session to avoid re-requesting endpoints that consistently fail
-    private var failedHubKeys = Set<String>()
+    // Hub keys (from getHubItems) that returned errors — persisted across sessions
+    // to avoid re-requesting endpoints that consistently 404. Cleared on pull-to-refresh
+    // or when the server list changes.
+    private static let failedHubKeysKey = "failedHubKeys"
+    private var failedHubKeys: Set<String> = {
+        let saved = UserDefaults.standard.stringArray(forKey: failedHubKeysKey) ?? []
+        return Set(saved)
+    }()
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -141,6 +146,9 @@ public final class HomeViewModel: ObservableObject {
             .sink { [weak self] accounts in
                 guard let self else { return }
                 self.updateSourceAvailability(from: accounts)
+                // Server list changed — clear persisted failed hub keys so
+                // they're retried against the new configuration
+                self.clearFailedHubKeys()
                 guard self.hasEnabledLibraries else {
                     self.clearHubContentForUnavailableSources()
                     return
@@ -338,9 +346,12 @@ public final class HomeViewModel: ObservableObject {
                 // Collect hubs progressively and update UI only for first-time loads.
                 for await result in group {
                     collectedHubs.append(contentsOf: result.hubs)
-                    // Cache failed hub keys for the rest of this session
-                    for key in result.failedKeys {
-                        self.failedHubKeys.insert(key)
+                    // Cache failed hub keys across sessions
+                    if !result.failedKeys.isEmpty {
+                        for key in result.failedKeys {
+                            self.failedHubKeys.insert(key)
+                        }
+                        self.persistFailedHubKeys()
                     }
 
                     guard shouldApplyProgressiveUpdates, !result.hubs.isEmpty else { continue }
@@ -512,6 +523,7 @@ public final class HomeViewModel: ObservableObject {
     public func refresh() async {
         lastLoadTime = nil
         refreshCount += 1
+        clearFailedHubKeys()
         await loadHubs(deferUIUpdatesWhileInteracting: false)
     }
 
@@ -892,6 +904,17 @@ public final class HomeViewModel: ObservableObject {
 
         currentSourceKey = nil
         currentSourceName = "Editing Music"
+    }
+
+    /// Persist failed hub keys to UserDefaults so they survive app restarts
+    private func persistFailedHubKeys() {
+        UserDefaults.standard.set(Array(failedHubKeys), forKey: Self.failedHubKeysKey)
+    }
+
+    /// Clear persisted failed hub keys (on pull-to-refresh or server list change)
+    private func clearFailedHubKeys() {
+        failedHubKeys.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.failedHubKeysKey)
     }
 
     private func updateSourceAvailability(from accounts: [PlexAccountConfig]? = nil) {

@@ -739,6 +739,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
     private var pendingPreBufferTime: TimeInterval?
     private var qualityChangeObserver: NSObjectProtocol?
+    private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedStreamingQuality: String = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
     private var lastObservedNetworkState: NetworkState?
@@ -902,6 +903,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         cleanup()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
+        qualityDebounceTask?.cancel()
+        qualityDebounceTask = nil
         downloadChangeObserver?.cancel()
         downloadChangeObserver = nil
         if let qualityChangeObserver {
@@ -1162,13 +1165,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         Task { @MainActor in
             guard let track = self.currentTrack else { return }
 
-            // Check if we have a stream ID
-            guard let streamId = track.streamId else {
-                #if DEBUG
-                EnsembleLogger.debug("ℹ️ No stream ID available for track \(ratingKey), cannot fetch waveform")
-                #endif
-                return
-            }
+            // Skip waveform fetch if no stream ID — fallback waveform is already set above
+            guard let streamId = track.streamId else { return }
 
             // Parse source composite key to get API client
             if let sourceKey = track.sourceCompositeKey {
@@ -2993,16 +2991,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Remove temporary stream cache files created by downloadUniversalStreamToFile.
-    /// Only deletes files whose ratingKey prefix is NOT in the current playerItems cache,
-    /// preventing deletion of files still referenced by active AVPlayerItems.
+    /// Keeps only files for the current playback neighborhood (current, next 2, previous 1)
+    /// to cap disk usage at ~4 files. Falls back to playerItems-based cleanup if queue is empty.
     private func cleanupStreamCacheFiles() {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
 
-        let activeIds = Set(playerItems.keys)
+        // Build allowlist: current track + next 2 + previous 1
+        var keepIds = Set(playerItems.keys)
+        if currentQueueIndex >= 0, !queue.isEmpty {
+            var neighborhood = Set<String>()
+            if currentQueueIndex < queue.count {
+                neighborhood.insert(queue[currentQueueIndex].track.id)
+            }
+            for offset in 1...2 {
+                let nextIdx = currentQueueIndex + offset
+                if nextIdx < queue.count {
+                    neighborhood.insert(queue[nextIdx].track.id)
+                }
+            }
+            if currentQueueIndex > 0 {
+                neighborhood.insert(queue[currentQueueIndex - 1].track.id)
+            }
+            // Use the tighter neighborhood if we have queue context
+            keepIds = neighborhood
+        }
+
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
-            // Can't list — fall back to removing the whole directory
             try? FileManager.default.removeItem(at: cacheDir)
             return
         }
@@ -3011,14 +3027,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         for file in files {
             // Filenames are "{ratingKey}_{sessionId}.mp3" or ".caf" or ".audio"
             let ratingKey = file.prefix(while: { $0 != "_" })
-            if !ratingKey.isEmpty && !activeIds.contains(String(ratingKey)) {
+            if !ratingKey.isEmpty && !keepIds.contains(String(ratingKey)) {
                 try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
                 removedCount += 1
             }
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🗑️ Cleaned up \(removedCount) stream cache files, kept \(files.count - removedCount)")
+        if removedCount > 0 {
+            EnsembleLogger.debug("🗑️ Stream cache cleanup: removed \(removedCount), kept \(files.count - removedCount)")
+        }
         #endif
     }
 
@@ -5074,11 +5092,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Only act when the streaming quality actually changed
             guard newQuality != self.lastObservedStreamingQuality else { return }
             self.lastObservedStreamingQuality = newQuality
+
+            // Re-stamp queue items immediately (metadata-only, cheap)
             self.updateQueueStreamingQuality(newQuality)
 
-            // Reload the current track at the new quality if it's streaming
-            Task {
+            // Debounce the expensive reload (2s) — if the user is rapidly toggling
+            // quality settings, only the final selection triggers a stream reload
+            self.qualityDebounceTask?.cancel()
+            self.qualityDebounceTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled, let self else { return }
                 await self.reloadCurrentTrackForQualityChange()
+                // Invalidate prefetch items so they're re-fetched at the new quality
+                self.invalidatePrefetchForQualityChange()
             }
         }
     }
@@ -5128,6 +5154,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Replay from the saved position
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: seekPosition, caller: "qualityChange")
+    }
+
+    /// Invalidate prefetched player items after a quality change so the normal
+    /// prefetch cycle recreates them at the new quality setting.
+    private func invalidatePrefetchForQualityChange() {
+        guard currentQueueIndex >= 0 else { return }
+        let currentId = queue[currentQueueIndex].track.id
+
+        // Evict all cached items except the currently-playing track
+        let idsToEvict = playerItems.keys.filter { $0 != currentId }
+        for id in idsToEvict {
+            removeCachedPlayerItem(for: id)
+        }
+        cleanupStreamCacheFiles()
+
+        // Trigger prefetch refill at the new quality
+        Task {
+            await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
+        }
     }
 
     /// Re-stamp streamingQuality on all non-downloaded queue items

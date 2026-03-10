@@ -334,7 +334,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             self.analysisTasks.removeValue(forKey: trackId)
         }
         analysisTasks[trackId] = analysisTask
-        await analysisTask.value
+        // Only await if this task hasn't been replaced by a higher-priority one.
+        // If another loadTimeline() cancels our task, we return immediately.
+        await withTaskCancellationHandler {
+            await analysisTask.value
+        } onCancel: {
+            analysisTask.cancel()
+        }
     }
 
     // MARK: - Timeline Activation
@@ -564,8 +570,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         do {
             for k in 0..<keyframeCount {
-                // Check for cancellation periodically (every 10 keyframes)
-                if k % 10 == 0 && Task.isCancelled { return nil }
+                // Check for cancellation frequently (every 2 keyframes ~0.2s of audio)
+                // to quickly abandon analysis when the user skips tracks rapidly
+                if k % 2 == 0 && Task.isCancelled { return nil }
 
                 let seekFrame = AVAudioFramePosition(k * hopFrames)
                 guard seekFrame + AVAudioFramePosition(fftSize) <= audioFile.length else {
