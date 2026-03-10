@@ -216,6 +216,10 @@ public final class DependencyContainer: @unchecked Sendable {
                     await offlineServiceRef?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
                 }
             }
+
+            syncCoordinatorRef.onFavoritesRatingChanged = { [weak offlineServiceRef] in
+                await offlineServiceRef?.reconcileFavoritesTargetIfEnabled()
+            }
         }
 
         // Services using sync coordinator

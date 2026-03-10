@@ -125,12 +125,16 @@ public final class SyncCoordinator: ObservableObject {
     internal var nowProviderForTesting: () -> Date = { Date() }
     // Debounced playlist sync after rating changes (for smart playlist freshness)
     private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
+    // Debounced favorites download reconciliation after rating changes
+    private var postRatingFavoritesReconciliationTask: Task<Void, Never>?
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
     public var onConnectionsRefreshed: (() async -> Void)?
     /// Signal fired when a server-level playlist refresh completes.
     public var onPlaylistRefreshCompleted: ((String) -> Void)?
+    /// Signal fired after a rating change so the favorites download target can reconcile.
+    public var onFavoritesRatingChanged: (() async -> Void)?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -1393,6 +1397,9 @@ public final class SyncCoordinator: ObservableObject {
 
         // Trigger debounced playlist sync so smart playlists reflect the new rating
         triggerPostRatingPlaylistSync(serverSourceKey: sourceKey)
+
+        // Trigger debounced favorites download reconciliation
+        triggerPostRatingFavoritesReconciliation()
     }
 
     /// Debounced playlist sync after a rating change so smart playlists update.
@@ -1407,6 +1414,22 @@ public final class SyncCoordinator: ObservableObject {
             #endif
             await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
             self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
+        }
+    }
+
+    /// Debounced favorites download reconciliation after a rating change.
+    /// Uses a 2s debounce — shorter than the 5s playlist debounce for responsiveness,
+    /// still coalesces rapid rating taps.
+    private func triggerPostRatingFavoritesReconciliation() {
+        postRatingFavoritesReconciliationTask?.cancel()
+        postRatingFavoritesReconciliationTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s debounce
+            guard !Task.isCancelled, let self else { return }
+            #if DEBUG
+            EnsembleLogger.debug("🔄 SyncCoordinator: Post-rating favorites reconciliation")
+            #endif
+            await self.onFavoritesRatingChanged?()
+            self.postRatingFavoritesReconciliationTask = nil
         }
     }
 
