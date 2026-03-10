@@ -797,6 +797,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
     private var isSkipTransitionInProgress = false  // Suppresses "unexpected pause" handler during next/previous
     private var isReplacingPlayerItem = false  // Suppresses KVO during loadAndPlay remove/insert transition
+    private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
 
     // Wall-clock based duration tracking: AVPlayer's reported position can diverge from
@@ -3040,6 +3041,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // iOS may suspend the app between tracks when no audio is playing.
         beginTrackTransitionBackgroundTask()
 
+        // Bump generation so any in-flight playback request (e.g. a slow stream
+        // download) knows it's been superseded and won't call loadAndPlay().
+        playbackGenerationCounter &+= 1
+        let myGeneration = playbackGenerationCounter
+
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else {
             stop()
             return
@@ -3179,6 +3185,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 let (item, fileURL) = try await createPlayerItem(for: track)
+
+                // A newer playback request arrived while we were downloading/buffering.
+                // Discard this stale result so it doesn't overwrite the current track.
+                guard myGeneration == playbackGenerationCounter else {
+                    #if DEBUG
+                    EnsembleLogger.debug("🎵 Discarding stale playback result for \(track.title) (generation \(myGeneration) != \(playbackGenerationCounter))")
+                    #endif
+                    endTrackTransitionBackgroundTask()
+                    return
+                }
+
                 // Fire-and-forget frequency analysis so it doesn't block playback start.
                 // Use Task.detached to avoid contending with MainActor during the
                 // multi-second FFT analysis await — only hops to MainActor for the
