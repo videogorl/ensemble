@@ -56,12 +56,19 @@ public struct ArtistsView: View {
                         Menu {
                             ForEach(ArtistSortOption.allCases, id: \.self) { option in
                                 Button {
-                                    libraryVM.artistSortOption = option
+                                    if libraryVM.artistSortOption == option {
+                                        libraryVM.artistsFilterOptions.sortDirection =
+                                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        libraryVM.artistSortOption = option
+                                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
+                                    }
                                 } label: {
                                     HStack {
                                         Text(option.rawValue)
                                         if libraryVM.artistSortOption == option {
-                                            Image(systemName: "checkmark")
+                                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }

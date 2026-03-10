@@ -185,7 +185,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         case .playlist:
             let playlist = try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
             thumbPath = playlist?.compositePath
-        case .library:
+        case .library, .favorites:
             thumbPath = nil
         }
     }
@@ -260,7 +260,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         switch summary.kind {
         case .playlist:
             return lhs.index < rhs.index
-        case .album, .artist, .library:
+        case .album, .artist, .library, .favorites:
             if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
             if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending

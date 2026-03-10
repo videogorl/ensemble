@@ -288,7 +288,7 @@ Dynamic home screen powered by Plex's hub system:
 
 - Persistence adds `CDOfflineDownloadTarget` (target metadata/state/progress) and `CDOfflineDownloadMembership` (target track snapshot).
 - `OfflineDownloadService` is the orchestrator for:
-  - toggling target types (`library`, `album`, `artist`, `playlist`)
+  - toggling target types (`library`, `album`, `artist`, `playlist`, `favorites`)
   - resolving target memberships from repositories
   - enqueuing missing track downloads
   - reconciling after sync/playlist updates
@@ -427,6 +427,9 @@ PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (
 - `FavoritesViewModel` -- Filters tracks with `userRating >= 8.0` (4+ stars)
 - Implements `MediaDetailViewModelProtocol` for consistency
 - Reuses `MediaDetailView` for unified UI
+- **Sort options:** `FavoritesSortOption` enum (title, artist, album, dateAdded, duration, lastPlayed, rating, playCount) with `defaultDirection` per option. Persisted via `FilterOptions.sortBy`. Tapping the active sort option toggles ascending/descending; tapping a new option uses its default direction.
+- **Download target:** `.favorites` kind in `CDOfflineDownloadTarget.Kind` downloads all favorites across all libraries. `OfflineDownloadService.setFavoritesDownloadEnabled` manages the target; `reconcileFavoritesTargetIfEnabled` is called after source syncs and rating changes.
+- **Post-rating reconciliation:** `SyncCoordinator.onFavoritesRatingChanged` closure fires with a 2s debounce after `rateTrack`, triggering `OfflineDownloadService.reconcileFavoritesTargetIfEnabled` so newly favorited tracks start downloading and unfavorited tracks are cleaned up.
 
 ## App Targets
 

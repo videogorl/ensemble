@@ -164,7 +164,7 @@ public final class LibraryViewModel: ObservableObject {
         // Tracks: recompute when the raw list, sort option, or filter options change
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
-                let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption)
+                let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
                 let sections = LibraryViewModel.computeTrackSections(from: filtered)
                 return (filtered, sections)
@@ -179,7 +179,7 @@ public final class LibraryViewModel: ObservableObject {
         // Artists
         Publishers.CombineLatest3($artists, $artistSortOption, $artistsFilterOptions)
             .map { artists, sortOption, filterOptions -> [Artist] in
-                let sorted = LibraryViewModel.sortArtists(artists, by: sortOption)
+                let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterArtists(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
@@ -188,7 +188,7 @@ public final class LibraryViewModel: ObservableObject {
         // Albums
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
             .map { albums, sortOption, filterOptions -> [Album] in
-                let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption)
+                let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
@@ -358,9 +358,9 @@ public final class LibraryViewModel: ObservableObject {
     
     // MARK: - Sorted Collections (instance accessors for callers that need them)
 
-    public var sortedTracks: [Track] { LibraryViewModel.sortTracks(tracks, by: trackSortOption) }
-    public var sortedArtists: [Artist] { LibraryViewModel.sortArtists(artists, by: artistSortOption) }
-    public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption) }
+    public var sortedTracks: [Track] { LibraryViewModel.sortTracks(tracks, by: trackSortOption, direction: tracksFilterOptions.sortDirection) }
+    public var sortedArtists: [Artist] { LibraryViewModel.sortArtists(artists, by: artistSortOption, direction: artistsFilterOptions.sortDirection) }
+    public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection) }
     public var sortedGenres: [Genre] {
         genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
     }
@@ -419,64 +419,101 @@ public final class LibraryViewModel: ObservableObject {
 
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
 
-    private static func sortTracks(_ tracks: [Track], by option: TrackSortOption) -> [Track] {
+    private static func sortTracks(_ tracks: [Track], by option: TrackSortOption, direction: SortDirection) -> [Track] {
+        let asc = direction == .ascending
         switch option {
         case .title:
-            return tracks.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+            return tracks.sorted { asc
+                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
+                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
+            }
         case .artist:
             return tracks.sorted {
-                ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey) == .orderedAscending
+                let result = ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey)
+                return asc ? result == .orderedAscending : result == .orderedDescending
             }
         case .album:
             return tracks.sorted {
-                ($0.albumName ?? "").sortingKey.localizedStandardCompare(($1.albumName ?? "").sortingKey) == .orderedAscending
+                let result = ($0.albumName ?? "").sortingKey.localizedStandardCompare(($1.albumName ?? "").sortingKey)
+                return asc ? result == .orderedAscending : result == .orderedDescending
             }
         case .duration:
-            return tracks.sorted { $0.duration < $1.duration }
+            return tracks.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
         case .dateAdded:
-            return tracks.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            return tracks.sorted { asc
+                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
+                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
+            }
         case .dateModified:
-            return tracks.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+            return tracks.sorted { asc
+                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
+                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }
         case .lastPlayed:
-            return tracks.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            return tracks.sorted { asc
+                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
+                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
+            }
         case .rating:
-            return tracks.sorted { $0.rating > $1.rating }
+            return tracks.sorted { asc ? $0.rating < $1.rating : $0.rating > $1.rating }
         case .playCount:
-            return tracks.sorted { $0.playCount > $1.playCount }
+            return tracks.sorted { asc ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
         }
     }
 
-    private static func sortArtists(_ artists: [Artist], by option: ArtistSortOption) -> [Artist] {
+    private static func sortArtists(_ artists: [Artist], by option: ArtistSortOption, direction: SortDirection) -> [Artist] {
+        let asc = direction == .ascending
         switch option {
         case .name:
-            return artists.sorted { $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedAscending }
+            return artists.sorted { asc
+                ? $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedAscending
+                : $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedDescending
+            }
         case .dateAdded:
-            return artists.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            return artists.sorted { asc
+                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
+                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
+            }
         case .dateModified:
-            return artists.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+            return artists.sorted { asc
+                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
+                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }
         }
     }
 
-    private static func sortAlbums(_ albums: [Album], by option: AlbumSortOption) -> [Album] {
+    private static func sortAlbums(_ albums: [Album], by option: AlbumSortOption, direction: SortDirection) -> [Album] {
+        let asc = direction == .ascending
         switch option {
         case .title:
-            return albums.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+            return albums.sorted { asc
+                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
+                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
+            }
         case .artist:
             return albums.sorted {
-                ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey) == .orderedAscending
+                let result = ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey)
+                return asc ? result == .orderedAscending : result == .orderedDescending
             }
         case .albumArtist:
             return albums.sorted {
-                ($0.albumArtist ?? "").sortingKey.localizedStandardCompare(($1.albumArtist ?? "").sortingKey) == .orderedAscending
+                let result = ($0.albumArtist ?? "").sortingKey.localizedStandardCompare(($1.albumArtist ?? "").sortingKey)
+                return asc ? result == .orderedAscending : result == .orderedDescending
             }
         case .year:
-            return albums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+            return albums.sorted { asc ? ($0.year ?? 0) < ($1.year ?? 0) : ($0.year ?? 0) > ($1.year ?? 0) }
         case .dateAdded:
-            return albums.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            return albums.sorted { asc
+                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
+                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
+            }
         case .dateModified:
-            return albums.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+            return albums.sorted { asc
+                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
+                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }
         case .rating:
-            return albums.sorted { $0.rating > $1.rating }
+            return albums.sorted { asc ? $0.rating < $1.rating : $0.rating > $1.rating }
         }
     }
 
@@ -545,6 +582,10 @@ public final class LibraryViewModel: ObservableObject {
                 options.selectedArtists.contains(album.artistName ?? "") ||
                 options.selectedArtists.contains(album.albumArtist ?? "")
             }
+        }
+
+        if options.hideSingles {
+            filtered = filtered.filter { $0.trackCount > 1 }
         }
 
         return filtered

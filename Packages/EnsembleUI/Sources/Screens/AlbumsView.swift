@@ -81,12 +81,19 @@ public struct AlbumsView: View {
                             Menu {
                                 ForEach(AlbumSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        libraryVM.albumSortOption = option
+                                        if libraryVM.albumSortOption == option {
+                                            libraryVM.albumsFilterOptions.sortDirection =
+                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.albumSortOption = option
+                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                        }
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
                                             if libraryVM.albumSortOption == option {
-                                                Image(systemName: "checkmark")
+                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
                                             }
                                         }
                                     }
@@ -124,7 +131,8 @@ public struct AlbumsView: View {
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,
                     showYearFilter: true,
-                    showArtistFilter: true
+                    showArtistFilter: true,
+                    showHideSingles: true
                 )
             }
             .sheet(isPresented: $showingManageSources) {

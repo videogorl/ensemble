@@ -62,7 +62,7 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
         offlineDownloadService.$targets
             .sink { [weak self] snapshots in
                 self?.items = snapshots
-                    .filter { $0.kind != .library }
+                    .filter { $0.kind != .library && $0.kind != .favorites }
                     .map(Self.mapItem(from:))
                     .sorted { lhs, rhs in
                         if lhs.progress != rhs.progress {

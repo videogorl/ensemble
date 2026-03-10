@@ -230,12 +230,19 @@ public struct PlaylistsView: View {
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                 Button {
-                                    viewModel.playlistSortOption = option
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
                                 } label: {
                                     HStack {
                                         Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: "checkmark")
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
@@ -260,12 +267,19 @@ public struct PlaylistsView: View {
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                 Button {
-                                    viewModel.playlistSortOption = option
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
                                 } label: {
                                     HStack {
                                         Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: "checkmark")
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }

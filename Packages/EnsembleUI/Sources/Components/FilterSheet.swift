@@ -12,17 +12,19 @@ public struct FilterSheet: View {
     let showYearFilter: Bool
     let showArtistFilter: Bool
     let showGenreFilter: Bool
-    
+    let showHideSingles: Bool
+
     @State private var minYear: String = ""
     @State private var maxYear: String = ""
-    
+
     public init(
         filterOptions: Binding<FilterOptions>,
         availableArtists: [String] = [],
         availableGenres: [String] = [],
         showYearFilter: Bool = false,
         showArtistFilter: Bool = false,
-        showGenreFilter: Bool = false
+        showGenreFilter: Bool = false,
+        showHideSingles: Bool = false
     ) {
         self._filterOptions = filterOptions
         self.availableArtists = availableArtists.sorted()
@@ -30,6 +32,7 @@ public struct FilterSheet: View {
         self.showYearFilter = showYearFilter
         self.showArtistFilter = showArtistFilter
         self.showGenreFilter = showGenreFilter
+        self.showHideSingles = showHideSingles
     }
     
     public var body: some View {
@@ -41,7 +44,18 @@ public struct FilterSheet: View {
                 } header: {
                     Text("Availability")
                 }
-                
+
+                // Hide Singles Section (for albums)
+                if showHideSingles {
+                    Section {
+                        Toggle("Hide Singles", isOn: $filterOptions.hideSingles)
+                    } header: {
+                        Text("Albums")
+                    } footer: {
+                        Text("Hide albums with only one track")
+                    }
+                }
+
                 // Year Range Section (for albums)
                 if showYearFilter {
                     Section {

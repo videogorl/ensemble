@@ -248,6 +248,7 @@ extension CDOfflineDownloadTarget {
         case album
         case artist
         case playlist
+        case favorites
     }
 
     public enum Status: String {

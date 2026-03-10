@@ -564,12 +564,30 @@ public enum TrackSortOption: String, CaseIterable, Sendable {
     case lastPlayed = "Last Played"
     case rating = "Rating"
     case playCount = "Play Count"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .album:
+            return .ascending
+        case .duration, .dateAdded, .dateModified, .lastPlayed, .rating, .playCount:
+            return .descending
+        }
+    }
 }
 
 public enum ArtistSortOption: String, CaseIterable, Sendable {
     case name = "Name"
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .name:
+            return .ascending
+        case .dateAdded, .dateModified:
+            return .descending
+        }
+    }
 }
 
 public enum AlbumSortOption: String, CaseIterable, Sendable {
@@ -580,6 +598,15 @@ public enum AlbumSortOption: String, CaseIterable, Sendable {
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
     case rating = "Rating"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .albumArtist:
+            return .ascending
+        case .year, .dateAdded, .dateModified, .rating:
+            return .descending
+        }
+    }
 }
 
 public enum GenreSortOption: String, CaseIterable, Sendable {
@@ -593,6 +620,36 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
     case lastPlayed = "Last Played"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title:
+            return .ascending
+        case .trackCount, .duration, .dateAdded, .dateModified, .lastPlayed:
+            return .descending
+        }
+    }
+}
+
+public enum FavoritesSortOption: String, CaseIterable, Sendable {
+    case title = "Title"
+    case artist = "Artist"
+    case album = "Album"
+    case dateAdded = "Date Added"
+    case duration = "Duration"
+    case lastPlayed = "Last Played"
+    case rating = "Rating"
+    case playCount = "Play Count"
+
+    /// Natural default direction for each sort option
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .album:
+            return .ascending
+        case .dateAdded, .lastPlayed, .duration, .rating, .playCount:
+            return .descending
+        }
+    }
 }
 
 // MARK: - Hub (Home Screen Content)

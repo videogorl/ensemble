@@ -9,6 +9,11 @@ import Foundation
 public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var tracks: [Track] = []
     @Published public var filterOptions: FilterOptions
+    @Published public var favoritesSortOption: FavoritesSortOption = .dateAdded {
+        didSet {
+            filterOptions.sortBy = favoritesSortOption.rawValue
+        }
+    }
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var error: String?
 
@@ -17,7 +22,14 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
     public init(libraryRepository: LibraryRepositoryProtocol) {
         self.libraryRepository = libraryRepository
-        self.filterOptions = FilterPersistence.load(for: "Favorites")
+
+        let savedFilters = FilterPersistence.load(for: "Favorites")
+        self.filterOptions = savedFilters
+
+        // Restore sort option from persisted filters
+        if let savedSort = FavoritesSortOption(rawValue: savedFilters.sortBy) {
+            self.favoritesSortOption = savedSort
+        }
 
         setupFilterPersistence()
         observeDownloadChanges()
@@ -68,7 +80,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
     public var filteredTracks: [Track] {
         var filtered = tracks
-        
+
         if !filterOptions.searchText.isEmpty {
             let searchLower = filterOptions.searchText.lowercased()
             filtered = filtered.filter {
@@ -77,12 +89,66 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
                 ($0.albumName?.lowercased().contains(searchLower) ?? false)
             }
         }
-        
+
         if filterOptions.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
-        
-        return filtered
+
+        return sortTracks(filtered)
+    }
+
+    // MARK: - Sorting
+
+    private func sortTracks(_ tracks: [Track]) -> [Track] {
+        let ascending = filterOptions.sortDirection == .ascending
+        return tracks.sorted { a, b in
+            switch favoritesSortOption {
+            case .title:
+                let result = a.title.sortingKey.localizedStandardCompare(b.title.sortingKey)
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+
+            case .artist:
+                let aName = a.artistName ?? ""
+                let bName = b.artistName ?? ""
+                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+
+            case .album:
+                let aName = a.albumName ?? ""
+                let bName = b.albumName ?? ""
+                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+
+            case .dateAdded:
+                return compareOptionalDates(a.dateAdded, b.dateAdded, ascending: ascending)
+
+            case .duration:
+                return ascending ? a.duration < b.duration : a.duration > b.duration
+
+            case .lastPlayed:
+                return compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
+
+            case .rating:
+                return ascending ? a.rating < b.rating : a.rating > b.rating
+
+            case .playCount:
+                return ascending ? a.playCount < b.playCount : a.playCount > b.playCount
+            }
+        }
+    }
+
+    /// Compares optional dates with nils sorting last regardless of direction
+    private func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
+        switch (a, b) {
+        case (.some(let aDate), .some(let bDate)):
+            return ascending ? aDate < bDate : aDate > bDate
+        case (.some, .none):
+            return true  // Non-nil before nil
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return false
+        }
     }
 
     public var totalDuration: String {

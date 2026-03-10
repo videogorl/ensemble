@@ -295,7 +295,7 @@ public final class DownloadsViewModel: ObservableObject {
             return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey))?.thumbPath
         case .playlist:
             return (try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.compositePath
-        case .library:
+        case .library, .favorites:
             return nil
         }
     }

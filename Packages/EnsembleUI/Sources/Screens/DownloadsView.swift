@@ -261,7 +261,7 @@ public struct DownloadsView: View {
         switch item.kind {
         case .album, .artist, .playlist:
             return true
-        case .library:
+        case .library, .favorites:
             return false
         }
     }

@@ -157,7 +157,7 @@ Sources/
 |   +-- AlbumDetailViewModel.swift
 |   +-- ArtistDetailViewModel.swift
 |   +-- DownloadsViewModel.swift
-|   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars
+|   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars, sorting (FavoritesSortOption), download toggle
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
 |   +-- MusicSourceAccountDetailViewModel.swift

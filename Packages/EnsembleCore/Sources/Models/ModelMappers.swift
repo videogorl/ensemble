@@ -125,6 +125,11 @@ public extension Album {
     }
 
     init(from cd: CDAlbum) {
+        // Prefer actual synced track count from the relationship over the Plex metadata field,
+        // which may be 0 if leafCount wasn't included in the API response
+        let syncedCount = (cd.tracks as? Set<CDTrack>)?.count ?? 0
+        let resolvedTrackCount = syncedCount > 0 ? syncedCount : Int(cd.trackCount)
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -133,7 +138,7 @@ public extension Album {
             albumArtist: cd.albumArtist ?? cd.artistName ?? cd.artist?.name,
             artistRatingKey: cd.artist?.ratingKey,
             year: cd.year > 0 ? Int(cd.year) : nil,
-            trackCount: Int(cd.trackCount),
+            trackCount: resolvedTrackCount,
             thumbPath: cd.thumbPath,
             artPath: cd.artPath,
             dateAdded: cd.dateAdded,
