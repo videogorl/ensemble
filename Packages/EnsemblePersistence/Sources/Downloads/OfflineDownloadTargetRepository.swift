@@ -252,56 +252,98 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     public func replaceMemberships(targetKey: String, trackReferences: [OfflineTrackReference]) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
+                // Use merge-by-property policy to handle concurrent writes from
+                // different targets referencing the same CDTrack objects.
+                context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+
                 do {
-                    let targetRequest = CDOfflineDownloadTarget.fetchRequest()
-                    targetRequest.predicate = NSPredicate(format: "key == %@", targetKey)
-                    targetRequest.fetchLimit = 1
-
-                    guard let target = try context.fetch(targetRequest).first else {
-                        continuation.resume(throwing: NSError(domain: "OfflineDownloadTargetRepository", code: 2))
-                        return
-                    }
-
-                    let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
-                    membershipRequest.predicate = NSPredicate(format: "targetKey == %@", targetKey)
-                    let existingMemberships = try context.fetch(membershipRequest)
-                    let existingByID = Dictionary(uniqueKeysWithValues: existingMemberships.map { ($0.id, $0) })
-
-                    let normalizedReferences = Array(Set(trackReferences)).sorted {
-                        if $0.trackSourceCompositeKey != $1.trackSourceCompositeKey {
-                            return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
-                        }
-                        return $0.trackRatingKey < $1.trackRatingKey
-                    }
-
-                    let incomingMembershipIDs = Set(
-                        normalizedReferences.map { self.membershipID(targetKey: targetKey, reference: $0) }
+                    try self.performReplaceMemberships(
+                        targetKey: targetKey,
+                        trackReferences: trackReferences,
+                        context: context
                     )
-
-                    for membership in existingMemberships where !incomingMembershipIDs.contains(membership.id) {
-                        context.delete(membership)
-                    }
-
-                    for reference in normalizedReferences {
-                        let id = self.membershipID(targetKey: targetKey, reference: reference)
-                        let membership = existingByID[id] ?? CDOfflineDownloadMembership(context: context)
-                        membership.id = id
-                        membership.targetKey = targetKey
-                        membership.trackRatingKey = reference.trackRatingKey
-                        membership.trackSourceCompositeKey = reference.trackSourceCompositeKey
-                        membership.createdAt = membership.createdAt ?? Date()
-                        membership.target = target
-                        membership.track = try self.resolveTrack(reference: reference, in: context)
-                    }
-
-                    target.updatedAt = Date()
-                    try context.save()
                     continuation.resume()
+                } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                    && (error.code == NSManagedObjectMergeError || error.code == NSManagedObjectConstraintMergeError) {
+                    // Single retry on merge conflict
+                    context.rollback()
+                    do {
+                        try self.performReplaceMemberships(
+                            targetKey: targetKey,
+                            trackReferences: trackReferences,
+                            context: context
+                        )
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
+    }
+
+    /// Core membership replacement logic, extracted for retry support.
+    private func performReplaceMemberships(
+        targetKey: String,
+        trackReferences: [OfflineTrackReference],
+        context: NSManagedObjectContext
+    ) throws {
+        let targetRequest = CDOfflineDownloadTarget.fetchRequest()
+        targetRequest.predicate = NSPredicate(format: "key == %@", targetKey)
+        targetRequest.fetchLimit = 1
+
+        guard let target = try context.fetch(targetRequest).first else {
+            throw NSError(domain: "OfflineDownloadTargetRepository", code: 2)
+        }
+
+        let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
+        membershipRequest.predicate = NSPredicate(format: "targetKey == %@", targetKey)
+        let existingMemberships = try context.fetch(membershipRequest)
+        let existingByID = Dictionary(uniqueKeysWithValues: existingMemberships.map { ($0.id, $0) })
+
+        let normalizedReferences = Array(Set(trackReferences)).sorted {
+            if $0.trackSourceCompositeKey != $1.trackSourceCompositeKey {
+                return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
+            }
+            return $0.trackRatingKey < $1.trackRatingKey
+        }
+
+        let incomingMembershipIDs = Set(
+            normalizedReferences.map { self.membershipID(targetKey: targetKey, reference: $0) }
+        )
+
+        for membership in existingMemberships where !incomingMembershipIDs.contains(membership.id) {
+            context.delete(membership)
+        }
+
+        // Cache track resolutions within this call to avoid repeated fetches
+        // for the same track referenced by multiple memberships
+        var trackCache: [String: CDTrack?] = [:]
+
+        for reference in normalizedReferences {
+            let id = self.membershipID(targetKey: targetKey, reference: reference)
+            let membership = existingByID[id] ?? CDOfflineDownloadMembership(context: context)
+            membership.id = id
+            membership.targetKey = targetKey
+            membership.trackRatingKey = reference.trackRatingKey
+            membership.trackSourceCompositeKey = reference.trackSourceCompositeKey
+            membership.createdAt = membership.createdAt ?? Date()
+            membership.target = target
+
+            let cacheKey = "\(reference.trackRatingKey):\(reference.trackSourceCompositeKey)"
+            if let cached = trackCache[cacheKey] {
+                membership.track = cached
+            } else {
+                let resolved = try self.resolveTrack(reference: reference, in: context)
+                trackCache[cacheKey] = resolved
+                membership.track = resolved
+            }
+        }
+
+        target.updatedAt = Date()
+        try context.save()
     }
 
     public func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool {

@@ -154,8 +154,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
-        // Also fetch tracks with rating changes (Plex updates lastRatedAt, not updatedAt, for ratings)
-        let ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
+
+        // Only fetch rated tracks when the sync window is recent (≤10min).
+        // The ratedAfter filter (lastRatedAt>=) returns ALL ever-rated tracks,
+        // not just recently rated ones, which wastes ~1MB per sync cycle.
+        // Beyond 10 minutes, rating changes are caught by the next full sync.
+        let ratedTracks: [PlexTrack]
+        let syncAge = Date().timeIntervalSince(timestamp)
+        if syncAge <= 600 {
+            ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
+        } else {
+            ratedTracks = []
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ Skipping ratedAfter fetch (sync age: \(String(format: "%.0f", syncAge))s > 600s)")
+            #endif
+        }
 
         // Deduplicate by ratingKey, then filter to items actually changed vs local copy
         var trackMap: [String: PlexTrack] = [:]
