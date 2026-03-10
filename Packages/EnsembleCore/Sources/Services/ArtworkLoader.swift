@@ -53,6 +53,33 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private var lastBulkInvalidationDate: Date?
     private static let bulkInvalidationCooldown: TimeInterval = 5
 
+    #if DEBUG
+    /// Batch counters for artwork load summary instead of per-item logs.
+    /// After a burst of artwork loads settles, a single summary is logged.
+    private actor ArtworkLoadStats {
+        private var networkCount = 0
+        private var localFallbackCount = 0
+        private var unavailableCount = 0
+        private var pendingSummaryTask: Task<Void, Never>?
+
+        func recordNetwork() { networkCount += 1; scheduleSummary() }
+        func recordLocalFallback() { localFallbackCount += 1; scheduleSummary() }
+        func recordUnavailable() { unavailableCount += 1; scheduleSummary() }
+
+        private func scheduleSummary() {
+            pendingSummaryTask?.cancel()
+            pendingSummaryTask = Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s after last load
+                guard !Task.isCancelled else { return }
+                let n = networkCount; let l = localFallbackCount; let u = unavailableCount
+                networkCount = 0; localFallbackCount = 0; unavailableCount = 0
+                EnsembleLogger.debug("🎨 ArtworkLoader batch: \(n) network, \(l) local-fallback, \(u) unavailable")
+            }
+        }
+    }
+    private let loadStats = ArtworkLoadStats()
+    #endif
+
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
         private struct Entry {
@@ -242,13 +269,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
             usedFallback = true
-            #if DEBUG
-            EnsembleLogger.debug("🔄 ArtworkLoader[\(size)]: Using fallback - track:\(ratingKey ?? "nil") → album:\(fallbackRatingKey ?? "nil") path:\(fallbackPath ?? "nil")")
-            #endif
         } else {
-            #if DEBUG
-            EnsembleLogger.debug("❌ ArtworkLoader[\(size)]: No artwork - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
-            #endif
             return nil
         }
         
@@ -270,8 +291,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let serverUnavailable = !isOffline && !serverAvailable
         if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             #if DEBUG
-            let reason = isOffline ? "Offline" : "Server unavailable"
-            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: \(reason) - using local file: \(localURL.lastPathComponent)")
+            await loadStats.recordLocalFallback()
             #endif
             await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
             return localURL
@@ -281,7 +301,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // rather than building a URL that will time out
         if serverUnavailable {
             #if DEBUG
-            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Server unavailable, no local cache for ratingKey:\(actualRatingKey ?? "nil")")
+            await loadStats.recordUnavailable()
             #endif
             return nil
         }
@@ -290,8 +310,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
             #if DEBUG
-            let label = usedFallback ? "Network fallback" : "Network"
-            EnsembleLogger.debug("🌐 ArtworkLoader[\(size)]: \(label) URL - \(url.absoluteString)")
+            await loadStats.recordNetwork()
             #endif
             // Track the URL for targeted cache eviction on invalidation
             if let key = actualRatingKey {
@@ -304,7 +323,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Network URL resolution failed — fall back to local cache if available
         if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
             #if DEBUG
-            EnsembleLogger.debug("📦 ArtworkLoader[\(size)]: Network failed, using local file: \(localURL.lastPathComponent)")
+            await loadStats.recordLocalFallback()
             #endif
             await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
             return localURL

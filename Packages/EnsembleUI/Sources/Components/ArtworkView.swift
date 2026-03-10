@@ -112,19 +112,14 @@ public struct ArtworkView: View {
         let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
         let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
         
-        guard let finalPath = actualPath else {
+        guard actualPath != nil else {
             #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
-            // Clear artwork URL when no path is available
             artworkURL = nil
             return
         }
-        
-        #if DEBUG
-        EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Loading - path:\(finalPath) ratingKey:\(actualRatingKey ?? "nil")")
-        #endif
-        
+
         let url = await dependencies.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
@@ -133,12 +128,8 @@ public struct ArtworkView: View {
             fallbackRatingKey: fallbackRatingKey,
             size: size.rawValue
         )
-        
-        // Update artwork URL (even if nil, to clear previous artwork)
+
         if url != artworkURL {
-            #if DEBUG
-            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: Got URL - \(url?.absoluteString ?? "nil")")
-            #endif
             artworkURL = url
         }
     }

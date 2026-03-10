@@ -223,44 +223,23 @@ public final class AccountManager: ObservableObject {
 
     /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
-        #if DEBUG
-        EnsembleLogger.debug("🔄 AccountManager.makeAPIClient() called")
-        EnsembleLogger.debug("  - Account ID: \(accountId)")
-        EnsembleLogger.debug("  - Server ID: \(serverId)")
-        #endif
-        
         let cacheKey = "\(accountId):\(serverId)"
 
-        // Return cached client if available
+        // Return cached client if available (no log — called frequently)
         if let cachedClient = apiClientCache[cacheKey] {
-            #if DEBUG
-            EnsembleLogger.debug("✅ Returning cached API client")
-            #endif
             return cachedClient
         }
-        
-        #if DEBUG
-        EnsembleLogger.debug("🔄 Creating new API client...")
-        EnsembleLogger.debug("  - Looking for account with ID: \(accountId)")
-        #endif
+
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
             #if DEBUG
-            EnsembleLogger.debug("❌ Could not find account or server")
-            EnsembleLogger.debug("  - Accounts available: \(plexAccounts.count)")
+            EnsembleLogger.debug("❌ makeAPIClient: account/server not found — accountId:\(accountId) serverId:\(serverId)")
             #endif
-            if let account = plexAccounts.first(where: { $0.id == accountId }) {
-                #if DEBUG
-                EnsembleLogger.debug("  - Account found, but server not found. Servers available: \(account.servers.count)")
-                #endif
-            }
             return nil
         }
 
         #if DEBUG
-        EnsembleLogger.debug("✅ Found account and server")
-        EnsembleLogger.debug("  - Server name: \(server.name)")
-        EnsembleLogger.debug("  - Server URL: \(server.url)")
+        EnsembleLogger.debug("🔄 makeAPIClient: Creating new client for \(server.name) (\(server.url))")
         #endif
 
         let insecurePolicy = currentAllowInsecureConnectionsPolicy()
@@ -282,11 +261,6 @@ public final class AccountManager: ObservableObject {
         let alternativeURLs = endpointDescriptors
             .map(\.url)
             .filter { $0 != primaryURL }
-        #if DEBUG
-        EnsembleLogger.debug("  - Connection policy: \(insecurePolicy.rawValue)")
-        EnsembleLogger.debug("  - Alternative URLs available: \(alternativeURLs.count)")
-        #endif
-
         let connection = PlexServerConnection(
             url: primaryURL,
             alternativeURLs: alternativeURLs,
@@ -305,9 +279,6 @@ public final class AccountManager: ObservableObject {
             serverKey: cacheKey
         )
         apiClientCache[cacheKey] = client
-        #if DEBUG
-        EnsembleLogger.debug("✅ API client created and cached")
-        #endif
         return client
     }
 
