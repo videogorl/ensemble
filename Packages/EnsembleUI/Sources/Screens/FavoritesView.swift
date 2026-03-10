@@ -52,18 +52,24 @@ public struct FavoritesView: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.tracks.isEmpty {
-                    Button {
-                        showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                    HStack(spacing: 16) {
+                        // Sort menu
+                        sortMenu
 
-                            // Badge indicator when filters are active
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
+                        // Filter button
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+
+                                // Badge indicator when filters are active
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }
@@ -72,16 +78,20 @@ public struct FavoritesView: View {
             #else
             ToolbarItem(placement: .automatic) {
                 if !viewModel.tracks.isEmpty {
-                    Button {
-                        showFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                            if viewModel.filterOptions.hasActiveFilters {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
+                    HStack(spacing: 16) {
+                        sortMenu
+
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                if viewModel.filterOptions.hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }
@@ -117,6 +127,34 @@ public struct FavoritesView: View {
         }
     }
     
+    private var sortMenu: some View {
+        Menu {
+            ForEach(FavoritesSortOption.allCases, id: \.self) { option in
+                Button {
+                    if viewModel.favoritesSortOption == option {
+                        // Toggle direction when tapping the active option
+                        viewModel.filterOptions.sortDirection =
+                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                    } else {
+                        // Switch to new option with its default direction
+                        viewModel.favoritesSortOption = option
+                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                    }
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if viewModel.favoritesSortOption == option {
+                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                  ? "chevron.up" : "chevron.down")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: "arrow.up.arrow.down")
+        }
+    }
+
     private var emptyView: some View {
         VStack(spacing: 16) {
             Image(systemName: "heart")

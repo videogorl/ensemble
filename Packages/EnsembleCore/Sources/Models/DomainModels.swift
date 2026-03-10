@@ -595,6 +595,27 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
     case lastPlayed = "Last Played"
 }
 
+public enum FavoritesSortOption: String, CaseIterable, Sendable {
+    case title = "Title"
+    case artist = "Artist"
+    case album = "Album"
+    case dateAdded = "Date Added"
+    case duration = "Duration"
+    case lastPlayed = "Last Played"
+    case rating = "Rating"
+    case playCount = "Play Count"
+
+    /// Natural default direction for each sort option
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .album:
+            return .ascending
+        case .dateAdded, .lastPlayed, .duration, .rating, .playCount:
+            return .descending
+        }
+    }
+}
+
 // MARK: - Hub (Home Screen Content)
 
 /// Represents a section on the home screen

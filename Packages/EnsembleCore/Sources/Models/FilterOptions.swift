@@ -96,7 +96,7 @@ public final class FilterPersistence {
     
     /// Clear all saved filters
     public static func clearAll() {
-        let viewTypes = ["Albums", "Artists", "Songs", "Playlists", "Genres", "AlbumDetail", "ArtistDetail"]
+        let viewTypes = ["Albums", "Artists", "Songs", "Playlists", "Genres", "AlbumDetail", "ArtistDetail", "Favorites"]
         viewTypes.forEach { clear(for: $0) }
     }
 }
