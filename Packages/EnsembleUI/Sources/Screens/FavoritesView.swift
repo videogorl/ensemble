@@ -24,6 +24,7 @@ public struct FavoritesView: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -53,6 +54,9 @@ public struct FavoritesView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.tracks.isEmpty {
                     HStack(spacing: 16) {
+                        // More menu (download toggle)
+                        moreMenu
+
                         // Sort menu
                         sortMenu
 
@@ -79,6 +83,7 @@ public struct FavoritesView: View {
             ToolbarItem(placement: .automatic) {
                 if !viewModel.tracks.isEmpty {
                     HStack(spacing: 16) {
+                        moreMenu
                         sortMenu
 
                         Button {
@@ -127,6 +132,25 @@ public struct FavoritesView: View {
         }
     }
     
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                Task {
+                    let isEnabled = offlineDownloadService.isFavoritesDownloadEnabled()
+                    await offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
+                }
+            } label: {
+                if offlineDownloadService.isFavoritesDownloadEnabled() {
+                    Label("Remove Download", systemImage: "xmark.circle")
+                } else {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
+        }
+    }
+
     private var sortMenu: some View {
         Menu {
             ForEach(FavoritesSortOption.allCases, id: \.self) { option in
