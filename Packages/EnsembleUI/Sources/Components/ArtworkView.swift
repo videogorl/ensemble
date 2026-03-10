@@ -97,6 +97,15 @@ public struct ArtworkView: View {
                 invalidationToken += 1
             }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
+        ) { _ in
+            // Re-trigger if we're showing a local-file fallback (from the startup race)
+            // so we can attempt the network URL now that the server is available
+            if let url = artworkURL, url.isFileURL {
+                invalidationToken += 1
+            }
+        }
     }
     
     private func loadArtworkURL() async {

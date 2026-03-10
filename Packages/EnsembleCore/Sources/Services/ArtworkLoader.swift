@@ -15,6 +15,9 @@ public protocol ArtworkLoaderProtocol {
 public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Posted when a specific artwork is invalidated. `userInfo` contains `"ratingKey"`.
     public static let artworkDidInvalidate = Notification.Name("ArtworkLoaderArtworkDidInvalidate")
+    /// Posted when servers transition from unknown/connecting to connected after health checks.
+    /// ArtworkView listens for this to re-trigger loads that got local-file fallback during startup.
+    public static let serversBecameAvailable = Notification.Name("ArtworkLoaderServersBecameAvailable")
 
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -251,7 +254,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         
         guard let finalPath = actualPath else { return nil }
         let isOffline = await syncCoordinator.isOffline
-        let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
+        // Use optimistic check: treat .unknown/.connecting as "possibly available"
+        // so artwork attempts the network URL instead of falling back to local files
+        // before health checks complete. Nuke handles failures gracefully.
+        let serverAvailable = await syncCoordinator.isServerPossiblyAvailable(sourceKey: sourceKey)
         let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
         let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
 

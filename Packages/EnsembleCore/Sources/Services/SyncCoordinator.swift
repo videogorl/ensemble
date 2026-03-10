@@ -969,9 +969,21 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
             #endif
+            let preCheckStates = serverHealthChecker.serverStates
             let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
             updateSourceConnectionStates()
             lastHealthRefreshAt = nowProviderForTesting()
+
+            // Notify artwork views if servers became available after health checks
+            let postCheckStates = serverHealthChecker.serverStates
+            let anyBecameAvailable = preCheckStates.contains { key, preState in
+                guard !preState.isAvailable else { return false }
+                return postCheckStates[key]?.isAvailable == true
+            }
+            if anyBecameAvailable {
+                NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+            }
+
             #if DEBUG
             EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
             #endif
@@ -2132,9 +2144,23 @@ public final class SyncCoordinator: ObservableObject {
                 self.activeHealthRefreshTask = nil
             }
 
+            // Capture pre-check states to detect unknown→connected transitions
+            let preCheckStates = self.serverHealthChecker.serverStates
+
             let summary = await self.runHealthChecks(forceServerRefresh: forceServerRefresh, eligibleServerKeys: eligibleServerKeys)
             self.updateSourceConnectionStates()
             await self.runAPIClientConnectionRefresh()
+
+            // If any server transitioned from unknown/connecting to connected,
+            // notify artwork views to re-trigger loads that got local-file fallback
+            let postCheckStates = self.serverHealthChecker.serverStates
+            let anyBecameAvailable = preCheckStates.contains { key, preState in
+                guard !preState.isAvailable else { return false }
+                return postCheckStates[key]?.isAvailable == true
+            }
+            if anyBecameAvailable {
+                NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+            }
 
             #if DEBUG
             let duration = self.nowProviderForTesting().timeIntervalSince(startedAt)
@@ -2214,6 +2240,26 @@ public final class SyncCoordinator: ObservableObject {
             return true // No cached state means we haven't checked — assume available
         }
         return state.isAvailable
+    }
+
+    /// Optimistic availability check for non-critical operations like artwork loading.
+    /// Returns true if the server is available OR if health checks haven't completed yet
+    /// (.unknown/.connecting). This avoids premature local-file fallback during startup
+    /// when health checks are still in flight. Nuke handles network failures gracefully.
+    public func isServerPossiblyAvailable(sourceKey: String?) -> Bool {
+        guard let sourceKey, let (accountId, serverId) = parseServerIds(from: sourceKey) else {
+            return true
+        }
+        let serverKey = "\(accountId):\(serverId)"
+        guard let state = serverHealthChecker.serverStates[serverKey] else {
+            return true
+        }
+        switch state {
+        case .connected, .degraded, .unknown, .connecting:
+            return true
+        case .offline:
+            return false
+        }
     }
 
     /// Parse accountId and serverId from a sourceCompositeKey.
