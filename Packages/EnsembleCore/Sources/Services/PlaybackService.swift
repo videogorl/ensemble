@@ -710,6 +710,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var playerItems: [String: AVPlayerItem] = [:] // ratingKey: item
     private var playerItemsLRU: [String] = []  // Track order for LRU eviction
     private let maxCachedPlayerItems = 10  // Keep last 10 items cached for back navigation
+    /// In-flight player item creation tasks keyed by trackId.
+    /// Prevents duplicate concurrent downloads when playCurrentQueueItem and prefetch
+    /// both request the same track before either finishes.
+    private var itemCreationTasks: [String: Task<(AVPlayerItem, URL?), Error>] = [:]
     private var loadingStateTask: Task<Void, Never>?  // Delayed loading state transition
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
@@ -1337,7 +1341,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #endif
     }
 
-    /// Configure and activate the audio session. Called lazily before first playback.
+    /// Configure the audio session category. Called lazily before first playback.
+    /// AVPlayer activates the session automatically when playback starts, so
+    /// we only need to set the category/mode/options here.
     /// Safe to call multiple times — only configures once.
     func ensureAudioSessionConfigured() {
         #if !os(macOS)
@@ -1349,10 +1355,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 mode: .default,
                 options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
             )
-            try session.setActive(true)
             isAudioSessionConfigured = true
             #if DEBUG
-            EnsembleLogger.debug("🔊 Audio session configured and activated")
+            EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
             #endif
         } catch {
             #if DEBUG
@@ -3490,9 +3495,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .failed(failureMessage ?? "Server is unavailable")
     }
 
-    /// Creates an AVPlayerItem and returns the source URL (file or stream) for frequency analysis.
-    /// The URL is nil only if construction fails before a URL is resolved.
+    /// Creates an AVPlayerItem, deduplicating concurrent requests for the same track.
+    /// If another call is already creating an item for this trackId, awaits that result
+    /// instead of starting a duplicate download.
     private func createPlayerItem(for track: Track) async throws -> (AVPlayerItem, URL?) {
+        // Check for in-flight creation task for this track
+        if let existingTask = itemCreationTasks[track.id] {
+            #if DEBUG
+            EnsembleLogger.debug("📦 Deduplicating player item creation for: \(track.title)")
+            #endif
+            return try await existingTask.value
+        }
+
+        let task = Task<(AVPlayerItem, URL?), Error> { [weak self] in
+            guard let self else { throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1)) }
+            return try await self.createPlayerItemImpl(for: track)
+        }
+        itemCreationTasks[track.id] = task
+        do {
+            let result = try await task.value
+            itemCreationTasks.removeValue(forKey: track.id)
+            return result
+        } catch {
+            itemCreationTasks.removeValue(forKey: track.id)
+            throw error
+        }
+    }
+
+    /// Implementation: creates an AVPlayerItem and returns the source URL for frequency analysis.
+    /// The URL is nil only if construction fails before a URL is resolved.
+    private func createPlayerItemImpl(for track: Track) async throws -> (AVPlayerItem, URL?) {
         #if DEBUG
         EnsembleLogger.debug("📦 Creating player item for: \(track.title)")
         #endif
