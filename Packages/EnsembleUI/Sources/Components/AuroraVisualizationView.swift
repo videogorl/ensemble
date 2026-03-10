@@ -145,7 +145,9 @@ public struct AuroraVisualizationView: View {
 
     /// Main drawing function for the aurora frequency visualization
     private func drawAurora(context: GraphicsContext, size: CGSize, time: Double) {
-        let isPlaying = playbackState == .playing || playbackState == .buffering || playbackState == .loading
+        // Only show active frequency data when actually playing;
+        // buffering/loading/paused all settle to resting state
+        let isPlaying = playbackState == .playing
 
         // Calculate target band values from real-time frequency data
         let targetBands = calculateBandValues(time: time, isPlaying: isPlaying)

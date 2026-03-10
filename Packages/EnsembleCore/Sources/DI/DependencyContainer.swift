@@ -191,6 +191,10 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         offlineBackgroundExecutionCoordinator = offlineBackgroundCoordinatorRef
 
+        // Toast center created early so OfflineDownloadService can reference it
+        let toastCenterRef = MainActor.assumeIsolated { ToastCenter() }
+        toastCenter = toastCenterRef
+
         let offlineServiceRef = MainActor.assumeIsolated {
             OfflineDownloadService(
                 downloadManager: downloadManagerRef,
@@ -200,7 +204,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCoordinator: syncCoordinatorRef,
                 networkMonitor: nm,
                 backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
-                artworkDownloadManager: artworkDownloadRef
+                artworkDownloadManager: artworkDownloadRef,
+                toastCenter: toastCenterRef
             )
         }
         offlineDownloadService = offlineServiceRef
@@ -281,10 +286,6 @@ public final class DependencyContainer: @unchecked Sendable {
         // Pin manager
         pinManager = MainActor.assumeIsolated {
             PinManager()
-        }
-
-        toastCenter = MainActor.assumeIsolated {
-            ToastCenter()
         }
 
         libraryVisibilityStore = MainActor.assumeIsolated {

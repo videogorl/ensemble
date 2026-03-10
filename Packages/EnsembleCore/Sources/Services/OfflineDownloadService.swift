@@ -91,6 +91,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let networkMonitor: NetworkMonitor
     private let backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
+    private let toastCenter: ToastCenter
 
     private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -112,7 +113,8 @@ public final class OfflineDownloadService: ObservableObject {
         syncCoordinator: SyncCoordinator,
         networkMonitor: NetworkMonitor,
         backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating,
-        artworkDownloadManager: ArtworkDownloadManagerProtocol
+        artworkDownloadManager: ArtworkDownloadManagerProtocol,
+        toastCenter: ToastCenter
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -122,6 +124,7 @@ public final class OfflineDownloadService: ObservableObject {
         self.networkMonitor = networkMonitor
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
         self.artworkDownloadManager = artworkDownloadManager
+        self.toastCenter = toastCenter
 
         // Clean up legacy keys from the old transcode blacklist approach.
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
@@ -780,10 +783,20 @@ public final class OfflineDownloadService: ObservableObject {
         }
 
         // All workers exited — queue is drained or cancelled
+        let wasCancelled = Task.isCancelled
         isQueueRunning = false
         queueStatusReason = .idle
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
         queueTask = nil
+
+        // Show toast when downloads complete naturally (not cancelled/expired)
+        if !wasCancelled {
+            toastCenter.show(ToastPayload(
+                style: .success,
+                iconSystemName: "arrow.down.circle.fill",
+                title: "Downloads Complete"
+            ))
+        }
     }
 
     /// Single download worker — loops pulling the next pending download until
