@@ -2384,6 +2384,16 @@ public final class SyncCoordinator: ObservableObject {
     /// Routes through the same cooldown tracking as `scheduleHealthRefresh` so
     /// the initial Unknown→Online network transition won't trigger a duplicate pass.
     public func performStartupHealthChecks() async {
+        // Skip if startup sync already ran health checks (lastHealthRefreshAt is set
+        // when any health check pass completes). This avoids a redundant second pass
+        // when the startup sync's 5s delay expires before AppDelegate's network poll.
+        if lastHealthRefreshAt != nil {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already ran them")
+            #endif
+            return
+        }
+
         let eligibleServers = enabledServerKeysForHealthChecks()
         guard !eligibleServers.isEmpty else { return }
 
