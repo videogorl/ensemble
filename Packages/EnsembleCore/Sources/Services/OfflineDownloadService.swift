@@ -882,6 +882,16 @@ public final class OfflineDownloadService: ObservableObject {
                         mode: "download-queue"
                     )
                     if completed { return }
+                } catch is CancellationError {
+                    // Task cancelled (quality change, pause, etc.) — reset to pending
+                    // so the re-queued download at the correct quality picks it up.
+                    #if DEBUG
+                    EnsembleLogger.debug(
+                        "⏸️ Download queue cancelled for track=\(track.ratingKey); resetting to pending"
+                    )
+                    #endif
+                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending)
+                    return
                 } catch {
                     // Download queue failed — fall through to direct original download.
                     #if DEBUG
@@ -984,7 +994,10 @@ public final class OfflineDownloadService: ObservableObject {
             scheduleDownloadChangeNotification()
         } catch {
             if Task.isCancelled {
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
+                // Reset to pending (not paused) so the worker picks it up again.
+                // Quality changes cancel in-flight downloads and re-queue at the
+                // new quality; .paused would leave the old-quality download stuck.
+                try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending)
             } else if isNetworkLossError(error) {
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed

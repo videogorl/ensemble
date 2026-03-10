@@ -63,7 +63,13 @@ public final class CoreDataStack: @unchecked Sendable {
     }
 
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
-        persistentContainer.performBackgroundTask(block)
+        persistentContainer.performBackgroundTask { context in
+            // Match the merge policy used by viewContext and newBackgroundContext()
+            // so concurrent writes from download workers, sync, and target progress
+            // refresh resolve automatically instead of throwing merge conflicts.
+            context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+            block(context)
+        }
     }
 
     /// Refresh all objects in the view context to ensure they reflect the latest store data.
