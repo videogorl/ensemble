@@ -132,6 +132,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
     @NSManaged public var lastPlayed: Date?
+    @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
     @NSManaged public var playCount: Int32
     @NSManaged public var updatedAt: Date?

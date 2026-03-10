@@ -1097,6 +1097,7 @@ public final class NowPlayingViewModel: ObservableObject {
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
+            lastRatedAt: track.lastRatedAt,
             rating: track.rating,
             playCount: track.playCount,
             sourceCompositeKey: sourceCompositeKey
@@ -1124,6 +1125,7 @@ public final class NowPlayingViewModel: ObservableObject {
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
+            lastRatedAt: track.lastRatedAt,
             rating: rating,
             playCount: track.playCount,
             sourceCompositeKey: track.sourceCompositeKey

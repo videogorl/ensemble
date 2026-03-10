@@ -30,6 +30,7 @@ public extension Track {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
             playCount: plex.viewCount ?? 0
         )
@@ -61,6 +62,7 @@ public extension Track {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
             playCount: plex.viewCount ?? 0,
             sourceCompositeKey: sourceKey
@@ -98,6 +100,7 @@ public extension Track {
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
+            lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
             playCount: Int(cd.playCount),
             sourceCompositeKey: cd.sourceCompositeKey
@@ -330,6 +333,7 @@ public extension Download {
                 dateAdded: mappedTrack.dateAdded,
                 dateModified: mappedTrack.dateModified,
                 lastPlayed: mappedTrack.lastPlayed,
+                lastRatedAt: mappedTrack.lastRatedAt,
                 rating: mappedTrack.rating,
                 playCount: mappedTrack.playCount,
                 sourceCompositeKey: mappedTrack.sourceCompositeKey

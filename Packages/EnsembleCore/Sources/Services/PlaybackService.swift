@@ -5313,6 +5313,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     dateAdded: track.dateAdded,
                     dateModified: track.dateModified,
                     lastPlayed: track.lastPlayed,
+                    lastRatedAt: track.lastRatedAt,
                     rating: track.rating,
                     playCount: track.playCount,
                     sourceCompositeKey: track.sourceCompositeKey
@@ -5803,6 +5804,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
+            lastRatedAt: track.lastRatedAt,
             rating: rating ?? track.rating,
             playCount: track.playCount,
             sourceCompositeKey: track.sourceCompositeKey

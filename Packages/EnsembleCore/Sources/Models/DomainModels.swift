@@ -42,6 +42,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
     public let rating: Int
     public let playCount: Int
     public let sourceCompositeKey: String?
@@ -66,6 +67,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
+        lastRatedAt: Date? = nil,
         rating: Int = 0,
         playCount: Int = 0,
         sourceCompositeKey: String? = nil
@@ -93,6 +95,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
         self.sourceCompositeKey = sourceCompositeKey
@@ -635,7 +638,7 @@ public enum FavoritesSortOption: String, CaseIterable, Sendable {
     case title = "Title"
     case artist = "Artist"
     case album = "Album"
-    case dateAdded = "Date Added"
+    case dateFavorited = "Date Favorited"
     case duration = "Duration"
     case lastPlayed = "Last Played"
     case rating = "Rating"
@@ -646,7 +649,7 @@ public enum FavoritesSortOption: String, CaseIterable, Sendable {
         switch self {
         case .title, .artist, .album:
             return .ascending
-        case .dateAdded, .lastPlayed, .duration, .rating, .playCount:
+        case .dateFavorited, .lastPlayed, .duration, .rating, .playCount:
             return .descending
         }
     }

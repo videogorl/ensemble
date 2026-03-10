@@ -77,10 +77,11 @@ public struct TrackUpsertInput: Sendable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
     public let rating: Int?
     public let playCount: Int?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, rating: Int?, playCount: Int?) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -95,6 +96,7 @@ public struct TrackUpsertInput: Sendable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
     }
@@ -167,6 +169,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
         dateAdded: Date?,
         dateModified: Date?,
         lastPlayed: Date?,
+        lastRatedAt: Date?,
         rating: Int?,
         playCount: Int?,
         sourceCompositeKey: String?
@@ -708,6 +711,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         dateAdded: Date?,
         dateModified: Date?,
         lastPlayed: Date?,
+        lastRatedAt: Date? = nil,
         rating: Int?,
         playCount: Int?,
         sourceCompositeKey: String? = nil
@@ -743,6 +747,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     
                     track.dateModified = dateModified
                     track.lastPlayed = lastPlayed
+                    track.lastRatedAt = lastRatedAt
                     track.rating = Int16(rating ?? 0)
                     track.playCount = Int32(playCount ?? 0)
                     track.updatedAt = Date()
@@ -1537,6 +1542,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         }
                         track.dateModified = input.dateModified
                         track.lastPlayed = input.lastPlayed
+                        track.lastRatedAt = input.lastRatedAt
                         track.rating = Int16(input.rating ?? 0)
                         track.playCount = Int32(input.playCount ?? 0)
                         track.updatedAt = now

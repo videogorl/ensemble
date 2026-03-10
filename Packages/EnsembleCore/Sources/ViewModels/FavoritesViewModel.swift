@@ -9,7 +9,7 @@ import Foundation
 public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var tracks: [Track] = []
     @Published public var filterOptions: FilterOptions
-    @Published public var favoritesSortOption: FavoritesSortOption = .dateAdded {
+    @Published public var favoritesSortOption: FavoritesSortOption = .dateFavorited {
         didSet {
             filterOptions.sortBy = favoritesSortOption.rawValue
         }
@@ -119,8 +119,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
                 let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
                 return ascending ? result == .orderedAscending : result == .orderedDescending
 
-            case .dateAdded:
-                return compareOptionalDates(a.dateAdded, b.dateAdded, ascending: ascending)
+            case .dateFavorited:
+                // Use lastRatedAt (when the track was favorited), fall back to dateAdded
+                return compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
 
             case .duration:
                 return ascending ? a.duration < b.duration : a.duration > b.duration
