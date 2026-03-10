@@ -95,12 +95,19 @@ public struct SongsView: View {
                             Menu {
                                 ForEach(TrackSortOption.allCases, id: \.self) { option in
                                     Button {
-                                        libraryVM.trackSortOption = option
+                                        if libraryVM.trackSortOption == option {
+                                            libraryVM.tracksFilterOptions.sortDirection =
+                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.trackSortOption = option
+                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
+                                        }
                                     } label: {
                                         HStack {
                                             Text(option.rawValue)
                                             if libraryVM.trackSortOption == option {
-                                                Image(systemName: "checkmark")
+                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
                                             }
                                         }
                                     }
