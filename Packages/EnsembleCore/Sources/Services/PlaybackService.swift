@@ -5531,9 +5531,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("⚠️ Network disconnected during playback")
             #endif
 
-            // If we're streaming (not playing from local file), move to failed state.
-            if let track = currentTrack,
-               track.localFilePath == nil,
+            // If we're truly streaming (not playing from any local file, including
+            // cached stream files), move to failed state. isCurrentPlaybackUsingLocalFile()
+            // checks both offline downloads AND stream cache files via AVURLAsset.url.isFileURL.
+            if currentTrack != nil,
+               !isCurrentPlaybackUsingLocalFile(),
                playbackState == .playing || playbackState == .buffering {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ No network and streaming - switching to failed state")

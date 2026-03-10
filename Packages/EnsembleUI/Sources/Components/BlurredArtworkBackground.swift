@@ -52,7 +52,9 @@ public struct BlurredArtworkBackground: View {
             ZStack {
                 // Use a ZStack with .id() and .transition(.opacity) to ensure a smooth cross-fade
                 // when the image changes. DO NOT REMOVE THIS - it prevents jarring swaps.
-                if let image = image {
+                // Guard against zero-sized geometry during layout/animation passes
+                // to avoid QuartzCore "Failed to create WxH image slot" errors.
+                if let image = image, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
                     Image(nsImage: image)
                         .resizable()
