@@ -198,19 +198,32 @@ public final class PlaylistViewModel: ObservableObject {
     }
     
     public var sortedPlaylists: [Playlist] {
+        let asc = filterOptions.sortDirection == .ascending
         switch playlistSortOption {
         case .title:
-            return playlists.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+            return playlists.sorted { asc
+                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
+                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
+            }
         case .trackCount:
-            return playlists.sorted { $0.trackCount > $1.trackCount }
+            return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
         case .duration:
-            return playlists.sorted { $0.duration > $1.duration }
+            return playlists.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
         case .dateAdded:
-            return playlists.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            return playlists.sorted { asc
+                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
+                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
+            }
         case .dateModified:
-            return playlists.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+            return playlists.sorted { asc
+                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
+                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }
         case .lastPlayed:
-            return playlists.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            return playlists.sorted { asc
+                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
+                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
+            }
         }
     }
     
