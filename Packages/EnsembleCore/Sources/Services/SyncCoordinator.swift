@@ -2501,6 +2501,16 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
+    // MARK: - Provider Access
+
+    /// Returns the PlexAPIClient for a given source composite key, if available.
+    /// Used by LyricsService to fetch track metadata and lyrics content.
+    public func apiClient(for sourceCompositeKey: String?) -> PlexAPIClient? {
+        guard let sourceCompositeKey else { return nil }
+        guard let provider = syncProviders[sourceCompositeKey] as? PlexMusicSourceSyncProvider else { return nil }
+        return provider.exposedAPIClient
+    }
+
     // MARK: - Radio Provider Factory
 
     /// Create a radio provider for a specific music source

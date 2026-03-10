@@ -268,6 +268,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             downloadManager: MockDownloadManager()
         )
 
+        let lyricsService = LyricsService(
+            syncCoordinator: syncCoordinator,
+            downloadManager: MockDownloadManager()
+        )
+
         return (NowPlayingViewModel(
             playbackService: playbackService,
             syncCoordinator: syncCoordinator,
@@ -275,7 +280,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             navigationCoordinator: NavigationCoordinator(),
             toastCenter: ToastCenter(),
             mutationCoordinator: mutationCoordinator,
-            trackAvailabilityResolver: trackAvailabilityResolver
+            trackAvailabilityResolver: trackAvailabilityResolver,
+            lyricsService: lyricsService
         ), playbackService)
     }
 

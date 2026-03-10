@@ -348,6 +348,14 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         return part.key
     }
 
+    /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
+    public var lyricsStream: PlexStream? {
+        guard let streams = media?.first?.part?.first?.stream else { return nil }
+        let lyricsStreams = streams.filter { $0.streamType == 4 }
+        // Prefer timed (LRC) over plain text
+        return lyricsStreams.first(where: { $0.timed == 1 }) ?? lyricsStreams.first
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -480,11 +488,16 @@ public struct PlexMediaPart: Codable, Sendable {
 
 public struct PlexStream: Codable, Sendable {
     public let id: Int
-    public let streamType: Int?  // 1 = video, 2 = audio, 3 = subtitle
+    public let streamType: Int?  // 1 = video, 2 = audio, 3 = subtitle, 4 = lyrics
     public let codec: String?
     public let loudness: Double?  // Loudness value if analyzed
     public let lra: Double?  // Loudness range if analyzed
     public let peak: Double?  // Peak loudness if analyzed
+    public let key: String?  // Fetch path for lyrics streams (e.g. /library/streams/12345)
+    public let format: String?  // "lrc" or "txt" for lyrics streams
+    public let timed: Int?  // 1 for time-synced lyrics (LRC)
+    public let provider: String?  // Lyrics provider (e.g. "com.plexapp.agents.lyricfind")
+    public let minLines: Int?  // Minimum number of lines in lyrics
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -493,15 +506,25 @@ public struct PlexStream: Codable, Sendable {
         case loudness
         case lra
         case peak
+        case key
+        case format
+        case timed
+        case provider
+        case minLines
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         id = try container.decode(Int.self, forKey: .id)
         streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
         codec = try container.decodeIfPresent(String.self, forKey: .codec)
-        
+        key = try container.decodeIfPresent(String.self, forKey: .key)
+        format = try container.decodeIfPresent(String.self, forKey: .format)
+        timed = try container.decodeIfPresent(Int.self, forKey: .timed)
+        provider = try container.decodeIfPresent(String.self, forKey: .provider)
+        minLines = try container.decodeIfPresent(Int.self, forKey: .minLines)
+
         // For fields that might be Double or String, manually handle both
         loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
         lra = try PlexStream.decodeDoubleOrString(container: container, forKey: .lra)

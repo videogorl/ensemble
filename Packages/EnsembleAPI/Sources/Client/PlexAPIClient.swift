@@ -1802,6 +1802,23 @@ public actor PlexAPIClient {
         }
     }
 
+    // MARK: - Lyrics
+
+    /// Fetches raw lyrics content from a stream key path (e.g. `/library/streams/12345`)
+    /// Returns the UTF-8 text content, or nil on 404/error
+    public func getLyricsContent(streamKey: String) async throws -> String? {
+        do {
+            let data = try await serverRequest(path: streamKey)
+            return String(data: data, encoding: .utf8)
+        } catch {
+            // 404 or other errors — lyrics not available
+            #if DEBUG
+            EnsembleLogger.debug("Lyrics content not available at \(streamKey): \(error.localizedDescription)")
+            #endif
+            return nil
+        }
+    }
+
     // MARK: - Radio & Recommendations
 
     /// Get sonically similar tracks for radio recommendations

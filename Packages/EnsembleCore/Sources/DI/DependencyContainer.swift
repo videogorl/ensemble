@@ -48,6 +48,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaUserContextManager: SiriMediaUserContextManager
     public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     public let offlineDownloadService: OfflineDownloadService
+    public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
 
     // MARK: - Network Infrastructure
@@ -310,6 +311,12 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
+        // Lyrics service — fetching, parsing, caching lyrics with offline sidecar support
+        let lyricsServiceRef = MainActor.assumeIsolated {
+            LyricsService(syncCoordinator: syncCoordinatorRef, downloadManager: downloadManagerRef)
+        }
+        lyricsService = lyricsServiceRef
+
         // Mutation coordinator — unified mutation routing with offline queue support
         let mutationCoordinatorRef = MainActor.assumeIsolated {
             MutationCoordinator(
@@ -357,7 +364,8 @@ public final class DependencyContainer: @unchecked Sendable {
             navigationCoordinator: navigationCoordinator,
             toastCenter: toastCenter,
             mutationCoordinator: mutationCoordinator,
-            trackAvailabilityResolver: trackAvailabilityResolver
+            trackAvailabilityResolver: trackAvailabilityResolver,
+            lyricsService: lyricsService
         )
     }
 

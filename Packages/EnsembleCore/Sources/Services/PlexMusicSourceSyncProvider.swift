@@ -9,6 +9,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
 
+    /// Read-only access for services that need direct API calls (e.g. LyricsService)
+    public var exposedAPIClient: PlexAPIClient { apiClient }
+
     public init(
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,

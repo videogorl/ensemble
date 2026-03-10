@@ -1086,6 +1086,27 @@ public final class OfflineDownloadService: ObservableObject {
                 }
             }
 
+            // Fetch and save lyrics sidecar for offline playback
+            let lyricsLocalPath = destinationURL.path
+            let lyricsRatingKey = track.ratingKey
+            let lyricsSCK = sourceCompositeKey
+            let lyricsSyncCoordinator = self.syncCoordinator
+            Task.detached(priority: .utility) {
+                let apiClient: PlexAPIClient? = await MainActor.run {
+                    lyricsSyncCoordinator.apiClient(for: lyricsSCK)
+                }
+                guard let apiClient else { return }
+                do {
+                    guard let plexTrack = try await apiClient.getTrack(trackKey: lyricsRatingKey) else { return }
+                    guard let lyricsStream = plexTrack.lyricsStream,
+                          let streamKey = lyricsStream.key else { return }
+                    guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else { return }
+                    try content.write(toFile: lyricsLocalPath + ".lrc", atomically: true, encoding: .utf8)
+                } catch {
+                    // Best-effort; lyrics sidecar failure is not critical
+                }
+            }
+
             // Notify track-displaying VMs so they re-fetch and reflect updated
             // offline state (e.g. dimming). Debounced to avoid spamming during
             // bulk queue processing.

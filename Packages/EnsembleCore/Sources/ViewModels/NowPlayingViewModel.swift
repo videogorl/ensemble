@@ -99,6 +99,10 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
 
+    // Lyrics state driven by LyricsService
+    @Published public private(set) var lyricsState: LyricsState = .notAvailable
+    @Published public private(set) var currentLyricsLineIndex: Int?
+
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
@@ -106,12 +110,13 @@ public final class NowPlayingViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
     private let trackAvailabilityResolver: TrackAvailabilityResolver
+    private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
-    
+
     // Artwork loading state
     private var artworkLoadTask: Task<Void, Never>?
     private var currentLoadTrackID: String?
-    
+
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
@@ -125,7 +130,8 @@ public final class NowPlayingViewModel: ObservableObject {
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
-        trackAvailabilityResolver: TrackAvailabilityResolver
+        trackAvailabilityResolver: TrackAvailabilityResolver,
+        lyricsService: LyricsService
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
@@ -134,6 +140,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
         self.trackAvailabilityResolver = trackAvailabilityResolver
+        self.lyricsService = lyricsService
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -252,6 +259,41 @@ public final class NowPlayingViewModel: ObservableObject {
         trackAvailabilityResolver.$availabilityGeneration
             .receive(on: DispatchQueue.main)
             .assign(to: &$availabilityGeneration)
+
+        // Load lyrics when track changes
+        $currentTrack
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self else { return }
+                if let track {
+                    self.lyricsService.loadLyrics(for: track)
+                } else {
+                    self.lyricsService.clearLyrics()
+                    self.currentLyricsLineIndex = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        // Pipe lyrics state from service to view model
+        lyricsService.$currentLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                self.lyricsState = state
+                // Reset line index when lyrics change
+                self.currentLyricsLineIndex = nil
+            }
+            .store(in: &cancellables)
+
+        // Track active lyrics line based on playback time (~0.5s updates are sufficient)
+        playbackService.currentTimePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                guard let self else { return }
+                guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
+                self.currentLyricsLineIndex = lyrics.activeLineIndex(at: time)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Artwork Management
