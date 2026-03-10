@@ -36,7 +36,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
 
     func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws
-    func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws
+    func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws
     func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws
 
     func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws
@@ -52,6 +52,13 @@ public protocol DownloadManagerProtocol: Sendable {
 
     /// Delete all download records and their associated files on disk.
     func deleteAllDownloads() async throws
+}
+
+// Default quality=nil for callers that only update status
+extension DownloadManagerProtocol {
+    func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
+        try await updateDownloadStatus(downloadId, status: status, quality: nil)
+    }
 }
 
 public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable {
@@ -381,7 +388,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
+    public func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String? = nil) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
@@ -390,6 +397,11 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         return
                     }
                     download.status = status.rawValue
+                    // Update quality when provided (e.g., cancelled download re-queued
+                    // at new quality after a quality setting change)
+                    if let quality {
+                        download.quality = Self.normalizedQuality(quality)
+                    }
                     try context.save()
                     continuation.resume()
                 } catch {

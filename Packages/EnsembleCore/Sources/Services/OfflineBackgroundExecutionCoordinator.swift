@@ -48,10 +48,18 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
             continuedTask.expirationHandler = { [weak self] in
                 Task { @MainActor in
                     self?.onExpiration?()
-                    (self?.currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: false)
+                    // Mark success even on expiration — downloads are best-effort
+                    // background acceleration. The persistent queue resumes in
+                    // foreground. Using success:false shows "Task Failed" in the
+                    // Dynamic Island which is misleading for a paused download.
+                    (self?.currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: true)
                     self?.currentTask = nil
                 }
             }
+            // Notify the download service so it can start/continue processing.
+            // If the queue is already idle (downloads finished while in foreground),
+            // the callback starts the queue which immediately drains and calls
+            // finishCurrentTask(success: true).
             self.onExecutionRequested?()
         }
 

@@ -128,7 +128,21 @@ public final class OfflineDownloadService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeProfileV2Migrated")
 
         backgroundExecutionCoordinator.onExecutionRequested = { [weak self] in
-            self?.startQueueIfNeeded()
+            guard let self else { return }
+            if self.queueTask != nil {
+                // Queue already running — BG task will be completed when it finishes
+                return
+            }
+            // Check if there's pending work; if not, finish the BG task immediately
+            // to prevent it from lingering as "in progress" in the Dynamic Island
+            Task {
+                let pending = (try? await self.downloadManager.fetchPendingDownloads()) ?? []
+                if pending.isEmpty {
+                    self.backgroundExecutionCoordinator.finishCurrentTask(success: true)
+                } else {
+                    self.startQueueIfNeeded()
+                }
+            }
         }
         backgroundExecutionCoordinator.onExpiration = { [weak self] in
             self?.handleBackgroundTaskExpiration()
@@ -848,7 +862,7 @@ public final class OfflineDownloadService: ObservableObject {
                 return
             }
 
-            try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading)
+            try await downloadManager.updateDownloadStatus(download.objectID, status: .downloading, quality: nil)
 
             let requestedQuality = streamingQuality(from: download.quality)
             var effectiveQuality = requestedQuality
@@ -884,13 +898,14 @@ public final class OfflineDownloadService: ObservableObject {
                     if completed { return }
                 } catch is CancellationError {
                     // Task cancelled (quality change, pause, etc.) — reset to pending
-                    // so the re-queued download at the correct quality picks it up.
+                    // at the current quality so the worker downloads at the correct setting.
+                    let updatedQuality = currentDownloadQuality()
                     #if DEBUG
                     EnsembleLogger.debug(
-                        "⏸️ Download queue cancelled for track=\(track.ratingKey); resetting to pending"
+                        "⏸️ Download queue cancelled for track=\(track.ratingKey); resetting to pending at quality=\(updatedQuality)"
                     )
                     #endif
-                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending)
+                    try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
                     return
                 } catch {
                     // Download queue failed — fall through to direct original download.
@@ -997,11 +1012,12 @@ public final class OfflineDownloadService: ObservableObject {
                 // Reset to pending (not paused) so the worker picks it up again.
                 // Quality changes cancel in-flight downloads and re-queue at the
                 // new quality; .paused would leave the old-quality download stuck.
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending)
+                let updatedQuality = currentDownloadQuality()
+                try? await downloadManager.updateDownloadStatus(download.objectID, status: .pending, quality: updatedQuality)
             } else if isNetworkLossError(error) {
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed
-                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused)
+                try? await downloadManager.updateDownloadStatus(download.objectID, status: .paused, quality: nil)
                 #if DEBUG
                 EnsembleLogger.debug(
                     "⏸️ Offline download paused (network lost): track=\(track.ratingKey) source=\(sourceCompositeKey)"
