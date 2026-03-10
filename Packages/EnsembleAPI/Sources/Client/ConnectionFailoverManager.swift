@@ -100,8 +100,13 @@ public actor ConnectionFailoverManager {
         // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
         let activeCandidates = filterByTLSCooldown(reachableEndpoints)
 
+        // Move endpoints with recent network-unreachable failures to the end.
+        // This avoids wasting time probing IPv6 addresses that consistently fail
+        // while still trying them if all other endpoints fail.
+        let orderedCandidates = deprioritizeNetworkUnreachable(activeCandidates)
+
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: activeCandidates,
+            from: orderedCandidates,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
@@ -326,6 +331,34 @@ public actor ConnectionFailoverManager {
         }
         #endif
         return filtered
+    }
+
+    /// Deprioritize endpoints that had recent network-unreachable failures (-1009).
+    /// These are typically IPv6 endpoints that aren't routable on the current network.
+    /// They're moved to the end of the list (not removed) so they're still tried if
+    /// all higher-priority endpoints fail. This avoids wasting time on consistently
+    /// unreachable addresses while preserving correctness if the network changes.
+    private func deprioritizeNetworkUnreachable(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        var prioritized: [PlexEndpointDescriptor] = []
+        var deprioritized: [PlexEndpointDescriptor] = []
+
+        for endpoint in endpoints {
+            if let lastResult = lastProbeResultsByURL[endpoint.url],
+               !lastResult.success,
+               lastResult.failureCategory == .network {
+                deprioritized.append(endpoint)
+            } else {
+                prioritized.append(endpoint)
+            }
+        }
+
+        #if DEBUG
+        if !deprioritized.isEmpty {
+            EnsembleLogger.debug("🌐 ConnectionFailover: Deprioritized \(deprioritized.count) endpoint(s) with recent network-unreachable failures")
+        }
+        #endif
+
+        return prioritized + deprioritized
     }
 
     private func updateConnectionHealth(url: String, success: Bool) {
