@@ -584,6 +584,10 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
+        if options.hideSingles {
+            filtered = filtered.filter { $0.trackCount > 1 }
+        }
+
         return filtered
     }
 

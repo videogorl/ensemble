@@ -36,6 +36,9 @@ public struct FilterOptions: Codable, Equatable {
     
     // Downloaded content only
     public var showDownloadedOnly: Bool = false
+
+    // Hide single-track albums (Albums view only)
+    public var hideSingles: Bool = false
     
     public init() {}
     
@@ -44,7 +47,8 @@ public struct FilterOptions: Codable, Equatable {
         !selectedGenres.isEmpty ||
         !selectedArtists.isEmpty ||
         yearRange != nil ||
-        showDownloadedOnly
+        showDownloadedOnly ||
+        hideSingles
     }
     
     /// Clear all filters but keep search text
@@ -53,6 +57,7 @@ public struct FilterOptions: Codable, Equatable {
         selectedArtists.removeAll()
         yearRange = nil
         showDownloadedOnly = false
+        hideSingles = false
     }
     
     /// Reset to default state

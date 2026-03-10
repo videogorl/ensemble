@@ -131,7 +131,8 @@ public struct AlbumsView: View {
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,
                     showYearFilter: true,
-                    showArtistFilter: true
+                    showArtistFilter: true,
+                    showHideSingles: true
                 )
             }
             .sheet(isPresented: $showingManageSources) {
