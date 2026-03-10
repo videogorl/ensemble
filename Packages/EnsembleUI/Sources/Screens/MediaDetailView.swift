@@ -198,6 +198,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             #endif
         }
+        .collapsingToolbarTitle(
+            navigationTitle,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
         .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
@@ -488,11 +493,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
         }
-        .collapsingToolbarTitle(
-            navigationTitle,
-            threshold: 0,
-            showToolbarTitle: $showToolbarTitle
-        )
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
