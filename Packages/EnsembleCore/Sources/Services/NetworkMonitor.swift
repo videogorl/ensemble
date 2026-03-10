@@ -41,6 +41,9 @@ public final class NetworkMonitor: ObservableObject {
     private var isSimulatingOffline = false
     private var debounceTask: Task<Void, Never>?
 
+    // UserDefaults key for persisting last-known network state across launches
+    private static let cachedStateKey = "lastKnownNetworkState"
+
     internal private(set) var monitorGeneration = 0
     internal var isMonitoringForTesting: Bool { isMonitoring }
 
@@ -60,6 +63,54 @@ public final class NetworkMonitor: ObservableObject {
         self.debounceNanoseconds = debounceNanoseconds
         self.monitorQueue = monitorQueue
         self.monitorFactory = monitorFactory
+
+        // Seed initial state from cached value so dependents don't wait for
+        // NWPathMonitor's first callback (~1-5s). The monitor will correct
+        // this if the real state differs.
+        let cached = Self.loadCachedState()
+        if cached != .unknown {
+            networkState = cached
+            isConnected = cached.isConnected
+            #if DEBUG
+            EnsembleLogger.debug("📡 NetworkMonitor: Restored cached state: \(cached.description)")
+            #endif
+        }
+    }
+
+    // MARK: - State Persistence
+
+    /// Persist current network state for optimistic startup on next launch
+    private func persistState(_ state: NetworkState) {
+        let raw: String
+        switch state {
+        case .online(let type):
+            switch type {
+            case .wifi: raw = "online_wifi"
+            case .cellular: raw = "online_cellular"
+            case .wired: raw = "online_wired"
+            case .other: raw = "online_other"
+            }
+        case .offline: raw = "offline"
+        case .limited: raw = "limited"
+        case .unknown: raw = "unknown"
+        }
+        UserDefaults.standard.set(raw, forKey: Self.cachedStateKey)
+    }
+
+    /// Load cached network state from UserDefaults
+    private static func loadCachedState() -> NetworkState {
+        guard let raw = UserDefaults.standard.string(forKey: cachedStateKey) else {
+            return .unknown
+        }
+        switch raw {
+        case "online_wifi": return .online(.wifi)
+        case "online_cellular": return .online(.cellular)
+        case "online_wired": return .online(.wired)
+        case "online_other": return .online(.other)
+        case "offline": return .offline
+        case "limited": return .limited
+        default: return .unknown
+        }
     }
 
     // MARK: - Public Methods
@@ -155,7 +206,7 @@ public final class NetworkMonitor: ObservableObject {
         }
     }
 
-    /// Update the published state.
+    /// Update the published state and persist for optimistic startup.
     private func updateState(to newState: NetworkState) {
         let newIsConnected = newState.isConnected
         guard newState != networkState || newIsConnected != isConnected else { return }
@@ -166,6 +217,7 @@ public final class NetworkMonitor: ObservableObject {
 
         networkState = newState
         isConnected = newIsConnected
+        persistState(newState)
     }
 
     /// Convert NWPath to NetworkState

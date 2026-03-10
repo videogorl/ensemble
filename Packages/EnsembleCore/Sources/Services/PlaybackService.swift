@@ -1304,41 +1304,59 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Audio Session
 
+    /// Whether the audio session category has been configured.
+    /// Deferred from app launch to first playback to avoid Code=-50 errors
+    /// when the audio system isn't ready at didFinishLaunching.
+    private var isAudioSessionConfigured = false
+
     private func setupAudioSession() {
         #if !os(macOS)
+        let session = AVAudioSession.sharedInstance()
+
+        // Register notification observers immediately (these don't require
+        // the category to be set and must be ready before any playback)
+        audioSessionInterruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.handleAudioSessionInterruption(notification)
+            }
+        }
+
+        audioSessionRouteChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.handleAudioSessionRouteChange(notification)
+            }
+        }
+        #endif
+    }
+
+    /// Configure and activate the audio session. Called lazily before first playback.
+    /// Safe to call multiple times — only configures once.
+    func ensureAudioSessionConfigured() {
+        #if !os(macOS)
+        guard !isAudioSessionConfigured else { return }
         do {
             let session = AVAudioSession.sharedInstance()
-            // Use default routing to allow both local speaker and external routes.
-            // The .allowAirPlay option enables HomePod/AirPlay without requiring
-            // .longFormAudio policy (which deprioritizes local speaker playback).
             try session.setCategory(
                 .playback,
                 mode: .default,
                 options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
             )
-
-            audioSessionInterruptionObserver = NotificationCenter.default.addObserver(
-                forName: AVAudioSession.interruptionNotification,
-                object: session,
-                queue: .main
-            ) { [weak self] notification in
-                Task { @MainActor in
-                    self?.handleAudioSessionInterruption(notification)
-                }
-            }
-
-            audioSessionRouteChangeObserver = NotificationCenter.default.addObserver(
-                forName: AVAudioSession.routeChangeNotification,
-                object: session,
-                queue: .main
-            ) { [weak self] notification in
-                Task { @MainActor in
-                    self?.handleAudioSessionRouteChange(notification)
-                }
-            }
+            try session.setActive(true)
+            isAudioSessionConfigured = true
+            #if DEBUG
+            EnsembleLogger.debug("🔊 Audio session configured and activated")
+            #endif
         } catch {
             #if DEBUG
-            EnsembleLogger.debug("Failed to setup audio session: \(error)")
+            EnsembleLogger.debug("Failed to configure audio session: \(error)")
             #endif
         }
         #endif
@@ -3055,6 +3073,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         seekTo startTime: TimeInterval? = nil,
         caller: String = #function
     ) async {
+        // Ensure audio session is configured before any AVPlayer use
+        ensureAudioSessionConfigured()
+
         // Keep the app alive during track transitions in background.
         // iOS may suspend the app between tracks when no audio is playing.
         beginTrackTransitionBackgroundTask()
@@ -5007,6 +5028,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Called either immediately (local files) or after health check confirms server reachable.
     @MainActor
     private func preBufferRestoredTrack() async {
+        ensureAudioSessionConfigured()
         guard let savedTime = pendingPreBufferTime,
               playbackState == .paused,
               player?.currentItem == nil,

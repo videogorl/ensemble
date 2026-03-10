@@ -44,8 +44,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             object: nil
         )
         
-        // Configure audio session for background playback
-        configureAudioSession()
+        // Audio session is configured lazily on first playback (PlaybackService.ensureAudioSessionConfigured)
+        // to avoid Code=-50 failures at launch before the audio system is ready.
         configureSiriAuthorization()
 
         // Install space-bar → play/pause hardware keyboard shortcut
@@ -202,21 +202,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         )
     }
 
-    private func configureAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            // Use default routing to allow both local speaker and external routes.
-            // The .allowAirPlay option enables HomePod/AirPlay without requiring
-            // .longFormAudio policy (which deprioritizes local speaker playback).
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
-            )
-        } catch {
-            AppLogger.debug("Failed to configure audio session: \(error)")
-        }
-    }
+    // Audio session configuration moved to PlaybackService.ensureAudioSessionConfigured()
+    // to avoid Code=-50 errors when configuring before the audio system is ready.
 
     private func configureSiriAuthorization() {
         let status = INPreferences.siriAuthorizationStatus()
