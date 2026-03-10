@@ -349,7 +349,7 @@ public struct DownloadTargetDetailView: View {
     /// Whether we can link to the original album/artist/playlist
     private var canLinkToOriginalItem: Bool {
         guard let _ = viewModel.summary.ratingKey else { return false }
-        return viewModel.summary.kind != .library
+        return viewModel.summary.kind != .library && viewModel.summary.kind != .favorites
     }
 
     /// Resolves a detail loader view for the original album/artist/playlist
@@ -367,7 +367,7 @@ public struct DownloadTargetDetailView: View {
                     playlistSourceKey: viewModel.summary.sourceCompositeKey,
                     nowPlayingVM: nowPlayingVM
                 )
-            case .library:
+            case .library, .favorites:
                 EmptyView()
             }
         }

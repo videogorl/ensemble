@@ -204,6 +204,47 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    // MARK: - Favorites Download Target
+
+    /// Target key for the cross-library favorites download target
+    public static let favoritesTargetKey = "offline:favorites:*:*"
+
+    public func isFavoritesDownloadEnabled() -> Bool {
+        targets.contains { $0.key == Self.favoritesTargetKey }
+    }
+
+    public func setFavoritesDownloadEnabled(isEnabled: Bool) async {
+        let key = Self.favoritesTargetKey
+        if isEnabled {
+            await enableTarget(
+                key: key,
+                kind: .favorites,
+                ratingKey: nil,
+                sourceCompositeKey: nil,
+                displayName: "Favorites"
+            )
+        } else {
+            await disableTarget(key: key)
+        }
+    }
+
+    /// Reconciles the favorites download target if it exists.
+    /// Called after rating changes and source syncs to keep downloaded favorites in sync.
+    public func reconcileFavoritesTargetIfEnabled() async {
+        guard isFavoritesDownloadEnabled() else { return }
+        do {
+            try await reconcileTarget(key: Self.favoritesTargetKey)
+            await refreshTargetSnapshots()
+            startQueueIfNeeded()
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed reconciling favorites target: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    // MARK: - Library Download Target
+
     public func setLibraryDownloadEnabled(
         sourceCompositeKey: String,
         displayName: String,
@@ -698,6 +739,10 @@ public final class OfflineDownloadService: ObservableObject {
                 return []
             }
             return normalizedTrackReferences(from: playlist.tracksArray)
+
+        case .favorites:
+            let tracks = try await libraryRepository.fetchFavoriteTracks()
+            return normalizedTrackReferences(from: tracks)
         }
     }
 
@@ -1632,6 +1677,8 @@ public final class OfflineDownloadService: ObservableObject {
             return "Artist"
         case .playlist:
             return "Playlist"
+        case .favorites:
+            return "Favorites"
         }
     }
 
@@ -1689,6 +1736,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func handleSourceSyncUpdate(_ statuses: [MusicSourceIdentifier: MusicSourceStatus]) async {
+        var anySourceUpdated = false
         for (source, status) in statuses {
             guard case .lastSynced(let syncDate) = status.syncStatus else { continue }
 
@@ -1697,11 +1745,17 @@ public final class OfflineDownloadService: ObservableObject {
                 continue
             }
 
+            anySourceUpdated = true
             lastObservedSyncBySource[key] = syncDate
             await reconcileTargets(forSourceCompositeKey: key)
             if let serverSourceKey = Self.serverSourceKey(fromLibrarySourceKey: key) {
                 await reconcilePlaylistTargets(forServerSourceKey: serverSourceKey)
             }
+        }
+
+        // Reconcile favorites after source syncs so newly rated tracks are picked up
+        if anySourceUpdated {
+            await reconcileFavoritesTargetIfEnabled()
         }
     }
 
