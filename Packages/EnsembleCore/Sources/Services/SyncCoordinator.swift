@@ -1641,7 +1641,10 @@ public final class SyncCoordinator: ObservableObject {
     /// Lightweight — skips playlists that already have cached artwork on disk.
     private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: sourceId.compositeKey)
+            // Playlists use a server-level key (plex:account:server), not the
+            // library-level compositeKey (plex:account:server:library)
+            let serverKey = serverSourceKey(from: sourceId.compositeKey) ?? sourceId.compositeKey
+            let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: serverKey)
             var cached = 0
 
             for playlist in playlists {
