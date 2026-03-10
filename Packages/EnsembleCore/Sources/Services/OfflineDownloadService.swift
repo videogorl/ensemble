@@ -458,8 +458,22 @@ public final class OfflineDownloadService: ObservableObject {
                 requeuedCount += 1
             }
 
-            // Also retry all failed downloads
+            // Update quality on pending/downloading downloads that have the wrong quality.
+            // Without this, workers pick up stale-quality downloads from a previous
+            // re-queue before the new quality was set.
             let allDownloads = try await downloadManager.fetchDownloads()
+            for download in allDownloads where download.downloadStatus == .pending || download.downloadStatus == .downloading {
+                let dlQuality = download.quality ?? "original"
+                if dlQuality != desiredQuality {
+                    try? await downloadManager.updateDownloadStatus(
+                        download.objectID,
+                        status: download.downloadStatus,
+                        quality: desiredQuality
+                    )
+                }
+            }
+
+            // Also retry all failed downloads
             var retriedCount = 0
             for download in allDownloads where download.downloadStatus == .failed {
                 guard let track = download.track,

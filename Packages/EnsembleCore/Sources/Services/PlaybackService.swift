@@ -801,6 +801,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxHistorySize = 100  // Cap for 2GB RAM devices
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
     private var isSkipTransitionInProgress = false  // Suppresses "unexpected pause" handler during next/previous
+    private var lastRemoteSkipTime: CFTimeInterval = 0  // Debounce for remote command center skip events
     private var isReplacingPlayerItem = false  // Suppresses KVO during loadAndPlay remove/insert transition
     private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
@@ -1489,13 +1490,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return .success
         }
 
+        // Debounce remote skip commands — PlayerRemoteXPC media services reset
+        // (err=-12860) can fire nextTrackCommand multiple times in rapid succession,
+        // causing phantom skips. 300ms filters spurious re-fires while allowing
+        // intentional rapid skips (typically >500ms apart).
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            self?.next()
+            guard let self else { return .noActionableNowPlayingItem }
+            let now = CACurrentMediaTime()
+            if now - self.lastRemoteSkipTime < 0.3 {
+                return .success
+            }
+            self.lastRemoteSkipTime = now
+            self.next()
             return .success
         }
 
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            self?.previous()
+            guard let self else { return .noActionableNowPlayingItem }
+            let now = CACurrentMediaTime()
+            if now - self.lastRemoteSkipTime < 0.3 {
+                return .success
+            }
+            self.lastRemoteSkipTime = now
+            self.previous()
             return .success
         }
 

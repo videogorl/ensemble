@@ -79,6 +79,10 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecu
             return
         }
 
+        // Cancel any previously queued requests to prevent stale tasks from
+        // stacking up as "Task Failed" in the Dynamic Island when they expire.
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.continuedTaskIdentifier)
+
         let request = BGContinuedProcessingTaskRequest(
             identifier: Self.continuedTaskIdentifier,
             title: "Downloading Music",
