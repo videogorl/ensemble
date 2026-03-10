@@ -145,11 +145,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 healthAttempts += 1
             }
 
-            let shc = DependencyContainer.shared.serverHealthChecker
             let sc = DependencyContainer.shared.syncCoordinator
             AppLogger.debug("📱 AppDelegate: Running early health checks...")
-            await shc.checkAllServers()
-            sc.updateSourceConnectionStatesFromAppDelegate()
+            // Route through SyncCoordinator so lastHealthRefreshAt is set,
+            // preventing the initial Unknown→Online network transition from
+            // triggering a duplicate health check pass.
+            await sc.performStartupHealthChecks()
+            let shc = DependencyContainer.shared.serverHealthChecker
             AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
         }
 

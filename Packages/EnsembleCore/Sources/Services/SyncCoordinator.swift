@@ -101,6 +101,10 @@ public final class SyncCoordinator: ObservableObject {
     private var lastHealthRefreshAt: Date?
     private var activeHealthRefreshTask: Task<Void, Never>?
     private let healthRefreshCooldown: TimeInterval = 30
+    /// Tracks whether the initial Unknown→Online transition at startup has occurred.
+    /// This transition is normal initialization, not a reconnect, so we skip the
+    /// expensive reconnect path (health refresh + connection invalidation).
+    private var hasCompletedInitialNetworkTransition = false
     private let foregroundHealthStalenessThreshold: TimeInterval = 60
     private var registrySubscriptionTask: Task<Void, Never>?
     
@@ -2014,6 +2018,16 @@ public final class SyncCoordinator: ObservableObject {
             break
         }
 
+        // At startup, the first Unknown→Online transition is normal initialization,
+        // not a real reconnect. The early health checks in AppDelegate handle this case,
+        // so skip the expensive reconnect path (cache invalidation + health refresh).
+        if !hasCompletedInitialNetworkTransition, previous == .unknown || previous == nil {
+            if state.isConnected {
+                hasCompletedInitialNetworkTransition = true
+                return
+            }
+        }
+
         switch transition {
         case .reconnect:
             // Invalidate connection health caches on reconnect.
@@ -2364,6 +2378,38 @@ public final class SyncCoordinator: ObservableObject {
 
         // Notify listeners (e.g., ArtworkLoader) to invalidate stale cached URLs
         await onConnectionsRefreshed?()
+    }
+
+    /// Run early health checks at startup and update source connection states.
+    /// Routes through the same cooldown tracking as `scheduleHealthRefresh` so
+    /// the initial Unknown→Online network transition won't trigger a duplicate pass.
+    public func performStartupHealthChecks() async {
+        let eligibleServers = enabledServerKeysForHealthChecks()
+        guard !eligibleServers.isEmpty else { return }
+
+        #if DEBUG
+        EnsembleLogger.debug("🏥 SyncCoordinator: Running early health checks for \(eligibleServers.count) server(s)...")
+        #endif
+
+        let preCheckStates = serverHealthChecker.serverStates
+        let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: eligibleServers)
+        updateSourceConnectionStates()
+        // Set lastHealthRefreshAt so the 30s cooldown prevents duplicate passes
+        lastHealthRefreshAt = nowProviderForTesting()
+
+        // Notify artwork views if servers became available
+        let postCheckStates = serverHealthChecker.serverStates
+        let anyBecameAvailable = preCheckStates.contains { key, preState in
+            guard !preState.isAvailable else { return false }
+            return postCheckStates[key]?.isAvailable == true
+        }
+        if anyBecameAvailable {
+            NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("🏥 SyncCoordinator: Early health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
+        #endif
     }
 
     /// Public entry point for callers outside SyncCoordinator (e.g. AppDelegate)
