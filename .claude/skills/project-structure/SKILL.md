@@ -151,6 +151,7 @@ Sources/
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
 |   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
 |   +-- AudioAnalyzer.swift            # Pre-computed frequency analysis (FrequencyTimeline, FrequencyAnalysisService, FrequencyTimelinePersistence)
+|   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -184,6 +185,7 @@ Tests/
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
 +-- SiriPlaybackCoordinatorTests.swift # In-app Siri playback execution coverage
++-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -194,7 +196,7 @@ Sources/
 |   +-- NowPlaying/
 |   |   +-- ControlsCard.swift        # Center card with artwork, scrubber, playback controls
 |   |   +-- InfoCard.swift            # Track metadata and streaming/connection details card
-|   |   +-- LyricsCard.swift          # Lyrics display card (placeholder)
+|   |   +-- LyricsCard.swift          # Lyrics display card: loading / not-available / karaoke-style timed line highlight
 |   |   +-- NowPlayingCarousel.swift  # Horizontal paging carousel for all cards
 |   |   +-- PageIndicator.swift       # Page dots/icons for carousel navigation
 |   |   +-- QueueCard.swift           # Queue list with shuffle/repeat/autoplay controls

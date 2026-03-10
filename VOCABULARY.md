@@ -17,7 +17,7 @@ This document defines the canonical names for UI elements across the Ensemble ap
 The Now Playing interface uses a **card-based carousel** layout with four swipeable pages:
 - **Queue Card** (left): Scrollable queue list with shuffle/repeat/autoplay controls
 - **Controls Card** (center-left, default): Primary playback controls and track metadata
-- **Lyrics Card** (center-right): Placeholder for future lyrics display with time-synced highlighting
+- **Lyrics Card** (center-right): Karaoke-style time-synced lyrics display; shows loading spinner, "No Lyrics" state, or scrolling highlighted lines
 - **Info Card** (right): Track metadata and streaming/connection details
 
 On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on left, Lyrics/Queue carousel on right.
@@ -36,8 +36,11 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
 | Lyrics header | text | "Lyrics" title pinned at top | `headerView` |
-| Lyrics content area | region | Future scroll view with fade masks (5% top, 15% bottom) | `contentView` |
-| Lyrics placeholder | text | "Lyrics coming soon" with quote icon | `text.quote` |
+| Lyrics content area | region | Scrollable list with top/bottom fade masks | `contentView` |
+| Loading state | state | Spinner shown while LyricsService fetches lyrics | `LyricsState.loading` |
+| Not available state | state | Centered "No Lyrics" message with music note icon when track has no lyrics stream or fetch fails | `LyricsState.notAvailable` |
+| Lyrics line | text | Individual lyric line; active line is full-opacity and larger, past/future lines are dimmed | `LyricsLine`, `currentLyricsLineIndex` |
+| Active line highlight | indicator | The current line scrolled to center of the card and rendered at full opacity | `currentLyricsLineIndex` |
 
 #### Controls Card (Center)
 
