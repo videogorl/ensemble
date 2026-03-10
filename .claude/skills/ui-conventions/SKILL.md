@@ -93,10 +93,6 @@ Button("Remove", role: .destructive) { remove() }
 
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
-### Toolbar Item Ordering
-- **"More" (ellipsis) button always stays rightmost** in the trailing toolbar area. When adding contextual toolbar icons (e.g., play/shuffle that appear on scroll), place them *before* the ellipsis menu `ToolbarItem` so the more button remains the last item visually.
-- Order for detail views: filter button → contextual action icons → ellipsis "more" menu
-
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
@@ -188,28 +184,6 @@ struct AlbumDetailLoader: View {
 - Performance: Hub items load instantly with minimal data
 - Offline support: Hubs display even when full sync hasn't completed
 - Smooth UX: Loading spinner during fetch, not blocking navigation
-
-## Collapsing Toolbar Title Pattern
-
-Shared utility in `CollapsingToolbar.swift` for detail views where the inline title scrolls out of view and a toolbar title should appear:
-
-1. Add `.coordinateSpace(name: "scrollName")` to the ScrollView
-2. Attach `TitleOffsetTracker(coordinateSpace: "scrollName")` as `.background()` on the title text
-3. Add `@State var showToolbarTitle = false`
-4. Apply `.collapsingToolbarTitle("Title", threshold: 0, showToolbarTitle: $showToolbarTitle)`
-5. Set `.navigationTitle("")` (empty — the toolbar title is managed by the modifier)
-
-The modifier handles:
-- `TitleOffsetPreferenceKey` to detect when title crosses the nav bar
-- Toolbar `.principal` placement with opacity animation
-- `NavigationBarAppearanceConfigurator` (iOS) toggling transparent/default nav bar via responder chain
-- Restoring default appearance on disappear
-
-**Used in:** `ArtistDetailView` (threshold accounts for safe area + hero banner), `MediaDetailView`
-
-## Toolbar Action Icons on Scroll
-
-`MediaDetailView` shows compact play/shuffle/radio icons in the trailing toolbar when the inline action buttons scroll out of view. Uses `ActionButtonsOffsetPreferenceKey` + `ActionButtonsOffsetTracker` (from `CollapsingToolbar.swift`) to detect when buttons cross the top edge.
 
 ## Performance Optimization
 
