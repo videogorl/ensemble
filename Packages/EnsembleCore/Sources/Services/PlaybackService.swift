@@ -5180,6 +5180,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Invalidate prefetched player items after a quality change so the normal
     /// prefetch cycle recreates them at the new quality setting.
+    @MainActor
     private func invalidatePrefetchForQualityChange() {
         guard currentQueueIndex >= 0 else { return }
         let currentId = queue[currentQueueIndex].track.id

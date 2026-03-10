@@ -160,7 +160,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // not just recently rated ones, which wastes ~1MB per sync cycle.
         // Beyond 10 minutes, rating changes are caught by the next full sync.
         let ratedTracks: [PlexTrack]
-        let syncAge = Date().timeIntervalSince(timestamp)
+        let syncAge = Date().timeIntervalSince(Date(timeIntervalSince1970: timestamp))
         if syncAge <= 600 {
             ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
         } else {
