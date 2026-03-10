@@ -31,6 +31,10 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var downloadsPath: [Destination] = []
     @Published public var settingsPath: [Destination] = []
     
+    /// Drives the "Add Plex Account" sheet from a stable root-level view
+    /// (MainTabView / SidebarView) so it survives TabView content recreation.
+    @Published public var showingAddAccount = false
+
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
         public let tab: TabItem

@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct SettingsView: View {
-    @State private var showingAddAccount = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var showingDeleteAlert = false
     @State private var showingClearDataAlert = false
     @State private var accountToDelete: PlexAccountConfig?
@@ -46,7 +46,7 @@ public struct SettingsView: View {
                 }
 
                 Button {
-                    showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     HStack {
                         Image(systemName: "plus.circle.fill")
@@ -256,12 +256,6 @@ public struct SettingsView: View {
         #endif
         .miniPlayerBottomSpacing(140)
         .navigationTitle("Settings")
-        .sheet(isPresented: $showingAddAccount) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 accountToDelete = nil

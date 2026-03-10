@@ -6,8 +6,8 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
 
     public init(
         libraryVM: LibraryViewModel,
@@ -99,12 +99,6 @@ public struct ArtistsView: View {
                 filterOptions: $libraryVM.artistsFilterOptions
             )
         }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
                 SettingsView()
@@ -149,7 +143,7 @@ public struct ArtistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

@@ -201,7 +201,15 @@ public struct MainTabView: View {
                 )
                 .accentColor(settingsManager.accentColor.color)
             }
-            
+            // Add account sheet presented at root level so it survives
+            // TabView content recreation on iOS 15 foreground transitions
+            .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
+
             applyChromeVisibilityObservation(to: rootView)
         }
     }
@@ -526,6 +534,14 @@ public struct SidebarView: View {
                 }
             )
             .accentColor(deps.settingsManager.accentColor.color)
+        }
+        // Add account sheet presented at root level so it survives
+        // view content recreation on foreground transitions
+        .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
         .task {
             await libraryVM.refresh()

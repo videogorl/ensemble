@@ -20,8 +20,8 @@ public struct SongsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
 
     private var supportsCoverFlow: Bool {
         #if os(iOS)
@@ -155,12 +155,6 @@ public struct SongsView: View {
                 filterOptions: $libraryVM.tracksFilterOptions
             )
         }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
                 SettingsView()
@@ -216,7 +210,7 @@ public struct SongsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

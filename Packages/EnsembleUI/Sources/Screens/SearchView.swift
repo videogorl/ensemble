@@ -16,8 +16,8 @@ public struct SearchView: View {
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
@@ -58,12 +58,6 @@ public struct SearchView: View {
         .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
@@ -108,7 +102,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -1405,7 +1399,7 @@ public struct SearchView: View {
                     .foregroundColor(.secondary)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

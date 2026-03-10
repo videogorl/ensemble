@@ -7,7 +7,7 @@ public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
-    @State private var showingAddSourceFlow = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var showingManageSources = false
     @State private var playlistPickerTracks: [Track]?
     @Environment(\.dependencies) private var deps
@@ -40,12 +40,6 @@ public struct HomeView: View {
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
@@ -125,7 +119,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            showingAddSourceFlow = true
+                            navigationCoordinator.showingAddAccount = true
                         } label: {
                             Label("Add Source", systemImage: "plus.circle.fill")
                                 .padding(.horizontal, 20)

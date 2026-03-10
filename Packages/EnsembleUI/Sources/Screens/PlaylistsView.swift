@@ -26,9 +26,9 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -136,12 +136,6 @@ public struct PlaylistsView: View {
                         startInEditMode: true
                     )
                 }
-            }
-            .sheet(isPresented: $showingAddSourceFlow) {
-                AddPlexAccountView()
-                #if os(macOS)
-                    .frame(width: 720, height: 560)
-                #endif
             }
             .sheet(isPresented: $showingManageSources) {
                 NavigationView {
@@ -321,7 +315,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

@@ -22,8 +22,8 @@ public struct FavoritesView: View {
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     
     private var backgroundColor: Color {
         #if os(macOS)
@@ -97,12 +97,6 @@ public struct FavoritesView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
                 SettingsView()
@@ -139,7 +133,7 @@ public struct FavoritesView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
