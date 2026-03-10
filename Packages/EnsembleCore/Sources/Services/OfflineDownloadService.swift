@@ -776,10 +776,16 @@ public final class OfflineDownloadService: ObservableObject {
     private func runQueueLoop() async {
         // Spawn N independent workers that each pull the next pending download
         // when they finish. This keeps all slots busy without batch-and-wait.
-        await withTaskGroup(of: Void.self) { group in
+        // Each worker returns whether it processed at least one download.
+        let didProcessAny = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
             for _ in 0..<Self.maxConcurrentDownloads {
                 group.addTask { await self.workerLoop() }
             }
+            var anyProcessed = false
+            for await workerDidWork in group {
+                if workerDidWork { anyProcessed = true }
+            }
+            return anyProcessed
         }
 
         // All workers exited — queue is drained or cancelled
@@ -790,7 +796,8 @@ public final class OfflineDownloadService: ObservableObject {
         queueTask = nil
 
         // Show toast when downloads complete naturally (not cancelled/expired)
-        if !wasCancelled {
+        // and at least one download was actually processed
+        if !wasCancelled && didProcessAny {
             toastCenter.show(ToastPayload(
                 style: .success,
                 iconSystemName: "arrow.down.circle.fill",
@@ -803,7 +810,9 @@ public final class OfflineDownloadService: ObservableObject {
     /// the queue is empty or the task is cancelled.
     /// Runs the actual download in a detached task so multiple workers execute
     /// their network I/O truly in parallel instead of serializing on @MainActor.
-    private func workerLoop() async {
+    /// Returns true if at least one download was processed.
+    private func workerLoop() async -> Bool {
+        var didProcess = false
         while !Task.isCancelled {
             do {
                 // Wait for network availability (lightweight main-actor check)
@@ -819,9 +828,10 @@ public final class OfflineDownloadService: ObservableObject {
                 // Claim a single pending download (atomic, sets status to .downloading)
                 guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
                     // No more work for this worker
-                    return
+                    return didProcess
                 }
 
+                didProcess = true
                 isQueueRunning = true
                 queueStatusReason = .downloading
 
@@ -847,13 +857,14 @@ public final class OfflineDownloadService: ObservableObject {
                     totalUnitCount: totalCount
                 )
             } catch {
-                if Task.isCancelled { return }
+                if Task.isCancelled { return didProcess }
                 #if DEBUG
                 EnsembleLogger.debug("❌ Offline queue worker failed: \(error.localizedDescription)")
                 #endif
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+        return didProcess
     }
 
     private func applyNetworkPolicy() async throws {

@@ -1993,10 +1993,12 @@ public final class SyncCoordinator: ObservableObject {
 
         switch currentState {
         case .online:
-            isOffline = false
+            // Only publish if value actually changes to avoid unnecessary
+            // view recomputation (e.g. HomeView sheet dismissal on foreground)
+            if isOffline { isOffline = false }
             scheduleHealthRefresh(reason: .appForeground, forceServerRefresh: false)
         case .offline, .limited:
-            isOffline = true
+            if !isOffline { isOffline = true }
             updateSourceConnectionStates()
         case .unknown:
             break
@@ -2020,9 +2022,9 @@ public final class SyncCoordinator: ObservableObject {
 
         switch state {
         case .online:
-            isOffline = false
+            if isOffline { isOffline = false }
         case .offline, .limited:
-            isOffline = true
+            if !isOffline { isOffline = true }
             updateSourceConnectionStates()
         case .unknown:
             break
