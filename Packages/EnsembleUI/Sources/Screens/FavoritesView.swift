@@ -54,9 +54,6 @@ public struct FavoritesView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !viewModel.tracks.isEmpty {
                     HStack(spacing: 16) {
-                        // More menu (download toggle)
-                        moreMenu
-
                         // Sort menu
                         sortMenu
 
@@ -76,6 +73,9 @@ public struct FavoritesView: View {
                                 }
                             }
                         }
+
+                        // More menu (download toggle)
+                        moreMenu
                     }
                 }
             }
@@ -83,7 +83,6 @@ public struct FavoritesView: View {
             ToolbarItem(placement: .automatic) {
                 if !viewModel.tracks.isEmpty {
                     HStack(spacing: 16) {
-                        moreMenu
                         sortMenu
 
                         Button {
@@ -99,6 +98,8 @@ public struct FavoritesView: View {
                                 }
                             }
                         }
+
+                        moreMenu
                     }
                 }
             }
