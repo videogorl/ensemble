@@ -2388,6 +2388,7 @@ public final class SyncCoordinator: ObservableObject {
         guard !eligibleServers.isEmpty else { return }
 
         #if DEBUG
+        let healthCheckStart = Date()
         EnsembleLogger.debug("🏥 SyncCoordinator: Running early health checks for \(eligibleServers.count) server(s)...")
         #endif
 
@@ -2408,7 +2409,8 @@ public final class SyncCoordinator: ObservableObject {
         }
 
         #if DEBUG
-        EnsembleLogger.debug("🏥 SyncCoordinator: Early health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
+        let healthCheckDuration = Date().timeIntervalSince(healthCheckStart)
+        EnsembleLogger.debug("🏥 SyncCoordinator: Startup health checks complete in \(String(format: "%.2f", healthCheckDuration))s — checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
         #endif
     }
 

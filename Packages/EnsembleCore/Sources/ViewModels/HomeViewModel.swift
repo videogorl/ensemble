@@ -124,6 +124,7 @@ public final class HomeViewModel: ObservableObject {
                             hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
                         )
                     }
+                    EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(self.hubs.count) hubs)")
                 } else {
                     self.clearHubContentForUnavailableSources()
                 }

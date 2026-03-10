@@ -8,6 +8,9 @@ import UIKit
 import EnsembleCore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Process-level launch timestamp for TTFMP measurement
+    static let launchTime = Date()
+
     private var coverFlowRotationSupportEnabled = false
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
@@ -32,6 +35,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
+        EnsembleStartupTiming.launchTime = AppDelegate.launchTime
 
         NotificationCenter.default.addObserver(
             self,

@@ -1,5 +1,22 @@
 import OSLog
 
+public enum EnsembleStartupTiming {
+    /// Set by AppDelegate at launch for TTFMP measurement.
+    /// Accessible from EnsembleCore without importing the app target.
+    public static var launchTime: Date?
+
+    /// Log time-to-first-meaningful-paint (once, then auto-disables)
+    static var hasLoggedTTFMP = false
+    public static func logTTFMP(milestone: String) {
+        #if DEBUG
+        guard !hasLoggedTTFMP, let launch = launchTime else { return }
+        hasLoggedTTFMP = true
+        let elapsed = Date().timeIntervalSince(launch)
+        EnsembleLogger.debug("⏱️ TTFMP: \(milestone) at \(String(format: "%.2f", elapsed))s after launch")
+        #endif
+    }
+}
+
 enum EnsembleLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "core")
 
