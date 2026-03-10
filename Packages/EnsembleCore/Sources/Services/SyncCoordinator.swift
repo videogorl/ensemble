@@ -105,6 +105,9 @@ public final class SyncCoordinator: ObservableObject {
     /// This transition is normal initialization, not a reconnect, so we skip the
     /// expensive reconnect path (health refresh + connection invalidation).
     private var hasCompletedInitialNetworkTransition = false
+    /// Set when any startup path begins running health checks, so
+    /// `performStartupHealthChecks()` can skip if already covered.
+    private var startupHealthChecksInitiated = false
     private let foregroundHealthStalenessThreshold: TimeInterval = 60
     private var registrySubscriptionTask: Task<Void, Never>?
     
@@ -970,6 +973,10 @@ public final class SyncCoordinator: ObservableObject {
         // and tracks from offline servers are correctly dimmed in the UI.
         let eligibleServers = enabledServerKeysForHealthChecks()
         if !eligibleServers.isEmpty {
+            // Mark initiated before awaiting so performStartupHealthChecks()
+            // (which may fire concurrently from AppDelegate) skips immediately.
+            startupHealthChecksInitiated = true
+
             #if DEBUG
             EnsembleLogger.debug("🏥 Running startup health checks for \(eligibleServers.count) server(s)...")
             #endif
@@ -2384,15 +2391,16 @@ public final class SyncCoordinator: ObservableObject {
     /// Routes through the same cooldown tracking as `scheduleHealthRefresh` so
     /// the initial Unknown→Online network transition won't trigger a duplicate pass.
     public func performStartupHealthChecks() async {
-        // Skip if startup sync already ran health checks (lastHealthRefreshAt is set
-        // when any health check pass completes). This avoids a redundant second pass
-        // when the startup sync's 5s delay expires before AppDelegate's network poll.
-        if lastHealthRefreshAt != nil {
+        // Skip if startup sync already started or completed health checks.
+        // startupHealthChecksInitiated is set before the await, so it catches
+        // the case where startup sync's health checks are still in progress.
+        if startupHealthChecksInitiated || lastHealthRefreshAt != nil {
             #if DEBUG
-            EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already ran them")
+            EnsembleLogger.debug("🏥 SyncCoordinator: Skipping early health checks — startup sync already handling them")
             #endif
             return
         }
+        startupHealthChecksInitiated = true
 
         let eligibleServers = enabledServerKeysForHealthChecks()
         guard !eligibleServers.isEmpty else { return }
