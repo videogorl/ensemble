@@ -15,7 +15,9 @@ public final class BackgroundSyncScheduler {
     private init() {}
     
     /// Schedule the next background refresh
-    /// Call this at app launch and after each background refresh completes
+    /// Call this at app launch and after each background refresh completes.
+    /// Must be called from the main thread (reads UIApplication.backgroundRefreshStatus).
+    @MainActor
     public func scheduleAppRefresh() {
         #if targetEnvironment(simulator)
         #if DEBUG
