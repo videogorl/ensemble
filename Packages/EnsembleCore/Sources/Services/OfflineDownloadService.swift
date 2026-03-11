@@ -847,10 +847,35 @@ public final class OfflineDownloadService: ObservableObject {
 
         // All workers exited — queue is drained or cancelled
         let wasCancelled = Task.isCancelled
+
+        // Clear queueTask BEFORE the re-check so that handleDownloadQueueCompleted()
+        // (via WebSocket) can restart the queue if a PMS download finishes during
+        // the grace period below.
+        queueTask = nil
+
+        // Grace period: PMS may still be preparing downloads (WebSocket
+        // media.download events arrive asynchronously). Wait briefly, then
+        // re-check for any newly pending downloads before declaring "complete".
+        if !wasCancelled && didProcessAny {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms grace
+            let remainingPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+
+            #if DEBUG
+            EnsembleLogger.debug("📥 Queue wind-down: wasCancelled=\(wasCancelled), didProcessAny=\(didProcessAny), remainingPending=\(remainingPending)")
+            #endif
+
+            if remainingPending > 0 {
+                // More work arrived while workers were finishing — restart
+                isQueueRunning = true
+                queueStatusReason = .downloading
+                startQueueIfNeeded()
+                return
+            }
+        }
+
         isQueueRunning = false
         queueStatusReason = .idle
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
-        queueTask = nil
 
         // Show toast when downloads complete naturally (not cancelled/expired)
         // and at least one download was actually processed
