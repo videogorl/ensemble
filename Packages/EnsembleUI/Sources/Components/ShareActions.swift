@@ -79,8 +79,11 @@ public enum ShareActions {
 
     @MainActor
     private static func presentPayload(_ payload: SharePayload, deps: DependencyContainer) {
+        // Dismiss any active toast so it doesn't float above the share sheet
+        deps.toastCenter.dismissCurrent()
+
         switch payload {
-        case .link(let url, let text):
+        case .link(let url, _):
             ShareSheetPresenter.present(items: [url]) {
                 deps.shareService.cleanupTempFiles()
             }
@@ -98,7 +101,7 @@ public enum ShareActions {
             )
             ShareSheetPresenter.present(items: [text])
 
-        case .file(let url, let title):
+        case .file(let url, _):
             ShareSheetPresenter.present(items: [url]) {
                 deps.shareService.cleanupTempFiles()
             }
