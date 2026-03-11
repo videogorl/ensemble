@@ -116,41 +116,38 @@ public struct LyricsCard: View {
                     }
 
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
-                        VStack(spacing: 12) {
-                            lyricsLineView(
-                                line: line,
-                                index: index,
-                                isTimed: lyrics.isTimed,
-                                isActive: viewModel.currentLyricsLineIndex == index,
-                                isPast: isPastLine(index: index)
-                            )
-                            .onTapGesture {
-                                if lyrics.isTimed, let timestamp = line.timestamp {
-                                    // Seek to this lyric's timestamp
-                                    viewModel.seek(to: timestamp)
-                                    // Resume playback if paused
-                                    resumeIfPaused()
-                                }
-                            }
-
-                            // Instrumental gap indicator (always visible at gap positions)
-                            if lyrics.isTimed,
-                               viewModel.instrumentalGapAfterIndices.contains(index) {
-                                let isActiveGap = viewModel.currentLyricsLineIndex == index
-                                let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
-                                instrumentalIndicator(progress: progress)
-                                    .onTapGesture {
-                                        // Seek to the next lyric after this gap
-                                        let nextIndex = index + 1
-                                        if nextIndex < lyrics.lines.count,
-                                           let nextTimestamp = lyrics.lines[nextIndex].timestamp {
-                                            viewModel.seek(to: nextTimestamp)
-                                            resumeIfPaused()
-                                        }
-                                    }
+                        // Each lyric line as its own item in the LazyVStack
+                        lyricsLineView(
+                            line: line,
+                            index: index,
+                            isTimed: lyrics.isTimed,
+                            isActive: viewModel.currentLyricsLineIndex == index,
+                            isPast: isPastLine(index: index)
+                        )
+                        .onTapGesture {
+                            if lyrics.isTimed, let timestamp = line.timestamp {
+                                viewModel.seek(to: timestamp)
+                                resumeIfPaused()
                             }
                         }
                         .id(index)
+
+                        // Instrumental gap indicator as its own item (same spacing as lyrics)
+                        if lyrics.isTimed,
+                           viewModel.instrumentalGapAfterIndices.contains(index) {
+                            let isActiveGap = viewModel.currentLyricsLineIndex == index
+                            let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
+                            instrumentalIndicator(progress: progress)
+                                .id("gap-\(index)")
+                                .onTapGesture {
+                                    let nextIndex = index + 1
+                                    if nextIndex < lyrics.lines.count,
+                                       let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+                                        viewModel.seek(to: nextTimestamp)
+                                        resumeIfPaused()
+                                    }
+                                }
+                        }
                     }
 
                     // Outro instrumental indicator (after last lyric if gap exists)
@@ -214,7 +211,6 @@ public struct LyricsCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
     }
 
     // MARK: - Transport Controls
