@@ -372,6 +372,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
+            Divider()
+
             if viewModel is AlbumDetailViewModel {
                 if let lastPlaylistQuickTarget {
                     if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
