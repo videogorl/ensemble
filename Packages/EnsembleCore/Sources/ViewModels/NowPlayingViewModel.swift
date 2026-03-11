@@ -102,10 +102,16 @@ public final class NowPlayingViewModel: ObservableObject {
     // Lyrics state driven by LyricsService
     @Published public private(set) var lyricsState: LyricsState = .notAvailable
     @Published public private(set) var currentLyricsLineIndex: Int?
-    // Scroll target looks ahead 500ms so the view scrolls before the line becomes active
+    // Scroll target looks ahead so lyrics anticipate the vocals
     @Published public private(set) var lyricsScrollTargetIndex: Int?
-    // Progress through an instrumental gap (0.0 to 1.0), nil when a vocal line is active
+    // Progress through an instrumental gap (0.0 to 1.0), nil when not in a gap
     @Published public private(set) var instrumentalProgress: Double?
+    // Pre-computed set of line indices that have an instrumental gap AFTER them
+    @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
+    // Whether there's an instrumental gap before the first lyric
+    @Published public private(set) var hasIntroInstrumentalGap: Bool = false
+    // Whether there's an instrumental gap after the last lyric (outro)
+    @Published public private(set) var hasOutroInstrumentalGap: Bool = false
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -290,27 +296,36 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.currentLyricsLineIndex = nil
                 self.lyricsScrollTargetIndex = nil
                 self.instrumentalProgress = nil
+                // Pre-compute gap positions for persistent instrumental indicators
+                if case .available(let lyrics) = state {
+                    self.computeInstrumentalGapPositions(lyrics: lyrics)
+                } else {
+                    self.instrumentalGapAfterIndices = []
+                    self.hasIntroInstrumentalGap = false
+                    self.hasOutroInstrumentalGap = false
+                }
             }
             .store(in: &cancellables)
 
         // Track active lyrics line based on playback time.
-        // Highlight and scroll both arrive 500ms early so lyrics anticipate the vocals.
+        // Highlight and scroll arrive 1s early so lyrics anticipate the vocals.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
                 guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
 
-                let anticipatedTime = time + 0.5
+                let anticipatedTime = time + 1.0
 
-                // Highlight and scroll happen together, 500ms before the timestamp
+                // Highlight and scroll happen together, 1s before the timestamp
                 let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
                 self.currentLyricsLineIndex = activeIndex
                 self.lyricsScrollTargetIndex = activeIndex
 
-                // Instrumental progress tracks position through the gap
+                // Instrumental progress tracks position through the current gap
                 self.instrumentalProgress = Self.computeInstrumentalProgress(
-                    lyrics: lyrics, activeIndex: activeIndex, currentTime: anticipatedTime
+                    lyrics: lyrics, activeIndex: activeIndex,
+                    currentTime: anticipatedTime, trackDuration: self.duration
                 )
             }
             .store(in: &cancellables)
@@ -322,13 +337,55 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Gaps shorter than this are just natural pauses between vocal phrases.
     private static let instrumentalGapThreshold: TimeInterval = 5.0
 
+    /// Pre-compute which line indices have instrumental gaps after them.
+    /// Also determines intro/outro gap presence. Called when lyrics change.
+    private func computeInstrumentalGapPositions(lyrics: ParsedLyrics) {
+        guard lyrics.isTimed else {
+            instrumentalGapAfterIndices = []
+            hasIntroInstrumentalGap = false
+            hasOutroInstrumentalGap = false
+            return
+        }
+
+        var gapIndices = Set<Int>()
+
+        // Check intro gap (before first lyric)
+        if let firstTimestamp = lyrics.lines.first?.timestamp,
+           firstTimestamp >= Self.instrumentalGapThreshold {
+            hasIntroInstrumentalGap = true
+        } else {
+            hasIntroInstrumentalGap = false
+        }
+
+        // Check gaps between consecutive lines
+        for i in 0..<lyrics.lines.count - 1 {
+            guard let current = lyrics.lines[i].timestamp,
+                  let next = lyrics.lines[i + 1].timestamp else { continue }
+            if next - current >= Self.instrumentalGapThreshold {
+                gapIndices.insert(i)
+            }
+        }
+
+        // Check outro gap (last lyric to track end)
+        if let lastTimestamp = lyrics.lines.last?.timestamp,
+           duration > 0,
+           duration - lastTimestamp >= Self.instrumentalGapThreshold {
+            hasOutroInstrumentalGap = true
+        } else {
+            hasOutroInstrumentalGap = false
+        }
+
+        instrumentalGapAfterIndices = gapIndices
+    }
+
     /// Compute progress through an instrumental gap (0.0–1.0).
-    /// Returns nil if the current position is within a vocal line (gap < threshold).
-    /// Handles both intro gaps (before first lyric) and mid-song instrumental breaks.
+    /// Returns nil if the current position is not within a gap.
+    /// Handles intro gaps, mid-song breaks, and outro gaps.
     private static func computeInstrumentalProgress(
         lyrics: ParsedLyrics,
         activeIndex: Int?,
-        currentTime: TimeInterval
+        currentTime: TimeInterval,
+        trackDuration: TimeInterval
     ) -> Double? {
         // Intro gap: before the first lyric line starts
         if activeIndex == nil, let firstTimestamp = lyrics.lines.first?.timestamp {
@@ -339,19 +396,27 @@ public final class NowPlayingViewModel: ObservableObject {
 
         guard let activeIndex else { return nil }
 
-        // Mid-song gap: between current line and next line
         let currentTimestamp = lyrics.lines[activeIndex].timestamp ?? 0
+
+        // Mid-song gap: between current line and next line
         let nextIndex = activeIndex + 1
-        guard nextIndex < lyrics.lines.count,
-              let nextTimestamp = lyrics.lines[nextIndex].timestamp else {
-            return nil // Last line or no next timestamp
+        if nextIndex < lyrics.lines.count,
+           let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+            let gapDuration = nextTimestamp - currentTimestamp
+            guard gapDuration >= instrumentalGapThreshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
         }
 
-        let gapDuration = nextTimestamp - currentTimestamp
-        guard gapDuration >= instrumentalGapThreshold else { return nil }
+        // Outro gap: last line to end of track
+        if nextIndex >= lyrics.lines.count, trackDuration > 0 {
+            let gapDuration = trackDuration - currentTimestamp
+            guard gapDuration >= instrumentalGapThreshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
+        }
 
-        let elapsed = currentTime - currentTimestamp
-        return min(max(elapsed / gapDuration, 0), 1)
+        return nil
     }
 
     // MARK: - Artwork Management

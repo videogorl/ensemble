@@ -21,7 +21,16 @@ public struct LyricsCard: View {
 
             // Scrollable content area with fade masks
             contentView
-                .padding(.bottom, 60) // Space for fixed page indicator
+
+            Spacer(minLength: 0) // Push transport controls to bottom
+
+            // Secondary transport controls + page indicator spacing
+            VStack(spacing: 8) {
+                transportControlsView
+                    .padding(.top, 16)
+                Spacer().frame(height: 36) // Reserve space for fixed page indicator
+            }
+            .padding(.bottom, 20)
         }
     }
 
@@ -93,12 +102,17 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 120)
 
-                    // Intro instrumental indicator (before first lyric)
-                    if lyrics.isTimed,
-                       viewModel.currentLyricsLineIndex == nil,
-                       let progress = viewModel.instrumentalProgress {
+                    // Intro instrumental indicator (always visible if gap exists)
+                    if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
+                        let isIntroActive = viewModel.currentLyricsLineIndex == nil
+                        let progress = isIntroActive ? (viewModel.instrumentalProgress ?? 0) : 1.0
                         instrumentalIndicator(progress: progress)
                             .id("intro-instrumental")
+                            .onTapGesture {
+                                // Seek to start and resume if paused
+                                viewModel.seek(to: 0)
+                                resumeIfPaused()
+                            }
                     }
 
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
@@ -111,21 +125,41 @@ public struct LyricsCard: View {
                                 isPast: isPastLine(index: index)
                             )
                             .onTapGesture {
-                                // Tap-to-seek for timed lyrics
                                 if lyrics.isTimed, let timestamp = line.timestamp {
+                                    // Seek to this lyric's timestamp
                                     viewModel.seek(to: timestamp)
+                                    // Resume playback if paused
+                                    resumeIfPaused()
                                 }
                             }
 
-                            // Instrumental gap indicator after the active line
+                            // Instrumental gap indicator (always visible at gap positions)
                             if lyrics.isTimed,
-                               viewModel.currentLyricsLineIndex == index,
-                               let progress = viewModel.instrumentalProgress {
+                               viewModel.instrumentalGapAfterIndices.contains(index) {
+                                let isActiveGap = viewModel.currentLyricsLineIndex == index
+                                let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
                                 instrumentalIndicator(progress: progress)
-                                    .transition(.opacity)
+                                    .onTapGesture {
+                                        // Seek to the next lyric after this gap
+                                        let nextIndex = index + 1
+                                        if nextIndex < lyrics.lines.count,
+                                           let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+                                            viewModel.seek(to: nextTimestamp)
+                                            resumeIfPaused()
+                                        }
+                                    }
                             }
                         }
                         .id(index)
+                    }
+
+                    // Outro instrumental indicator (after last lyric if gap exists)
+                    if lyrics.isTimed, viewModel.hasOutroInstrumentalGap {
+                        let lastIndex = lyrics.lines.count - 1
+                        let isOutroActive = viewModel.currentLyricsLineIndex == lastIndex
+                        let progress = isOutroActive ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: lastIndex) ? 1.0 : 0.0)
+                        instrumentalIndicator(progress: progress)
+                            .id("outro-instrumental")
                     }
 
                     // Bottom spacer so last line can scroll to center
@@ -166,7 +200,9 @@ public struct LyricsCard: View {
 
     // MARK: - Instrumental Indicator
 
-    /// Animated ellipsis that fills in during instrumental gaps between lyrics
+    /// Animated ellipsis that fills in during instrumental gaps between lyrics.
+    /// Shown at all gap positions — active gaps animate, past gaps are fully filled,
+    /// future gaps are dim.
     private func instrumentalIndicator(progress: Double) -> some View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { dotIndex in
@@ -181,7 +217,40 @@ public struct LyricsCard: View {
         .padding(.top, 4)
     }
 
+    // MARK: - Transport Controls
+
+    /// Secondary transport controls: previous, play/pause, next
+    private var transportControlsView: some View {
+        HStack(spacing: 40) {
+            Button(action: viewModel.previous) {
+                Image(systemName: "backward.fill")
+                    .font(.title3)
+                    .foregroundColor(.primary.opacity(0.7))
+            }
+
+            Button(action: viewModel.togglePlayPause) {
+                Image(systemName: viewModel.playbackState == .playing ? "pause.fill" : "play.fill")
+                    .font(.title2)
+                    .foregroundColor(.primary.opacity(0.9))
+            }
+
+            Button(action: viewModel.next) {
+                Image(systemName: "forward.fill")
+                    .font(.title3)
+                    .foregroundColor(.primary.opacity(0.7))
+            }
+        }
+        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 0)
+    }
+
     // MARK: - Helpers
+
+    /// Resume playback if currently paused (for tap-to-seek interactions)
+    private func resumeIfPaused() {
+        if viewModel.playbackState == .paused {
+            viewModel.resume()
+        }
+    }
 
     /// Determine opacity for a lyrics line
     private func lineOpacity(isTimed: Bool, isActive: Bool, isPast: Bool) -> Double {
@@ -197,33 +266,33 @@ public struct LyricsCard: View {
         return index < activeIndex
     }
 
-    /// Fade mask for top and bottom edges of the scroll area
+    /// Fade mask matching QueueCard style — gradual top and bottom fades
     private var fadeMask: some View {
         VStack(spacing: 0) {
-            // Top fade
+            // Top fade (gradual)
             LinearGradient(
                 gradient: Gradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.05)
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 30)
-
-            // Middle: full opacity
-            Rectangle().fill(Color.black)
-
-            // Bottom fade
-            LinearGradient(
-                gradient: Gradient(stops: [
-                    .init(color: .black, location: 0.85),
-                    .init(color: .clear, location: 1)
+                    .init(color: .black, location: 0.1)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
             .frame(height: 50)
+
+            // Middle: full opacity
+            Rectangle().fill(Color.black)
+
+            // Bottom fade (gradual)
+            LinearGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .black, location: 0.7),
+                    .init(color: .clear, location: 1)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 80)
         }
     }
 }
