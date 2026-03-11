@@ -294,25 +294,23 @@ public final class NowPlayingViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Track active lyrics line based on playback time.
-        // Highlight appears 500ms early so lyrics anticipate the vocals (like Apple Music).
-        // Scroll arrives 500ms before the highlight so the line is already centered.
+        // Highlight and scroll both arrive 500ms early so lyrics anticipate the vocals.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
                 guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
 
-                // Highlight 500ms before the actual timestamp
-                let activeIndex = lyrics.activeLineIndex(at: time + 0.5)
+                let anticipatedTime = time + 0.5
+
+                // Highlight and scroll happen together, 500ms before the timestamp
+                let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
                 self.currentLyricsLineIndex = activeIndex
+                self.lyricsScrollTargetIndex = activeIndex
 
-                // Scroll 1s before the actual timestamp (500ms before highlight)
-                let scrollIndex = lyrics.activeLineIndex(at: time + 1.0)
-                self.lyricsScrollTargetIndex = scrollIndex
-
-                // Instrumental progress uses real time (tracks actual gap position)
+                // Instrumental progress tracks position through the gap
                 self.instrumentalProgress = Self.computeInstrumentalProgress(
-                    lyrics: lyrics, activeIndex: activeIndex, currentTime: time + 0.5
+                    lyrics: lyrics, activeIndex: activeIndex, currentTime: anticipatedTime
                 )
             }
             .store(in: &cancellables)

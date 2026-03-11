@@ -36,7 +36,7 @@ public struct LyricsCard: View {
 
             Spacer()
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, 48)
     }
 
     // MARK: - Content
@@ -88,7 +88,7 @@ public struct LyricsCard: View {
     private func lyricsScrollView(lyrics: ParsedLyrics) -> some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: lyrics.isTimed ? 16 : 10) {
+                LazyVStack(spacing: lyrics.isTimed ? 24 : 12) {
                     // Top spacer so first line can scroll to center
                     Spacer()
                         .frame(height: 120)
@@ -102,7 +102,7 @@ public struct LyricsCard: View {
                     }
 
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
-                        VStack(spacing: 8) {
+                        VStack(spacing: 12) {
                             lyricsLineView(
                                 line: line,
                                 index: index,
@@ -132,9 +132,9 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 200)
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, 48)
             }
-            // Scroll to the look-ahead target (500ms before line becomes active)
+            // Scroll and highlight happen together
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
                 guard let newIndex, lyrics.isTimed else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -158,10 +158,10 @@ public struct LyricsCard: View {
             .fontWeight(.medium)
             .foregroundColor(.primary)
             .opacity(lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast))
-            .scaleEffect(isActive && isTimed ? 1.02 : 1.0, anchor: .leading)
+            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.2), value: isActive)
+            .animation(.easeInOut(duration: 0.25), value: isActive)
     }
 
     // MARK: - Instrumental Indicator
