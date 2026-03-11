@@ -41,7 +41,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - `PlexWebSocketManager` maintains one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
 - **Plex Pass limitation:** Library change notifications (`timeline`, `activity`) are only delivered to server owner/admin accounts with Plex Pass. Non-Plex Pass shared users only receive session-level notifications (e.g., `playing`). The WebSocket still provides implicit health signals for all account types.
 - Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections at all.
-- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, the backoff cap prevents excessive reconnect attempts.
+- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, a circuit breaker activates after 5 failures and switches to 5-minute retry intervals (vs normal 5s→60s backoff). The circuit breaker resets on successful connection, deliberate start(), or endpoint URL change.
+
+### WebSocket Server 1001 (Going Away) Immediate Disconnect
+- **Location:** `PlexWebSocketManager.swift`
+- **Issue:** Some Plex servers (observed on specific PMS configurations) close the WebSocket connection with code 1001 immediately after the client connects, before sending any messages. This causes a reconnect loop.
+- **Impact:** Without the circuit breaker, the connection would retry every 60s forever, burning CPU and network. With the circuit breaker, retries drop to every 5 minutes after the first 5 failures.
+- **Root cause:** Unknown server-side issue. May be related to PMS configuration, NAT, or reverse proxy behavior. The WebSocket URL and auth token are confirmed valid.
 
 ### Artwork Pre-Caching Sync-Path Only
 - `ArtworkLoader.predownloadArtwork()` is now called during sync for albums, artists, and playlists
@@ -149,11 +155,23 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Network throttling:** Downloads are auto-paused on LPM activation and auto-resumed on deactivation via `DependencyContainer` wiring.
 - **Key files:** `PowerStateMonitor.swift`, `AuroraVisualizationView.swift`, `LyricsCard.swift`, `DependencyContainer.swift`, `MainTabView.swift`
 
-### Aurora Visualizer Optimized to 30fps + 3 Passes
+### Aurora Visualizer Optimized to 30fps + 3 Passes + 4fps Breathing
 - **Resolved (March 11, 2026)**
-- **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet.
-- **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`.
+- **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet. Still ran at 30fps during breathing mode (playback paused), causing 25.6% GPU drain.
+- **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
 - **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Download Queue Workers Spawned With No Pending Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** `startQueueIfNeeded()` (called from `init` and ~15 other sites) only checked `queueTask == nil`, so 3 worker tasks were spawned on every app launch even with zero pending downloads. Each worker ran a CoreData query, found nothing, and exited — 18+ "Worker exit: no pending download" log lines.
+- **Fix:** `runQueueLoop()` now checks `fetchPendingDownloads().count` before spawning the task group. If zero pending, exits immediately without creating worker tasks.
+- **Key files:** `OfflineDownloadService.swift`
+
+### WebSocket Circuit Breaker for Repeated Failures
+- **Resolved (March 11, 2026)**
+- **Previous:** WebSocket reconnect backoff capped at 60s, retrying forever even when the server always returned 1001 (Going Away). This burned CPU and network during foreground.
+- **Fix:** Circuit breaker activates after 5 consecutive failures and switches to 5-minute retry intervals. Resets on successful message receipt, `start()`, or endpoint URL change.
+- **Key files:** `PlexWebSocketManager.swift`
 
 ### Download System Query Batching
 - **Resolved (March 11, 2026)**
