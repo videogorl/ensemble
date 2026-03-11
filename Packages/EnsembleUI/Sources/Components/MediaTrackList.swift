@@ -30,21 +30,6 @@ class DeferredLayoutTableView: UITableView {
     }
 }
 
-// MARK: - Search-Aware Table View
-
-/// UITableView subclass that attaches a UISearchController to the parent
-/// navigation bar when first added to a window. The search bar is hidden
-/// by default and appears on pull-down, matching the native iOS pattern.
-class SearchAwareTableView: UITableView {
-    weak var searchCoordinator: MediaTrackList.Coordinator?
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        guard window != nil else { return }
-        searchCoordinator?.attachSearchControllerIfNeeded(from: self)
-    }
-}
-
 // MARK: - Track Table View Cell
 
 public class TrackTableViewCell: UITableViewCell {
@@ -349,11 +334,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
-    /// Optional search text binding. When provided, a native UISearchController is
-    /// attached to the navigation bar — hidden by default, revealed on pull-down,
-    /// matching the native iOS Settings/Music pattern.
-    @Binding var searchText: String
-    let showSearchController: Bool
+    /// Height of the search field embedded in the table header. When > 0, the table
+    /// scrolls past this offset on initial load so the search bar starts hidden.
+    /// Users pull down from the top to reveal it.
+    let searchFieldHeight: CGFloat
 
     @Environment(\.dependencies) private var dependencies
 
@@ -368,8 +352,7 @@ public struct MediaTrackList: UIViewRepresentable {
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
         tableHeaderContent: AnyView? = nil,
-        searchText: Binding<String> = .constant(""),
-        showSearchController: Bool = false,
+        searchFieldHeight: CGFloat = 0,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -394,8 +377,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
         self.tableHeaderContent = tableHeaderContent
-        self._searchText = searchText
-        self.showSearchController = showSearchController
+        self.searchFieldHeight = searchFieldHeight
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -413,13 +395,7 @@ public struct MediaTrackList: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> UITableView {
         let tableView: UITableView
-        if managesOwnScrolling && showSearchController {
-            // Search-aware table — attaches a UISearchController to the nav bar
-            // when added to a window. Search bar hidden by default, shown on pull-down.
-            let searchTable = SearchAwareTableView(frame: .zero, style: .plain)
-            searchTable.searchCoordinator = context.coordinator
-            tableView = searchTable
-        } else if managesOwnScrolling {
+        if managesOwnScrolling {
             // Regular UITableView — manages its own scrolling and cell recycling.
             tableView = UITableView(frame: .zero, style: .plain)
         } else {
@@ -479,6 +455,15 @@ public struct MediaTrackList: UIViewRepresentable {
             hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
             tableView.tableHeaderView = hostingController.view
             context.coordinator.headerHostingController = hostingController
+
+            // When a search field is in the header, scroll past it on initial load
+            // so the search bar starts hidden. Users pull down to reveal it.
+            if searchFieldHeight > 0 {
+                context.coordinator.searchFieldHeight = searchFieldHeight
+                DispatchQueue.main.async {
+                    tableView.contentOffset.y += searchFieldHeight
+                }
+            }
         }
 
         return tableView
@@ -609,9 +594,6 @@ public struct MediaTrackList: UIViewRepresentable {
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadRatingKeys: activeDownloadRatingKeys
         )
-        if showSearchController {
-            coordinator.searchTextBinding = $searchText
-        }
         return coordinator
     }
     
@@ -627,7 +609,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
         var tracks: [Track]
         var groupedTracks: [(disc: Int?, tracks: [Track])]
         var showArtwork: Bool
@@ -654,10 +636,9 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
-        /// Search text binding from the parent — updated by UISearchController
-        var searchTextBinding: Binding<String>?
-        /// Retains the search controller attached to the navigation bar
-        private var searchController: UISearchController?
+        /// Height of the search field in the table header, used to set initial
+        /// content offset so the search bar starts hidden (pull down to reveal).
+        var searchFieldHeight: CGFloat = 0
 
         init(
             tracks: [Track],
@@ -1053,52 +1034,6 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        // MARK: - Search Controller
-
-        /// Attaches a UISearchController to the parent navigation bar.
-        /// Called from SearchAwareTableView.didMoveToWindow() once the table is in the hierarchy.
-        func attachSearchControllerIfNeeded(from view: UIView) {
-            guard searchController == nil, searchTextBinding != nil else { return }
-
-            // Walk up the responder chain to find the UINavigationController
-            var responder: UIResponder? = view
-            while let next = responder?.next {
-                if let navController = next as? UINavigationController {
-                    let sc = UISearchController(searchResultsController: nil)
-                    sc.searchResultsUpdater = self
-                    sc.obscuresBackgroundDuringPresentation = false
-                    sc.searchBar.placeholder = "Search tracks"
-                    // Set initial text from binding
-                    sc.searchBar.text = searchTextBinding?.wrappedValue
-
-                    // Attach to the topmost visible view controller's navigation item
-                    if let topVC = navController.topViewController {
-                        topVC.navigationItem.searchController = sc
-                        topVC.navigationItem.hidesSearchBarWhenScrolling = true
-                        topVC.definesPresentationContext = true
-                    }
-                    searchController = sc
-
-                    // The search controller is attached after the view is visible,
-                    // so UIKit doesn't auto-hide it. Scroll past the search bar on
-                    // the next layout pass so it starts hidden (pull down to reveal).
-                    if let tableView = view as? UITableView {
-                        DispatchQueue.main.async {
-                            let searchBarHeight = sc.searchBar.frame.height
-                            if searchBarHeight > 0 && tableView.contentOffset.y < searchBarHeight {
-                                tableView.contentOffset.y = searchBarHeight
-                            }
-                        }
-                    }
-                    return
-                }
-                responder = next
-            }
-        }
-
-        public func updateSearchResults(for searchController: UISearchController) {
-            searchTextBinding?.wrappedValue = searchController.searchBar.text ?? ""
-        }
     }
 }
 #endif
