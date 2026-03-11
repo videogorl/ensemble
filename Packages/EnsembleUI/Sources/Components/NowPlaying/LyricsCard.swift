@@ -236,17 +236,16 @@ public struct LyricsCard: View {
         isPast: Bool
     ) -> some View {
         let blur = lineBlurRadius(index: index, isTimed: isTimed)
-        return Text(line.text)
-            .font(.title3)
-            .fontWeight(.medium)
-            .foregroundColor(.primary)
-            .opacity(lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast))
-            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
-            .blur(radius: blur)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.25), value: isActive)
-            .animation(.easeInOut(duration: 0.3), value: blur)
+        let opacity = lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast)
+        // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
+        // haven't changed — reduces N re-renders per tick to ~2 (old + new active line)
+        return EquatableView(content: LyricsLineView(
+            text: line.text,
+            isActive: isActive,
+            isTimed: isTimed,
+            opacity: opacity,
+            blur: blur
+        ))
     }
 
     // MARK: - Instrumental Indicator
@@ -402,5 +401,32 @@ public struct LyricsCard: View {
             )
             .frame(height: 80)
         }
+    }
+}
+
+// MARK: - Equatable Lyrics Line
+
+/// Individual lyrics line with pre-computed visual params. Conforms to Equatable so
+/// SwiftUI's EquatableView wrapper can skip re-rendering lines that haven't changed.
+/// When currentLyricsLineIndex changes, only ~2-3 lines need re-rendering instead of all.
+private struct LyricsLineView: View, Equatable {
+    let text: String
+    let isActive: Bool
+    let isTimed: Bool
+    let opacity: Double
+    let blur: CGFloat
+
+    var body: some View {
+        Text(text)
+            .font(.title3)
+            .fontWeight(.medium)
+            .foregroundColor(.primary)
+            .opacity(opacity)
+            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
+            .blur(radius: blur)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: 0.25), value: isActive)
+            .animation(.easeInOut(duration: 0.3), value: blur)
     }
 }
