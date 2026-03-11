@@ -347,9 +347,15 @@ public final class NowPlayingViewModel: ObservableObject {
                 )
                 self.instrumentalProgress = progress
 
-                // During instrumental gaps, de-highlight the lyric line —
-                // the dots act as the "active" element instead
-                if progress != nil {
+                // Keep the lyric line highlighted for ~2s so it can be read/sung,
+                // then de-highlight and let the dots take over as the "active" element
+                let elapsedSinceLine: TimeInterval
+                if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
+                    elapsedSinceLine = anticipatedTime - ts
+                } else {
+                    elapsedSinceLine = 0
+                }
+                if progress != nil && elapsedSinceLine > 2.0 {
                     self.currentLyricsLineIndex = nil
                 } else {
                     self.currentLyricsLineIndex = activeIndex
