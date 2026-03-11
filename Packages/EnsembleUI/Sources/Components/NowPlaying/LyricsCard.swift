@@ -195,7 +195,7 @@ public struct LyricsCard: View {
                     // Snap immediately for seeks — prevents animation backlog
                     proxy.scrollTo(newIndex, anchor: .center)
                 } else {
-                    withAnimation(.easeOut(duration: 0.45)) {
+                    withAnimation(.easeInOut(duration: 0.45)) {
                         proxy.scrollTo(newIndex, anchor: .center)
                     }
                 }
@@ -220,7 +220,7 @@ public struct LyricsCard: View {
             .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeOut(duration: 0.4), value: isActive)
+            .animation(.easeInOut(duration: 0.4), value: isActive)
     }
 
     // MARK: - Instrumental Indicator
@@ -235,7 +235,7 @@ public struct LyricsCard: View {
                 Circle()
                     .fill(Color.primary.opacity(progress >= dotThreshold ? 0.6 : 0.15))
                     .frame(width: 8, height: 8)
-                    .animation(.easeOut(duration: 0.4), value: progress >= dotThreshold)
+                    .animation(.easeInOut(duration: 0.4), value: progress >= dotThreshold)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

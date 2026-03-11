@@ -114,9 +114,12 @@ public struct NowPlayingSheetView: View {
                 .frame(maxWidth: 500) // Cap width to match controls
                 
                 // Fixed page indicator for side-by-side carousel
-                PageIndicator(currentPage: $viewModel.currentPage)
-                    .padding(.top, 10)
-                    .padding(.bottom, 10)
+                PageIndicator(
+                    currentPage: $viewModel.currentPage,
+                    lyricsAvailable: viewModel.lyricsState.isAvailable
+                )
+                .padding(.top, 10)
+                .padding(.bottom, 10)
             }
         }
     }

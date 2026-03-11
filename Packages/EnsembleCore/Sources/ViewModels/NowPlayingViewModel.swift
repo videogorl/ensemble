@@ -302,6 +302,25 @@ public final class NowPlayingViewModel: ObservableObject {
                 // Pre-compute gap positions for persistent instrumental indicators
                 if case .available(let lyrics) = state {
                     self.computeInstrumentalGapPositions(lyrics: lyrics)
+
+                    // If we're already mid-track (e.g. app restored from background),
+                    // immediately compute the active line so lyrics start at the right position
+                    let currentTime = self.playbackService.currentTimeValue
+                    if currentTime > 1.0, lyrics.isTimed {
+                        let anticipatedTime = currentTime + 0.5
+                        let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
+                        let progress = Self.computeInstrumentalProgress(
+                            lyrics: lyrics, activeIndex: activeIndex,
+                            currentTime: anticipatedTime, trackDuration: self.duration
+                        )
+                        self.instrumentalProgress = progress
+                        if progress != nil {
+                            self.currentLyricsLineIndex = nil
+                        } else {
+                            self.currentLyricsLineIndex = activeIndex
+                        }
+                        self.lyricsScrollTargetIndex = activeIndex
+                    }
                 } else {
                     self.instrumentalGapAfterIndices = []
                     self.hasIntroInstrumentalGap = false

@@ -45,6 +45,12 @@ public enum LyricsState: Equatable {
     case loading
     case notAvailable
     case available(ParsedLyrics)
+
+    /// Whether lyrics are loaded and available for display
+    public var isAvailable: Bool {
+        if case .available = self { return true }
+        return false
+    }
 }
 
 // MARK: - LRC Parser
