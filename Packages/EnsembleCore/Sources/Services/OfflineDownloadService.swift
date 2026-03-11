@@ -831,6 +831,20 @@ public final class OfflineDownloadService: ObservableObject {
     private static let maxConcurrentDownloads = 3
 
     private func runQueueLoop() async {
+        // Quick check: if no pending downloads, exit immediately without spawning workers.
+        // This avoids 3 unnecessary worker tasks + CoreData queries on app launch
+        // when there's nothing to download.
+        let initialPending = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+        if initialPending == 0 {
+            #if DEBUG
+            EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
+            #endif
+            queueTask = nil
+            isQueueRunning = false
+            queueStatusReason = .idle
+            return
+        }
+
         // Spawn N independent workers that each pull the next pending download
         // when they finish. This keeps all slots busy without batch-and-wait.
         // Each worker returns whether it processed at least one download.

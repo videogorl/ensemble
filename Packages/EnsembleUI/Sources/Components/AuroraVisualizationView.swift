@@ -77,11 +77,25 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - Body
 
+    /// Frame rate adapts to what's actually being rendered:
+    /// - Playing: 30fps (15fps in LPM) for responsive frequency data
+    /// - Breathing (paused): 4fps — the slow sine waves look smooth at very low rates
+    /// - Hidden/occluded: paused entirely
+    private var frameInterval: Double {
+        if isPaused || !isVisible { return 1.0 / 4.0 } // Will be paused anyway
+        if playbackState != .playing {
+            // Breathing mode: very slow sine waves don't need high frame rates.
+            // 4fps saves ~87% GPU vs 30fps with no visible quality loss.
+            return 1.0 / 4.0
+        }
+        return isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
+    }
+
     public var body: some View {
         GeometryReader { geometry in
-            // Normal: 30fps. Low Power Mode: 15fps to halve GPU work.
-            // Pause entirely when occluded or explicitly paused.
-            TimelineView(.animation(minimumInterval: isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0, paused: isPaused || !isVisible)) { timeline in
+            // Frame rate adapts based on playback state (see frameInterval).
+            // Paused entirely when occluded or explicitly paused.
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isPaused || !isVisible)) { timeline in
                 Canvas { context, size in
                     drawAurora(
                         context: context,
