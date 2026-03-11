@@ -101,6 +101,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // Lyrics state driven by LyricsService
     @Published public private(set) var lyricsState: LyricsState = .notAvailable
+    @Published public private(set) var lyricsSource: LyricsSource = .none
     @Published public private(set) var currentLyricsLineIndex: Int?
     // Scroll target looks ahead so lyrics anticipate the vocals
     @Published public private(set) var lyricsScrollTargetIndex: Int?
@@ -325,6 +326,11 @@ public final class NowPlayingViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Pipe lyrics source from service to view model
+        lyricsService.$currentLyricsSource
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lyricsSource)
 
         // Track active lyrics line based on playback time.
         // Uses slight anticipation so lyrics appear just before the vocal.

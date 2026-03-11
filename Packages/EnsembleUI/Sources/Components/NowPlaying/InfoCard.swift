@@ -183,8 +183,24 @@ public struct InfoCard: View {
 
             // Network type
             infoRow(label: "Network", value: formatNetworkState(deps.networkMonitor.networkState))
+
+            // Lyrics source/status
+            lyricsInfoRow
         }
         .padding(.horizontal, 40)
+    }
+
+    /// Lyrics source/status indicator with format info when available
+    private var lyricsInfoRow: some View {
+        let source = viewModel.lyricsSource
+        let detail: String
+        if case .available(let lyrics) = viewModel.lyricsState {
+            let format = lyrics.isTimed ? "Timed" : "Plain"
+            detail = "\(source.displayText) (\(format), \(lyrics.lines.count) lines)"
+        } else {
+            detail = source.displayText
+        }
+        return infoRow(label: "Lyrics", value: detail)
     }
 
     // MARK: - Helpers

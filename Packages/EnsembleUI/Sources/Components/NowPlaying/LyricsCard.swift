@@ -182,11 +182,15 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, 48)
             }
-            // Detect user manual scroll and suppress auto-scroll temporarily
+            // Detect user manual scroll and suppress auto-scroll temporarily.
+            // Only respond to vertical drags — horizontal swipes must pass through
+            // to the parent TabView for card navigation.
             .simultaneousGesture(
-                DragGesture(minimumDistance: 5)
-                    .onChanged { _ in
-                        viewModel.userDidScrollLyrics()
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        if abs(value.translation.height) > abs(value.translation.width) {
+                            viewModel.userDidScrollLyrics()
+                        }
                     }
             )
             // Scroll to active lyric — animate for natural progression, snap for seeks.

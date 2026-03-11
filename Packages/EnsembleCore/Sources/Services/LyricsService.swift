@@ -106,6 +106,48 @@ public struct ParsedLyrics: Sendable, Equatable {
     }
 }
 
+/// Describes where lyrics were sourced from or why they're unavailable.
+/// Displayed in the Info card for diagnostic purposes.
+public enum LyricsSource: Equatable, Sendable {
+    // Available sources
+    case memoryCache          // Served from in-memory session cache
+    case persistentCache      // Served from on-disk cache (survives restarts)
+    case server               // Freshly fetched from Plex server
+
+    // Unavailable reasons
+    case noApiClient          // No API client for this source (offline/unconfigured)
+    case trackMetadataFailed  // Failed to fetch track metadata from server
+    case noLyricsStream       // Track metadata has no lyrics stream (streamType=4)
+    case contentFetchFailed   // Lyrics stream exists but content fetch failed (404/timeout)
+    case parseFailed          // Content fetched but couldn't be parsed
+    case cancelled            // Fetch cancelled (track changed)
+    case none                 // Initial/cleared state
+
+    /// User-facing description for InfoCard
+    public var displayText: String {
+        switch self {
+        case .memoryCache: return "Cached (Memory)"
+        case .persistentCache: return "Cached (Disk)"
+        case .server: return "Fetched from Server"
+        case .noApiClient: return "No Server Connection"
+        case .trackMetadataFailed: return "Metadata Fetch Failed"
+        case .noLyricsStream: return "Not Available on Server"
+        case .contentFetchFailed: return "Content Fetch Failed"
+        case .parseFailed: return "Parse Error"
+        case .cancelled: return "Cancelled"
+        case .none: return "—"
+        }
+    }
+
+    /// Whether this source indicates lyrics are available
+    public var isAvailable: Bool {
+        switch self {
+        case .memoryCache, .persistentCache, .server: return true
+        default: return false
+        }
+    }
+}
+
 /// Current lyrics loading/display state
 public enum LyricsState: Equatable {
     case loading
@@ -210,6 +252,7 @@ enum LRCParser {
 @MainActor
 public final class LyricsService: ObservableObject {
     @Published public private(set) var currentLyrics: LyricsState = .notAvailable
+    @Published public private(set) var currentLyricsSource: LyricsSource = .none
 
     // In-memory cache keyed by "ratingKey:sourceCompositeKey" (max ~20 entries)
     // Only caches successful results — .notAvailable is NOT cached so retries are possible
@@ -244,19 +287,25 @@ public final class LyricsService: ObservableObject {
         // Check in-memory cache
         if let cached = cache[cacheKey] {
             currentLyrics = cached
+            currentLyricsSource = .memoryCache
             return
         }
 
         currentLyrics = .loading
+        currentLyricsSource = .none
 
         loadTask = Task { [weak self] in
             guard let self else { return }
 
-            let result = await self.fetchLyrics(for: track)
-            guard !Task.isCancelled else { return }
+            let (result, source) = await self.fetchLyrics(for: track)
+            guard !Task.isCancelled else {
+                self.currentLyricsSource = .cancelled
+                return
+            }
 
             self.setCached(result, forKey: cacheKey)
             self.currentLyrics = result
+            self.currentLyricsSource = source
         }
     }
 
@@ -264,11 +313,12 @@ public final class LyricsService: ObservableObject {
     public func clearLyrics() {
         loadTask?.cancel()
         currentLyrics = .notAvailable
+        currentLyricsSource = .none
     }
 
     // MARK: - Fetch Pipeline
 
-    private func fetchLyrics(for track: Track) async -> LyricsState {
+    private func fetchLyrics(for track: Track) async -> (LyricsState, LyricsSource) {
         #if DEBUG
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
         #endif
@@ -280,7 +330,7 @@ public final class LyricsService: ObservableObject {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: loaded from persistent cache (\(parsed.lines.count) lines)")
                 #endif
-                return .available(parsed)
+                return (.available(parsed), .persistentCache)
             }
         }
 
@@ -289,7 +339,7 @@ public final class LyricsService: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
             #endif
-            return .notAvailable
+            return (.notAvailable, .noApiClient)
         }
 
         do {
@@ -298,7 +348,7 @@ public final class LyricsService: ObservableObject {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: getTrack returned nil for \(track.id)")
                 #endif
-                return .notAvailable
+                return (.notAvailable, .trackMetadataFailed)
             }
 
             #if DEBUG
@@ -306,7 +356,7 @@ public final class LyricsService: ObservableObject {
             let lyricsStreams = plexTrack.media?.first?.part?.first?.stream?.filter { $0.streamType == 4 } ?? []
             EnsembleLogger.debug("Lyrics: track has \(streamCount) streams, \(lyricsStreams.count) lyrics streams")
             for ls in lyricsStreams {
-                EnsembleLogger.debug("Lyrics:   stream id=\(ls.id) codec=\(ls.codec ?? "nil") timed=\(ls.timed.map(String.init) ?? "nil") key=\(ls.key ?? "nil")")
+                EnsembleLogger.debug("Lyrics:   stream id=\(ls.id) codec=\(ls.codec ?? "nil") timed=\(ls.timed.map(String.init) ?? "nil") key=\(ls.key ?? "nil") provider=\(ls.provider ?? "nil")")
             }
             #endif
 
@@ -315,7 +365,7 @@ public final class LyricsService: ObservableObject {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: no lyrics stream found on track metadata")
                 #endif
-                return .notAvailable
+                return (.notAvailable, .noLyricsStream)
             }
 
             // 3. Fetch lyrics content from PMS
@@ -323,10 +373,10 @@ public final class LyricsService: ObservableObject {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey)")
                 #endif
-                return .notAvailable
+                return (.notAvailable, .contentFetchFailed)
             }
 
-            guard !Task.isCancelled else { return .notAvailable }
+            guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
 
             #if DEBUG
             let preview = String(content.prefix(300))
@@ -340,18 +390,20 @@ public final class LyricsService: ObservableObject {
             EnsembleLogger.debug("Lyrics: parsed \(parsed?.lines.count ?? 0) lines (timed=\(parsed?.isTimed ?? false))")
             #endif
 
-            guard let parsed, !parsed.lines.isEmpty else { return .notAvailable }
+            guard let parsed, !parsed.lines.isEmpty else {
+                return (.notAvailable, .parseFailed)
+            }
 
             // 5. Save to persistent cache
             saveToPersistentCache(content, for: track)
 
-            return .available(parsed)
+            return (.available(parsed), .server)
         } catch {
-            if Task.isCancelled { return .notAvailable }
+            if Task.isCancelled { return (.notAvailable, .cancelled) }
             #if DEBUG
             EnsembleLogger.debug("Lyrics: fetch failed for track \(track.id): \(error.localizedDescription)")
             #endif
-            return .notAvailable
+            return (.notAvailable, .trackMetadataFailed)
         }
     }
 
