@@ -72,11 +72,24 @@ public final class ShareService: ObservableObject {
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
         let title = formatTrackFilename(track)
 
-        // Check for existing local download
+        // Check for existing local download — create a renamed copy so the share sheet
+        // shows the human-readable filename instead of the internal storage name
         if let localPath = track.localFilePath {
             let fileURL = URL(fileURLWithPath: localPath)
             if FileManager.default.fileExists(atPath: localPath) {
-                return .file(url: fileURL, title: title)
+                let ext = fileURL.pathExtension
+                let sanitized = sanitizeFilename(title)
+                let renamedURL = Self.tempShareDirectory
+                    .appendingPathComponent(sanitized)
+                    .appendingPathExtension(ext)
+                try? FileManager.default.removeItem(at: renamedURL)
+                do {
+                    try FileManager.default.copyItem(at: fileURL, to: renamedURL)
+                    return .file(url: renamedURL, title: title)
+                } catch {
+                    // Fall back to sharing the original file directly
+                    return .file(url: fileURL, title: title)
+                }
             }
         }
 
@@ -132,11 +145,21 @@ public final class ShareService: ObservableObject {
         return "\"\(album.title)\""
     }
 
+    /// Formats a display/file name like "05. Still Feel. - half·alive"
     private func formatTrackFilename(_ track: Track) -> String {
-        if let artist = track.artistName {
-            return "\(artist) - \(track.title)"
+        var name = ""
+
+        if track.trackNumber > 0 {
+            name += String(format: "%02d. ", track.trackNumber)
         }
-        return track.title
+
+        name += track.title
+
+        if let artist = track.artistName {
+            name += " - \(artist)"
+        }
+
+        return name
     }
 
     /// Remove characters that aren't safe for filenames
