@@ -226,6 +226,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
         func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
         func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
         func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { fatalError() }
