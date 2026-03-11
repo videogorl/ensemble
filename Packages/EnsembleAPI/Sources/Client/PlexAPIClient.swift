@@ -1806,45 +1806,66 @@ public actor PlexAPIClient {
 
     /// Fetches raw lyrics content from a stream key path (e.g. `/library/streams/12345`)
     /// Returns the UTF-8 text content, or nil on 404/error
+    /// Fetch lyrics content for a given stream key.
+    /// Uses format=xml (matching Plexamp) and retries once on 404 since PMS
+    /// caches LyricFind lyrics briefly and may need a moment to re-fetch.
     public func getLyricsContent(streamKey: String) async throws -> String? {
-        do {
-            let data = try await serverRequest(path: streamKey)
+        // Plexamp fetches lyrics with format=xml; Accept: application/json from
+        // addPlexHeaders causes PMS to return JSON instead. We handle both formats.
+        let query = ["format": "xml", "includeInlineAttribution": "1"]
 
-            // Because addPlexHeaders sets Accept: application/json, Plex may wrap
-            // lyrics in a JSON MediaContainer. Try JSON extraction first.
-            if let text = Self.extractLyricsFromJSON(data) {
-                return text
+        // Attempt fetch with one retry — PMS may return 404 if its LyricFind cache
+        // expired and needs a moment to re-fetch from the provider.
+        for attempt in 1...2 {
+            do {
+                let data = try await serverRequest(path: streamKey, query: query)
+
+                // Try JSON extraction (when Accept: application/json triggers JSON response)
+                if let text = Self.extractLyricsFromJSON(data) {
+                    return text
+                }
+
+                // Try XML extraction (when format=xml is respected)
+                if let text = Self.extractLyricsFromXML(data) {
+                    return text
+                }
+
+                // Fall back to treating the response as raw text (plain LRC/TXT)
+                return String(data: data, encoding: .utf8)
+            } catch {
+                let isHTTP404 = "\(error)".contains("404")
+                if isHTTP404 && attempt == 1 {
+                    // Brief delay before retry — gives PMS time to re-fetch from LyricFind
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s
+                    continue
+                }
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics content not available at \(streamKey) (attempt \(attempt)): \(error.localizedDescription)")
+                #endif
+                return nil
             }
-
-            // Fall back to treating the response as raw text (plain LRC/TXT)
-            return String(data: data, encoding: .utf8)
-        } catch {
-            // 404 or other errors — lyrics not available
-            #if DEBUG
-            EnsembleLogger.debug("Lyrics content not available at \(streamKey): \(error.localizedDescription)")
-            #endif
-            return nil
         }
+        return nil
     }
 
+    // MARK: - Lyrics Parsing Helpers
+
     /// Extract lyrics text from a Plex JSON MediaContainer response.
-    /// Plex wraps stream content in: MediaContainer.Metadata[].Stream[].value
-    /// or MediaContainer.Lyrics[].Line[].Span[].text for structured lyrics.
+    /// PMS returns structured lyrics as MediaContainer.Lyrics[].Line[].Span[].text
     private static func extractLyricsFromJSON(_ data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let container = json["MediaContainer"] as? [String: Any] else {
             return nil
         }
 
-        // Format 1: Structured lyrics (MediaContainer.Lyrics[].Line[].Span[].text)
-        // Plex returns timed lyrics in this structured JSON format
+        // Structured lyrics: MediaContainer.Lyrics[].Line[].Span[].text with minMs timestamps
         if let lyricsArray = container["Lyrics"] as? [[String: Any]],
            let firstLyrics = lyricsArray.first,
            let lines = firstLyrics["Line"] as? [[String: Any]] {
-            return buildLRCFromStructuredLyrics(lines: lines)
+            return buildLRCFromStructuredLines(lines: lines)
         }
 
-        // Format 2: Stream value (MediaContainer.Metadata[].Stream[].value)
+        // Stream value fallback: MediaContainer.Metadata[].Stream[].value
         if let metadata = container["Metadata"] as? [[String: Any]] {
             for meta in metadata {
                 if let streams = meta["Stream"] as? [[String: Any]] {
@@ -1860,9 +1881,18 @@ public actor PlexAPIClient {
         return nil
     }
 
-    /// Build LRC text from Plex's structured lyrics JSON format.
-    /// Each Line has: minMs, span (text segments), optional timing.
-    private static func buildLRCFromStructuredLyrics(lines: [[String: Any]]) -> String {
+    /// Extract lyrics from Plex XML response (format=xml).
+    /// XML structure: <MediaContainer><Lyrics><Line minMs="..."><Span text="..."/></Line>...</Lyrics></MediaContainer>
+    private static func extractLyricsFromXML(_ data: Data) -> String? {
+        let parser = LyricsXMLParser(data: data)
+        let lines = parser.parse()
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Build LRC text from Plex's structured lyrics format.
+    /// Each Line has: minMs (milliseconds), Span (text segments).
+    private static func buildLRCFromStructuredLines(lines: [[String: Any]]) -> String {
         var lrcLines: [String] = []
 
         for line in lines {
@@ -1871,30 +1901,28 @@ public actor PlexAPIClient {
             if let spans = line["Span"] as? [[String: Any]] {
                 lineText = spans.compactMap { $0["text"] as? String }.joined()
             }
-
             guard !lineText.isEmpty else { continue }
 
             // Build timestamp if available (minMs is in milliseconds)
-            if let minMs = line["minMs"] as? Int {
-                let totalSeconds = Double(minMs) / 1000.0
-                let minutes = Int(totalSeconds) / 60
-                let seconds = Int(totalSeconds) % 60
-                let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
-                lrcLines.append(String(format: "[%02d:%02d.%02d]%@", minutes, seconds, centiseconds, lineText))
-            } else if let minMsStr = line["minMs"] as? String, let minMs = Int(minMsStr) {
-                // Handle string-typed minMs (Plex sometimes returns strings)
+            if let minMs = Self.extractInt(from: line, key: "minMs") {
                 let totalSeconds = Double(minMs) / 1000.0
                 let minutes = Int(totalSeconds) / 60
                 let seconds = Int(totalSeconds) % 60
                 let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
                 lrcLines.append(String(format: "[%02d:%02d.%02d]%@", minutes, seconds, centiseconds, lineText))
             } else {
-                // Plain text line (no timestamp)
                 lrcLines.append(lineText)
             }
         }
 
         return lrcLines.joined(separator: "\n")
+    }
+
+    /// Helper to extract an Int from a dictionary value that may be Int or String
+    private static func extractInt(from dict: [String: Any], key: String) -> Int? {
+        if let intVal = dict[key] as? Int { return intVal }
+        if let strVal = dict[key] as? String { return Int(strVal) }
+        return nil
     }
 
     // MARK: - Radio & Recommendations
@@ -2448,5 +2476,65 @@ public actor PlexAPIClient {
         request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device-Name")
         request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device")
         request.setValue("controller", forHTTPHeaderField: "X-Plex-Provides")
+    }
+}
+
+// MARK: - Lyrics XML Parser
+
+/// Parses Plex's XML lyrics response format (used when format=xml is requested).
+/// XML structure: <MediaContainer><Lyrics><Line minMs="..."><Span text="..."/></Line>...</Lyrics></MediaContainer>
+private class LyricsXMLParser: NSObject, XMLParserDelegate {
+    private let data: Data
+    private var lrcLines: [String] = []
+    private var currentMinMs: Int?
+    private var currentSpans: [String] = []
+    private var inLine = false
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    func parse() -> [String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return lrcLines
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?,
+                attributes: [String: String] = [:]) {
+        if elementName == "Line" {
+            inLine = true
+            currentSpans = []
+            if let msStr = attributes["minMs"], let ms = Int(msStr) {
+                currentMinMs = ms
+            } else {
+                currentMinMs = nil
+            }
+        } else if elementName == "Span" && inLine {
+            if let text = attributes["text"] {
+                currentSpans.append(text)
+            }
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        if elementName == "Line" && inLine {
+            inLine = false
+            let lineText = currentSpans.joined()
+            guard !lineText.isEmpty else { return }
+
+            if let minMs = currentMinMs {
+                let totalSeconds = Double(minMs) / 1000.0
+                let minutes = Int(totalSeconds) / 60
+                let seconds = Int(totalSeconds) % 60
+                let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
+                lrcLines.append(String(format: "[%02d:%02d.%02d]%@", minutes, seconds, centiseconds, lineText))
+            } else {
+                lrcLines.append(lineText)
+            }
+        }
     }
 }
