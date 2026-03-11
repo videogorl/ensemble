@@ -108,11 +108,11 @@ public struct LyricsCard: View {
                     // Intro instrumental indicator (always visible if gap exists)
                     if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
                         let isIntroActive = viewModel.currentLyricsLineIndex == nil
+                            && viewModel.instrumentalProgress != nil
                         let progress = isIntroActive ? (viewModel.instrumentalProgress ?? 0) : 1.0
                         instrumentalIndicator(progress: progress)
                             .id("intro-instrumental")
                             .onTapGesture {
-                                // Seek to start and resume if paused
                                 viewModel.seek(to: 0)
                                 resumeIfPaused()
                             }
@@ -138,7 +138,9 @@ public struct LyricsCard: View {
                         // Instrumental gap indicator as its own item (same spacing as lyrics)
                         if lyrics.isTimed,
                            viewModel.instrumentalGapAfterIndices.contains(index) {
-                            let isActiveGap = viewModel.currentLyricsLineIndex == index
+                            let isActiveGap = viewModel.instrumentalProgress != nil
+                                && viewModel.currentLyricsLineIndex == nil
+                                && isCurrentGap(afterIndex: index, lyrics: lyrics)
                             let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
                             instrumentalIndicator(progress: progress)
                                 .id("gap-\(index)")
@@ -156,7 +158,9 @@ public struct LyricsCard: View {
                     // Outro instrumental indicator (after last lyric if gap exists)
                     if lyrics.isTimed, viewModel.hasOutroInstrumentalGap {
                         let lastIndex = lyrics.lines.count - 1
-                        let isOutroActive = viewModel.currentLyricsLineIndex == lastIndex
+                        let isOutroActive = viewModel.instrumentalProgress != nil
+                            && viewModel.currentLyricsLineIndex == nil
+                            && !viewModel.hasIntroInstrumentalGap  // Not intro
                         let progress = isOutroActive ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: lastIndex) ? 1.0 : 0.0)
                         instrumentalIndicator(progress: progress)
                             .id("outro-instrumental")
@@ -168,6 +172,13 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, 48)
             }
+            // Detect user manual scroll and suppress auto-scroll temporarily
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { _ in
+                        viewModel.userDidScrollLyrics()
+                    }
+            )
             // Scroll to active lyric — animate for natural progression, snap for seeks
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
                 guard let newIndex, lyrics.isTimed else { return }
@@ -184,7 +195,7 @@ public struct LyricsCard: View {
                     // Snap immediately for seeks — prevents animation backlog
                     proxy.scrollTo(newIndex, anchor: .center)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.3)) {
+                    withAnimation(.easeOut(duration: 0.45)) {
                         proxy.scrollTo(newIndex, anchor: .center)
                     }
                 }
@@ -209,7 +220,7 @@ public struct LyricsCard: View {
             .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.25), value: isActive)
+            .animation(.easeOut(duration: 0.4), value: isActive)
     }
 
     // MARK: - Instrumental Indicator
@@ -224,7 +235,7 @@ public struct LyricsCard: View {
                 Circle()
                     .fill(Color.primary.opacity(progress >= dotThreshold ? 0.6 : 0.15))
                     .frame(width: 8, height: 8)
-                    .animation(.easeInOut(duration: 0.3), value: progress >= dotThreshold)
+                    .animation(.easeOut(duration: 0.4), value: progress >= dotThreshold)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -275,8 +286,21 @@ public struct LyricsCard: View {
 
     /// Whether a line is in the past (before the current active line)
     private func isPastLine(index: Int) -> Bool {
-        guard let activeIndex = viewModel.currentLyricsLineIndex else { return false }
+        guard let activeIndex = viewModel.currentLyricsLineIndex else {
+            // During instrumental gaps, currentLyricsLineIndex is nil.
+            // Use the scroll target as fallback to determine past/future.
+            guard let scrollTarget = viewModel.lyricsScrollTargetIndex else { return false }
+            return index < scrollTarget
+        }
         return index < activeIndex
+    }
+
+    /// Whether a gap after the given index is the currently active instrumental gap.
+    /// During gaps, currentLyricsLineIndex is nil but the scroll target tracks the
+    /// underlying active line index from the binary search.
+    private func isCurrentGap(afterIndex index: Int, lyrics: ParsedLyrics) -> Bool {
+        guard let scrollTarget = viewModel.lyricsScrollTargetIndex else { return false }
+        return scrollTarget == index
     }
 
     /// Fade mask matching QueueCard style — gradual top and bottom fades

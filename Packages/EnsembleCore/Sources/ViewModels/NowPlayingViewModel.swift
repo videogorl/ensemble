@@ -112,6 +112,9 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var hasIntroInstrumentalGap: Bool = false
     // Whether there's an instrumental gap after the last lyric (outro)
     @Published public private(set) var hasOutroInstrumentalGap: Bool = false
+    // Suppresses auto-scroll when user is manually scrolling lyrics
+    public private(set) var isUserScrollingLyrics: Bool = false
+    private var userScrollResumeTask: Task<Void, Never>?
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -308,33 +311,52 @@ public final class NowPlayingViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Track active lyrics line based on playback time.
-        // Scroll arrives slightly before highlight so the line is visible when it activates.
+        // Uses 0.5s anticipation so lyrics appear just before the vocal.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
                 guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
 
-                // Scroll leads by 0.6s so the next line is already in view
-                let scrollTime = time + 0.6
-                let scrollIndex = lyrics.activeLineIndex(at: scrollTime)
-                self.lyricsScrollTargetIndex = scrollIndex
+                let anticipatedTime = time + 0.5
+                let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
 
-                // Highlight leads by 0.3s — close to actual vocal timing
-                let highlightTime = time + 0.3
-                let activeIndex = lyrics.activeLineIndex(at: highlightTime)
-                self.currentLyricsLineIndex = activeIndex
-
-                // Instrumental progress uses highlight time for consistency
-                self.instrumentalProgress = Self.computeInstrumentalProgress(
+                // Compute instrumental progress first — determines whether a gap is active
+                let progress = Self.computeInstrumentalProgress(
                     lyrics: lyrics, activeIndex: activeIndex,
-                    currentTime: highlightTime, trackDuration: self.duration
+                    currentTime: anticipatedTime, trackDuration: self.duration
                 )
+                self.instrumentalProgress = progress
+
+                // During instrumental gaps, de-highlight the lyric line —
+                // the dots act as the "active" element instead
+                if progress != nil {
+                    self.currentLyricsLineIndex = nil
+                } else {
+                    self.currentLyricsLineIndex = activeIndex
+                }
+
+                // Only update scroll target when user isn't manually scrolling
+                if !self.isUserScrollingLyrics {
+                    self.lyricsScrollTargetIndex = activeIndex
+                }
             }
             .store(in: &cancellables)
     }
 
     // MARK: - Lyrics Helpers
+
+    /// Called by the lyrics view when user manually scrolls.
+    /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
+    public func userDidScrollLyrics() {
+        isUserScrollingLyrics = true
+        userScrollResumeTask?.cancel()
+        userScrollResumeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.isUserScrollingLyrics = false
+        }
+    }
 
     /// Minimum gap (seconds) between lyrics lines to show an instrumental indicator.
     /// Gaps shorter than this are just natural pauses between vocal phrases.
