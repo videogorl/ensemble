@@ -93,6 +93,14 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 120)
 
+                    // Intro instrumental indicator (before first lyric)
+                    if lyrics.isTimed,
+                       viewModel.currentLyricsLineIndex == nil,
+                       let progress = viewModel.instrumentalProgress {
+                        instrumentalIndicator(progress: progress)
+                            .id("intro-instrumental")
+                    }
+
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
                         VStack(spacing: 8) {
                             lyricsLineView(
@@ -147,9 +155,10 @@ public struct LyricsCard: View {
     ) -> some View {
         Text(line.text)
             .font(.title3)
-            .fontWeight(isActive ? .semibold : .regular)
+            .fontWeight(.medium)
             .foregroundColor(.primary)
             .opacity(lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast))
+            .scaleEffect(isActive && isTimed ? 1.02 : 1.0, anchor: .leading)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeInOut(duration: 0.2), value: isActive)
