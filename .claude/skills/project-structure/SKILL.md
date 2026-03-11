@@ -151,6 +151,8 @@ Sources/
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
 |   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
 |   +-- AudioAnalyzer.swift            # Pre-computed frequency analysis (FrequencyTimeline, FrequencyAnalysisService, FrequencyTimelinePersistence)
+|   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
+|   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
@@ -184,6 +186,8 @@ Tests/
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
 +-- SiriPlaybackCoordinatorTests.swift # In-app Siri playback execution coverage
++-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
++-- ShareServiceTests.swift            # Share payload assembly + file detection tests
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -225,6 +229,8 @@ Sources/
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
 |   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
+|   +-- ShareSheet.swift              # iOS 15-compatible UIActivityViewController / NSSharingServicePicker wrapper
+|   +-- ShareActions.swift            # Static helpers bridging ShareService payloads to share sheet presentation
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
 |   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
