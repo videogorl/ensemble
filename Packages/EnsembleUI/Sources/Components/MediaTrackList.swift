@@ -1075,8 +1075,21 @@ public struct MediaTrackList: UIViewRepresentable {
                     if let topVC = navController.topViewController {
                         topVC.navigationItem.searchController = sc
                         topVC.navigationItem.hidesSearchBarWhenScrolling = true
+                        topVC.definesPresentationContext = true
                     }
                     searchController = sc
+
+                    // The search controller is attached after the view is visible,
+                    // so UIKit doesn't auto-hide it. Scroll past the search bar on
+                    // the next layout pass so it starts hidden (pull down to reveal).
+                    if let tableView = view as? UITableView {
+                        DispatchQueue.main.async {
+                            let searchBarHeight = sc.searchBar.frame.height
+                            if searchBarHeight > 0 && tableView.contentOffset.y < searchBarHeight {
+                                tableView.contentOffset.y = searchBarHeight
+                            }
+                        }
+                    }
                     return
                 }
                 responder = next
