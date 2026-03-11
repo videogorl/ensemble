@@ -487,7 +487,6 @@ private struct VerticalDragDetector: UIViewRepresentable {
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onVerticalDrag: () -> Void
         private var verticalDetector: UIPanGestureRecognizer?
-        private var horizontalBlocker: UIPanGestureRecognizer?
 
         init(onVerticalDrag: @escaping () -> Void) {
             self.onVerticalDrag = onVerticalDrag
@@ -495,67 +494,62 @@ private struct VerticalDragDetector: UIViewRepresentable {
 
         func attachIfNeeded(from view: UIView?) {
             guard verticalDetector == nil, let view else { return }
-            // Walk up to find the SwiftUI ScrollView's underlying UIScrollView
+
+            // Walk up to find the lyrics UIScrollView, then continue to find
+            // the TabView's paging UIScrollView above it.
+            var lyricsScrollView: UIScrollView?
+            var pagingScrollView: UIScrollView?
             var current: UIView? = view
             while let v = current {
-                if let scrollView = v as? UIScrollView {
-                    // 1. Vertical drag detector — fires callback for auto-scroll suppression
-                    let vertical = UIPanGestureRecognizer(
-                        target: self,
-                        action: #selector(handleVerticalPan(_:))
-                    )
-                    vertical.delegate = self
-                    vertical.name = "lyrics-vertical-detector"
-                    scrollView.addGestureRecognizer(vertical)
-                    verticalDetector = vertical
-
-                    // 2. Horizontal blocker — recognizes horizontal swipes, which blocks
-                    // the ScrollView's built-in pan (via require(toFail:)) so the touch
-                    // propagates up to the parent TabView for card navigation.
-                    let horizontal = UIPanGestureRecognizer(
-                        target: self,
-                        action: #selector(handleHorizontalPan(_:))
-                    )
-                    horizontal.delegate = self
-                    horizontal.name = "lyrics-horizontal-blocker"
-                    scrollView.addGestureRecognizer(horizontal)
-                    horizontalBlocker = horizontal
-
-                    // Make the ScrollView's own pan wait for horizontal blocker to fail.
-                    // Horizontal swipe → blocker recognizes → ScrollView pan never starts → TabView gets it.
-                    // Vertical swipe → blocker fails → ScrollView pan starts normally.
-                    scrollView.panGestureRecognizer.require(toFail: horizontal)
-
-                    return
+                if let sv = v as? UIScrollView {
+                    if lyricsScrollView == nil {
+                        // First UIScrollView found = lyrics vertical scroll
+                        lyricsScrollView = sv
+                    } else if sv.isPagingEnabled {
+                        // Paging UIScrollView = TabView's horizontal page container
+                        pagingScrollView = sv
+                        break
+                    }
                 }
                 current = v.superview
+            }
+
+            guard let lyricsScrollView else { return }
+
+            // Vertical drag detector — fires callback for auto-scroll suppression.
+            // Only recognizes vertical pans so it doesn't interfere with page swiping.
+            let vertical = UIPanGestureRecognizer(
+                target: self,
+                action: #selector(handleVerticalPan(_:))
+            )
+            vertical.delegate = self
+            vertical.name = "lyrics-vertical-detector"
+            lyricsScrollView.addGestureRecognizer(vertical)
+            verticalDetector = vertical
+
+            // Make the TabView's paging pan wait for our vertical detector to fail.
+            // Vertical swipe → detector recognizes → TabView pan blocked → lyrics scroll works.
+            // Horizontal swipe → detector fails → TabView pan starts → page swipe works.
+            if let pagingScrollView {
+                pagingScrollView.panGestureRecognizer.require(toFail: vertical)
             }
         }
 
         @objc func handleVerticalPan(_ gesture: UIPanGestureRecognizer) {
-            if gesture.state == .began || gesture.state == .changed {
+            if gesture.state == .began {
                 onVerticalDrag()
             }
         }
 
-        // Horizontal blocker action — does nothing, its purpose is just to
-        // "claim" horizontal gestures so the ScrollView's pan doesn't start.
-        @objc func handleHorizontalPan(_ gesture: UIPanGestureRecognizer) {}
-
+        // Only begin for predominantly vertical pans — lets horizontal swipes
+        // fall through to the TabView page gesture.
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
             let velocity = pan.velocity(in: pan.view)
-
-            if gestureRecognizer === horizontalBlocker {
-                // Only begin for predominantly horizontal pans
-                return abs(velocity.x) > abs(velocity.y)
-            } else {
-                // Vertical detector: only begin for predominantly vertical pans
-                return abs(velocity.y) > abs(velocity.x)
-            }
+            return abs(velocity.y) > abs(velocity.x)
         }
 
-        // Allow both our gestures to run alongside the ScrollView's built-in pan
+        // Allow simultaneous recognition with the ScrollView's built-in pan
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

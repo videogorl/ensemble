@@ -113,8 +113,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var hasIntroInstrumentalGap: Bool = false
     // Whether there's an instrumental gap after the last lyric (outro)
     @Published public private(set) var hasOutroInstrumentalGap: Bool = false
-    // Suppresses auto-scroll when user is manually scrolling lyrics
-    public private(set) var isUserScrollingLyrics: Bool = false
+    // Suppresses auto-scroll and disables blur when user is manually scrolling lyrics
+    @Published public private(set) var isUserScrollingLyrics: Bool = false
     private var userScrollResumeTask: Task<Void, Never>?
 
     private let playbackService: PlaybackServiceProtocol
@@ -397,7 +397,11 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Called by the lyrics view when user manually scrolls.
     /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
     public func userDidScrollLyrics() {
-        isUserScrollingLyrics = true
+        // Only fire @Published change when transitioning from false → true
+        if !isUserScrollingLyrics {
+            isUserScrollingLyrics = true
+        }
+        // Always reset the 5s resume timer
         userScrollResumeTask?.cancel()
         userScrollResumeTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
