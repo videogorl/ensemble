@@ -36,6 +36,8 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 
 When a problem is mentioned, **interview the user first** to help hone in on where the problem is originating from -- don't jump straight to code changes. Ask clarifying questions about when it happens, what they see, and what they expect.
 
+**Never assume something was already broken.** When the user reports a symptom, treat it as a real regression until proven otherwise. If you're unsure whether an issue is pre-existing or caused by your changes, **ask** — don't silently dismiss it or claim it was broken before. Similarly, when the user provides a log or screenshot, assume they're running the correct build unless they say otherwise.
+
 When investigating, add logs to the appropriate files so debugging can be more efficient. Remove or reduce log verbosity once the issue is resolved.
 
 ### Plex Streaming Issues — MUST READ

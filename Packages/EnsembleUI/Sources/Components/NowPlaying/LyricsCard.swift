@@ -379,7 +379,8 @@ public struct LyricsCard: View {
     /// Lines close to the active line are sharp; distant lines blur progressively.
     /// Disabled for plain text lyrics and in Low Power Mode.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, !isLowPowerMode else { return 0 }
+        // No blur for plain text, Low Power Mode, or when user is manually scrolling
+        guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = viewModel.currentLyricsLineIndex
@@ -486,6 +487,9 @@ private struct VerticalDragDetector: UIViewRepresentable {
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onVerticalDrag: () -> Void
         private var gestureRecognizer: UIPanGestureRecognizer?
+        /// Holds a strong reference to the delegate wrapper that restricts
+        /// the ScrollView's built-in pan gesture to vertical-only.
+        private var scrollViewPanDelegate: ScrollViewPanDelegateProxy?
 
         init(onVerticalDrag: @escaping () -> Void) {
             self.onVerticalDrag = onVerticalDrag
@@ -497,6 +501,7 @@ private struct VerticalDragDetector: UIViewRepresentable {
             var current: UIView? = view
             while let v = current {
                 if let scrollView = v as? UIScrollView {
+                    // Add our vertical-only drag detector
                     let pan = UIPanGestureRecognizer(
                         target: self,
                         action: #selector(handlePan(_:))
@@ -504,6 +509,15 @@ private struct VerticalDragDetector: UIViewRepresentable {
                     pan.delegate = self
                     scrollView.addGestureRecognizer(pan)
                     gestureRecognizer = pan
+
+                    // Restrict the ScrollView's own pan gesture to vertical-only
+                    // so horizontal swipes pass through to the parent TabView
+                    let proxy = ScrollViewPanDelegateProxy(
+                        originalDelegate: scrollView.panGestureRecognizer.delegate
+                    )
+                    scrollView.panGestureRecognizer.delegate = proxy
+                    scrollViewPanDelegate = proxy
+
                     return
                 }
                 current = v.superview
@@ -530,6 +544,60 @@ private struct VerticalDragDetector: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             return true
+        }
+    }
+
+    /// Proxy delegate for the ScrollView's built-in panGestureRecognizer.
+    /// Restricts it to vertical-only pans so horizontal swipes propagate up
+    /// to the parent TabView for card navigation.
+    class ScrollViewPanDelegateProxy: NSObject, UIGestureRecognizerDelegate {
+        weak var originalDelegate: UIGestureRecognizerDelegate?
+
+        init(originalDelegate: UIGestureRecognizerDelegate?) {
+            self.originalDelegate = originalDelegate
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            // Restrict the ScrollView's pan to vertical-only
+            if let pan = gestureRecognizer as? UIPanGestureRecognizer {
+                let velocity = pan.velocity(in: pan.view)
+                if abs(velocity.x) > abs(velocity.y) {
+                    // Horizontal swipe — don't let ScrollView claim it
+                    return false
+                }
+            }
+            // Forward to original delegate for all other checks
+            return originalDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) ?? true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            return originalDelegate?.gestureRecognizer?(
+                gestureRecognizer,
+                shouldRecognizeSimultaneouslyWith: otherGestureRecognizer
+            ) ?? false
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            return originalDelegate?.gestureRecognizer?(
+                gestureRecognizer,
+                shouldRequireFailureOf: otherGestureRecognizer
+            ) ?? false
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            return originalDelegate?.gestureRecognizer?(
+                gestureRecognizer,
+                shouldBeRequiredToFailBy: otherGestureRecognizer
+            ) ?? false
         }
     }
 }
