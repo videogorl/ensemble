@@ -244,6 +244,11 @@ public final class LyricsService: ObservableObject {
 
             guard !Task.isCancelled else { return .notAvailable }
 
+            #if DEBUG
+            let preview = String(content.prefix(300))
+            EnsembleLogger.debug("Lyrics: content preview (\(content.count) chars): \(preview)")
+            #endif
+
             // 4. Parse based on codec/format
             let parsed: ParsedLyrics
             if lyricsStream.codec == "lrc" || lyricsStream.timed == 1 {

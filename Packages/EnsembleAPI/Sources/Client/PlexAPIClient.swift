@@ -1809,6 +1809,14 @@ public actor PlexAPIClient {
     public func getLyricsContent(streamKey: String) async throws -> String? {
         do {
             let data = try await serverRequest(path: streamKey)
+
+            // Because addPlexHeaders sets Accept: application/json, Plex may wrap
+            // lyrics in a JSON MediaContainer. Try JSON extraction first.
+            if let text = Self.extractLyricsFromJSON(data) {
+                return text
+            }
+
+            // Fall back to treating the response as raw text (plain LRC/TXT)
             return String(data: data, encoding: .utf8)
         } catch {
             // 404 or other errors — lyrics not available
@@ -1817,6 +1825,76 @@ public actor PlexAPIClient {
             #endif
             return nil
         }
+    }
+
+    /// Extract lyrics text from a Plex JSON MediaContainer response.
+    /// Plex wraps stream content in: MediaContainer.Metadata[].Stream[].value
+    /// or MediaContainer.Lyrics[].Line[].Span[].text for structured lyrics.
+    private static func extractLyricsFromJSON(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let container = json["MediaContainer"] as? [String: Any] else {
+            return nil
+        }
+
+        // Format 1: Structured lyrics (MediaContainer.Lyrics[].Line[].Span[].text)
+        // Plex returns timed lyrics in this structured JSON format
+        if let lyricsArray = container["Lyrics"] as? [[String: Any]],
+           let firstLyrics = lyricsArray.first,
+           let lines = firstLyrics["Line"] as? [[String: Any]] {
+            return buildLRCFromStructuredLyrics(lines: lines)
+        }
+
+        // Format 2: Stream value (MediaContainer.Metadata[].Stream[].value)
+        if let metadata = container["Metadata"] as? [[String: Any]] {
+            for meta in metadata {
+                if let streams = meta["Stream"] as? [[String: Any]] {
+                    for stream in streams {
+                        if let value = stream["value"] as? String, !value.isEmpty {
+                            return value
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Build LRC text from Plex's structured lyrics JSON format.
+    /// Each Line has: minMs, span (text segments), optional timing.
+    private static func buildLRCFromStructuredLyrics(lines: [[String: Any]]) -> String {
+        var lrcLines: [String] = []
+
+        for line in lines {
+            // Get the text from Span array
+            var lineText = ""
+            if let spans = line["Span"] as? [[String: Any]] {
+                lineText = spans.compactMap { $0["text"] as? String }.joined()
+            }
+
+            guard !lineText.isEmpty else { continue }
+
+            // Build timestamp if available (minMs is in milliseconds)
+            if let minMs = line["minMs"] as? Int {
+                let totalSeconds = Double(minMs) / 1000.0
+                let minutes = Int(totalSeconds) / 60
+                let seconds = Int(totalSeconds) % 60
+                let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
+                lrcLines.append(String(format: "[%02d:%02d.%02d]%@", minutes, seconds, centiseconds, lineText))
+            } else if let minMsStr = line["minMs"] as? String, let minMs = Int(minMsStr) {
+                // Handle string-typed minMs (Plex sometimes returns strings)
+                let totalSeconds = Double(minMs) / 1000.0
+                let minutes = Int(totalSeconds) / 60
+                let seconds = Int(totalSeconds) % 60
+                let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
+                lrcLines.append(String(format: "[%02d:%02d.%02d]%@", minutes, seconds, centiseconds, lineText))
+            } else {
+                // Plain text line (no timestamp)
+                lrcLines.append(lineText)
+            }
+        }
+
+        return lrcLines.joined(separator: "\n")
     }
 
     // MARK: - Radio & Recommendations
