@@ -232,7 +232,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var contentWithOptionalFilter: some View {
         if showFilter {
             baseContent
-                .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
                 .sheet(isPresented: $showFilterSheet) {
                     FilterSheet(filterOptions: $viewModel.filterOptions)
                 }
@@ -856,6 +855,29 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         VStack(spacing: 0) {
             headerView
             actionButtons
+
+            // Inline search field for filterable views (playlists, artists).
+            // Embedded in the table header so it scrolls naturally with content,
+            // matching the Apple Music playlist pattern.
+            if showFilter {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("Search tracks", text: $viewModel.filterOptions.searchText)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                }
+                .padding(8)
+                #if os(iOS)
+                .background(Color(.systemGray6))
+                #else
+                .background(Color(.controlBackgroundColor))
+                #endif
+                .cornerRadius(10)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+            }
 
             if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                 ProgressView()
