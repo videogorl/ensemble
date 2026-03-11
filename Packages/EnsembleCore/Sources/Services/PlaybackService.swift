@@ -1999,11 +1999,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         player?.play()
         playbackState = .playing
         updateNowPlayingInfo()
-        
+
         // Check queue population on resume
         Task {
             await checkAndRefreshAutoplayQueue()
         }
+
+        // Prefetch upcoming tracks for gapless playback. This is especially
+        // important after state restoration, which defers prefetch until play.
+        Task { await prefetchNextItem() }
 
         // Report playing state to Plex
         if let track = currentTrack {
@@ -5134,8 +5138,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             audioAnalyzer.activateTimeline(for: track.id)
 
-            // Prefetch next items too
-            Task { await prefetchNextItem() }
+            // Don't prefetch upcoming tracks during restore — the user hasn't
+            // pressed play yet and may not. Prefetch happens on resume() instead,
+            // avoiding ~10MB of unnecessary network + 4s of FFT analysis per launch.
 
             #if DEBUG
             EnsembleLogger.debug("🔄 Pre-buffer complete for \(track.title)")
