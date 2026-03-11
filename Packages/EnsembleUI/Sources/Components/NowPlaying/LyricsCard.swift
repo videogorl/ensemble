@@ -181,24 +181,35 @@ public struct LyricsCard: View {
                         viewModel.userDidScrollLyrics()
                     }
             )
-            // Scroll to active lyric — animate for natural progression, snap for seeks
+            // Scroll to active lyric — animate for natural progression, snap for seeks.
+            // nil target means "before first lyric" — scroll to top (index 0 or intro).
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
-                guard let newIndex, lyrics.isTimed else { return }
+                guard lyrics.isTimed else { return }
+
+                // Determine scroll destination: active line, or first line if before lyrics
+                let scrollTarget: AnyHashable
+                if let newIndex {
+                    scrollTarget = newIndex
+                } else if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
+                    scrollTarget = "intro-instrumental"
+                } else {
+                    scrollTarget = 0 // First lyric line
+                }
 
                 let isLargeJump: Bool
-                if let last = lastScrollIndex {
+                if let newIndex, let last = lastScrollIndex {
                     isLargeJump = abs(newIndex - last) > 2
                 } else {
-                    isLargeJump = true // First scroll — snap without animation
+                    isLargeJump = true // First scroll or nil target — snap without animation
                 }
                 lastScrollIndex = newIndex
 
                 if isLargeJump {
                     // Snap immediately for seeks — prevents animation backlog
-                    proxy.scrollTo(newIndex, anchor: .center)
+                    proxy.scrollTo(scrollTarget, anchor: .center)
                 } else {
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(newIndex, anchor: .center)
+                        proxy.scrollTo(scrollTarget, anchor: .center)
                     }
                 }
             }

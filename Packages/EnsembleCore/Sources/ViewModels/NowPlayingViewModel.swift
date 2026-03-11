@@ -307,28 +307,16 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.computeInstrumentalGapPositions(lyrics: lyrics)
 
                     // If we're already mid-track (e.g. app restored from background),
-                    // immediately compute the active line so lyrics start at the right position
-                    let currentTime = self.playbackService.currentTimeValue
-                    if currentTime > 1.0, lyrics.isTimed {
-                        let anticipatedTime = currentTime + 0.5
-                        let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
-                        let progress = Self.computeInstrumentalProgress(
-                            lyrics: lyrics, activeIndex: activeIndex,
-                            currentTime: anticipatedTime, trackDuration: self.duration
-                        )
-                        self.instrumentalProgress = progress
-                        let elapsedSinceLine: TimeInterval
-                        if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
-                            elapsedSinceLine = anticipatedTime - ts
-                        } else {
-                            elapsedSinceLine = 0
+                    // immediately compute the active line so lyrics start at the right position.
+                    // Uses a short delay to let the player report real time after startup.
+                    if lyrics.isTimed {
+                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        // Retry shortly after in case the player hasn't reported real time yet
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            guard let self, case .available(let lyrics) = self.lyricsState else { return }
+                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
                         }
-                        if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
-                            self.currentLyricsLineIndex = nil
-                        } else {
-                            self.currentLyricsLineIndex = activeIndex
-                        }
-                        self.lyricsScrollTargetIndex = activeIndex
                     }
                 } else {
                     self.instrumentalGapAfterIndices = []
@@ -339,47 +327,55 @@ public final class NowPlayingViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Track active lyrics line based on playback time.
-        // Uses 0.5s anticipation so lyrics appear just before the vocal.
+        // Uses slight anticipation so lyrics appear just before the vocal.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }
                 guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
-
-                let anticipatedTime = time + 0.5
-                let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
-
-                // Compute instrumental progress first — determines whether a gap is active
-                let progress = Self.computeInstrumentalProgress(
-                    lyrics: lyrics, activeIndex: activeIndex,
-                    currentTime: anticipatedTime, trackDuration: self.duration
-                )
-                self.instrumentalProgress = progress
-
-                // Keep the lyric line highlighted for its typical vocal duration
-                // (median inter-line interval for this song), then de-highlight
-                // and let the dots take over as the "active" element
-                let elapsedSinceLine: TimeInterval
-                if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
-                    elapsedSinceLine = anticipatedTime - ts
-                } else {
-                    elapsedSinceLine = 0
-                }
-                if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
-                    self.currentLyricsLineIndex = nil
-                } else {
-                    self.currentLyricsLineIndex = activeIndex
-                }
-
-                // Only update scroll target when user isn't manually scrolling
-                if !self.isUserScrollingLyrics {
-                    self.lyricsScrollTargetIndex = activeIndex
-                }
+                self.applyLyricsPosition(lyrics: lyrics, time: time)
             }
             .store(in: &cancellables)
     }
 
     // MARK: - Lyrics Helpers
+
+    /// Anticipation offset (seconds) — lyrics scroll/highlight slightly before the vocal.
+    /// Kept small (0.15s) so it feels natural without being noticeably ahead during seeks.
+    private static let lyricsAnticipation: TimeInterval = 0.15
+
+    /// Core lyrics position computation. Shared between the periodic time subscriber
+    /// and mid-track restore. Determines highlight, scroll target, and instrumental progress.
+    private func applyLyricsPosition(lyrics: ParsedLyrics, time: TimeInterval) {
+        let anticipatedTime = time + Self.lyricsAnticipation
+        let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
+
+        // Compute instrumental progress — determines whether a gap is active
+        let progress = Self.computeInstrumentalProgress(
+            lyrics: lyrics, activeIndex: activeIndex,
+            currentTime: anticipatedTime, trackDuration: self.duration
+        )
+        self.instrumentalProgress = progress
+
+        // Keep the lyric line highlighted for its typical vocal duration,
+        // then de-highlight and let the dots take over as the "active" element
+        let elapsedSinceLine: TimeInterval
+        if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
+            elapsedSinceLine = anticipatedTime - ts
+        } else {
+            elapsedSinceLine = 0
+        }
+        if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
+            self.currentLyricsLineIndex = nil
+        } else {
+            self.currentLyricsLineIndex = activeIndex
+        }
+
+        // Update scroll target (nil means "scroll to top" for before-first-lyric)
+        if !self.isUserScrollingLyrics {
+            self.lyricsScrollTargetIndex = activeIndex
+        }
+    }
 
     /// Called by the lyrics view when user manually scrolls.
     /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
