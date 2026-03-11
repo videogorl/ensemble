@@ -189,6 +189,22 @@ public struct TrackRow: View {
                 }
             }
         }
+        #if os(iOS)
+        // Drag and drop for downloaded tracks on iPad (Split View / Stage Manager)
+        .if(track.localFilePath != nil) { view in
+            view.onDrag {
+                guard let path = track.localFilePath else { return NSItemProvider() }
+                let fileURL = URL(fileURLWithPath: path)
+                let provider = NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+                if let artist = track.artistName {
+                    provider.suggestedName = "\(artist) - \(track.title)"
+                } else {
+                    provider.suggestedName = track.title
+                }
+                return provider
+            }
+        }
+        #endif
     }
 
     /// Whether this track is currently queued or actively downloading.

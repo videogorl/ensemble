@@ -364,6 +364,10 @@ public struct MediaTrackList: UIViewRepresentable {
         // so the content height is exactly N × rowHeight with no leading offset.
         tableView.sectionHeaderTopPadding = 0
 
+        // Enable drag-and-drop for downloaded tracks on iPad
+        tableView.dragDelegate = context.coordinator
+        tableView.dragInteractionEnabled = true
+
         return tableView
     }
     
@@ -482,7 +486,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
         var tracks: [Track]
         var groupedTracks: [(disc: Int?, tracks: [Track])]
         var showArtwork: Bool
@@ -734,6 +738,25 @@ public struct MediaTrackList: UIViewRepresentable {
                 return UIMenu(children: children)
             }
         }
+
+        // MARK: - Drag Delegate (iPad drag-and-drop for downloaded tracks)
+
+        public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+            let track = groupedTracks[indexPath.section].tracks[indexPath.row]
+            guard let path = track.localFilePath else { return [] }
+            let fileURL = URL(fileURLWithPath: path)
+            guard let provider = NSItemProvider(contentsOf: fileURL) else { return [] }
+            if let artist = track.artistName {
+                provider.suggestedName = "\(artist) - \(track.title)"
+            } else {
+                provider.suggestedName = track.title
+            }
+            let dragItem = UIDragItem(itemProvider: provider)
+            dragItem.localObject = track
+            return [dragItem]
+        }
+
+        // MARK: - Swipe Actions
 
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
