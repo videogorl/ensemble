@@ -142,6 +142,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Minor visual delay; playback itself is unaffected since the visualizer is fully decoupled from the audio pipeline.
 - **Mitigation:** Offline downloads generate `.freq` sidecars immediately after download, so cached tracks have instant visualizer data.
 
+### Low Power Mode Awareness
+- **Resolved (March 11, 2026)**
+- **Feature:** `PowerStateMonitor` (@MainActor ObservableObject) observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`.
+- **GPU throttling:** Aurora visualizer drops to 1 glow pass at 15fps (from 3 at 30fps) when LPM active. LyricsCard disables progressive blur (returns 0 for all lines).
+- **Network throttling:** Downloads are auto-paused on LPM activation and auto-resumed on deactivation via `DependencyContainer` wiring.
+- **Key files:** `PowerStateMonitor.swift`, `AuroraVisualizationView.swift`, `LyricsCard.swift`, `DependencyContainer.swift`, `MainTabView.swift`
+
 ### Aurora Visualizer Optimized to 30fps + 3 Passes
 - **Resolved (March 11, 2026)**
 - **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet.
