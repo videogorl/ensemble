@@ -486,6 +486,48 @@ Two sync modes to balance freshness and speed:
 - **Pull-to-refresh:** library views call incremental sync; `HomeView` refreshes hubs only
 - **Key filtered fetch methods** in `PlexAPIClient`: `getArtists(sectionKey:addedAfter:)`, `getAlbums(sectionKey:addedAfter:)`, `getTracks(sectionKey:addedAfter:)`
 
+## Subsystem: Live Lyrics
+
+Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics Card:
+
+1. **LRCParser** (`EnsembleCore`, static) -- Parses LRC-format lyrics files into `LyricsLine` structs (timestamp + text). Also handles plain-text (unsynced) lyrics as a single block. Resides inside `LyricsService.swift`.
+
+2. **LyricsService** (`EnsembleCore`, @MainActor ObservableObject) -- Orchestrates the full fetch pipeline for the current track:
+   - **Cache check:** In-memory cache keyed by `ratingKey:sourceCompositeKey` (max ~20 entries, LRU eviction). Avoids redundant API calls on track revisit.
+   - **Sidecar check:** Reads `.lrc` sidecar file alongside the audio download for offline lyrics (no network required).
+   - **API fetch:** Calls `SyncCoordinator.apiClient(for:)` → `PlexAPIClient.getLyricsContent(streamKey:)` to fetch raw LRC text from `/library/streams/{streamKey}`.
+   - Publishes `@Published lyricsState: LyricsState` (`.loading`, `.notAvailable`, `.available(ParsedLyrics)`).
+
+3. **Models** -- `LyricsLine` (timestamp + text), `ParsedLyrics` (array of lines + synced flag), `LyricsState` (loading/notAvailable/available).
+
+4. **NowPlayingViewModel Integration** -- Subscribes to `LyricsService.lyricsState` and `PlaybackService.currentTimePublisher`. Uses binary search on the lines array to publish `@Published currentLyricsLineIndex: Int?` for the active line.
+
+5. **LyricsCard** (`EnsembleUI`) -- Displays one of three states:
+   - **Loading:** progress spinner
+   - **Not available:** centered "No Lyrics" message
+   - **Available:** scrollable karaoke-style list where the active line is highlighted and auto-scrolled into center; past/future lines are dimmed
+
+6. **Offline Sidecar** -- `OfflineDownloadService` generates a `.lrc` sidecar after downloading a track (if the track has a lyrics stream). `DownloadManager` cleans up `.lrc` sidecars when downloads are removed.
+
+7. **API Accessor** -- `SyncCoordinator.apiClient(for:)` exposes the underlying `PlexAPIClient` for a given source, used by `LyricsService` to make direct lyrics content requests. `PlexMusicSourceSyncProvider.exposedAPIClient` provides the underlying client.
+
+8. **PlexModels Extension** -- `PlexStream` gained lyrics fields (`format`, `key`, `streamKey`). `PlexTrack.lyricsStream` returns the first stream with `streamType == 4`.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/LyricsService.swift` - LRCParser, models, LyricsService
+- `Packages/EnsembleCore/Tests/LyricsServiceTests.swift` - LRC parser tests
+- `Packages/EnsembleAPI/Sources/Models/PlexModels.swift` - PlexStream lyrics fields, PlexTrack.lyricsStream
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - getLyricsContent(streamKey:)
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires LyricsService
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - lyricsState, currentLyricsLineIndex
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - apiClient(for:) accessor
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - exposedAPIClient
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - .lrc sidecar generation
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
+
+**Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
+
 ## Multi-Source Architecture
 
 When adding new music sources:

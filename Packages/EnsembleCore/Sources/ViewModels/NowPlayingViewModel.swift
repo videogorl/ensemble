@@ -99,6 +99,24 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
 
+    // Lyrics state driven by LyricsService
+    @Published public private(set) var lyricsState: LyricsState = .notAvailable
+    @Published public private(set) var lyricsSource: LyricsSource = .none
+    @Published public private(set) var currentLyricsLineIndex: Int?
+    // Scroll target looks ahead so lyrics anticipate the vocals
+    @Published public private(set) var lyricsScrollTargetIndex: Int?
+    // Progress through an instrumental gap (0.0 to 1.0), nil when not in a gap
+    @Published public private(set) var instrumentalProgress: Double?
+    // Pre-computed set of line indices that have an instrumental gap AFTER them
+    @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
+    // Whether there's an instrumental gap before the first lyric
+    @Published public private(set) var hasIntroInstrumentalGap: Bool = false
+    // Whether there's an instrumental gap after the last lyric (outro)
+    @Published public private(set) var hasOutroInstrumentalGap: Bool = false
+    // Suppresses auto-scroll when user is manually scrolling lyrics
+    public private(set) var isUserScrollingLyrics: Bool = false
+    private var userScrollResumeTask: Task<Void, Never>?
+
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
@@ -106,12 +124,13 @@ public final class NowPlayingViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
     private let trackAvailabilityResolver: TrackAvailabilityResolver
+    private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
-    
+
     // Artwork loading state
     private var artworkLoadTask: Task<Void, Never>?
     private var currentLoadTrackID: String?
-    
+
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
@@ -125,7 +144,8 @@ public final class NowPlayingViewModel: ObservableObject {
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
-        trackAvailabilityResolver: TrackAvailabilityResolver
+        trackAvailabilityResolver: TrackAvailabilityResolver,
+        lyricsService: LyricsService
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
@@ -134,6 +154,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
         self.trackAvailabilityResolver = trackAvailabilityResolver
+        self.lyricsService = lyricsService
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -252,6 +273,217 @@ public final class NowPlayingViewModel: ObservableObject {
         trackAvailabilityResolver.$availabilityGeneration
             .receive(on: DispatchQueue.main)
             .assign(to: &$availabilityGeneration)
+
+        // Load lyrics when track changes
+        $currentTrack
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self else { return }
+                if let track {
+                    self.lyricsService.loadLyrics(for: track)
+                } else {
+                    self.lyricsService.clearLyrics()
+                    self.currentLyricsLineIndex = nil
+                    self.lyricsScrollTargetIndex = nil
+                    self.instrumentalProgress = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        // Pipe lyrics state from service to view model
+        lyricsService.$currentLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                self.lyricsState = state
+                // Reset line index when lyrics change
+                self.currentLyricsLineIndex = nil
+                self.lyricsScrollTargetIndex = nil
+                self.instrumentalProgress = nil
+                // Pre-compute gap positions for persistent instrumental indicators
+                if case .available(let lyrics) = state {
+                    #if DEBUG
+                    EnsembleLogger.debug("Lyrics: typicalVocalDuration=\(String(format: "%.2f", lyrics.typicalVocalDuration))s, instrumentalGapThreshold=\(String(format: "%.1f", lyrics.instrumentalGapThreshold))s")
+                    #endif
+                    self.computeInstrumentalGapPositions(lyrics: lyrics)
+
+                    // If we're already mid-track (e.g. app restored from background),
+                    // immediately compute the active line so lyrics start at the right position.
+                    // Uses a short delay to let the player report real time after startup.
+                    if lyrics.isTimed {
+                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        // Retry shortly after in case the player hasn't reported real time yet
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            guard let self, case .available(let lyrics) = self.lyricsState else { return }
+                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        }
+                    }
+                } else {
+                    self.instrumentalGapAfterIndices = []
+                    self.hasIntroInstrumentalGap = false
+                    self.hasOutroInstrumentalGap = false
+                }
+            }
+            .store(in: &cancellables)
+
+        // Pipe lyrics source from service to view model
+        lyricsService.$currentLyricsSource
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lyricsSource)
+
+        // Track active lyrics line based on playback time.
+        // Uses slight anticipation so lyrics appear just before the vocal.
+        playbackService.currentTimePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                guard let self else { return }
+                guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
+                self.applyLyricsPosition(lyrics: lyrics, time: time)
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Lyrics Helpers
+
+    /// Anticipation offset (seconds) — lyrics scroll/highlight slightly before the vocal.
+    /// Kept small (0.15s) so it feels natural without being noticeably ahead during seeks.
+    private static let lyricsAnticipation: TimeInterval = 0.15
+
+    /// Core lyrics position computation. Shared between the periodic time subscriber
+    /// and mid-track restore. Determines highlight, scroll target, and instrumental progress.
+    private func applyLyricsPosition(lyrics: ParsedLyrics, time: TimeInterval) {
+        let anticipatedTime = time + Self.lyricsAnticipation
+        let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
+
+        // Compute instrumental progress — determines whether a gap is active
+        let progress = Self.computeInstrumentalProgress(
+            lyrics: lyrics, activeIndex: activeIndex,
+            currentTime: anticipatedTime, trackDuration: self.duration
+        )
+        self.instrumentalProgress = progress
+
+        // Keep the lyric line highlighted for its typical vocal duration,
+        // then de-highlight and let the dots take over as the "active" element
+        let elapsedSinceLine: TimeInterval
+        if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
+            elapsedSinceLine = anticipatedTime - ts
+        } else {
+            elapsedSinceLine = 0
+        }
+        if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
+            self.currentLyricsLineIndex = nil
+        } else {
+            self.currentLyricsLineIndex = activeIndex
+        }
+
+        // Update scroll target (nil means "scroll to top" for before-first-lyric)
+        if !self.isUserScrollingLyrics {
+            self.lyricsScrollTargetIndex = activeIndex
+        }
+    }
+
+    /// Called by the lyrics view when user manually scrolls.
+    /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
+    public func userDidScrollLyrics() {
+        isUserScrollingLyrics = true
+        userScrollResumeTask?.cancel()
+        userScrollResumeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.isUserScrollingLyrics = false
+        }
+    }
+
+    /// Pre-compute which line indices have instrumental gaps after them.
+    /// Also determines intro/outro gap presence. Called when lyrics change.
+    /// Uses the lyrics' adaptive threshold so songs with naturally long phrase
+    /// spacing don't get false instrumental dots.
+    private func computeInstrumentalGapPositions(lyrics: ParsedLyrics) {
+        guard lyrics.isTimed else {
+            instrumentalGapAfterIndices = []
+            hasIntroInstrumentalGap = false
+            hasOutroInstrumentalGap = false
+            return
+        }
+
+        let threshold = lyrics.instrumentalGapThreshold
+        var gapIndices = Set<Int>()
+
+        // Check intro gap (before first lyric)
+        if let firstTimestamp = lyrics.lines.first?.timestamp,
+           firstTimestamp >= threshold {
+            hasIntroInstrumentalGap = true
+        } else {
+            hasIntroInstrumentalGap = false
+        }
+
+        // Check gaps between consecutive lines
+        for i in 0..<lyrics.lines.count - 1 {
+            guard let current = lyrics.lines[i].timestamp,
+                  let next = lyrics.lines[i + 1].timestamp else { continue }
+            if next - current >= threshold {
+                gapIndices.insert(i)
+            }
+        }
+
+        // Check outro gap (last lyric to track end)
+        if let lastTimestamp = lyrics.lines.last?.timestamp,
+           duration > 0,
+           duration - lastTimestamp >= threshold {
+            hasOutroInstrumentalGap = true
+        } else {
+            hasOutroInstrumentalGap = false
+        }
+
+        instrumentalGapAfterIndices = gapIndices
+
+        #if DEBUG
+        EnsembleLogger.debug("Lyrics: gaps after indices=\(gapIndices.sorted()), intro=\(hasIntroInstrumentalGap), outro=\(hasOutroInstrumentalGap)")
+        #endif
+    }
+
+    /// Compute progress through an instrumental gap (0.0–1.0).
+    /// Returns nil if the current position is not within a gap.
+    /// Handles intro gaps, mid-song breaks, and outro gaps.
+    private static func computeInstrumentalProgress(
+        lyrics: ParsedLyrics,
+        activeIndex: Int?,
+        currentTime: TimeInterval,
+        trackDuration: TimeInterval
+    ) -> Double? {
+        let threshold = lyrics.instrumentalGapThreshold
+
+        // Intro gap: before the first lyric line starts
+        if activeIndex == nil, let firstTimestamp = lyrics.lines.first?.timestamp {
+            guard firstTimestamp >= threshold else { return nil }
+            let progress = currentTime / firstTimestamp
+            return min(max(progress, 0), 1)
+        }
+
+        guard let activeIndex else { return nil }
+
+        let currentTimestamp = lyrics.lines[activeIndex].timestamp ?? 0
+
+        // Mid-song gap: between current line and next line
+        let nextIndex = activeIndex + 1
+        if nextIndex < lyrics.lines.count,
+           let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+            let gapDuration = nextTimestamp - currentTimestamp
+            guard gapDuration >= threshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
+        }
+
+        // Outro gap: last line to end of track
+        if nextIndex >= lyrics.lines.count, trackDuration > 0 {
+            let gapDuration = trackDuration - currentTimestamp
+            guard gapDuration >= threshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
+        }
+
+        return nil
     }
 
     // MARK: - Artwork Management
