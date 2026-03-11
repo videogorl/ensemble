@@ -231,6 +231,12 @@ public final class DependencyContainer: @unchecked Sendable {
             syncCoordinatorRef.onFavoritesRatingChanged = { [weak offlineServiceRef] in
                 await offlineServiceRef?.reconcileFavoritesTargetIfEnabled()
             }
+
+            // When PMS download queue completes an item, restart the download
+            // service queue so it picks up prepared downloads promptly.
+            wsc.onDownloadQueueCompleted = { [weak offlineServiceRef] in
+                await offlineServiceRef?.handleDownloadQueueCompleted()
+            }
         }
 
         // Services using sync coordinator

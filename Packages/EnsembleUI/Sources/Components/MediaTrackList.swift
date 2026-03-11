@@ -5,6 +5,31 @@ import Nuke
 #if canImport(UIKit)
 import UIKit
 
+// MARK: - Deferred Layout Table View
+
+/// UITableView subclass that skips layout passes before being added to a window.
+/// Prevents "UITableView layout outside view hierarchy" warnings when SwiftUI
+/// eagerly creates table views for navigation destinations not yet displayed.
+class DeferredLayoutTableView: UITableView {
+    private var hasAppearedInWindow = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil && !hasAppearedInWindow {
+            hasAppearedInWindow = true
+            // Trigger the first real layout now that we're in a window
+            reloadData()
+        }
+    }
+
+    override func layoutSubviews() {
+        // Skip layout passes before the table is in a window — these cause
+        // unnecessary work and "layout outside view hierarchy" warnings.
+        guard window != nil else { return }
+        super.layoutSubviews()
+    }
+}
+
 // MARK: - Track Table View Cell
 
 public class TrackTableViewCell: UITableViewCell {
@@ -337,7 +362,7 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .plain)
+        let tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
@@ -415,6 +440,10 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.isOffline = isOffline
         context.coordinator.activeDownloadRatingKeys = newActiveDownloads
         context.coordinator.lastAvailabilityGeneration = newAvailabilityGen
+
+        // Skip reloads when the table isn't in a window yet — DeferredLayoutTableView
+        // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
+        guard tableView.window != nil else { return }
 
         // Only reload if data actually changed
         if dataChanged {

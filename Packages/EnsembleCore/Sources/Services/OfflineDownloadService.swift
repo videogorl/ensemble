@@ -165,6 +165,15 @@ public final class OfflineDownloadService: ObservableObject {
 
     // MARK: - Public API
 
+    /// Called when PMS download queue completes an item (via WebSocket activity event).
+    /// Restarts the download queue if it's idle, ensuring prepared downloads are picked up.
+    public func handleDownloadQueueCompleted() async {
+        #if DEBUG
+        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — checking for pending work")
+        #endif
+        startQueueIfNeeded()
+    }
+
     public func refreshState() async {
         await refreshTargetSnapshots()
         await refreshAllTargetProgresses()

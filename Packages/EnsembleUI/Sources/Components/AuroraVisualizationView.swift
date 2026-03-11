@@ -98,6 +98,8 @@ public struct AuroraVisualizationView: View {
             frequencyBands = bands
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
+            // Deduplicate: skip repeated state values to avoid redundant visibility checks
+            guard state != playbackState else { return }
             playbackState = state
             // Animate visibility only when the playback state actively changes.
             // This produces the desired fade-in when the user first presses play.
