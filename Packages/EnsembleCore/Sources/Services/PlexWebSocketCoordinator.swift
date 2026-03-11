@@ -273,7 +273,13 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             if type.contains("library.refresh") || type.contains("library.update") {
                 switch event {
                 case "started", "updated":
-                    serverScanProgress[serverKey] = progress
+                    // Only publish when progress changes by >=5% or on first report.
+                    // During library scans, PMS sends updates every ~10ms — throttle to
+                    // cut ~95% of objectWillChange events on this singleton.
+                    let oldProgress = serverScanProgress[serverKey] ?? -1
+                    if abs(progress - oldProgress) >= 5 || oldProgress < 0 {
+                        serverScanProgress[serverKey] = progress
+                    }
                 case "ended":
                     serverScanProgress.removeValue(forKey: serverKey)
                     #if DEBUG
