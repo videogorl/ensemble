@@ -330,6 +330,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
     /// Only applies when managesOwnScrolling is true.
     let bottomContentInset: CGFloat
+    /// Optional SwiftUI content to embed as the UITableView's `tableHeaderView`.
+    /// Scrolls naturally with the table while preserving full cell recycling.
+    /// Used by MediaDetailView to scroll album art + action buttons with the track list.
+    let tableHeaderContent: AnyView?
 
     @Environment(\.dependencies) private var dependencies
 
@@ -343,6 +347,7 @@ public struct MediaTrackList: UIViewRepresentable {
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
+        tableHeaderContent: AnyView? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -366,6 +371,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.activeDownloadRatingKeys = activeDownloadRatingKeys
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
+        self.tableHeaderContent = tableHeaderContent
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -428,6 +434,24 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
 
+        // Install optional SwiftUI table header (album art, action buttons, etc.).
+        // Uses UIHostingController to bridge SwiftUI content into the UITableView's
+        // native tableHeaderView, which scrolls with the table and preserves cell recycling.
+        if let tableHeaderContent {
+            let hostingController = UIHostingController(rootView: tableHeaderContent)
+            hostingController.view.backgroundColor = .clear
+            // Size the header to fit its content
+            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+            let fittingSize = hostingController.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
+            tableView.tableHeaderView = hostingController.view
+            context.coordinator.headerHostingController = hostingController
+        }
+
         return tableView
     }
     
@@ -474,6 +498,27 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.isOffline = isOffline
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
+
+        // Update table header view size if needed (e.g., after initial width becomes available).
+        // UITableView requires explicit header resizing — it doesn't auto-layout the header.
+        if let headerHost = context.coordinator.headerHostingController,
+           let headerView = tableView.tableHeaderView,
+           tableView.bounds.width > 0 {
+            if let tableHeaderContent {
+                headerHost.rootView = tableHeaderContent
+            }
+            let targetWidth = tableView.bounds.width
+            let fittingSize = headerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            // Only reassign when height actually changes to avoid layout loops
+            if abs(headerView.frame.height - fittingSize.height) > 1 {
+                headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                tableView.tableHeaderView = headerView
+            }
+        }
 
         // Skip reloads when the table isn't in a window yet — DeferredLayoutTableView
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
@@ -574,6 +619,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var isOffline: Bool
         var activeDownloadRatingKeys: Set<String>
         var lastAvailabilityGeneration: UInt64 = 0
+        /// Retains the UIHostingController used for the table header view
+        var headerHostingController: UIHostingController<AnyView>?
 
         init(
             tracks: [Track],

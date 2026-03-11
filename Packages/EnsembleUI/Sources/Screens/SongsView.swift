@@ -25,6 +25,7 @@ public struct SongsView: View {
     @State private var isCoverFlowActive = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     private var supportsCoverFlow: Bool {
         #if os(iOS)
@@ -313,36 +314,28 @@ public struct SongsView: View {
         }
     }
     
-    /// Indexed track list with pinned section headers and lazy row creation.
     private var indexedTrackListContent: some View {
-        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(libraryVM.trackSections) { section in
-                Section(header: sectionHeader(section.letter)) {
-                    ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                        songTrackRow(track: track)
-                            .id(track.id)
-
-                        if index < section.tracks.count - 1 {
-                            Divider()
-                                .padding(.leading, 68)
-                        }
-                    }
-                }
-                .id(section.letter)
+                indexedSection(section: section)
             }
         }
         .padding(.vertical)
     }
-    
-    /// Non-indexed track list using LazyVStack for lazy row creation.
-    /// Wrapped in ScrollView so mini player bottom spacing works correctly.
-    private var unsortedTrackListContent: some View {
-        ScrollView {
-            TrackListView(
-                tracks: libraryVM.filteredTracks,
+
+    private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
+        Section(header: sectionHeader(section.letter)) {
+            let trackCount = section.tracks.count
+            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
+
+            MediaTrackList(
+                tracks: section.tracks,
                 showArtwork: true,
                 showTrackNumbers: false,
+                groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
+                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -376,65 +369,80 @@ public struct SongsView: View {
                 onShareFile: { track in
                     ShareActions.shareTrackFile(track, deps: deps)
                 },
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
                 canAddToRecentPlaylist: { track in
                     recentPlaylistTitle(for: track) != nil
                 },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
-                nowPlayingVM: nowPlayingVM
-            ) { _, index in
-                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-            }
-            .padding(.horizontal)
-        }
-        .miniPlayerBottomSpacing(140)
-    }
-
-    /// Builds a swipeable track row for the songs list with all action callbacks.
-    private func songTrackRow(track: Track) -> some View {
-        TrackSwipeContainer(
-            track: track,
-            nowPlayingVM: nowPlayingVM,
-            onPlayNext: { nowPlayingVM.playNext(track) },
-            onPlayLast: { nowPlayingVM.playLast(track) },
-            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
-        ) {
-            TrackRow(
-                track: track,
-                showArtwork: true,
-                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                onPlayNext: { nowPlayingVM.playNext(track) },
-                onPlayLast: { nowPlayingVM.playLast(track) },
-                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                onToggleFavorite: {
-                    Task { await nowPlayingVM.toggleTrackFavorite(track) }
-                },
-                onGoToAlbum: {
-                    if let albumId = track.albumRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                    }
-                },
-                onGoToArtist: {
-                    if let artistId = track.artistRatingKey {
-                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                    }
-                },
-                onShareLink: {
-                    ShareActions.shareTrackLink(track, deps: deps)
-                },
-                onShareFile: {
-                    ShareActions.shareTrackFile(track, deps: deps)
-                },
-                isFavorited: nowPlayingVM.isTrackFavorited(track),
-                recentPlaylistTitle: recentPlaylistTitle(for: track)
-            ) {
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, _ in
                 if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
                     nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
                 }
             }
+            .frame(height: height)
+            .padding(.horizontal)
+        }
+        .id(section.letter)
+    }
+    
+    /// Non-indexed mode: self-scrolling UITableView with cell recycling.
+    private var unsortedTrackListContent: some View {
+        MediaTrackList(
+            tracks: libraryVM.filteredTracks,
+            showArtwork: true,
+            showTrackNumbers: false,
+            groupByDisc: false,
+            currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            managesOwnScrolling: true,
+            bottomContentInset: 140,
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                presentPlaylistPicker(with: [track])
+            },
+            onAddToRecentPlaylist: { track in
+                addToRecentPlaylist(track)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                recentPlaylistTitle(for: track) != nil
+            },
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+        ) { _, index in
+            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.horizontal)
-        .padding(.vertical, 8)
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
