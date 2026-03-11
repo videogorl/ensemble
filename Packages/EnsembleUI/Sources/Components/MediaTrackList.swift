@@ -326,6 +326,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// When false (default), scroll is disabled and parent ScrollView handles scrolling.
     /// Use true for large track lists (>200 tracks) embedded in a detail view.
     let managesOwnScrolling: Bool
+    /// Bottom content inset for the UITableView. Used with self-scrolling tables to
+    /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
+    /// Only applies when managesOwnScrolling is true.
+    let bottomContentInset: CGFloat
 
     @Environment(\.dependencies) private var dependencies
 
@@ -338,6 +342,7 @@ public struct MediaTrackList: UIViewRepresentable {
         availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
+        bottomContentInset: CGFloat = 0,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -360,6 +365,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadRatingKeys = activeDownloadRatingKeys
         self.managesOwnScrolling = managesOwnScrolling
+        self.bottomContentInset = bottomContentInset
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -411,6 +417,12 @@ public struct MediaTrackList: UIViewRepresentable {
         // iOS 15 introduced automatic top padding above section headers; suppress it
         // so the content height is exactly N × rowHeight with no leading offset.
         tableView.sectionHeaderTopPadding = 0
+
+        // Bottom content inset for scroll-behind-chrome behavior.
+        // Lets content scroll behind mini player/tab bar with blur effect.
+        if managesOwnScrolling && bottomContentInset > 0 {
+            tableView.contentInset.bottom = bottomContentInset
+        }
 
         // Enable drag-and-drop for downloaded tracks on iPad
         tableView.dragDelegate = context.coordinator

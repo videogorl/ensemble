@@ -448,6 +448,7 @@ public struct SongsView: View {
             availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
             activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
             managesOwnScrolling: true,
+            bottomContentInset: 140,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -492,7 +493,6 @@ public struct SongsView: View {
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.horizontal)
-        .miniPlayerBottomSpacing(140)
         #else
         return TrackListView(
             tracks: libraryVM.filteredTracks,

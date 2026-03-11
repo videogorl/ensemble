@@ -205,7 +205,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
-        .miniPlayerBottomSpacing(140)
+        // Only apply container-level bottom spacing for small lists (ScrollView case).
+        // Large self-scrolling lists handle their own bottom inset via the UITableView's
+        // contentInset.bottom so content scrolls behind the mini player with blur.
+        .if(!useSelfScroll) { $0.miniPlayerBottomSpacing(140) }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -772,6 +775,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
             activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
             managesOwnScrolling: useSelfScroll,
+            bottomContentInset: useSelfScroll ? 140 : 0,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -821,7 +825,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
         // Small lists: fixed frame inside parent ScrollView.
-        // Large lists: no frame — parent VStack gives remaining space for cell recycling.
+        // Large lists: fill remaining VStack space for proper cell recycling.
+        .if(useSelfScroll) { view in
+            view.frame(maxHeight: .infinity)
+        }
         .if(!useSelfScroll) { view in
             view.frame(height: height)
         }
