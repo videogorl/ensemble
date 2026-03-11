@@ -20,6 +20,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ## Feature Completeness Gaps
 
+### Intermittent 404 on /library/streams/ for Lyrics
+- **Location:** `LyricsService.swift`, `PlexAPIClient.getLyricsContent(streamKey:)`
+- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored.
+- **Impact:** Lyrics show "No Lyrics" for affected tracks despite the track appearing to have a lyrics attachment.
+- **Current behavior:** `LyricsService` treats the 404 as `.notAvailable` and does not retry. The result is cached to avoid repeated 404 traffic for the same track.
+- **Workaround:** None; the issue is server-side. Pulling to refresh or clearing cache may resolve it if the server regenerates the stream.
+
 ### BG Continued Processing Is Best-Effort (iOS 26+)
 - `OfflineBackgroundExecutionCoordinator` submits `BGContinuedProcessingTaskRequest` for user-initiated bulk offline work.
 - The OS may reject queued requests, cancel queued work if the app is removed from switcher, or expire active tasks.

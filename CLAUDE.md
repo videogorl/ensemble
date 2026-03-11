@@ -78,6 +78,30 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Live Lyrics (Mar 2026)
+Karaoke-style time-synced lyrics fetched from Plex and displayed in the Now Playing Lyrics Card:
+
+- **LRC parser:** `LRCParser` (static) parses LRC-format files into timestamped `LyricsLine` structs. Falls back to plain-text (unsynced) parsing for tracks without timestamps.
+- **LyricsService:** @MainActor ObservableObject that runs a three-step fetch pipeline: in-memory cache → `.lrc` sidecar file → Plex API. Cache is keyed by `ratingKey:sourceCompositeKey` with ~20-entry LRU eviction.
+- **API endpoint:** `PlexAPIClient.getLyricsContent(streamKey:)` fetches raw LRC text from `/library/streams/{streamKey}`. `PlexStream` extended with lyrics fields; `PlexTrack.lyricsStream` returns the first stream with `streamType == 4`.
+- **NowPlayingViewModel integration:** Subscribes to `LyricsService.lyricsState` and `PlaybackService.currentTimePublisher`. Binary search over the lines array produces `currentLyricsLineIndex` for the active line.
+- **LyricsCard rewrite:** Three states -- loading spinner, "No Lyrics" empty state, and a scrollable karaoke list (active line highlighted, auto-scrolled to center; past/future lines dimmed).
+- **Offline sidecar:** `OfflineDownloadService` generates `.lrc` sidecar after download when the track has a lyrics stream. `DownloadManager` cleans it up on removal.
+- **API accessor:** `SyncCoordinator.apiClient(for:)` and `PlexMusicSourceSyncProvider.exposedAPIClient` allow `LyricsService` to make direct API calls for lyrics content without going through the full sync path.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/LyricsService.swift` - LRCParser, LyricsLine, ParsedLyrics, LyricsState, LyricsService
+- `Packages/EnsembleCore/Tests/LyricsServiceTests.swift` - LRC parser tests
+- `Packages/EnsembleAPI/Sources/Models/PlexModels.swift` - PlexStream lyrics fields, PlexTrack.lyricsStream
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - getLyricsContent(streamKey:)
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires LyricsService
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - lyricsState, currentLyricsLineIndex
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - apiClient(for:) accessor
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - exposedAPIClient
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - .lrc sidecar generation
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics UI
+
 ### Sharing: song.link URLs + Audio File Sharing (Mar 2026)
 Tracks and albums can now be shared via universal song.link links or as audio files:
 

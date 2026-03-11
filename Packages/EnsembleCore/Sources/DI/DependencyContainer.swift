@@ -48,6 +48,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let siriMediaUserContextManager: SiriMediaUserContextManager
     public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     public let offlineDownloadService: OfflineDownloadService
+    public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
     public let songLinkService: SongLinkService
     public let shareService: ShareService
@@ -197,6 +198,13 @@ public final class DependencyContainer: @unchecked Sendable {
         let toastCenterRef = MainActor.assumeIsolated { ToastCenter() }
         toastCenter = toastCenterRef
 
+        // Lyrics service — fetching, parsing, and caching lyrics
+        // Created before OfflineDownloadService so downloads can pre-cache lyrics
+        let lyricsServiceRef = MainActor.assumeIsolated {
+            LyricsService(syncCoordinator: syncCoordinatorRef)
+        }
+        lyricsService = lyricsServiceRef
+
         let offlineServiceRef = MainActor.assumeIsolated {
             OfflineDownloadService(
                 downloadManager: downloadManagerRef,
@@ -207,7 +215,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 networkMonitor: nm,
                 backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
                 artworkDownloadManager: artworkDownloadRef,
-                toastCenter: toastCenterRef
+                toastCenter: toastCenterRef,
+                lyricsService: lyricsServiceRef
             )
         }
         offlineDownloadService = offlineServiceRef
@@ -271,16 +280,8 @@ public final class DependencyContainer: @unchecked Sendable {
             SettingsManager()
         }
 
-        // Cache manager - must be initialized after downloadManager
         let downloadRef = downloadManager
-        cacheManager = MainActor.assumeIsolated {
-            CacheManager(
-                libraryRepository: libraryRef,
-                artworkDownloadManager: artworkDownloadRef,
-                downloadManager: downloadRef
-            )
-        }
-        
+
         // Navigation coordinator
         navigationCoordinator = MainActor.assumeIsolated {
             NavigationCoordinator()
@@ -309,6 +310,16 @@ public final class DependencyContainer: @unchecked Sendable {
             SiriMediaUserContextManager(
                 libraryRepository: libraryRef,
                 playlistRepository: playlistRef
+            )
+        }
+
+        // Cache manager - must be initialized after downloadManager and lyricsService
+        cacheManager = MainActor.assumeIsolated {
+            CacheManager(
+                libraryRepository: libraryRef,
+                artworkDownloadManager: artworkDownloadRef,
+                downloadManager: downloadRef,
+                lyricsService: lyricsServiceRef
             )
         }
 
@@ -351,6 +362,10 @@ public final class DependencyContainer: @unchecked Sendable {
             syncRef.onConnectionsRefreshed = { [weak artworkLoaderRef] in
                 await artworkLoaderRef?.invalidateURLCache()
             }
+
+            syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
+                lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
+            }
         }
     }
 
@@ -376,7 +391,8 @@ public final class DependencyContainer: @unchecked Sendable {
             navigationCoordinator: navigationCoordinator,
             toastCenter: toastCenter,
             mutationCoordinator: mutationCoordinator,
-            trackAvailabilityResolver: trackAvailabilityResolver
+            trackAvailabilityResolver: trackAvailabilityResolver,
+            lyricsService: lyricsService
         )
     }
 

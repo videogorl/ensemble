@@ -92,6 +92,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let toastCenter: ToastCenter
+    private let lyricsService: LyricsService
 
     private var queueTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -114,7 +115,8 @@ public final class OfflineDownloadService: ObservableObject {
         networkMonitor: NetworkMonitor,
         backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        lyricsService: LyricsService
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -125,6 +127,7 @@ public final class OfflineDownloadService: ObservableObject {
         self.backgroundExecutionCoordinator = backgroundExecutionCoordinator
         self.artworkDownloadManager = artworkDownloadManager
         self.toastCenter = toastCenter
+        self.lyricsService = lyricsService
 
         // Clean up legacy keys from the old transcode blacklist approach.
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
@@ -1084,6 +1087,17 @@ public final class OfflineDownloadService: ObservableObject {
                 if let timeline = try? await FrequencyAnalysisService.analyzeForSidecar(fileURL: destinationURL) {
                     try? FrequencyTimelinePersistence.save(timeline, to: sidecarURL)
                 }
+            }
+
+            // Pre-cache lyrics for offline playback
+            let lyricsRatingKey = track.ratingKey
+            let lyricsSCK = sourceCompositeKey
+            let lyricsServiceRef = self.lyricsService
+            Task.detached(priority: .utility) {
+                await lyricsServiceRef.fetchAndCacheLyrics(
+                    trackRatingKey: lyricsRatingKey,
+                    sourceCompositeKey: lyricsSCK
+                )
             }
 
             // Notify track-displaying VMs so they re-fetch and reflect updated

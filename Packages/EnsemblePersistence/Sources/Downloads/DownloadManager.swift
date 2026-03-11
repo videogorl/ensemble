@@ -522,7 +522,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             let filename = Self.extractFilename(from: storedPath)
                             let absolutePath = Self.absolutePath(forFilename: filename)
                             try? FileManager.default.removeItem(atPath: absolutePath)
-                            // Also delete the frequency analysis sidecar if it exists
+                            // Delete frequency analysis sidecar
                             try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
                         }
 
@@ -606,7 +606,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let request = CDDownload.fetchRequest()
                     let downloads = try context.fetch(request)
 
-                    // Remove downloaded files and frequency sidecars from disk
+                    // Remove downloaded files and sidecars from disk
                     for download in downloads {
                         if let storedPath = download.filePath, !storedPath.isEmpty {
                             let filename = Self.extractFilename(from: storedPath)

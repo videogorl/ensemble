@@ -41,10 +41,13 @@ public struct NowPlayingCarousel: View {
                 previousPage = newPage
             }
             
-            // Fixed page indicator overlay
-            PageIndicator(currentPage: $currentPage)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
+            // Fixed page indicator overlay — lyrics icon reflects availability
+            PageIndicator(
+                currentPage: $currentPage,
+                lyricsAvailable: viewModel.lyricsState.isAvailable
+            )
+            .padding(.top, 10)
+            .padding(.bottom, 10)
         }
     }
     
