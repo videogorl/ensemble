@@ -169,7 +169,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Restarts the download queue if it's idle, ensuring prepared downloads are picked up.
     public func handleDownloadQueueCompleted() async {
         #if DEBUG
-        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — checking for pending work")
+        EnsembleLogger.debug("⬇️ WebSocket: download queue completed — queueTask=\(queueTask == nil ? "nil" : "active"), isQueueRunning=\(isQueueRunning)")
         #endif
         startQueueIfNeeded()
     }
@@ -909,7 +909,10 @@ public final class OfflineDownloadService: ObservableObject {
 
                 // Claim a single pending download (atomic, sets status to .downloading)
                 guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
-                    // No more work for this worker
+                    #if DEBUG
+                    let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? -1
+                    EnsembleLogger.debug("📥 Worker exit: no pending download (pendingCount=\(pendingCount), didProcess=\(didProcess))")
+                    #endif
                     return didProcess
                 }
 
