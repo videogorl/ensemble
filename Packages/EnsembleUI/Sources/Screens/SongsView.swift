@@ -264,34 +264,38 @@ public struct SongsView: View {
     }
 
     private var trackListView: some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                ScrollView {
-                    Group {
-                        if libraryVM.trackSortOption == .title {
+        Group {
+            if libraryVM.trackSortOption == .title {
+                // Indexed mode: ScrollView + LazyVStack for section headers + scroll index
+                ScrollViewReader { proxy in
+                    ZStack(alignment: .trailing) {
+                        ScrollView {
                             indexedTrackListContent
-                        } else {
-                            unsortedTrackListContent
+                        }
+                        .miniPlayerBottomSpacing(140)
+
+                        if !libraryVM.filteredTracks.isEmpty {
+                            ScrollIndex(
+                                letters: libraryVM.trackSections.map { $0.letter },
+                                currentLetter: .constant(nil),
+                                onLetterTap: { letter in
+                                    proxy.scrollTo(letter, anchor: .top)
+                                }
+                            )
+                            .frame(maxHeight: .infinity)
+                            .ignoresSafeArea(.container, edges: .top)
                         }
                     }
                 }
-                .miniPlayerBottomSpacing(140)
-                
-                if libraryVM.trackSortOption == .title && !libraryVM.filteredTracks.isEmpty {
-                    ScrollIndex(
-                        letters: libraryVM.trackSections.map { $0.letter },
-                        currentLetter: .constant(nil),
-                        onLetterTap: { letter in
-                            proxy.scrollTo(letter, anchor: .top)
-                        }
-                    )
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
-                }
+            } else {
+                // Non-indexed mode: UITableView manages its own scrolling directly.
+                // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
+                // that was forcing all 1500+ rows to be laid out simultaneously.
+                unsortedTrackListContent
             }
-            .sheet(item: $playlistPickerPayload) { payload in
-                PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-            }
+        }
+        .sheet(item: $playlistPickerPayload) { payload in
+            PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
     
@@ -428,9 +432,9 @@ public struct SongsView: View {
     
     private var unsortedTrackListContent: some View {
         #if os(iOS)
-        let trackCount = libraryVM.filteredTracks.count
-        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
-
+        // MediaTrackList's UITableView manages its own scrolling and cell recycling.
+        // No fixed .frame(height:) — that was defeating virtualization by forcing
+        // all rows to be laid out simultaneously.
         return MediaTrackList(
             tracks: libraryVM.filteredTracks,
             showArtwork: true,
@@ -480,9 +484,8 @@ public struct SongsView: View {
         ) { _, index in
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
-        .frame(height: height)
         .padding(.horizontal)
-        .padding(.vertical)
+        .miniPlayerBottomSpacing(140)
         #else
         return TrackListView(
             tracks: libraryVM.filteredTracks,
