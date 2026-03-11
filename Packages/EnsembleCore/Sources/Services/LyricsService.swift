@@ -132,12 +132,15 @@ enum LRCParser {
 
 // MARK: - Lyrics Service
 
-/// Orchestrates lyrics fetching, parsing, caching, and offline sidecar persistence
+/// Orchestrates lyrics fetching, parsing, caching, and offline sidecar persistence.
+/// Uses a two-tier cache: in-memory (session) + persistent file cache (survives restarts
+/// and PMS LyricFind cache expiration).
 @MainActor
 public final class LyricsService: ObservableObject {
     @Published public private(set) var currentLyrics: LyricsState = .notAvailable
 
     // In-memory cache keyed by "ratingKey:sourceCompositeKey" (max ~20 entries)
+    // Only caches successful results — .notAvailable is NOT cached so retries are possible
     private var cache: [String: LyricsState] = [:]
     private let maxCacheSize = 20
 
@@ -147,9 +150,17 @@ public final class LyricsService: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let downloadManager: DownloadManagerProtocol
 
+    // Persistent lyrics cache directory
+    private static let lyricsCacheDir: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Ensemble/LyricsCache", isDirectory: true)
+    }()
+
     public init(syncCoordinator: SyncCoordinator, downloadManager: DownloadManagerProtocol) {
         self.syncCoordinator = syncCoordinator
         self.downloadManager = downloadManager
+        // Ensure cache directory exists
+        try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
     }
 
     // MARK: - Public API
@@ -192,7 +203,7 @@ public final class LyricsService: ObservableObject {
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
         #endif
 
-        // 1. Check for offline LRC sidecar
+        // 1. Check for offline LRC sidecar (downloaded tracks)
         if let sidecarLyrics = await loadSidecarLyrics(for: track) {
             #if DEBUG
             EnsembleLogger.debug("Lyrics: loaded from sidecar (\(sidecarLyrics.lines.count) lines)")
@@ -200,7 +211,18 @@ public final class LyricsService: ObservableObject {
             return .available(sidecarLyrics)
         }
 
-        // 2. Fetch track metadata to discover lyrics streams
+        // 2. Check persistent file cache (survives PMS LyricFind cache expiration)
+        if let cachedContent = loadFromPersistentCache(for: track) {
+            let parsed = parseContent(cachedContent, codec: nil)
+            if let parsed {
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: loaded from persistent cache (\(parsed.lines.count) lines)")
+                #endif
+                return .available(parsed)
+            }
+        }
+
+        // 3. Fetch track metadata to discover lyrics streams
         guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
             #if DEBUG
             EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
@@ -234,7 +256,7 @@ public final class LyricsService: ObservableObject {
                 return .notAvailable
             }
 
-            // 3. Fetch lyrics content
+            // 4. Fetch lyrics content from PMS
             guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey)")
@@ -249,25 +271,17 @@ public final class LyricsService: ObservableObject {
             EnsembleLogger.debug("Lyrics: content preview (\(content.count) chars): \(preview)")
             #endif
 
-            // 4. Parse based on codec/format, with fallback to plain text
-            var parsed: ParsedLyrics
-            if lyricsStream.codec == "lrc" || lyricsStream.timed == 1 {
-                parsed = LRCParser.parseLRC(content)
-                // If LRC parsing found no timed lines, fall back to plain text
-                if parsed.lines.isEmpty {
-                    parsed = LRCParser.parsePlainText(content)
-                }
-            } else {
-                parsed = LRCParser.parsePlainText(content)
-            }
+            // 5. Parse based on codec/format, with fallback to plain text
+            let parsed = parseContent(content, codec: lyricsStream.codec)
 
             #if DEBUG
-            EnsembleLogger.debug("Lyrics: parsed \(parsed.lines.count) lines (timed=\(parsed.isTimed))")
+            EnsembleLogger.debug("Lyrics: parsed \(parsed?.lines.count ?? 0) lines (timed=\(parsed?.isTimed ?? false))")
             #endif
 
-            guard !parsed.lines.isEmpty else { return .notAvailable }
+            guard let parsed, !parsed.lines.isEmpty else { return .notAvailable }
 
-            // 5. Save sidecar for offline use if track is downloaded
+            // 6. Save to persistent cache and sidecar
+            saveToPersistentCache(content, for: track)
             await saveSidecarIfDownloaded(for: track, content: content)
 
             return .available(parsed)
@@ -278,6 +292,20 @@ public final class LyricsService: ObservableObject {
             #endif
             return .notAvailable
         }
+    }
+
+    /// Parse lyrics content, trying LRC first then falling back to plain text
+    private func parseContent(_ content: String, codec: String?) -> ParsedLyrics? {
+        // Try LRC first if codec suggests timed lyrics, or if content looks like LRC
+        let looksLikeLRC = content.contains("[") && content.contains("]")
+        if codec == "lrc" || looksLikeLRC {
+            let parsed = LRCParser.parseLRC(content)
+            if !parsed.lines.isEmpty { return parsed }
+        }
+
+        // Fall back to plain text
+        let plain = LRCParser.parsePlainText(content)
+        return plain.lines.isEmpty ? nil : plain
     }
 
     // MARK: - Sidecar Persistence
@@ -346,19 +374,44 @@ public final class LyricsService: ObservableObject {
         }
     }
 
-    // MARK: - Cache Management
+    // MARK: - Persistent File Cache
+
+    /// File path for a track's cached lyrics content
+    private static func persistentCachePath(for track: Track) -> URL {
+        let key = "\(track.id)_\(track.sourceCompositeKey ?? "local")"
+        // Use a safe filename (replace non-alphanumeric chars)
+        let safeKey = key.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        return lyricsCacheDir.appendingPathComponent(safeKey + ".lrc")
+    }
+
+    /// Load lyrics content from persistent file cache
+    private func loadFromPersistentCache(for track: Track) -> String? {
+        let url = Self.persistentCachePath(for: track)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Save lyrics content to persistent file cache
+    private func saveToPersistentCache(_ content: String, for track: Track) {
+        let url = Self.persistentCachePath(for: track)
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - In-Memory Cache Management
 
     private static func cacheKey(for track: Track) -> String {
         "\(track.id):\(track.sourceCompositeKey ?? "local")"
     }
 
     private func setCached(_ state: LyricsState, forKey key: String) {
-        // Only cache definitive results (not loading state, and not transient failures for 404s)
+        // Only cache successful results — don't cache .notAvailable so retries
+        // are possible when PMS's LyricFind cache warms up
+        guard case .available = state else { return }
+
         cache[key] = state
 
         // Evict oldest entries if over limit
         if cache.count > maxCacheSize {
-            // Simple eviction: remove a random entry (cache is unordered)
             if let firstKey = cache.keys.first {
                 cache.removeValue(forKey: firstKey)
             }
