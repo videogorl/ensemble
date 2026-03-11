@@ -81,7 +81,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(
         viewModel: ViewModel,
@@ -205,10 +204,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
-        // Only apply container-level bottom spacing for small lists (ScrollView case).
-        // Large self-scrolling lists handle their own bottom inset via the UITableView's
-        // contentInset.bottom so content scrolls behind the mini player with blur.
-        .if(!useSelfScroll) { $0.miniPlayerBottomSpacing(140) }
+        .miniPlayerBottomSpacing(140)
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -247,12 +243,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var shouldShowStandaloneFilterButton: Bool {
         showFilter && (mediaType == nil || headerData.ratingKey == nil)
-    }
-
-    /// Large track lists (>200) use self-managed scrolling for cell recycling.
-    /// This drives the choice between ScrollView wrapper and VStack layout.
-    private var useSelfScroll: Bool {
-        viewModel.filteredTracks.count > 200
     }
 
     private var quickTargetRefreshKey: String {
@@ -483,58 +473,34 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    /// Base content without filter UI — shared between filtered and unfiltered modes
+    /// Base content without filter UI — shared between filtered and unfiltered modes.
+    /// Everything scrolls together in one ScrollView — header, action buttons, and tracks.
+    /// LazyVStack provides lazy row creation for large track lists.
     private var baseContent: some View {
         ZStack(alignment: .top) {
             // Background gradient
             backgroundGradient
                 .ignoresSafeArea()
 
-            if useSelfScroll {
-                // Large track list: header takes natural height, tracks fill the rest.
-                // A self-scrolling UITableView inside a SwiftUI ScrollView gets minimal
-                // height — so we use a VStack instead, letting the table manage its own
-                // scrolling and cell recycling for the full remaining space.
+            ScrollView {
                 VStack(spacing: 0) {
                     headerView
                     actionButtons
+                        .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
-                    // Tracks fill remaining space with own scrolling
                     if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                         ProgressView()
                             .padding(.top, 40)
-                        Spacer()
                     } else if viewModel.filteredTracks.isEmpty {
                         Text("No tracks")
                             .foregroundColor(.secondary)
                             .padding(.top, 40)
-                        Spacer()
                     } else {
                         tracksSection
                     }
                 }
-            } else {
-                // Small track list: everything scrolls together in one ScrollView
-                ScrollView {
-                    VStack(spacing: 0) {
-                        headerView
-                        actionButtons
-                            .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
-
-                        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                            ProgressView()
-                                .padding(.top, 40)
-                        } else if viewModel.filteredTracks.isEmpty {
-                            Text("No tracks")
-                                .foregroundColor(.secondary)
-                                .padding(.top, 40)
-                        } else {
-                            tracksSection
-                        }
-                    }
-                }
-                .coordinateSpace(name: "mediaDetailScroll")
             }
+            .coordinateSpace(name: "mediaDetailScroll")
         }
         .onPreferenceChange(ActionButtonsOffsetPreferenceKey.self) { maxY in
             let shouldShow = maxY < 0
@@ -761,76 +727,92 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
-        let trackCount = viewModel.filteredTracks.count
-        // Small lists get a fixed frame so the parent ScrollView knows their size.
-        // Large lists use self-managed scrolling — the parent is a VStack (not ScrollView).
-        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
+        // LazyVStack provides lazy row creation — only visible rows are instantiated.
+        // Disc grouping renders section headers for multi-disc albums.
+        let groupedTracks = groupByDisc
+            ? groupTracksByDisc(viewModel.filteredTracks)
+            : [(disc: nil as Int?, tracks: viewModel.filteredTracks)]
 
-        MediaTrackList(
-            tracks: viewModel.filteredTracks,
-            showArtwork: showArtwork,
-            showTrackNumbers: showTrackNumbers,
-            groupByDisc: groupByDisc,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
-            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
-            managesOwnScrolling: useSelfScroll,
-            bottomContentInset: useSelfScroll ? 140 : 0,
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track], title: "Add to Playlist")
-            },
-            onAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget,
-                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
-                Task {
-                    _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
+        LazyVStack(spacing: 0) {
+            ForEach(Array(groupedTracks.enumerated()), id: \.offset) { groupIndex, group in
+                // Disc header for multi-disc albums
+                if let disc = group.disc {
+                    HStack {
+                        Text("Disc \(disc)")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, groupIndex > 0 ? 16 : 8)
+                    .padding(.bottom, 8)
                 }
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
+
+                ForEach(Array(group.tracks.enumerated()), id: \.element.id) { index, track in
+                    TrackSwipeContainer(
+                        track: track,
+                        nowPlayingVM: nowPlayingVM,
+                        onPlayNext: { nowPlayingVM.playNext(track) },
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track], title: "Add to Playlist") }
+                    ) {
+                        TrackRow(
+                            track: track,
+                            showArtwork: showArtwork,
+                            showTrackNumber: showTrackNumbers,
+                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            onPlayNext: { nowPlayingVM.playNext(track) },
+                            onPlayLast: { nowPlayingVM.playLast(track) },
+                            onAddToPlaylist: {
+                                presentPlaylistPicker(with: [track], title: "Add to Playlist")
+                            },
+                            onAddToRecentPlaylist: {
+                                guard let lastPlaylistQuickTarget,
+                                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return }
+                                Task {
+                                    _ = try? await nowPlayingVM.addTracks([track], to: lastPlaylistQuickTarget)
+                                }
+                            },
+                            onToggleFavorite: {
+                                Task { await nowPlayingVM.toggleTrackFavorite(track) }
+                            },
+                            onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
+                                if let albumId = track.albumRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onGoToArtist: {
+                                if let artistId = track.artistRatingKey {
+                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                                }
+                            },
+                            onShareLink: {
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: {
+                                ShareActions.shareTrackFile(track, deps: deps)
+                            },
+                            isFavorited: nowPlayingVM.isTrackFavorited(track),
+                            recentPlaylistTitle: {
+                                guard let lastPlaylistQuickTarget,
+                                      nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0 else { return nil }
+                                return lastPlaylistQuickTarget.title
+                            }()
+                        ) {
+                            if let globalIndex = viewModel.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: globalIndex)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                    if index < group.tracks.count - 1 {
+                        Divider()
+                            .padding(.leading, showArtwork ? 68 : (showTrackNumbers ? 54 : 16))
+                    }
                 }
-            },
-            onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
-                if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                guard let lastPlaylistQuickTarget else { return false }
-                return nowPlayingVM.compatibleTrackCount([track], for: lastPlaylistQuickTarget) > 0
-            },
-            recentPlaylistTitle: lastPlaylistQuickTarget?.title
-        ) { track, index in
-            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-        }
-        // Small lists: fixed frame inside parent ScrollView.
-        // Large lists: fill remaining VStack space for proper cell recycling.
-        .if(useSelfScroll) { view in
-            view.frame(maxHeight: .infinity)
-        }
-        .if(!useSelfScroll) { view in
-            view.frame(height: height)
+            }
         }
         #else
         // Basic List fallback for macOS
@@ -891,5 +873,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
         #endif
+    }
+
+    /// Groups tracks by disc number for multi-disc album display.
+    /// Only shows disc numbers when multiple discs are present.
+    private func groupTracksByDisc(_ tracks: [Track]) -> [(disc: Int?, tracks: [Track])] {
+        let grouped = Dictionary(grouping: tracks) { $0.discNumber }
+        let sortedKeys = grouped.keys.sorted()
+        let showDiscNumbers = sortedKeys.count > 1
+        return sortedKeys.map { disc in
+            (disc: showDiscNumbers ? disc : nil, tracks: grouped[disc] ?? [])
+        }
     }
 }

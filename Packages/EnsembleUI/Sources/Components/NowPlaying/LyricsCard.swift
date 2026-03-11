@@ -442,47 +442,76 @@ public struct LyricsCard: View {
     }
 }
 
-// MARK: - Equatable Lyrics Line
-
-/// Individual lyrics line with pre-computed visual params. Conforms to Equatable so
-/// SwiftUI's EquatableView wrapper can skip re-rendering lines that haven't changed.
-/// When currentLyricsLineIndex changes, only ~2-3 lines need re-rendering instead of all.
 #if canImport(UIKit)
 // MARK: - Vertical Drag Detector
 
-/// UIKit gesture recognizer that only activates for predominantly vertical pans.
-/// Allows horizontal swipes to pass through to the parent TabView for card navigation,
-/// while still detecting vertical scrolls to suppress lyrics auto-scroll.
+/// Detects vertical scroll gestures by attaching a UIPanGestureRecognizer directly to the
+/// ancestor UIScrollView. Uses a hidden probe view in `.background` — when it appears in
+/// the window, it walks up the view hierarchy to find the ScrollView's underlying
+/// UIScrollView and adds a vertical-only pan gesture. This approach lets horizontal swipes
+/// pass through to the parent TabView for card navigation, while still detecting vertical
+/// scrolling for auto-scroll suppression.
 private struct VerticalDragDetector: UIViewRepresentable {
     let onVerticalDrag: () -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> DragDetectorProbeView {
+        let view = DragDetectorProbeView()
         view.backgroundColor = .clear
-        let pan = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePan(_:))
-        )
-        pan.delegate = context.coordinator
-        view.addGestureRecognizer(pan)
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.coordinator = context.coordinator
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onVerticalDrag: onVerticalDrag)
     }
 
+    // Hidden probe view that finds the ancestor UIScrollView on window attachment
+    class DragDetectorProbeView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            // Defer to let the view hierarchy settle
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator?.attachIfNeeded(from: self)
+            }
+        }
+    }
+
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onVerticalDrag: () -> Void
+        private var gestureRecognizer: UIPanGestureRecognizer?
 
         init(onVerticalDrag: @escaping () -> Void) {
             self.onVerticalDrag = onVerticalDrag
         }
 
+        func attachIfNeeded(from view: UIView?) {
+            guard gestureRecognizer == nil, let view else { return }
+            // Walk up to find the SwiftUI ScrollView's underlying UIScrollView
+            var current: UIView? = view
+            while let v = current {
+                if let scrollView = v as? UIScrollView {
+                    let pan = UIPanGestureRecognizer(
+                        target: self,
+                        action: #selector(handlePan(_:))
+                    )
+                    pan.delegate = self
+                    scrollView.addGestureRecognizer(pan)
+                    gestureRecognizer = pan
+                    return
+                }
+                current = v.superview
+            }
+        }
+
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-            if gesture.state == .changed {
+            if gesture.state == .began || gesture.state == .changed {
                 onVerticalDrag()
             }
         }

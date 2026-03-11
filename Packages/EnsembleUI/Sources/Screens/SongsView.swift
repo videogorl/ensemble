@@ -22,9 +22,9 @@ public struct SongsView: View {
     @State private var selectedAlbum: Album?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
+    @State private var isCoverFlowActive = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     private var supportsCoverFlow: Bool {
         #if os(iOS)
@@ -48,42 +48,55 @@ public struct SongsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if libraryVM.isLoading && libraryVM.tracks.isEmpty {
-                    loadingView
-                } else if libraryVM.tracks.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeAlbumCoverFlowView
-                } else {
-                    trackListView
-                }
+        Group {
+            if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+                loadingView
+            } else if libraryVM.tracks.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeAlbumCoverFlowView
+            } else {
+                trackListView
             }
-            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
-            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
+        }
+        // Detect landscape for CoverFlow via background GeometryReader.
+        // Placed in .background so it doesn't block the navigation controller
+        // from finding the ScrollView for large title collapse tracking.
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        isCoverFlowActive = supportsCoverFlow && geometry.size.width > geometry.size.height
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        isCoverFlowActive = supportsCoverFlow && newSize.width > newSize.height
+                    }
+            }
+        )
+        .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
+        .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
+        #if os(iOS)
+        .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
+        #endif
+        .navigationTitle(isCoverFlowActive ? "" : "Songs")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(isCoverFlowActive ? .inline : .large)
+        #endif
+        .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+        .refreshable {
+            await libraryVM.refreshFromServer()
+        }
+        .toolbar {
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
-            #endif
-            .navigationTitle(isCoverFlowActive ? "" : "Songs")
-            .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
-            .refreshable {
-                await libraryVM.refreshFromServer()
-            }
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
-                        HStack(spacing: 16) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
+                    HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
                         } label: {
                             ZStack(alignment: .topTrailing) {
                                 Image(systemName: "line.3.horizontal.decrease.circle")
-                                
+
                                 // Badge indicator when filters are active
                                 if libraryVM.tracksFilterOptions.hasActiveFilters {
                                     Circle()
@@ -118,9 +131,9 @@ public struct SongsView: View {
                             } label: {
                                 Label("Sort By", systemImage: "arrow.up.arrow.down")
                             }
-                            
+
                             Divider()
-                            
+
                             Button {
                                 nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
                             } label: {
@@ -137,10 +150,10 @@ public struct SongsView: View {
                         }
                     }
                 }
-                }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
+            }
+            #else
+            ToolbarItem(placement: .automatic) {
+                if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -159,7 +172,7 @@ public struct SongsView: View {
                 }
             }
             #endif
-            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions
@@ -180,9 +193,8 @@ public struct SongsView: View {
             .navigationViewStyle(.stack)
             #endif
             #if os(macOS)
-                .frame(width: 720, height: 560)
+            .frame(width: 720, height: 560)
             #endif
-        }
         }
     }
 
@@ -301,29 +313,36 @@ public struct SongsView: View {
         }
     }
     
+    /// Indexed track list with pinned section headers and lazy row creation.
     private var indexedTrackListContent: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
             ForEach(libraryVM.trackSections) { section in
-                indexedSection(section: section)
+                Section(header: sectionHeader(section.letter)) {
+                    ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                        songTrackRow(track: track)
+                            .id(track.id)
+
+                        if index < section.tracks.count - 1 {
+                            Divider()
+                                .padding(.leading, 68)
+                        }
+                    }
+                }
+                .id(section.letter)
             }
         }
         .padding(.vertical)
     }
     
-    private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
-        Section(header: sectionHeader(section.letter)) {
-            #if os(iOS)
-            let trackCount = section.tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
-
-            MediaTrackList(
-                tracks: section.tracks,
+    /// Non-indexed track list using LazyVStack for lazy row creation.
+    /// Wrapped in ScrollView so mini player bottom spacing works correctly.
+    private var unsortedTrackListContent: some View {
+        ScrollView {
+            TrackListView(
+                tracks: libraryVM.filteredTracks,
                 showArtwork: true,
                 showTrackNumbers: false,
-                groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
-                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -357,191 +376,65 @@ public struct SongsView: View {
                 onShareFile: { track in
                     ShareActions.shareTrackFile(track, deps: deps)
                 },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
                 canAddToRecentPlaylist: { track in
                     recentPlaylistTitle(for: track) != nil
                 },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-            ) { track, _ in
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+                nowPlayingVM: nowPlayingVM
+            ) { _, index in
+                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+            }
+            .padding(.horizontal)
+        }
+        .miniPlayerBottomSpacing(140)
+    }
+
+    /// Builds a swipeable track row for the songs list with all action callbacks.
+    private func songTrackRow(track: Track) -> some View {
+        TrackSwipeContainer(
+            track: track,
+            nowPlayingVM: nowPlayingVM,
+            onPlayNext: { nowPlayingVM.playNext(track) },
+            onPlayLast: { nowPlayingVM.playLast(track) },
+            onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
+        ) {
+            TrackRow(
+                track: track,
+                showArtwork: true,
+                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                onPlayNext: { nowPlayingVM.playNext(track) },
+                onPlayLast: { nowPlayingVM.playLast(track) },
+                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                onToggleFavorite: {
+                    Task { await nowPlayingVM.toggleTrackFavorite(track) }
+                },
+                onGoToAlbum: {
+                    if let albumId = track.albumRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onGoToArtist: {
+                    if let artistId = track.artistRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onShareLink: {
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: {
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
+                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                recentPlaylistTitle: recentPlaylistTitle(for: track)
+            ) {
                 if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
                     nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
                 }
             }
-            .frame(height: height)
-            .padding(.horizontal)
-            #else
-            VStack(spacing: 0) {
-                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                    TrackSwipeContainer(
-                        track: track,
-                        nowPlayingVM: nowPlayingVM,
-                        onPlayNext: { nowPlayingVM.playNext(track) },
-                        onPlayLast: { nowPlayingVM.playLast(track) },
-                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
-                    ) {
-                        TrackRow(
-                            track: track,
-                            showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
-                            onPlayNext: { nowPlayingVM.playNext(track) },
-                            onPlayLast: { nowPlayingVM.playLast(track) },
-                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                            onToggleFavorite: {
-                                Task {
-                                    await nowPlayingVM.toggleTrackFavorite(track)
-                                }
-                            },
-                            onGoToAlbum: {
-                                if let albumId = track.albumRatingKey {
-                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onGoToArtist: {
-                                if let artistId = track.artistRatingKey {
-                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                }
-                            },
-                            onShareLink: {
-                                ShareActions.shareTrackLink(track, deps: deps)
-                            },
-                            onShareFile: {
-                                ShareActions.shareTrackFile(track, deps: deps)
-                            },
-                            isFavorited: nowPlayingVM.isTrackFavorited(track),
-                            recentPlaylistTitle: recentPlaylistTitle(for: track),
-                            onTap: {
-                                if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
-                                    nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
-                                }
-                            }
-                        )
-                    }
-                    .id(track.id)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    
-                    if index < section.tracks.count - 1 {
-                        Divider()
-                            .padding(.leading, 68)
-                    }
-                }
-            }
-            #endif
-        }
-        .id(section.letter)
-    }
-    
-    private var unsortedTrackListContent: some View {
-        #if os(iOS)
-        // MediaTrackList's UITableView manages its own scrolling and cell recycling.
-        // No fixed .frame(height:) — that was defeating virtualization by forcing
-        // all rows to be laid out simultaneously.
-        return MediaTrackList(
-            tracks: libraryVM.filteredTracks,
-            showArtwork: true,
-            showTrackNumbers: false,
-            groupByDisc: false,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
-            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
-            managesOwnScrolling: true,
-            bottomContentInset: 140,
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-        ) { _, index in
-            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.horizontal)
-        #else
-        return TrackListView(
-            tracks: libraryVM.filteredTracks,
-            showArtwork: true,
-            showTrackNumbers: false,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                }
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
-            nowPlayingVM: nowPlayingVM
-        ) { track, index in
-            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-        }
-        .padding(.vertical)
-        #endif
+        .padding(.vertical, 8)
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
