@@ -421,11 +421,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     // MARK: - Display Timer
 
-    /// Start a 30Hz timer that reads the active timeline and publishes bands
+    /// Start a 30Hz timer that reads the active timeline and publishes bands.
+    /// Timer runs on RunLoop.main so tickDisplay() executes on the main thread directly
+    /// without the overhead of a Task { @MainActor } hop 30x/sec.
     private func startDisplayTimer() {
         displayTimer?.invalidate()
         let timer = Timer(timeInterval: 1.0 / targetFPS, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.tickDisplay()
             }
         }
@@ -451,7 +453,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let wallElapsed = CACurrentMediaTime() - positionUpdateWallTime
         let interpolatedTime = currentPlaybackTime + wallElapsed
 
-        frequencyBands = timeline.bands(at: interpolatedTime)
+        let newBands = timeline.bands(at: interpolatedTime)
+
+        // Skip publish if bands haven't changed — avoids firing @Published -> objectWillChange
+        // chain 30x/sec when the visualizer is showing silence or a held frame
+        guard newBands != frequencyBands else { return }
+        frequencyBands = newBands
     }
 
     // MARK: - Static FFT Analysis (runs on background thread)

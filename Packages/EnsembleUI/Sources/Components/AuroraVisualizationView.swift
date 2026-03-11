@@ -62,16 +62,22 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - Init
 
-    public init(playbackService: PlaybackServiceProtocol, accentColor: Color) {
+    /// Whether the aurora should pause rendering (e.g. Now Playing sheet covers it)
+    private let isPaused: Bool
+
+    public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false) {
         self.playbackService = playbackService
         self.accentColor = accentColor
+        self.isPaused = isPaused
     }
 
     // MARK: - Body
 
     public var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(paused: false)) { timeline in
+            // Cap at 30fps — band data from FrequencyAnalysisService already updates at 30fps,
+            // so 60fps doubles GPU work for zero visual benefit. Pause when occluded.
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: isPaused || !isVisible)) { timeline in
                 Canvas { context, size in
                     drawAurora(
                         context: context,
@@ -157,7 +163,7 @@ public struct AuroraVisualizationView: View {
         var newPeakHolds = peakHolds
         var newPeakTimers = peakDecayTimers
         
-        let deltaTime: Double = 1.0 / 60.0 // Approximate frame delta
+        let deltaTime: Double = 1.0 / 30.0 // Approximate frame delta (30fps cap)
         
         for i in 0..<bandCount {
             let target = targetBands[i]
@@ -193,18 +199,12 @@ public struct AuroraVisualizationView: View {
             self.peakDecayTimers = newPeakTimers
         }
 
-        // Draw multiple soft glow passes for ethereal blur effect (back to front)
-        // Wide, soft outer glow
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 60, opacity: 0.03)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 45, opacity: 0.05)
-        
-        // Mid-range glow for depth
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.12)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.18)
-        
-        // Tighter glow for definition — minimum blur of 8 to prevent hard band edges
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.25)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.28)
+        // Draw 3 soft glow passes for ethereal blur effect (back to front).
+        // Reduced from 6 passes — the 3 outermost (blur=60,45,30) were nearly invisible
+        // but cost 72 blur filter applications per frame. Opacities bumped to compensate.
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
+        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.35)
         
         // Peak highlights (subtle)
         if isPlaying {

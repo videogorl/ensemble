@@ -332,7 +332,8 @@ public struct MainTabView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
@@ -639,7 +640,8 @@ public struct SidebarView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
