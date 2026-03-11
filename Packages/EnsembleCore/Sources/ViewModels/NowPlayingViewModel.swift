@@ -301,6 +301,9 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.instrumentalProgress = nil
                 // Pre-compute gap positions for persistent instrumental indicators
                 if case .available(let lyrics) = state {
+                    #if DEBUG
+                    EnsembleLogger.debug("Lyrics: typicalVocalDuration=\(String(format: "%.2f", lyrics.typicalVocalDuration))s, instrumentalGapThreshold=\(String(format: "%.1f", lyrics.instrumentalGapThreshold))s")
+                    #endif
                     self.computeInstrumentalGapPositions(lyrics: lyrics)
 
                     // If we're already mid-track (e.g. app restored from background),
@@ -390,12 +393,10 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
-    /// Minimum gap (seconds) between lyrics lines to show an instrumental indicator.
-    /// Gaps shorter than this are just natural pauses between vocal phrases.
-    private static let instrumentalGapThreshold: TimeInterval = 5.0
-
     /// Pre-compute which line indices have instrumental gaps after them.
     /// Also determines intro/outro gap presence. Called when lyrics change.
+    /// Uses the lyrics' adaptive threshold so songs with naturally long phrase
+    /// spacing don't get false instrumental dots.
     private func computeInstrumentalGapPositions(lyrics: ParsedLyrics) {
         guard lyrics.isTimed else {
             instrumentalGapAfterIndices = []
@@ -404,11 +405,12 @@ public final class NowPlayingViewModel: ObservableObject {
             return
         }
 
+        let threshold = lyrics.instrumentalGapThreshold
         var gapIndices = Set<Int>()
 
         // Check intro gap (before first lyric)
         if let firstTimestamp = lyrics.lines.first?.timestamp,
-           firstTimestamp >= Self.instrumentalGapThreshold {
+           firstTimestamp >= threshold {
             hasIntroInstrumentalGap = true
         } else {
             hasIntroInstrumentalGap = false
@@ -418,7 +420,7 @@ public final class NowPlayingViewModel: ObservableObject {
         for i in 0..<lyrics.lines.count - 1 {
             guard let current = lyrics.lines[i].timestamp,
                   let next = lyrics.lines[i + 1].timestamp else { continue }
-            if next - current >= Self.instrumentalGapThreshold {
+            if next - current >= threshold {
                 gapIndices.insert(i)
             }
         }
@@ -426,13 +428,17 @@ public final class NowPlayingViewModel: ObservableObject {
         // Check outro gap (last lyric to track end)
         if let lastTimestamp = lyrics.lines.last?.timestamp,
            duration > 0,
-           duration - lastTimestamp >= Self.instrumentalGapThreshold {
+           duration - lastTimestamp >= threshold {
             hasOutroInstrumentalGap = true
         } else {
             hasOutroInstrumentalGap = false
         }
 
         instrumentalGapAfterIndices = gapIndices
+
+        #if DEBUG
+        EnsembleLogger.debug("Lyrics: gaps after indices=\(gapIndices.sorted()), intro=\(hasIntroInstrumentalGap), outro=\(hasOutroInstrumentalGap)")
+        #endif
     }
 
     /// Compute progress through an instrumental gap (0.0–1.0).
@@ -444,9 +450,11 @@ public final class NowPlayingViewModel: ObservableObject {
         currentTime: TimeInterval,
         trackDuration: TimeInterval
     ) -> Double? {
+        let threshold = lyrics.instrumentalGapThreshold
+
         // Intro gap: before the first lyric line starts
         if activeIndex == nil, let firstTimestamp = lyrics.lines.first?.timestamp {
-            guard firstTimestamp >= instrumentalGapThreshold else { return nil }
+            guard firstTimestamp >= threshold else { return nil }
             let progress = currentTime / firstTimestamp
             return min(max(progress, 0), 1)
         }
@@ -460,7 +468,7 @@ public final class NowPlayingViewModel: ObservableObject {
         if nextIndex < lyrics.lines.count,
            let nextTimestamp = lyrics.lines[nextIndex].timestamp {
             let gapDuration = nextTimestamp - currentTimestamp
-            guard gapDuration >= instrumentalGapThreshold else { return nil }
+            guard gapDuration >= threshold else { return nil }
             let elapsed = currentTime - currentTimestamp
             return min(max(elapsed / gapDuration, 0), 1)
         }
@@ -468,7 +476,7 @@ public final class NowPlayingViewModel: ObservableObject {
         // Outro gap: last line to end of track
         if nextIndex >= lyrics.lines.count, trackDuration > 0 {
             let gapDuration = trackDuration - currentTimestamp
-            guard gapDuration >= instrumentalGapThreshold else { return nil }
+            guard gapDuration >= threshold else { return nil }
             let elapsed = currentTime - currentTimestamp
             return min(max(elapsed / gapDuration, 0), 1)
         }

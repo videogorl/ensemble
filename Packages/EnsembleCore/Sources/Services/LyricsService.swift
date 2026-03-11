@@ -16,16 +16,24 @@ public struct ParsedLyrics: Sendable, Equatable {
     public let lines: [LyricsLine]
     public let isTimed: Bool
 
-    /// Median inter-line interval for non-instrumental gaps.
+    /// Median inter-line interval for vocal lines (excluding instrumental gaps).
     /// Represents how long a typical vocal line lasts in this song.
     /// Used to keep a line highlighted for a natural duration before
     /// instrumental dots take over.
     public let typicalVocalDuration: TimeInterval
 
+    /// Adaptive threshold for detecting instrumental gaps.
+    /// Gaps between lyrics lines longer than this are considered instrumental breaks.
+    /// Computed as max(median_interval * 2.0, 10.0) so songs with naturally
+    /// longer phrase spacing (e.g. ballads) don't get false instrumental dots.
+    public let instrumentalGapThreshold: TimeInterval
+
     public init(lines: [LyricsLine], isTimed: Bool) {
         self.lines = lines
         self.isTimed = isTimed
-        self.typicalVocalDuration = Self.computeTypicalVocalDuration(lines: lines, isTimed: isTimed)
+        let (vocal, threshold) = Self.computeTimingParameters(lines: lines, isTimed: isTimed)
+        self.typicalVocalDuration = vocal
+        self.instrumentalGapThreshold = threshold
     }
 
     /// Binary search for the active line at a given playback time.
@@ -51,22 +59,50 @@ public struct ParsedLyrics: Sendable, Equatable {
         return result
     }
 
-    /// Compute median interval between consecutive vocal lines (excluding instrumental gaps)
-    private static func computeTypicalVocalDuration(lines: [LyricsLine], isTimed: Bool) -> TimeInterval {
-        guard isTimed, lines.count > 1 else { return 2.0 }
-        let instrumentalThreshold: TimeInterval = 5.0
-        var intervals: [TimeInterval] = []
+    /// Two-pass computation of vocal duration and instrumental gap threshold.
+    /// Pass 1: Compute median of ALL inter-line intervals to understand the song's pacing.
+    /// Pass 2: Set instrumental threshold adaptively, then compute vocal duration
+    ///         as the median of intervals below that threshold.
+    private static func computeTimingParameters(
+        lines: [LyricsLine], isTimed: Bool
+    ) -> (vocalDuration: TimeInterval, gapThreshold: TimeInterval) {
+        let defaultVocal: TimeInterval = 2.0
+        let minimumThreshold: TimeInterval = 10.0
+
+        guard isTimed, lines.count > 1 else {
+            return (defaultVocal, minimumThreshold)
+        }
+
+        // Collect all positive inter-line intervals
+        var allIntervals: [TimeInterval] = []
         for i in 0..<lines.count - 1 {
             guard let current = lines[i].timestamp,
                   let next = lines[i + 1].timestamp else { continue }
             let gap = next - current
-            if gap > 0 && gap < instrumentalThreshold {
-                intervals.append(gap)
-            }
+            if gap > 0 { allIntervals.append(gap) }
         }
-        guard !intervals.isEmpty else { return 2.0 }
-        intervals.sort()
-        return intervals[intervals.count / 2]
+
+        guard !allIntervals.isEmpty else {
+            return (defaultVocal, minimumThreshold)
+        }
+
+        allIntervals.sort()
+        let medianInterval = allIntervals[allIntervals.count / 2]
+
+        // Instrumental threshold: at least 2x the song's natural pacing, minimum 10s.
+        // This prevents false dots on songs with naturally long phrase spacing.
+        let gapThreshold = max(medianInterval * 2.0, minimumThreshold)
+
+        // Vocal duration: median of intervals below the threshold
+        let vocalIntervals = allIntervals.filter { $0 < gapThreshold }
+        let vocalDuration: TimeInterval
+        if vocalIntervals.isEmpty {
+            vocalDuration = defaultVocal
+        } else {
+            vocalDuration = vocalIntervals[vocalIntervals.count / 2]
+        }
+
+        return (vocalDuration, gapThreshold)
     }
 }
 

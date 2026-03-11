@@ -107,7 +107,9 @@ public struct LyricsCard: View {
 
                     // Intro instrumental indicator (always visible if gap exists)
                     if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
-                        let isIntroActive = viewModel.currentLyricsLineIndex == nil
+                        // Intro is active only when scroll target is nil (before first lyric).
+                        // During mid-song gaps, scroll target is non-nil (tracks the preceding line).
+                        let isIntroActive = viewModel.lyricsScrollTargetIndex == nil
                             && viewModel.instrumentalProgress != nil
                         let progress = isIntroActive ? (viewModel.instrumentalProgress ?? 0) : 1.0
                         instrumentalIndicator(progress: progress)
