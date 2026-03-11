@@ -112,7 +112,10 @@ public struct LyricsCard: View {
                         let isIntroActive = viewModel.lyricsScrollTargetIndex == nil
                             && viewModel.instrumentalProgress != nil
                         let progress = isIntroActive ? (viewModel.instrumentalProgress ?? 0) : 1.0
+                        let introBlur = lineBlurRadius(index: 0, isTimed: true)
                         instrumentalIndicator(progress: progress)
+                            .blur(radius: introBlur)
+                            .animation(.easeInOut(duration: 0.3), value: introBlur)
                             .id("intro-instrumental")
                             .onTapGesture {
                                 viewModel.seek(to: 0)
@@ -144,7 +147,10 @@ public struct LyricsCard: View {
                                 && viewModel.currentLyricsLineIndex == nil
                                 && isCurrentGap(afterIndex: index, lyrics: lyrics)
                             let progress = isActiveGap ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
+                            let gapBlur = lineBlurRadius(index: index, isTimed: true)
                             instrumentalIndicator(progress: progress)
+                                .blur(radius: gapBlur)
+                                .animation(.easeInOut(duration: 0.3), value: gapBlur)
                                 .id("gap-\(index)")
                                 .onTapGesture {
                                     let nextIndex = index + 1
@@ -164,7 +170,10 @@ public struct LyricsCard: View {
                             && viewModel.currentLyricsLineIndex == nil
                             && !viewModel.hasIntroInstrumentalGap  // Not intro
                         let progress = isOutroActive ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: lastIndex) ? 1.0 : 0.0)
+                        let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
                         instrumentalIndicator(progress: progress)
+                            .blur(radius: outroBlur)
+                            .animation(.easeInOut(duration: 0.3), value: outroBlur)
                             .id("outro-instrumental")
                     }
 
