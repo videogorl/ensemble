@@ -486,37 +486,45 @@ private struct VerticalDragDetector: UIViewRepresentable {
 
     class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let onVerticalDrag: () -> Void
-        private var gestureRecognizer: UIPanGestureRecognizer?
-        /// Holds a strong reference to the delegate wrapper that restricts
-        /// the ScrollView's built-in pan gesture to vertical-only.
-        private var scrollViewPanDelegate: ScrollViewPanDelegateProxy?
+        private var verticalDetector: UIPanGestureRecognizer?
+        private var horizontalBlocker: UIPanGestureRecognizer?
 
         init(onVerticalDrag: @escaping () -> Void) {
             self.onVerticalDrag = onVerticalDrag
         }
 
         func attachIfNeeded(from view: UIView?) {
-            guard gestureRecognizer == nil, let view else { return }
+            guard verticalDetector == nil, let view else { return }
             // Walk up to find the SwiftUI ScrollView's underlying UIScrollView
             var current: UIView? = view
             while let v = current {
                 if let scrollView = v as? UIScrollView {
-                    // Add our vertical-only drag detector
-                    let pan = UIPanGestureRecognizer(
+                    // 1. Vertical drag detector — fires callback for auto-scroll suppression
+                    let vertical = UIPanGestureRecognizer(
                         target: self,
-                        action: #selector(handlePan(_:))
+                        action: #selector(handleVerticalPan(_:))
                     )
-                    pan.delegate = self
-                    scrollView.addGestureRecognizer(pan)
-                    gestureRecognizer = pan
+                    vertical.delegate = self
+                    vertical.name = "lyrics-vertical-detector"
+                    scrollView.addGestureRecognizer(vertical)
+                    verticalDetector = vertical
 
-                    // Restrict the ScrollView's own pan gesture to vertical-only
-                    // so horizontal swipes pass through to the parent TabView
-                    let proxy = ScrollViewPanDelegateProxy(
-                        originalDelegate: scrollView.panGestureRecognizer.delegate
+                    // 2. Horizontal blocker — recognizes horizontal swipes, which blocks
+                    // the ScrollView's built-in pan (via require(toFail:)) so the touch
+                    // propagates up to the parent TabView for card navigation.
+                    let horizontal = UIPanGestureRecognizer(
+                        target: self,
+                        action: #selector(handleHorizontalPan(_:))
                     )
-                    scrollView.panGestureRecognizer.delegate = proxy
-                    scrollViewPanDelegate = proxy
+                    horizontal.delegate = self
+                    horizontal.name = "lyrics-horizontal-blocker"
+                    scrollView.addGestureRecognizer(horizontal)
+                    horizontalBlocker = horizontal
+
+                    // Make the ScrollView's own pan wait for horizontal blocker to fail.
+                    // Horizontal swipe → blocker recognizes → ScrollView pan never starts → TabView gets it.
+                    // Vertical swipe → blocker fails → ScrollView pan starts normally.
+                    scrollView.panGestureRecognizer.require(toFail: horizontal)
 
                     return
                 }
@@ -524,80 +532,35 @@ private struct VerticalDragDetector: UIViewRepresentable {
             }
         }
 
-        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+        @objc func handleVerticalPan(_ gesture: UIPanGestureRecognizer) {
             if gesture.state == .began || gesture.state == .changed {
                 onVerticalDrag()
             }
         }
 
-        // Only begin for predominantly vertical pans — lets horizontal swipes
-        // fall through to the TabView page gesture.
+        // Horizontal blocker action — does nothing, its purpose is just to
+        // "claim" horizontal gestures so the ScrollView's pan doesn't start.
+        @objc func handleHorizontalPan(_ gesture: UIPanGestureRecognizer) {}
+
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
             let velocity = pan.velocity(in: pan.view)
-            return abs(velocity.y) > abs(velocity.x)
+
+            if gestureRecognizer === horizontalBlocker {
+                // Only begin for predominantly horizontal pans
+                return abs(velocity.x) > abs(velocity.y)
+            } else {
+                // Vertical detector: only begin for predominantly vertical pans
+                return abs(velocity.y) > abs(velocity.x)
+            }
         }
 
-        // Allow simultaneous recognition with the ScrollView's pan gesture
+        // Allow both our gestures to run alongside the ScrollView's built-in pan
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             return true
-        }
-    }
-
-    /// Proxy delegate for the ScrollView's built-in panGestureRecognizer.
-    /// Restricts it to vertical-only pans so horizontal swipes propagate up
-    /// to the parent TabView for card navigation.
-    class ScrollViewPanDelegateProxy: NSObject, UIGestureRecognizerDelegate {
-        weak var originalDelegate: UIGestureRecognizerDelegate?
-
-        init(originalDelegate: UIGestureRecognizerDelegate?) {
-            self.originalDelegate = originalDelegate
-        }
-
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Restrict the ScrollView's pan to vertical-only
-            if let pan = gestureRecognizer as? UIPanGestureRecognizer {
-                let velocity = pan.velocity(in: pan.view)
-                if abs(velocity.x) > abs(velocity.y) {
-                    // Horizontal swipe — don't let ScrollView claim it
-                    return false
-                }
-            }
-            // Forward to original delegate for all other checks
-            return originalDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) ?? true
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            return originalDelegate?.gestureRecognizer?(
-                gestureRecognizer,
-                shouldRecognizeSimultaneouslyWith: otherGestureRecognizer
-            ) ?? false
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            return originalDelegate?.gestureRecognizer?(
-                gestureRecognizer,
-                shouldRequireFailureOf: otherGestureRecognizer
-            ) ?? false
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            return originalDelegate?.gestureRecognizer?(
-                gestureRecognizer,
-                shouldBeRequiredToFailBy: otherGestureRecognizer
-            ) ?? false
         }
     }
 }
