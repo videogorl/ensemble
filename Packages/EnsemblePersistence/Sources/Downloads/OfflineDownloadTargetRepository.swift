@@ -49,6 +49,9 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
     func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool
     func membershipCount(for reference: OfflineTrackReference) async throws -> Int
 
+    /// Returns target keys for all targets that contain the given track reference.
+    func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String]
+
     /// Returns the total duration (in milliseconds) of all unique tracks across all download targets.
     func totalTrackDurationMs() async throws -> Int64
 }
@@ -363,6 +366,27 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
                 do {
                     let count = try context.count(for: request)
                     continuation.resume(returning: count)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDOfflineDownloadMembership.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "trackRatingKey == %@ AND trackSourceCompositeKey == %@",
+                    reference.trackRatingKey,
+                    reference.trackSourceCompositeKey
+                )
+                do {
+                    let memberships = try context.fetch(request)
+                    let keys = memberships.map(\.targetKey)
+                    continuation.resume(returning: keys)
                 } catch {
                     continuation.resume(throwing: error)
                 }

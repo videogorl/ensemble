@@ -931,8 +931,9 @@ public final class OfflineDownloadService: ObservableObject {
             return
         }
 
+        let trackRatingKey = track.ratingKey
         let reference = OfflineTrackReference(
-            trackRatingKey: track.ratingKey,
+            trackRatingKey: trackRatingKey,
             trackSourceCompositeKey: sourceCompositeKey
         )
 
@@ -944,7 +945,7 @@ public final class OfflineDownloadService: ObservableObject {
                     forTrackRatingKey: reference.trackRatingKey,
                     sourceCompositeKey: reference.trackSourceCompositeKey
                 )
-                await refreshAllTargetProgresses()
+                await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
                 return
             }
 
@@ -1079,7 +1080,8 @@ public final class OfflineDownloadService: ObservableObject {
                 quality: effectiveQuality.rawValue
             )
             await cacheArtworkForDownloadedTrack(track)
-            await refreshAllTargetProgresses()
+            // Targeted refresh: only update targets that own this track (not all targets)
+            await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
 
             // Pre-compute frequency analysis sidecar for the visualizer
             let sidecarURL = destinationURL.appendingPathExtension("freq")
@@ -1128,7 +1130,8 @@ public final class OfflineDownloadService: ObservableObject {
                 )
                 #endif
             }
-            await refreshAllTargetProgresses()
+            // Targeted refresh: only update targets that own this track
+            await refreshTargetsForTrack(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
         }
     }
 
@@ -1283,7 +1286,8 @@ public final class OfflineDownloadService: ObservableObject {
             quality: quality.rawValue
         )
         await cacheArtworkForDownloadedTrack(track)
-        await refreshAllTargetProgresses()
+        // Targeted refresh: only update targets that own this track
+        await refreshTargetsForTrack(ratingKey: track.ratingKey, sourceCompositeKey: track.sourceCompositeKey ?? "")
 
         // Pre-compute frequency analysis sidecar for the visualizer
         let sidecarURL2 = destinationURL.appendingPathExtension("freq")
@@ -1556,6 +1560,30 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Refreshes only the targets that contain the given track, plus active download keys.
+    /// Much cheaper than refreshAllTargetProgresses() during bulk downloads — O(owning targets)
+    /// instead of O(all targets × tracks per target).
+    private func refreshTargetsForTrack(ratingKey: String, sourceCompositeKey: String) async {
+        do {
+            let reference = OfflineTrackReference(
+                trackRatingKey: ratingKey,
+                trackSourceCompositeKey: sourceCompositeKey
+            )
+            let targetKeys = try await targetRepository.fetchTargetKeys(containing: reference)
+            for key in targetKeys {
+                await refreshTargetProgress(forTargetKey: key)
+            }
+            await refreshTargetSnapshots()
+            await refreshActiveDownloadRatingKeys()
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
+            #endif
+            // Fall back to full refresh on error
+            await refreshAllTargetProgresses()
+        }
+    }
+
     private func refreshAllTargetProgresses() async {
         do {
             let allTargets = try await targetRepository.fetchTargets()
@@ -1604,6 +1632,10 @@ public final class OfflineDownloadService: ObservableObject {
                 return
             }
 
+            // Batch-fetch all downloads for this target in a single CoreData query
+            // instead of N individual queries (was O(N) queries per target refresh)
+            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+
             let desiredQuality = currentDownloadQuality()
             var completed = 0
             var downloading = 0
@@ -1615,10 +1647,8 @@ public final class OfflineDownloadService: ObservableObject {
             var downloadedBytes: Int64 = 0
 
             for reference in references {
-                guard let download = try await downloadManager.fetchDownload(
-                    forTrackRatingKey: reference.trackRatingKey,
-                    sourceCompositeKey: reference.trackSourceCompositeKey
-                ) else {
+                let lookupKey = "\(reference.trackSourceCompositeKey)|\(reference.trackRatingKey)"
+                guard let download = downloadsByKey[lookupKey] else {
                     pending += 1
                     continue
                 }
@@ -1627,7 +1657,6 @@ public final class OfflineDownloadService: ObservableObject {
                 case .completed:
                     completed += 1
                     downloadedBytes += max(download.fileSize, 0)
-                    // Track quality mismatches for the refresh indicator
                     if let quality = download.quality, quality != desiredQuality {
                         qualityMismatch += 1
                     }
@@ -1654,8 +1683,6 @@ public final class OfflineDownloadService: ObservableObject {
             } else if completed >= total {
                 status = .completed
             } else if downloading > 0 || (isQueueRunning && pending > 0) {
-                // Show "Downloading" when tracks are actively downloading OR when
-                // the queue is running with pending tracks (between track completions)
                 status = .downloading
             } else if !canExecuteDownloads && (pending > 0 || paused > 0) {
                 status = .paused
@@ -1705,7 +1732,11 @@ public final class OfflineDownloadService: ObservableObject {
     private func scheduleDownloadChangeNotification() {
         downloadChangeNotificationTask?.cancel()
         downloadChangeNotificationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            // Longer debounce during bulk downloads to avoid spamming UI updates.
+            // Completions arrive faster than 1s so the short debounce never fires.
+            let pendingCount = (try? await self?.downloadManager.fetchPendingDownloads().count) ?? 0
+            let debounceNs: UInt64 = pendingCount > 3 ? 3_000_000_000 : 1_000_000_000
+            try? await Task.sleep(nanoseconds: debounceNs)
             guard !Task.isCancelled else { return }
             // Force-refault all view context objects so the next fetch reads
             // the latest store data (localFilePath, download status, etc.).
