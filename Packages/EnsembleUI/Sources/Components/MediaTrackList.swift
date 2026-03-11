@@ -318,7 +318,7 @@ public struct MediaTrackList: UIViewRepresentable {
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
-    let availabilityGeneration: UInt
+    let availabilityGeneration: UInt64
     /// Set of ratingKeys currently downloading — parent observes OfflineDownloadService once
     /// instead of N instances each subscribing to the singleton.
     let activeDownloadRatingKeys: Set<String>
@@ -335,7 +335,7 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
-        availabilityGeneration: UInt = 0,
+        availabilityGeneration: UInt64 = 0,
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
         onPlayNext: ((Track) -> Void)? = nil,
@@ -520,8 +520,8 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
-            isOffline: !networkMonitor.isConnected,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys
+            isOffline: !dependencies.networkMonitor.isConnected,
+            activeDownloadRatingKeys: activeDownloadRatingKeys
         )
     }
     
