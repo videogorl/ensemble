@@ -7,10 +7,11 @@ public struct NowPlayingCarousel: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
-    
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+
     // Track previous page for haptic feedback
     @State private var previousPage: Int = 1
-    
+
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -28,7 +29,7 @@ public struct NowPlayingCarousel: View {
                     .tag(1)
 
                 // Page 2: Lyrics (swipe right from center)
-                LyricsCard(viewModel: viewModel, currentPage: $currentPage)
+                LyricsCard(viewModel: viewModel, currentPage: $currentPage, isLowPowerMode: powerStateMonitor.isLowPowerMode)
                     .tag(2)
 
                 // Page 3: Info (far right)

@@ -7,12 +7,16 @@ public struct LyricsCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
 
+    /// When true, disables progressive blur on lyrics lines to reduce GPU work
+    let isLowPowerMode: Bool
+
     // Track last scroll target to detect large jumps (seeks) vs natural progression
     @State private var lastScrollIndex: Int?
 
-    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
+    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>, isLowPowerMode: Bool = false) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self.isLowPowerMode = isLowPowerMode
     }
 
     public var body: some View {
@@ -353,9 +357,9 @@ public struct LyricsCard: View {
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
     /// Lines close to the active line are sharp; distant lines blur progressively.
-    /// Disabled for plain text lyrics and during user manual scroll.
+    /// Disabled for plain text lyrics, during user manual scroll, and in Low Power Mode.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, !viewModel.isUserScrollingLyrics else { return 0 }
+        guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = viewModel.currentLyricsLineIndex

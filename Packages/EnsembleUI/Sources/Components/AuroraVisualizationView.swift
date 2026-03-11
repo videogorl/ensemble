@@ -65,19 +65,23 @@ public struct AuroraVisualizationView: View {
     /// Whether the aurora should pause rendering (e.g. Now Playing sheet covers it)
     private let isPaused: Bool
 
-    public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false) {
+    /// When true, reduces to 1 glow pass at 15fps to conserve battery
+    private let isLowPowerMode: Bool
+
+    public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false, isLowPowerMode: Bool = false) {
         self.playbackService = playbackService
         self.accentColor = accentColor
         self.isPaused = isPaused
+        self.isLowPowerMode = isLowPowerMode
     }
 
     // MARK: - Body
 
     public var body: some View {
         GeometryReader { geometry in
-            // Cap at 30fps — band data from FrequencyAnalysisService already updates at 30fps,
-            // so 60fps doubles GPU work for zero visual benefit. Pause when occluded.
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: isPaused || !isVisible)) { timeline in
+            // Normal: 30fps. Low Power Mode: 15fps to halve GPU work.
+            // Pause entirely when occluded or explicitly paused.
+            TimelineView(.animation(minimumInterval: isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0, paused: isPaused || !isVisible)) { timeline in
                 Canvas { context, size in
                     drawAurora(
                         context: context,
@@ -201,12 +205,15 @@ public struct AuroraVisualizationView: View {
             self.peakDecayTimers = newPeakTimers
         }
 
-        // Draw 3 soft glow passes for ethereal blur effect (back to front).
-        // Reduced from 6 passes — the 3 outermost (blur=60,45,30) were nearly invisible
-        // but cost 72 blur filter applications per frame. Opacities bumped to compensate.
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.35)
+        // Normal: 3 soft glow passes for ethereal blur effect (back to front).
+        // Low Power Mode: single pass with bumped opacity to preserve visibility.
+        if isLowPowerMode {
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.50)
+        } else {
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.35)
+        }
         
         // Peak highlights (subtle)
         if isPlaying {
