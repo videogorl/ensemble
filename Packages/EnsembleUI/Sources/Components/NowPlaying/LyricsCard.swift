@@ -156,7 +156,7 @@ public struct LyricsCard: View {
                                 // which is slightly before the vocals begin. Add a small
                                 // offset so tap-to-seek lands on the actual vocal start
                                 // rather than the tail of the previous line.
-                                viewModel.seek(to: timestamp + 0.7)
+                                viewModel.seek(to: timestamp + 0.5)
                                 resumeIfPaused()
                             }
                         }
