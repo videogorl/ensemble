@@ -481,17 +481,6 @@ public struct ControlsCard: View {
                     .foregroundColor(.primary.opacity(0.7))
             }
             
-            // Share link for current track
-            Button {
-                if let track = viewModel.currentTrack {
-                    ShareActions.shareTrackLink(track, deps: deps)
-                }
-            } label: {
-                Image(systemName: "link")
-                    .font(.title3)
-                    .foregroundColor(.primary.opacity(0.7))
-            }
-
             // More menu with navigation, sharing, and quick add
             Menu {
                 if let currentTrack = viewModel.currentTrack {

@@ -356,6 +356,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
+            // Share album link
+            if viewModel is AlbumDetailViewModel {
+                let album = Album(
+                    id: ratingKey,
+                    key: headerData.ratingKey ?? ratingKey,
+                    title: headerData.title,
+                    artistName: headerData.subtitle,
+                    sourceCompositeKey: sourceKey ?? ""
+                )
+                Button {
+                    ShareActions.shareAlbumLink(album, deps: deps)
+                } label: {
+                    Label("Share Link…", systemImage: "link")
+                }
+            }
+
             if viewModel is AlbumDetailViewModel {
                 if let lastPlaylistQuickTarget {
                     if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
