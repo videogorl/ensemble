@@ -178,6 +178,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Extracted `LyricsLineView` as `Equatable` struct with pre-computed params. Wrapped in `EquatableView` so SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
 - **Key files:** `LyricsCard.swift`
 
+### NowPlaying Carousel Cards Rendered Off-Screen
+- **Resolved (March 11, 2026)**
+- **Previous:** TabView `.page` style renders ALL child views simultaneously. LyricsCard's `.blur()` effects, QueueCard's UIKit QueueTableView, and InfoCard's async fetches all ran off-screen. LyricsCard blur alone was 3.8% of GPU trace (`RB::Filter::GaussianBlur`). QueueCard triggered "UITableView layout outside view hierarchy" warnings.
+- **Fix:** Each card gates its expensive content behind a `currentPage == N` check. Off-screen cards show a lightweight `Color.clear` placeholder. InfoCard also defers its async album fetch until the card becomes visible.
+- **Key files:** `LyricsCard.swift`, `QueueCard.swift`, `InfoCard.swift`
+
 ## Future Enhancements (Waveform System)
 
 - Implement waveform seeking (jump to specific parts of track)
