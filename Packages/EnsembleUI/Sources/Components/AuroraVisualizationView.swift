@@ -77,25 +77,27 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - Body
 
-    /// Frame rate adapts to what's actually being rendered:
-    /// - Playing: 30fps (15fps in LPM) for responsive frequency data
-    /// - Breathing (paused): 4fps — the slow sine waves look smooth at very low rates
-    /// - Hidden/occluded: paused entirely
+    /// Whether the TimelineView should be fully paused (no frames rendered).
+    /// Paused when: occluded by NP sheet, not visible, or not actively playing.
+    /// When paused, the last rendered frame stays on screen at zero GPU cost.
+    private var isTimelinePaused: Bool {
+        if isPaused || !isVisible { return true }
+        // Only animate when actively playing — the blur passes are expensive
+        // even at low frame rates. When paused, the aurora freezes in place.
+        return playbackState != .playing
+    }
+
+    /// Frame rate: 30fps normal, 15fps in Low Power Mode.
     private var frameInterval: Double {
-        if isPaused || !isVisible { return 1.0 / 4.0 } // Will be paused anyway
-        if playbackState != .playing {
-            // Breathing mode: very slow sine waves don't need high frame rates.
-            // 4fps saves ~87% GPU vs 30fps with no visible quality loss.
-            return 1.0 / 4.0
-        }
-        return isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
+        isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
     }
 
     public var body: some View {
         GeometryReader { geometry in
-            // Frame rate adapts based on playback state (see frameInterval).
-            // Paused entirely when occluded or explicitly paused.
-            TimelineView(.animation(minimumInterval: frameInterval, paused: isPaused || !isVisible)) { timeline in
+            // Fully paused when not actively playing (see isTimelinePaused).
+            // The Canvas + 3 blur passes on 24 bands is too expensive to run
+            // just for the subtle breathing animation.
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { timeline in
                 Canvas { context, size in
                     drawAurora(
                         context: context,
@@ -137,7 +139,7 @@ public struct AuroraVisualizationView: View {
     // MARK: - Visibility
 
     /// Updates visibility based on playback state.
-    /// Aurora stays visible when paused (with breathing) but hides when stopped.
+    /// Aurora stays visible when paused (frozen last frame) but hides when stopped.
     /// Pass animated: false (e.g. on onAppear) to snap without the fade transition.
     private func updateVisibility(for state: PlaybackState, animated: Bool) {
         let newVisibility: Bool
@@ -155,7 +157,7 @@ public struct AuroraVisualizationView: View {
         guard newVisibility != isVisible else { return }
 
         #if DEBUG
-        EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated))")
+        EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated), timelinePaused: \(state != .playing))")
         #endif
 
         if animated {
