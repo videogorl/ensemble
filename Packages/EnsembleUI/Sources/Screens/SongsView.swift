@@ -15,6 +15,7 @@ public struct SongsView: View {
         let title: String
     }
 
+    @Environment(\.dependencies) private var deps
     @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
@@ -342,6 +343,12 @@ public struct SongsView: View {
                         DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                     }
                 },
+                onShareLink: { track in
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: { track in
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
                 isTrackFavorited: { track in
                     nowPlayingVM.isTrackFavorited(track)
                 },
@@ -388,6 +395,12 @@ public struct SongsView: View {
                                 if let artistId = track.artistRatingKey {
                                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                                 }
+                            },
+                            onShareLink: {
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: {
+                                ShareActions.shareTrackFile(track, deps: deps)
                             },
                             isFavorited: nowPlayingVM.isTrackFavorited(track),
                             recentPlaylistTitle: recentPlaylistTitle(for: track),
@@ -451,6 +464,12 @@ public struct SongsView: View {
                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                 }
             },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
@@ -496,6 +515,12 @@ public struct SongsView: View {
                 if let artistId = track.artistRatingKey {
                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                 }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
             },
             canAddToRecentPlaylist: { track in
                 recentPlaylistTitle(for: track) != nil

@@ -943,6 +943,12 @@ public struct SearchView: View {
                         await nowPlayingVM.toggleTrackFavorite(track)
                     }
                 },
+                onShareLink: { track in
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: { track in
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
                 isTrackFavorited: { track in
                     nowPlayingVM.isTrackFavorited(track)
                 },
