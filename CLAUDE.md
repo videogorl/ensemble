@@ -96,7 +96,7 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 - `Packages/EnsembleUI/Sources/Screens/NowPlayingSheetView.swift` - plumbs isLowPowerMode to carousel
 
 ### App Performance Optimization (Mar 2026)
-Nine-phase optimization pass targeting GPU waste, download system queries, SwiftUI invalidation cascades, scroll performance, lyrics rendering, download queue polling, MediaTrackList layout waste, and WebSocket event spam:
+Multi-phase optimization pass targeting GPU waste, download system queries, SwiftUI invalidation cascades, scroll performance, lyrics rendering, download queue polling, MediaTrackList layout waste, WebSocket event spam, singleton observer cascades, download toast bugs, artwork flashing, large playlist hangs, and queue performance:
 
 - **Aurora visualizer:** Capped at 30fps (was 60fps — band data already updates at 30fps). Reduced glow passes from 6 to 3 (blur=18, 12, 8). Pauses when Now Playing sheet covers it. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Identical frequency band publishes are skipped.
 - **Download query batching:** After download completion, only owning targets are refreshed (not all). Batch `IN` predicate query replaces per-track `fetchDownload()` loops. Dynamic debounce: 3s when >3 downloads pending, 1s otherwise.
@@ -107,12 +107,19 @@ Nine-phase optimization pass targeting GPU waste, download system queries, Swift
 - **Download queue polling:** Fixed 1s polling in `PlexAPIClient.downloadTranscodedMediaViaQueue()` replaced with exponential backoff (1s→2s→4s→8s, capped 15s). WebSocket `media.download ended` events now routed through `PlexWebSocketCoordinator` to restart the download queue, fixing a bug where only 1 of N downloads stored.
 - **MediaTrackList deferred layout:** `DeferredLayoutTableView` subclass skips `layoutSubviews()` before being in a window, eliminating early layout warnings from eagerly-created navigation destinations.
 - **WebSocket settings debounce:** `PlexWebSocketCoordinator` debounces settings-changed events per server (5s window) to coalesce rapid bursts.
+- **WebSocket scan progress throttle:** `serverScanProgress` only publishes when progress changes by >=5% (was every ~10ms). Cuts ~95% of scan-related objectWillChange events.
+- **MediaTrackList singleton decoupling:** Removed 3 `@ObservedObject` singletons from `MediaTrackList`. Parent views observe once and pass `availabilityGeneration` + `activeDownloadRatingKeys` as value params. Eliminates N×3 subscriptions (26 sections × 3 singletons) in SongsView.
+- **activeDownloadRatingKeys batching:** Removed per-track `refreshActiveDownloadRatingKeys()` from `refreshTargetsForTrack()`. The debounced `scheduleDownloadChangeNotification()` (1-3s) already handles it, batching spinner updates.
+- **Download toast race fix:** `queueTask` is nil'd before the 500ms grace period re-check, so WebSocket `handleDownloadQueueCompleted()` can restart the queue. Re-checks for pending downloads before showing "Downloads Complete" toast.
+- **Downloads view artwork stability:** `DownloadedItemSummary` made `Equatable`; `items` only assigned when values actually differ. Prevents ForEach from re-rendering all rows (and flashing artwork) on progress-only changes.
+- **Large playlist layout fix:** `MediaTrackList` gains `managesOwnScrolling: Bool`. Track lists >200 items use self-scrolling UITableView with cell recycling. Removes `.frame(height:)` that forced all 1436 cells to render at once.
+- **Queue performance fix:** `QueueTableView` replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. `QueueItemCell` uses `configureGeneration` counter to prevent stale artwork during rearrange.
 
 **Key files:**
 - `Packages/EnsembleUI/Sources/Components/AuroraVisualizationView.swift` - 30fps cap, 3 passes, isPaused, state dedup
 - `Packages/EnsembleUI/Sources/Screens/MainTabView.swift` - passes isPaused to aurora
 - `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - no-change guard, MainActor.assumeIsolated
-- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - targeted refresh, dynamic debounce
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - targeted refresh, dynamic debounce, toast race fix, activeDownloadRatingKeys batching
 - `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - fetchDownloadsBatch
 - `Packages/EnsemblePersistence/Sources/Downloads/OfflineDownloadTargetRepository.swift` - fetchTargetKeys(containing:)
 - `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - CurrentValueSubject for frequencyBands
@@ -123,8 +130,12 @@ Nine-phase optimization pass targeting GPU waste, download system queries, Swift
 - `Packages/EnsembleCore/Sources/ViewModels/LibraryViewModel.swift` - 150ms search debounce
 - `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - Equatable LyricsLineView
 - `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - exponential backoff for download queue polling
-- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - media.download routing, settings debounce
-- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - DeferredLayoutTableView
+- `Packages/EnsembleCore/Sources/Services/PlexWebSocketCoordinator.swift` - media.download routing, settings debounce, scan progress throttle
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - DeferredLayoutTableView, managesOwnScrolling, singleton decoupling
+- `Packages/EnsembleUI/Sources/Screens/MediaDetailView.swift` - large playlist self-scrolling threshold
+- `Packages/EnsembleCore/Sources/ViewModels/DownloadsViewModel.swift` - Equatable diff before assigning items
+- `Packages/EnsembleUI/Sources/Components/QueueTableView.swift` - regular UITableView, configureGeneration guard
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/QueueCard.swift` - removed ScrollView wrapper
 
 ### Live Lyrics (Mar 2026)
 Karaoke-style time-synced lyrics fetched from Plex and displayed in the Now Playing Lyrics Card:

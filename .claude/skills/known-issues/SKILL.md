@@ -209,6 +209,48 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Each card gates its expensive content behind a `currentPage == N` check. Off-screen cards show a lightweight `Color.clear` placeholder. InfoCard also defers its async album fetch until the card becomes visible.
 - **Key files:** `LyricsCard.swift`, `QueueCard.swift`, `InfoCard.swift`
 
+### WebSocket Scan Progress Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexWebSocketCoordinator.serverScanProgress` (@Published) was updated every ~10ms during library scans with zero throttling. Each update fired `objectWillChange` on the singleton, causing cascading UI invalidations.
+- **Fix:** Only publish when progress changes by >=5 percentage points (or on started/ended), cutting ~95% of scan-related objectWillChange events.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
+### MediaTrackList Singleton Observer Cascade (N×3 Subscriptions)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaTrackList` directly observed 3 singletons as `@ObservedObject` (networkMonitor, offlineDownloadService, trackAvailabilityResolver). When SongsView rendered 26 alphabetic sections, this created 78 independent subscriptions (26×3). Every publish triggered `updateUIView` on ALL instances → reconfigured ALL visible cells.
+- **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadRatingKeys: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
+- **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `CoverFlowDetailView.swift`
+
+### Per-Track activeDownloadRatingKeys Refresh During Bulk Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** Each track completion called `refreshActiveDownloadRatingKeys()` via `refreshTargetsForTrack()`, firing the @Published property per-track and causing N UI updates during bulk downloads.
+- **Fix:** Removed redundant per-track call. The debounced `scheduleDownloadChangeNotification()` (1-3s window) already handles this, batching spinner updates.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Premature "Downloads Complete" Toast
+- **Resolved (March 11, 2026)**
+- **Previous:** Toast appeared at 73/79 tracks, then queue got stuck. Workers exited when `fetchNextPendingDownload()` returned nil, but PMS was still preparing remaining downloads. `queueTask` was only nil'd after the toast, so WebSocket-triggered `handleDownloadQueueCompleted()` couldn't restart the queue.
+- **Fix:** Nil `queueTask` before the wind-down check. Add 500ms grace period, then re-check for pending downloads. If more work arrived, restart the queue instead of showing toast.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Downloads View Artwork Flashing
+- **Resolved (March 11, 2026)**
+- **Previous:** `DownloadsViewModel` replaced the `items` array wholesale on every `offlineDownloadService.$targets` publish, causing ForEach to re-render all rows (including artwork) even when only progress numbers changed.
+- **Fix:** Made `DownloadedItemSummary` Equatable. Only assign `items` when mapped values actually differ. Guard `resolveThumbPaths()` against redundant publishes.
+- **Key files:** `DownloadsViewModel.swift`
+
+### Large Playlist Detail View Hang (1400+ tracks)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaDetailView.tracksSection` applied `.frame(height: CGFloat(trackCount * 68))` to MediaTrackList, forcing all 1436 cells to render at once — same anti-pattern fixed for unsorted SongsView.
+- **Fix:** Added `managesOwnScrolling: Bool` parameter to MediaTrackList. When track count >200, uses a regular UITableView with scroll enabled for cell recycling. Small lists (albums) keep embedded behavior. Removed fixed `.frame(height:)` for large lists.
+- **Key files:** `MediaTrackList.swift`, `MediaDetailView.swift`
+
+### Queue View Hang with Large Playlists + Artwork Race on Rearrange
+- **Resolved (March 11, 2026)**
+- **Previous:** `QueueTableView` used `IntrinsicTableView` inside a SwiftUI `ScrollView`. `IntrinsicTableView` reported full content height as `intrinsicContentSize`, forcing all 1436 cells to render. Artwork could also flash incorrectly during drag-to-rearrange due to stale async loads.
+- **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
+- **Key files:** `QueueTableView.swift`, `QueueCard.swift`
+
 ## Future Enhancements (Waveform System)
 
 - Implement waveform seeking (jump to specific parts of track)
