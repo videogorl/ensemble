@@ -249,10 +249,14 @@ public final class LyricsService: ObservableObject {
             EnsembleLogger.debug("Lyrics: content preview (\(content.count) chars): \(preview)")
             #endif
 
-            // 4. Parse based on codec/format
-            let parsed: ParsedLyrics
+            // 4. Parse based on codec/format, with fallback to plain text
+            var parsed: ParsedLyrics
             if lyricsStream.codec == "lrc" || lyricsStream.timed == 1 {
                 parsed = LRCParser.parseLRC(content)
+                // If LRC parsing found no timed lines, fall back to plain text
+                if parsed.lines.isEmpty {
+                    parsed = LRCParser.parsePlainText(content)
+                }
             } else {
                 parsed = LRCParser.parsePlainText(content)
             }

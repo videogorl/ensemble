@@ -1891,7 +1891,7 @@ public actor PlexAPIClient {
     }
 
     /// Build LRC text from Plex's structured lyrics format.
-    /// Each Line has: minMs (milliseconds), Span (text segments).
+    /// Each Line has a timestamp in milliseconds (startOffset or minMs) and Span text segments.
     private static func buildLRCFromStructuredLines(lines: [[String: Any]]) -> String {
         var lrcLines: [String] = []
 
@@ -1903,9 +1903,11 @@ public actor PlexAPIClient {
             }
             guard !lineText.isEmpty else { continue }
 
-            // Build timestamp if available (minMs is in milliseconds)
-            if let minMs = Self.extractInt(from: line, key: "minMs") {
-                let totalSeconds = Double(minMs) / 1000.0
+            // Build timestamp if available — PMS uses "startOffset" (JSON) or "minMs" (XML)
+            let offsetMs = Self.extractInt(from: line, key: "startOffset")
+                ?? Self.extractInt(from: line, key: "minMs")
+            if let ms = offsetMs {
+                let totalSeconds = Double(ms) / 1000.0
                 let minutes = Int(totalSeconds) / 60
                 let seconds = Int(totalSeconds) % 60
                 let centiseconds = Int((totalSeconds - Double(Int(totalSeconds))) * 100)
@@ -2507,7 +2509,9 @@ private class LyricsXMLParser: NSObject, XMLParserDelegate {
         if elementName == "Line" {
             inLine = true
             currentSpans = []
-            if let msStr = attributes["minMs"], let ms = Int(msStr) {
+            // PMS uses "startOffset" (not "minMs") for timestamps in milliseconds
+            let msStr = attributes["startOffset"] ?? attributes["minMs"]
+            if let msStr, let ms = Int(msStr) {
                 currentMinMs = ms
             } else {
                 currentMinMs = nil
