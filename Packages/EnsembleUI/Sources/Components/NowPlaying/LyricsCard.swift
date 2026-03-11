@@ -94,20 +94,30 @@ public struct LyricsCard: View {
                         .frame(height: 120)
 
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, line in
-                        lyricsLineView(
-                            line: line,
-                            index: index,
-                            isTimed: lyrics.isTimed,
-                            isActive: viewModel.currentLyricsLineIndex == index,
-                            isPast: isPastLine(index: index)
-                        )
-                        .id(index)
-                        .onTapGesture {
-                            // Tap-to-seek for timed lyrics
-                            if lyrics.isTimed, let timestamp = line.timestamp {
-                                viewModel.seek(to: timestamp)
+                        VStack(spacing: 8) {
+                            lyricsLineView(
+                                line: line,
+                                index: index,
+                                isTimed: lyrics.isTimed,
+                                isActive: viewModel.currentLyricsLineIndex == index,
+                                isPast: isPastLine(index: index)
+                            )
+                            .onTapGesture {
+                                // Tap-to-seek for timed lyrics
+                                if lyrics.isTimed, let timestamp = line.timestamp {
+                                    viewModel.seek(to: timestamp)
+                                }
+                            }
+
+                            // Instrumental gap indicator after the active line
+                            if lyrics.isTimed,
+                               viewModel.currentLyricsLineIndex == index,
+                               let progress = viewModel.instrumentalProgress {
+                                instrumentalIndicator(progress: progress)
+                                    .transition(.opacity)
                             }
                         }
+                        .id(index)
                     }
 
                     // Bottom spacer so last line can scroll to center
@@ -116,7 +126,8 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, 40)
             }
-            .onChange(of: viewModel.currentLyricsLineIndex) { newIndex in
+            // Scroll to the look-ahead target (500ms before line becomes active)
+            .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
                 guard let newIndex, lyrics.isTimed else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
                     proxy.scrollTo(newIndex, anchor: .center)
@@ -142,6 +153,23 @@ public struct LyricsCard: View {
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeInOut(duration: 0.2), value: isActive)
+    }
+
+    // MARK: - Instrumental Indicator
+
+    /// Animated ellipsis that fills in during instrumental gaps between lyrics
+    private func instrumentalIndicator(progress: Double) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { dotIndex in
+                let dotThreshold = Double(dotIndex + 1) / 4.0  // 0.25, 0.5, 0.75
+                Circle()
+                    .fill(Color.primary.opacity(progress >= dotThreshold ? 0.6 : 0.15))
+                    .frame(width: 8, height: 8)
+                    .animation(.easeInOut(duration: 0.3), value: progress >= dotThreshold)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     // MARK: - Helpers
