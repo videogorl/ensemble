@@ -246,6 +246,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showFilter && (mediaType == nil || headerData.ratingKey == nil)
     }
 
+    /// Large track lists (>200) use self-managed scrolling for cell recycling.
+    /// This drives the choice between ScrollView wrapper and VStack layout.
+    private var useSelfScroll: Bool {
+        viewModel.filteredTracks.count > 200
+    }
+
     private var quickTargetRefreshKey: String {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
         let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
@@ -481,29 +487,51 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            ScrollView {
+            if useSelfScroll {
+                // Large track list: header takes natural height, tracks fill the rest.
+                // A self-scrolling UITableView inside a SwiftUI ScrollView gets minimal
+                // height — so we use a VStack instead, letting the table manage its own
+                // scrolling and cell recycling for the full remaining space.
                 VStack(spacing: 0) {
-                    // Header
                     headerView
-
-                    // Action buttons
                     actionButtons
-                        .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
-                    // Tracks
+                    // Tracks fill remaining space with own scrolling
                     if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                         ProgressView()
                             .padding(.top, 40)
+                        Spacer()
                     } else if viewModel.filteredTracks.isEmpty {
                         Text("No tracks")
                             .foregroundColor(.secondary)
                             .padding(.top, 40)
+                        Spacer()
                     } else {
                         tracksSection
                     }
                 }
+            } else {
+                // Small track list: everything scrolls together in one ScrollView
+                ScrollView {
+                    VStack(spacing: 0) {
+                        headerView
+                        actionButtons
+                            .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
+
+                        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                            ProgressView()
+                                .padding(.top, 40)
+                        } else if viewModel.filteredTracks.isEmpty {
+                            Text("No tracks")
+                                .foregroundColor(.secondary)
+                                .padding(.top, 40)
+                        } else {
+                            tracksSection
+                        }
+                    }
+                }
+                .coordinateSpace(name: "mediaDetailScroll")
             }
-            .coordinateSpace(name: "mediaDetailScroll")
         }
         .onPreferenceChange(ActionButtonsOffsetPreferenceKey.self) { maxY in
             let shouldShow = maxY < 0
@@ -731,9 +759,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var tracksSection: some View {
         #if os(iOS)
         let trackCount = viewModel.filteredTracks.count
-        // Large track lists (>200) use self-managed scrolling for cell recycling.
-        // Small lists (albums) stay embedded with parent ScrollView handling scroll.
-        let useSelfScroll = trackCount > 200
+        // Small lists get a fixed frame so the parent ScrollView knows their size.
+        // Large lists use self-managed scrolling — the parent is a VStack (not ScrollView).
         let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
 
         MediaTrackList(
@@ -793,8 +820,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        // Only apply fixed frame for small lists; large lists manage their own scrolling
-        .frame(height: useSelfScroll ? nil : height)
+        // Small lists: fixed frame inside parent ScrollView.
+        // Large lists: no frame — parent VStack gives remaining space for cell recycling.
+        .if(!useSelfScroll) { view in
+            view.frame(height: height)
+        }
         #else
         // Basic List fallback for macOS
         VStack(spacing: 0) {

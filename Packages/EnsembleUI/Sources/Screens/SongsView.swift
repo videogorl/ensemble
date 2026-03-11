@@ -447,6 +447,7 @@ public struct SongsView: View {
             currentTrackId: nowPlayingVM.currentTrack?.id,
             availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
             activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            managesOwnScrolling: true,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
