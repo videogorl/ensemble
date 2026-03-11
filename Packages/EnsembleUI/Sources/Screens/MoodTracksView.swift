@@ -16,6 +16,7 @@ public struct MoodTracksView: View {
 
     let mood: Mood
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
     @StateObject private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true
@@ -115,6 +116,12 @@ public struct MoodTracksView: View {
                                                 if let artistId = track.artistRatingKey {
                                                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                                                 }
+                                            },
+                                            onShareLink: {
+                                                ShareActions.shareTrackLink(track, deps: deps)
+                                            },
+                                            onShareFile: {
+                                                ShareActions.shareTrackFile(track, deps: deps)
                                             },
                                             isFavorited: nowPlayingVM.isTrackFavorited(track),
                                             recentPlaylistTitle: recentPlaylistTitle(for: track),

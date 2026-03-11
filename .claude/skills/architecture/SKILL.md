@@ -90,6 +90,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
 - `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
 - `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
+- `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
+- `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
@@ -465,6 +467,21 @@ User-pinnable items (albums, artists, playlists) persisted across sessions:
 - `PinnedItem` domain model records item type, ratingKey, sourceIdentifier, and sort order
 - `PinnedViewModel` fetches `CDPinnedItem` records from CoreData and resolves them into full domain objects
 - Persisted in CoreData via `CDPinnedItem` entity
+
+## Subsystem: Sharing (song.link + Audio File)
+
+Universal link and audio file sharing for tracks and albums:
+
+1. **SongLinkService** (`EnsembleCore`, actor) -- Two-step resolution: searches Apple Music catalog via MusicKit `MusicCatalogSearchRequest` (no subscription needed), then passes the Apple Music URL to `song.link/v1-alpha.1/links` for a universal link. In-memory cache stores both positive and negative results.
+2. **ShareService** (`EnsembleCore`, @MainActor) -- Coordinates share payloads:
+   - Link sharing: song.link URL -> Apple Music URL -> plain text fallback
+   - File sharing: local download path (if downloaded) or temp download via Plex universal stream URL
+   - Temp files stored in `NSTemporaryDirectory()/EnsembleShare/`, cleaned after share sheet dismissal
+3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
+4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
+5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
+6. **Drag and drop (iPad)** -- `TrackRow.onDrag` and `MediaTrackList` `UITableViewDragDelegate` provide `NSItemProvider` with audio file URL for downloaded tracks.
+7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
 
 ## Subsystem: Mood-Based Browsing
 

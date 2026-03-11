@@ -943,6 +943,26 @@ public struct SearchView: View {
                         await nowPlayingVM.toggleTrackFavorite(track)
                     }
                 },
+                onGoToAlbum: { track in
+                    guard let albumId = track.albumRatingKey else { return }
+                    DependencyContainer.shared.navigationCoordinator.push(
+                        .album(id: albumId),
+                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                    )
+                },
+                onGoToArtist: { track in
+                    guard let artistId = track.artistRatingKey else { return }
+                    DependencyContainer.shared.navigationCoordinator.push(
+                        .artist(id: artistId),
+                        in: DependencyContainer.shared.navigationCoordinator.selectedTab
+                    )
+                },
+                onShareLink: { track in
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: { track in
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
                 isTrackFavorited: { track in
                     nowPlayingVM.isTrackFavorited(track)
                 },

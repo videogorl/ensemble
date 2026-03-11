@@ -356,6 +356,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
+            // Share album link
+            if viewModel is AlbumDetailViewModel {
+                let album = Album(
+                    id: ratingKey,
+                    key: headerData.ratingKey ?? ratingKey,
+                    title: headerData.title,
+                    artistName: headerData.subtitle,
+                    sourceCompositeKey: sourceKey ?? ""
+                )
+                Button {
+                    ShareActions.shareAlbumLink(album, deps: deps)
+                } label: {
+                    Label("Share Link…", systemImage: "link")
+                }
+            }
+
+            Divider()
+
             if viewModel is AlbumDetailViewModel {
                 if let lastPlaylistQuickTarget {
                     if nowPlayingVM.compatibleTrackCount(viewModel.filteredTracks, for: lastPlaylistQuickTarget) > 0 {
@@ -750,6 +768,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                 }
             },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
@@ -796,6 +820,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         if let artistId = track.artistRatingKey {
                             DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                         }
+                    },
+                    onShareLink: {
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: {
+                        ShareActions.shareTrackFile(track, deps: deps)
                     },
                     isFavorited: nowPlayingVM.isTrackFavorited(track),
                     recentPlaylistTitle: {

@@ -102,6 +102,31 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Now Play
 - `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
 - `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics UI
 
+### Sharing: song.link URLs + Audio File Sharing (Mar 2026)
+Tracks and albums can now be shared via universal song.link links or as audio files:
+
+- **Universal link resolution:** Two-step chain: MusicKit catalog search (no subscription needed) -> song.link API for universal sharing link. Falls back to Apple Music URL or plain text.
+- **Audio file sharing:** Downloaded tracks share local file directly. Non-downloaded tracks download to temp directory via Plex universal stream URL, then present share sheet.
+- **Context menu integration:** "Share Link..." and "Share Audio File..." in all track context menus (TrackRow, MediaTrackList). "Share Link..." in album context menu (AlbumCard).
+- **Now Playing:** Share link button in secondary controls + share actions in ellipsis menu.
+- **Drag and drop (iPad):** Downloaded tracks can be dragged from track lists to other apps (Files, GarageBand, etc.) via `NSItemProvider` on both SwiftUI and UIKit surfaces.
+- **In-memory caching:** SongLinkService caches positive and negative results to avoid re-querying MusicKit/song.link.
+- **Toast feedback:** Progress toast for non-downloaded file sharing, fallback toast when sharing as text.
+- **Platform guards:** `#if canImport(MusicKit)` for watchOS 8 compatibility; `NoOpMusicCatalogSearcher` fallback produces text-only payloads.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/SongLinkService.swift` - MusicKit search + song.link API + caching
+- `Packages/EnsembleCore/Sources/Services/ShareService.swift` - Share payload coordinator + temp download
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - Service wiring
+- `Packages/EnsembleUI/Sources/Components/ShareSheet.swift` - UIActivityViewController / NSSharingServicePicker wrapper
+- `Packages/EnsembleUI/Sources/Components/ShareActions.swift` - Static share action helpers with toast feedback
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - Share context menu + onDrag
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` - UIKit share menu + drag delegate
+- `Packages/EnsembleUI/Sources/Components/AlbumCard.swift` - Album share link in context menu
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/ControlsCard.swift` - Share button + menu items
+- `Ensemble/Info.plist` - NSAppleMusicUsageDescription
+- `Ensemble/Ensemble.entitlements` - MusicKit entitlement
+
 ### Startup & Sync Performance Optimization (Mar 2026)
 Eleven-item optimization pass targeting startup latency, network traffic, CPU waste, and temp storage:
 

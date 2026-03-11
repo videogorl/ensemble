@@ -50,6 +50,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
+    public let songLinkService: SongLinkService
+    public let shareService: ShareService
 
     // MARK: - Network Infrastructure
 
@@ -334,6 +336,23 @@ public final class DependencyContainer: @unchecked Sendable {
         // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
         MainActor.assumeIsolated {
             playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
+        }
+
+        // Sharing services — SongLinkService resolves universal links, ShareService coordinates payloads
+        #if canImport(MusicKit)
+        let songLinkRef = SongLinkService(searcher: MusicKitCatalogSearcher())
+        #else
+        // watchOS 8 fallback — MusicKit unavailable, links will fall back to plain text
+        let songLinkRef = SongLinkService(searcher: NoOpMusicCatalogSearcher())
+        #endif
+        songLinkService = songLinkRef
+
+        shareService = MainActor.assumeIsolated {
+            ShareService(
+                songLinkService: songLinkRef,
+                syncCoordinator: syncCoordinatorRef,
+                downloadManager: downloadManagerRef
+            )
         }
 
         // Wire up artwork cache invalidation when server connections change.

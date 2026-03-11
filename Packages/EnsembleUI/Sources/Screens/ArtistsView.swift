@@ -849,6 +849,12 @@ public struct ArtistDetailView: View {
                     }
                 },
                 onGoToArtist: nil, // Already in artist view
+                onShareLink: { track in
+                    ShareActions.shareTrackLink(track, deps: dependencies)
+                },
+                onShareFile: { track in
+                    ShareActions.shareTrackFile(track, deps: dependencies)
+                },
                 isTrackFavorited: { track in
                     nowPlayingVM.isTrackFavorited(track)
                 },
@@ -883,6 +889,12 @@ public struct ArtistDetailView: View {
                             }
                         },
                         onGoToArtist: nil,
+                        onShareLink: {
+                            ShareActions.shareTrackLink(track, deps: dependencies)
+                        },
+                        onShareFile: {
+                            ShareActions.shareTrackFile(track, deps: dependencies)
+                        },
                         isFavorited: nowPlayingVM.isTrackFavorited(track),
                         recentPlaylistTitle: recentPlaylistTitle(for: track)
                     ) {

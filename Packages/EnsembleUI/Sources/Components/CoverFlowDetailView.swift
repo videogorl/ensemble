@@ -79,6 +79,12 @@ struct CoverFlowDetailView: View {
                             await nowPlayingVM.toggleTrackFavorite(track)
                         }
                     },
+                    onShareLink: { track in
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: { track in
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
                     isTrackFavorited: { track in
                         nowPlayingVM.isTrackFavorited(track)
                     },
@@ -104,6 +110,12 @@ struct CoverFlowDetailView: View {
                                 onPlayLast: { nowPlayingVM.playLast(track) },
                                 onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
                                 onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                onShareLink: {
+                                    ShareActions.shareTrackLink(track, deps: deps)
+                                },
+                                onShareFile: {
+                                    ShareActions.shareTrackFile(track, deps: deps)
+                                },
                                 recentPlaylistTitle: recentPlaylistTitle(for: track)
                             ) {
                                 nowPlayingVM.play(tracks: tracks, startingAt: index)

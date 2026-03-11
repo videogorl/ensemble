@@ -175,6 +175,13 @@ public struct AlbumGrid: View {
             }
         }
 
+        // Share link
+        Button {
+            ShareActions.shareAlbumLink(album, deps: deps)
+        } label: {
+            Label("Share Link…", systemImage: "link")
+        }
+
         let isPinned = pinManager.isPinned(id: album.id)
         Button {
             if isPinned {

@@ -25,7 +25,8 @@ public struct FavoritesView: View {
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    
+    @Environment(\.dependencies) private var deps
+
     private var backgroundColor: Color {
         #if os(macOS)
         return Color(NSColor.windowBackgroundColor)
@@ -356,6 +357,12 @@ public struct FavoritesView: View {
                             DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                         }
                     },
+                    onShareLink: { track in
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: { track in
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
                     isTrackFavorited: { track in
                         nowPlayingVM.isTrackFavorited(track)
                     },
@@ -393,6 +400,12 @@ public struct FavoritesView: View {
                                 if let artistId = track.artistRatingKey {
                                     DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
                                 }
+                            },
+                            onShareLink: {
+                                ShareActions.shareTrackLink(track, deps: deps)
+                            },
+                            onShareFile: {
+                                ShareActions.shareTrackFile(track, deps: deps)
                             },
                             isFavorited: nowPlayingVM.isTrackFavorited(track),
                             recentPlaylistTitle: recentPlaylistTitle(for: track)
