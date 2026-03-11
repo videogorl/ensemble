@@ -22,7 +22,7 @@ public struct LibraryDownloadSummary: Identifiable {
 
 // MARK: - Downloaded Item Summary
 
-public struct DownloadedItemSummary: Identifiable {
+public struct DownloadedItemSummary: Identifiable, Equatable {
     public let id: String
     public let key: String
     public let kind: CDOfflineDownloadTarget.Kind
@@ -79,14 +79,18 @@ public final class DownloadsViewModel: ObservableObject {
         self.accountManager = accountManager
         self.downloadManager = downloadManager
 
-        // Map snapshots to summaries immediately, then kick off async thumb resolution
+        // Map snapshots to summaries immediately, then kick off async thumb resolution.
+        // Only assign items when the mapped values differ to avoid unnecessary SwiftUI
+        // diffs that cause artwork flashing when only progress numbers change.
         offlineDownloadService.$targets
             .sink { [weak self] snapshots in
                 guard let self else { return }
                 let mapped = Self.mapItems(from: snapshots)
-                self.items = mapped
-                Task { [weak self] in
-                    await self?.resolveThumbPaths()
+                if mapped != self.items {
+                    self.items = mapped
+                    Task { [weak self] in
+                        await self?.resolveThumbPaths()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -283,7 +287,10 @@ public final class DownloadsViewModel: ObservableObject {
         for i in updated.indices {
             updated[i].thumbPath = await resolveThumb(for: updated[i])
         }
-        items = updated
+        // Only publish when thumb paths actually changed
+        if updated != items {
+            items = updated
+        }
     }
 
     private func resolveThumb(for item: DownloadedItemSummary) async -> String? {
