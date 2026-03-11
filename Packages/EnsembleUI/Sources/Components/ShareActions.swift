@@ -8,6 +8,15 @@ public enum ShareActions {
     /// Share a universal link for a track (song.link → Apple Music → plain text fallback).
     public static func shareTrackLink(_ track: Track, deps: DependencyContainer) {
         Task { @MainActor in
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "link",
+                    title: "Finding link…",
+                    message: nil,
+                    dedupeKey: "share-link-\(track.id)"
+                )
+            )
             let payload = await deps.shareService.prepareTrackLinkPayload(track: track)
             presentPayload(payload, deps: deps)
         }
@@ -16,6 +25,15 @@ public enum ShareActions {
     /// Share a universal link for an album (song.link → Apple Music → plain text fallback).
     public static func shareAlbumLink(_ album: Album, deps: DependencyContainer) {
         Task { @MainActor in
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "link",
+                    title: "Finding link…",
+                    message: nil,
+                    dedupeKey: "share-link-\(album.id)"
+                )
+            )
             let payload = await deps.shareService.prepareAlbumLinkPayload(album: album)
             presentPayload(payload, deps: deps)
         }
