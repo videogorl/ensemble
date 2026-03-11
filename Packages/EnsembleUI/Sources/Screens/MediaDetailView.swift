@@ -489,6 +489,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
             #if os(iOS)
             tracksSection
+                .ignoresSafeArea(.container, edges: .top)
             #else
             ScrollView {
                 VStack(spacing: 0) {

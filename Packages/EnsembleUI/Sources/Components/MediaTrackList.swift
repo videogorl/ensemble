@@ -411,10 +411,11 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = managesOwnScrolling
 
-        // Disable automatic content inset adjustment — the table view is already
-        // positioned below the nav bar by SwiftUI, so letting UIKit also adjust
-        // contentInset.top causes a double offset that clips the header.
-        tableView.contentInsetAdjustmentBehavior = .never
+        // Self-scrolling tables extend under the nav bar (via .ignoresSafeArea on the
+        // SwiftUI side) and use .automatic so UIKit adds the correct top content inset.
+        // This lets content scroll behind the translucent navigation bar.
+        // Non-scrolling tables embedded in a parent ScrollView use .never.
+        tableView.contentInsetAdjustmentBehavior = managesOwnScrolling ? .automatic : .never
 
         // Suppress any default section footer height so the content height stays
         // exactly N × rowHeight with no extra trailing space.
