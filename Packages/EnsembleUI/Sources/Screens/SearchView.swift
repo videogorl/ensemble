@@ -21,6 +21,8 @@ public struct SearchView: View {
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
     @Environment(\.dependencies) private var deps
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
@@ -926,6 +928,8 @@ public struct SearchView: View {
                 showTrackNumbers: false,
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
+                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },

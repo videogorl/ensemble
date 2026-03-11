@@ -273,6 +273,8 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -826,6 +828,8 @@ public struct ArtistDetailView: View {
                 showTrackNumbers: false,
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
+                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },

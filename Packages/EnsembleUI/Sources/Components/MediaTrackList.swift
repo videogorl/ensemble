@@ -316,10 +316,18 @@ public struct MediaTrackList: UIViewRepresentable {
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
 
+    /// Change token from TrackAvailabilityResolver — parent observes the singleton
+    /// and passes the generation here so MediaTrackList doesn't subscribe itself.
+    let availabilityGeneration: UInt
+    /// Set of ratingKeys currently downloading — parent observes OfflineDownloadService once
+    /// instead of N instances each subscribing to the singleton.
+    let activeDownloadRatingKeys: Set<String>
+    /// When true, the UITableView manages its own scrolling and cell recycling.
+    /// When false (default), scroll is disabled and parent ScrollView handles scrolling.
+    /// Use true for large track lists (>200 tracks) embedded in a detail view.
+    let managesOwnScrolling: Bool
+
     @Environment(\.dependencies) private var dependencies
-    @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(
         tracks: [Track],
@@ -327,6 +335,9 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
+        availabilityGeneration: UInt = 0,
+        activeDownloadRatingKeys: Set<String> = [],
+        managesOwnScrolling: Bool = false,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -346,6 +357,9 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showTrackNumbers = showTrackNumbers
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
+        self.availabilityGeneration = availabilityGeneration
+        self.activeDownloadRatingKeys = activeDownloadRatingKeys
+        self.managesOwnScrolling = managesOwnScrolling
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -362,7 +376,16 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
+        let tableView: UITableView
+        if managesOwnScrolling {
+            // Regular UITableView — manages its own scrolling and cell recycling.
+            // Used for large track lists where IntrinsicTableView would force all
+            // cells to render simultaneously.
+            tableView = UITableView(frame: .zero, style: .plain)
+        } else {
+            // DeferredLayoutTableView — parent ScrollView handles scrolling.
+            tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
+        }
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
@@ -374,7 +397,7 @@ public struct MediaTrackList: UIViewRepresentable {
             right: 0
         )
         tableView.backgroundColor = .clear
-        tableView.isScrollEnabled = false // Parent ScrollView handles scrolling
+        tableView.isScrollEnabled = managesOwnScrolling
 
         // Disable automatic content inset adjustment — the table view is already
         // positioned below the nav bar by SwiftUI, so letting UIKit also adjust
@@ -408,12 +431,11 @@ public struct MediaTrackList: UIViewRepresentable {
             !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
 
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
-        let isOffline = !networkMonitor.isConnected
+        // Read network state from DependencyContainer (not observed — parent drives re-renders)
+        let isOffline = !dependencies.networkMonitor.isConnected
         let offlineStateChanged = context.coordinator.isOffline != isOffline
-        let newActiveDownloads = offlineDownloadService.activeDownloadRatingKeys
-        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != newActiveDownloads
-        let newAvailabilityGen = trackAvailabilityResolver.availabilityGeneration
-        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != newAvailabilityGen
+        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != activeDownloadRatingKeys
+        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -438,8 +460,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
-        context.coordinator.activeDownloadRatingKeys = newActiveDownloads
-        context.coordinator.lastAvailabilityGeneration = newAvailabilityGen
+        context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.lastAvailabilityGeneration = availabilityGeneration
 
         // Skip reloads when the table isn't in a window yet — DeferredLayoutTableView
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.

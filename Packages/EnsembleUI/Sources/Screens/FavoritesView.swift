@@ -25,6 +25,7 @@ public struct FavoritesView: View {
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
     @Environment(\.dependencies) private var deps
 
     private var backgroundColor: Color {
@@ -330,6 +331,8 @@ public struct FavoritesView: View {
                     showTrackNumbers: false,
                     groupByDisc: false,
                     currentTrackId: nowPlayingVM.currentTrack?.id,
+                    availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                    activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },

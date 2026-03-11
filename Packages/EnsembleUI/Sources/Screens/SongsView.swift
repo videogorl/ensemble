@@ -23,6 +23,8 @@ public struct SongsView: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     private var supportsCoverFlow: Bool {
         #if os(iOS)
@@ -320,6 +322,8 @@ public struct SongsView: View {
                 showTrackNumbers: false,
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
+                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -441,6 +445,8 @@ public struct SongsView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },

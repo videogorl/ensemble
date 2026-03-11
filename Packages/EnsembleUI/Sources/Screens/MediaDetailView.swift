@@ -80,6 +80,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(
         viewModel: ViewModel,
@@ -729,14 +731,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var tracksSection: some View {
         #if os(iOS)
         let trackCount = viewModel.filteredTracks.count
+        // Large track lists (>200) use self-managed scrolling for cell recycling.
+        // Small lists (albums) stay embedded with parent ScrollView handling scroll.
+        let useSelfScroll = trackCount > 200
         let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
-        
+
         MediaTrackList(
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
             currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            managesOwnScrolling: useSelfScroll,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -785,7 +793,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        .frame(height: height)
+        // Only apply fixed frame for small lists; large lists manage their own scrolling
+        .frame(height: useSelfScroll ? nil : height)
         #else
         // Basic List fallback for macOS
         VStack(spacing: 0) {
