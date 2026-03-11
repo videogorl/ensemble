@@ -15,6 +15,8 @@ public struct TrackRow: View {
     let onToggleFavorite: (() -> Void)?
     let onGoToAlbum: (() -> Void)?
     let onGoToArtist: (() -> Void)?
+    let onShareLink: (() -> Void)?
+    let onShareFile: (() -> Void)?
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     @Environment(\.dependencies) private var deps
@@ -38,6 +40,8 @@ public struct TrackRow: View {
         onToggleFavorite: (() -> Void)? = nil,
         onGoToAlbum: (() -> Void)? = nil,
         onGoToArtist: (() -> Void)? = nil,
+        onShareLink: (() -> Void)? = nil,
+        onShareFile: (() -> Void)? = nil,
         isFavorited: Bool? = nil,
         recentPlaylistTitle: String? = nil,
         onTap: @escaping () -> Void
@@ -54,6 +58,8 @@ public struct TrackRow: View {
         self.onToggleFavorite = onToggleFavorite
         self.onGoToAlbum = onGoToAlbum
         self.onGoToArtist = onGoToArtist
+        self.onShareLink = onShareLink
+        self.onShareFile = onShareFile
         self.isFavorited = isFavorited
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onTap = onTap
@@ -166,6 +172,22 @@ public struct TrackRow: View {
                     }
                 }
             }
+
+            // Share actions
+            if onShareLink != nil || onShareFile != nil {
+                Section {
+                    if let onShareLink = onShareLink {
+                        Button(action: onShareLink) {
+                            Label("Share Link…", systemImage: "link")
+                        }
+                    }
+                    if let onShareFile = onShareFile {
+                        Button(action: onShareFile) {
+                            Label("Share Audio File…", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -238,6 +260,8 @@ public struct TrackListView: View {
     let onToggleFavorite: ((Track) -> Void)?
     let onGoToAlbum: ((Track) -> Void)?
     let onGoToArtist: ((Track) -> Void)?
+    let onShareLink: ((Track) -> Void)?
+    let onShareFile: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     let nowPlayingVM: NowPlayingViewModel?
@@ -255,6 +279,8 @@ public struct TrackListView: View {
         onToggleFavorite: ((Track) -> Void)? = nil,
         onGoToAlbum: ((Track) -> Void)? = nil,
         onGoToArtist: ((Track) -> Void)? = nil,
+        onShareLink: ((Track) -> Void)? = nil,
+        onShareFile: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         nowPlayingVM: NowPlayingViewModel? = nil,
@@ -272,6 +298,8 @@ public struct TrackListView: View {
         self.onToggleFavorite = onToggleFavorite
         self.onGoToAlbum = onGoToAlbum
         self.onGoToArtist = onGoToArtist
+        self.onShareLink = onShareLink
+        self.onShareFile = onShareFile
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
         self.nowPlayingVM = nowPlayingVM
@@ -294,6 +322,8 @@ public struct TrackListView: View {
                     onToggleFavorite: onToggleFavorite != nil ? { onToggleFavorite?(track) } : nil,
                     onGoToAlbum: onGoToAlbum != nil ? { onGoToAlbum?(track) } : nil,
                     onGoToArtist: onGoToArtist != nil ? { onGoToArtist?(track) } : nil,
+                    onShareLink: onShareLink != nil ? { onShareLink?(track) } : nil,
+                    onShareFile: onShareFile != nil ? { onShareFile?(track) } : nil,
                     isFavorited: nowPlayingVM?.isTrackFavorited(track),
                     recentPlaylistTitle: recentPlaylistTitle
                 ) {

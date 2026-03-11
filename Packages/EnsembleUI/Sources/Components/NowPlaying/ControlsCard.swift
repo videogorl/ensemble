@@ -481,7 +481,18 @@ public struct ControlsCard: View {
                     .foregroundColor(.primary.opacity(0.7))
             }
             
-            // More menu with navigation and quick add
+            // Share link for current track
+            Button {
+                if let track = viewModel.currentTrack {
+                    ShareActions.shareTrackLink(track, deps: deps)
+                }
+            } label: {
+                Image(systemName: "link")
+                    .font(.title3)
+                    .foregroundColor(.primary.opacity(0.7))
+            }
+
+            // More menu with navigation, sharing, and quick add
             Menu {
                 if let currentTrack = viewModel.currentTrack {
                     Section {
@@ -499,6 +510,23 @@ public struct ControlsCard: View {
                             } label: {
                                 Label("Go to Artist", systemImage: "person.circle")
                             }
+                        }
+                    }
+                }
+
+                // Share actions
+                if let currentTrack = viewModel.currentTrack {
+                    Section {
+                        Button {
+                            ShareActions.shareTrackLink(currentTrack, deps: deps)
+                        } label: {
+                            Label("Share Link…", systemImage: "link")
+                        }
+
+                        Button {
+                            ShareActions.shareTrackFile(currentTrack, deps: deps)
+                        } label: {
+                            Label("Share Audio File…", systemImage: "square.and.arrow.up")
                         }
                     }
                 }

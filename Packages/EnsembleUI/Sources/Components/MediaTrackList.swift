@@ -285,15 +285,17 @@ public struct MediaTrackList: UIViewRepresentable {
     let onToggleFavorite: ((Track) -> Void)?
     let onGoToAlbum: ((Track) -> Void)?
     let onGoToArtist: ((Track) -> Void)?
+    let onShareLink: ((Track) -> Void)?
+    let onShareFile: ((Track) -> Void)?
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
-    
+
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
     @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
-    
+
     public init(
         tracks: [Track],
         showArtwork: Bool = true,
@@ -307,6 +309,8 @@ public struct MediaTrackList: UIViewRepresentable {
         onToggleFavorite: ((Track) -> Void)? = nil,
         onGoToAlbum: ((Track) -> Void)? = nil,
         onGoToArtist: ((Track) -> Void)? = nil,
+        onShareLink: ((Track) -> Void)? = nil,
+        onShareFile: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
@@ -324,6 +328,8 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onToggleFavorite = onToggleFavorite
         self.onGoToAlbum = onGoToAlbum
         self.onGoToArtist = onGoToArtist
+        self.onShareLink = onShareLink
+        self.onShareFile = onShareFile
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
@@ -394,6 +400,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.onToggleFavorite = onToggleFavorite
         context.coordinator.onGoToAlbum = onGoToAlbum
         context.coordinator.onGoToArtist = onGoToArtist
+        context.coordinator.onShareLink = onShareLink
+        context.coordinator.onShareFile = onShareFile
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
@@ -449,6 +457,8 @@ public struct MediaTrackList: UIViewRepresentable {
             onToggleFavorite: onToggleFavorite,
             onGoToAlbum: onGoToAlbum,
             onGoToArtist: onGoToArtist,
+            onShareLink: onShareLink,
+            onShareFile: onShareFile,
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
@@ -486,6 +496,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var onToggleFavorite: ((Track) -> Void)?
         var onGoToAlbum: ((Track) -> Void)?
         var onGoToArtist: ((Track) -> Void)?
+        var onShareLink: ((Track) -> Void)?
+        var onShareFile: ((Track) -> Void)?
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
@@ -510,6 +522,8 @@ public struct MediaTrackList: UIViewRepresentable {
             onToggleFavorite: ((Track) -> Void)?,
             onGoToAlbum: ((Track) -> Void)?,
             onGoToArtist: ((Track) -> Void)?,
+            onShareLink: ((Track) -> Void)?,
+            onShareFile: ((Track) -> Void)?,
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
@@ -532,6 +546,8 @@ public struct MediaTrackList: UIViewRepresentable {
             self.onToggleFavorite = onToggleFavorite
             self.onGoToAlbum = onGoToAlbum
             self.onGoToArtist = onGoToArtist
+            self.onShareLink = onShareLink
+            self.onShareFile = onShareFile
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
@@ -633,7 +649,7 @@ public struct MediaTrackList: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             let track = groupedTracks[indexPath.section].tracks[indexPath.row]
             // Only show context menu if at least one callback is provided
-            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil else { return nil }
+            guard onPlayNext != nil || onPlayLast != nil || onAddToPlaylist != nil || onAddToRecentPlaylist != nil || onToggleFavorite != nil || onGoToAlbum != nil || onGoToArtist != nil || onShareLink != nil || onShareFile != nil else { return nil }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var topActions: [UIAction] = []
@@ -688,6 +704,19 @@ public struct MediaTrackList: UIViewRepresentable {
                     })
                 }
                 
+                // Share actions
+                var shareActions: [UIAction] = []
+                if let onShareLink = self?.onShareLink {
+                    shareActions.append(UIAction(title: "Share Link…", image: UIImage(systemName: "link")) { _ in
+                        onShareLink(track)
+                    })
+                }
+                if let onShareFile = self?.onShareFile {
+                    shareActions.append(UIAction(title: "Share Audio File…", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                        onShareFile(track)
+                    })
+                }
+
                 var children: [UIMenuElement] = []
                 if !topActions.isEmpty {
                     children.append(UIMenu(title: "", options: .displayInline, children: topActions))
@@ -698,7 +727,10 @@ public struct MediaTrackList: UIViewRepresentable {
                 if !bottomActions.isEmpty {
                     children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
                 }
-                
+                if !shareActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: shareActions))
+                }
+
                 return UIMenu(children: children)
             }
         }
