@@ -1569,9 +1569,12 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Refreshes only the targets that contain the given track, plus active download keys.
+    /// Refreshes only the targets that contain the given track.
     /// Much cheaper than refreshAllTargetProgresses() during bulk downloads — O(owning targets)
     /// instead of O(all targets × tracks per target).
+    /// Note: activeDownloadRatingKeys is NOT refreshed here — the debounced
+    /// scheduleDownloadChangeNotification() handles that to batch spinner updates
+    /// instead of firing per-track during bulk downloads.
     private func refreshTargetsForTrack(ratingKey: String, sourceCompositeKey: String) async {
         do {
             let reference = OfflineTrackReference(
@@ -1583,7 +1586,6 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshTargetProgress(forTargetKey: key)
             }
             await refreshTargetSnapshots()
-            await refreshActiveDownloadRatingKeys()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
