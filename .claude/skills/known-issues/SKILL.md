@@ -178,6 +178,24 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Extracted `LyricsLineView` as `Equatable` struct with pre-computed params. Wrapped in `EquatableView` so SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
 - **Key files:** `LyricsCard.swift`
 
+### Download Queue Polling + WebSocket Routing
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexAPIClient.downloadTranscodedMediaViaQueue()` polled PMS every 1s with fixed interval. WebSocket `media.download` activity events were parsed but not routed — only `library.refresh`/`library.update` types were handled by `PlexWebSocketCoordinator`. This meant PMS download queue completions never notified the download service, so the queue could stall after workers exited.
+- **Fix:** Polling uses exponential backoff (1s→2s→4s→8s, capped 15s). `PlexWebSocketCoordinator` now handles `media.download ended` events via `onDownloadQueueCompleted` callback, which triggers `OfflineDownloadService.handleDownloadQueueCompleted()` to restart the queue.
+- **Key files:** `PlexAPIClient.swift`, `PlexWebSocketCoordinator.swift`, `OfflineDownloadService.swift`, `DependencyContainer.swift`
+
+### MediaTrackList Layout Outside View Hierarchy
+- **Resolved (March 11, 2026)**
+- **Previous:** SwiftUI eagerly created `MediaTrackList` UITableView instances for navigation destinations not yet displayed. UITableView performed layout on init even without a window, causing "layout outside view hierarchy" warnings and unnecessary work at launch.
+- **Fix:** `DeferredLayoutTableView` subclass skips `layoutSubviews()` when not in a window and triggers `reloadData()` on `didMoveToWindow`. `updateUIView` early-returns when the table has no window.
+- **Key files:** `MediaTrackList.swift`
+
+### WebSocket Settings Changed Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** Rapid bursts of PMS settings-changed WebSocket events (e.g. 5 pairs in 3s) each logged and processed individually.
+- **Fix:** Settings events debounced per server with 5s window in `PlexWebSocketCoordinator`.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
 ### NowPlaying Carousel Cards Rendered Off-Screen
 - **Resolved (March 11, 2026)**
 - **Previous:** TabView `.page` style renders ALL child views simultaneously. LyricsCard's `.blur()` effects, QueueCard's UIKit QueueTableView, and InfoCard's async fetches all ran off-screen. LyricsCard blur alone was 3.8% of GPU trace (`RB::Filter::GaussianBlur`). QueueCard triggered "UITableView layout outside view hierarchy" warnings.
