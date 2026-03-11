@@ -53,22 +53,36 @@ public struct LyricsCard: View {
 
     // MARK: - Content
 
+    /// Whether this card is the active page in the carousel.
+    /// TabView's .page style renders ALL children simultaneously — gate expensive
+    /// blur/scroll/animation content behind this check to avoid GPU work off-screen.
+    private var isVisible: Bool {
+        currentPage == 2
+    }
+
     @ViewBuilder
     private var contentView: some View {
-        switch viewModel.lyricsState {
-        case .loading:
-            loadingView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .mask(fadeMask)
+        if isVisible {
+            switch viewModel.lyricsState {
+            case .loading:
+                loadingView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
 
-        case .notAvailable:
-            notAvailableView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .mask(fadeMask)
+            case .notAvailable:
+                notAvailableView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
 
-        case .available(let lyrics):
-            lyricsScrollView(lyrics: lyrics)
-                .mask(fadeMask)
+            case .available(let lyrics):
+                lyricsScrollView(lyrics: lyrics)
+                    .mask(fadeMask)
+            }
+        } else {
+            // Lightweight placeholder — keeps layout stable for TabView paging
+            // without any blur/scroll/animation GPU cost
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
