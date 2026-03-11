@@ -446,6 +446,30 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    // MARK: - Cache Cleanup
+
+    /// Clear all persistent lyrics caches and in-memory cache.
+    /// Called by CacheManager when user clears all library data.
+    public func clearAllCaches() {
+        cache.removeAll()
+        try? FileManager.default.removeItem(at: Self.lyricsCacheDir)
+        try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
+    }
+
+    /// Clear persistent lyrics cache files for a specific source.
+    /// Called when an account or library is removed.
+    public func clearCache(forSourceCompositeKey sourceKey: String) {
+        // Remove matching in-memory cache entries
+        cache = cache.filter { !$0.key.hasSuffix(":\(sourceKey)") }
+
+        // Remove matching persistent cache files (filename contains the source key)
+        let safeSourceKey = sourceKey.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else { return }
+        for file in files where file.contains(safeSourceKey) {
+            try? FileManager.default.removeItem(at: Self.lyricsCacheDir.appendingPathComponent(file))
+        }
+    }
+
     // MARK: - Persistent File Cache
 
     /// File path for a track's cached lyrics content

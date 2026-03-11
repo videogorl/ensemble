@@ -40,15 +40,18 @@ public final class CacheManager: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
-    
+    private let lyricsService: LyricsService
+
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
-        downloadManager: DownloadManagerProtocol
+        downloadManager: DownloadManagerProtocol,
+        lyricsService: LyricsService
     ) {
         self.libraryRepository = libraryRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.downloadManager = downloadManager
+        self.lyricsService = lyricsService
     }
     
     /// Refresh cache size information for all cache types
@@ -189,6 +192,8 @@ public final class CacheManager: ObservableObject {
         // This is destructive - delete all CoreData entities
         // We should confirm with user before calling this
         try await libraryRepository.deleteAllLibraryData()
+        // Also clear persistent lyrics cache
+        lyricsService.clearAllCaches()
     }
     
     private func clearAllDownloads() async throws {

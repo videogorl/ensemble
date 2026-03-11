@@ -270,16 +270,8 @@ public final class DependencyContainer: @unchecked Sendable {
             SettingsManager()
         }
 
-        // Cache manager - must be initialized after downloadManager
         let downloadRef = downloadManager
-        cacheManager = MainActor.assumeIsolated {
-            CacheManager(
-                libraryRepository: libraryRef,
-                artworkDownloadManager: artworkDownloadRef,
-                downloadManager: downloadRef
-            )
-        }
-        
+
         // Navigation coordinator
         navigationCoordinator = MainActor.assumeIsolated {
             NavigationCoordinator()
@@ -317,6 +309,16 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         lyricsService = lyricsServiceRef
 
+        // Cache manager - must be initialized after downloadManager and lyricsService
+        cacheManager = MainActor.assumeIsolated {
+            CacheManager(
+                libraryRepository: libraryRef,
+                artworkDownloadManager: artworkDownloadRef,
+                downloadManager: downloadRef,
+                lyricsService: lyricsServiceRef
+            )
+        }
+
         // Mutation coordinator — unified mutation routing with offline queue support
         let mutationCoordinatorRef = MainActor.assumeIsolated {
             MutationCoordinator(
@@ -338,6 +340,10 @@ public final class DependencyContainer: @unchecked Sendable {
         MainActor.assumeIsolated {
             syncRef.onConnectionsRefreshed = { [weak artworkLoaderRef] in
                 await artworkLoaderRef?.invalidateURLCache()
+            }
+
+            syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
+                lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
             }
         }
     }
