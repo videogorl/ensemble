@@ -38,38 +38,38 @@ public struct QueueCard: View {
                 .padding(.bottom, 12)
 
             if isVisible {
-                // Scrollable queue list with fade masks
-                ScrollView(showsIndicators: false) {
-                    queueListView
-                }
-                .mask(
-                    VStack(spacing: 0) {
-                        // Top fade (more gradual)
-                        LinearGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .black, location: 0.1)
-                            ]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 50)
+                // Queue list — QueueTableView manages its own scrolling now.
+                // No SwiftUI ScrollView wrapper — that was defeating cell recycling
+                // by forcing IntrinsicTableView to report full contentSize.
+                queueListView
+                    .mask(
+                        VStack(spacing: 0) {
+                            // Top fade
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.1)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 50)
 
-                        // Middle: full opacity
-                        Rectangle().fill(Color.black)
+                            // Middle: full opacity
+                            Rectangle().fill(Color.black)
 
-                        // Bottom fade (more gradual)
-                        LinearGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: .black, location: 0.7),
-                                .init(color: .clear, location: 1)
-                            ]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 80)
-                    }
-                )
+                            // Bottom fade
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .black, location: 0.7),
+                                    .init(color: .clear, location: 1)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 80)
+                        }
+                    )
             } else {
                 // Lightweight placeholder — avoids UITableView layout off-screen
                 Color.clear

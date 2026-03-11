@@ -15,12 +15,16 @@ public class QueueItemCell: UITableViewCell {
     private let playingIndicator = UIImageView()
     private let autoplayIndicator = UIImageView()
     private let dragHandleView = UIImageView()
-    
+
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
     private var currentItemID: String?
     private var artworkLoadTask: Task<Void, Never>?
     private var autoplayWidthConstraint: NSLayoutConstraint?
+    /// Monotonically increasing counter to guard against stale artwork loads.
+    /// Each configure() increments this; the async artwork task checks its
+    /// captured generation matches before assigning the image.
+    private var configureGeneration: UInt = 0
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -156,15 +160,22 @@ public class QueueItemCell: UITableViewCell {
         // Show/hide drag handle
         dragHandleView.isHidden = !showDragHandle
         
-        // Load artwork if needed
+        // Load artwork — increment generation so stale loads are discarded
+        configureGeneration &+= 1
+        let expectedGeneration = configureGeneration
+
         if currentItemID != item.id {
             currentItemID = item.id
+            artworkImageView.image = nil
             artworkImageView.backgroundColor = UIColor.systemGray5
-            
+
             // Cancel any previous artwork load task
             artworkLoadTask?.cancel()
-            
+
             artworkLoadTask = Task { @MainActor in
+                // Guard: bail if cell was reconfigured since this task started
+                guard self.configureGeneration == expectedGeneration else { return }
+
                 guard let url = await artworkLoader.artworkURLAsync(
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
@@ -173,25 +184,27 @@ public class QueueItemCell: UITableViewCell {
                     fallbackRatingKey: track.fallbackRatingKey,
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = nil
                     }
                     return
                 }
-                
+
+                guard self.configureGeneration == expectedGeneration else { return }
+
                 let request = ImageRequest(url: url)
-                
+
                 // Check cache first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = cachedImage.image
                     }
                     return
                 }
-                
+
                 // Load asynchronously
                 if let image = try? await ImagePipeline.shared.image(for: request) {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = image
                     }
                 }
@@ -285,7 +298,10 @@ public struct QueueTableView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = IntrinsicTableView(frame: .zero, style: .grouped)
+        // Use regular UITableView (not IntrinsicTableView) so the table manages its
+        // own scrolling and cell recycling. IntrinsicTableView forced all cells to
+        // render simultaneously via intrinsicContentSize, causing hangs with large queues.
+        let tableView = UITableView(frame: .zero, style: .grouped)
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.dragDelegate = context.coordinator
@@ -293,11 +309,12 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
-        tableView.backgroundColor = .clear // Transparent to show blurred background
-        tableView.isScrollEnabled = false
+        tableView.backgroundColor = .clear
+        tableView.isScrollEnabled = true // Table manages its own scrolling
         tableView.dragInteractionEnabled = true
-        tableView.setEditing(true, animated: false) // Enable persistent drag handles
-        tableView.allowsSelectionDuringEditing = true // Allow tapping to select rows while dragging is enabled
+        tableView.setEditing(true, animated: false)
+        tableView.allowsSelectionDuringEditing = true
+        tableView.contentInsetAdjustmentBehavior = .never
         context.coordinator.tableView = tableView
         return tableView
     }
@@ -335,7 +352,6 @@ public struct QueueTableView: UIViewRepresentable {
         
         if dataChanged {
             tableView.reloadData()
-            tableView.invalidateIntrinsicContentSize()
         } else if currentIndexChanged {
             // Only update visible cells
             tableView.visibleCells.forEach { cell in
