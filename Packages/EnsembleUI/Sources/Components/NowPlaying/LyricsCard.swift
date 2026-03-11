@@ -212,15 +212,18 @@ public struct LyricsCard: View {
         isActive: Bool,
         isPast: Bool
     ) -> some View {
-        Text(line.text)
+        let blur = lineBlurRadius(index: index, isTimed: isTimed)
+        return Text(line.text)
             .font(.title3)
             .fontWeight(.medium)
             .foregroundColor(.primary)
             .opacity(lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast))
             .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
+            .blur(radius: blur)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeInOut(duration: 0.25), value: isActive)
+            .animation(.easeInOut(duration: 0.3), value: blur)
     }
 
     // MARK: - Instrumental Indicator
@@ -282,6 +285,23 @@ public struct LyricsCard: View {
         if isActive { return 1.0 }
         if isPast { return 0.5 }
         return 0.3 // Future lines
+    }
+
+    /// Progressive blur based on distance from the active line (which is centered in viewport).
+    /// Lines close to the active line are sharp; distant lines blur progressively.
+    /// Disabled for plain text lyrics and during user manual scroll.
+    private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
+        guard isTimed, !viewModel.isUserScrollingLyrics else { return 0 }
+
+        // Use active line index, fall back to scroll target during instrumental gaps
+        let center = viewModel.currentLyricsLineIndex
+            ?? viewModel.lyricsScrollTargetIndex
+        guard let center else { return 0 }
+
+        let distance = abs(index - center)
+        // Lines within 2 of center: no blur. Beyond that: progressive blur up to 5pt.
+        guard distance > 2 else { return 0 }
+        return min(CGFloat(distance - 2) * 1.5, 5.0)
     }
 
     /// Whether a line is in the past (before the current active line)

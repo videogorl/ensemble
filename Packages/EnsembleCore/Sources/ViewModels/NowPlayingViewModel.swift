@@ -314,7 +314,13 @@ public final class NowPlayingViewModel: ObservableObject {
                             currentTime: anticipatedTime, trackDuration: self.duration
                         )
                         self.instrumentalProgress = progress
-                        if progress != nil {
+                        let elapsedSinceLine: TimeInterval
+                        if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
+                            elapsedSinceLine = anticipatedTime - ts
+                        } else {
+                            elapsedSinceLine = 0
+                        }
+                        if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
                             self.currentLyricsLineIndex = nil
                         } else {
                             self.currentLyricsLineIndex = activeIndex
@@ -347,15 +353,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 )
                 self.instrumentalProgress = progress
 
-                // Keep the lyric line highlighted for ~2s so it can be read/sung,
-                // then de-highlight and let the dots take over as the "active" element
+                // Keep the lyric line highlighted for its typical vocal duration
+                // (median inter-line interval for this song), then de-highlight
+                // and let the dots take over as the "active" element
                 let elapsedSinceLine: TimeInterval
                 if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
                     elapsedSinceLine = anticipatedTime - ts
                 } else {
                     elapsedSinceLine = 0
                 }
-                if progress != nil && elapsedSinceLine > 2.0 {
+                if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
                     self.currentLyricsLineIndex = nil
                 } else {
                     self.currentLyricsLineIndex = activeIndex

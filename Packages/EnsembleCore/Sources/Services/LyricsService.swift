@@ -16,6 +16,18 @@ public struct ParsedLyrics: Sendable, Equatable {
     public let lines: [LyricsLine]
     public let isTimed: Bool
 
+    /// Median inter-line interval for non-instrumental gaps.
+    /// Represents how long a typical vocal line lasts in this song.
+    /// Used to keep a line highlighted for a natural duration before
+    /// instrumental dots take over.
+    public let typicalVocalDuration: TimeInterval
+
+    public init(lines: [LyricsLine], isTimed: Bool) {
+        self.lines = lines
+        self.isTimed = isTimed
+        self.typicalVocalDuration = Self.computeTypicalVocalDuration(lines: lines, isTimed: isTimed)
+    }
+
     /// Binary search for the active line at a given playback time.
     /// Returns the index of the last line whose timestamp <= time.
     public func activeLineIndex(at time: TimeInterval) -> Int? {
@@ -37,6 +49,24 @@ public struct ParsedLyrics: Sendable, Equatable {
             }
         }
         return result
+    }
+
+    /// Compute median interval between consecutive vocal lines (excluding instrumental gaps)
+    private static func computeTypicalVocalDuration(lines: [LyricsLine], isTimed: Bool) -> TimeInterval {
+        guard isTimed, lines.count > 1 else { return 2.0 }
+        let instrumentalThreshold: TimeInterval = 5.0
+        var intervals: [TimeInterval] = []
+        for i in 0..<lines.count - 1 {
+            guard let current = lines[i].timestamp,
+                  let next = lines[i + 1].timestamp else { continue }
+            let gap = next - current
+            if gap > 0 && gap < instrumentalThreshold {
+                intervals.append(gap)
+            }
+        }
+        guard !intervals.isEmpty else { return 2.0 }
+        intervals.sort()
+        return intervals[intervals.count / 2]
     }
 }
 
