@@ -66,7 +66,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed after sheet dismissal
-- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion)
+- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -226,10 +226,10 @@ Dynamic background effect that reacts to music intensity:
 1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
 2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
 3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
-4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation)` to draw overlapping fan-shaped sectors with radial gradients.
-5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect.
+4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation(minimumInterval: 1/30))` to draw overlapping fan-shaped sectors with radial gradients at 30fps.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. 3 glow passes (blur=18, 12, 8) for depth.
 6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
-7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition.
+7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition. Paused when Now Playing sheet is open (`isPaused` parameter from `MainTabView`).
 
 ## Subsystem: Hub-Based Home Screen
 

@@ -78,6 +78,31 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### App Performance Optimization (Mar 2026)
+Six-phase optimization pass targeting GPU waste, download system queries, SwiftUI invalidation cascades, scroll performance, and lyrics rendering:
+
+- **Aurora visualizer:** Capped at 30fps (was 60fps — band data already updates at 30fps). Reduced glow passes from 6 to 3 (blur=18, 12, 8). Pauses when Now Playing sheet covers it. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Identical frequency band publishes are skipped.
+- **Download query batching:** After download completion, only owning targets are refreshed (not all). Batch `IN` predicate query replaces per-track `fetchDownload()` loops. Dynamic debounce: 3s when >3 downloads pending, 1s otherwise.
+- **PlaybackService objectWillChange:** `frequencyBands` moved from `@Published` to `CurrentValueSubject<[Double], Never>` so `objectWillChange` no longer fires at 30Hz. `NowPlayingViewModel.applyLyricsPosition()` guards against no-change assignments of 4 `@Published` properties.
+- **TrackRow availability decoupling:** `@ObservedObject availabilityResolver` (singleton) replaced with `@State private var cachedAvailability` + `.onReceive` that only updates when THIS track's availability changed. Applied to `TrackRow` and `CompactTrackRow`.
+- **Songs view layout fix:** Non-indexed sort renders `MediaTrackList` directly without ScrollView wrapper or fixed-height frame (was defeating UITableView cell recycling). Search text filtering debounced at 150ms.
+- **LyricsCard line isolation:** Extracted `LyricsLineView` as `Equatable` struct wrapped in `EquatableView`. SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
+
+**Key files:**
+- `Packages/EnsembleUI/Sources/Components/AuroraVisualizationView.swift` - 30fps cap, 3 passes, isPaused
+- `Packages/EnsembleUI/Sources/Screens/MainTabView.swift` - passes isPaused to aurora
+- `Packages/EnsembleCore/Sources/Services/AudioAnalyzer.swift` - no-change guard, MainActor.assumeIsolated
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - targeted refresh, dynamic debounce
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - fetchDownloadsBatch
+- `Packages/EnsemblePersistence/Sources/Downloads/OfflineDownloadTargetRepository.swift` - fetchTargetKeys(containing:)
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` - CurrentValueSubject for frequencyBands
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - no-change guard in applyLyricsPosition
+- `Packages/EnsembleUI/Sources/Components/TrackRow.swift` - @State cached availability
+- `Packages/EnsembleUI/Sources/Components/CompactSearchRows.swift` - @State cached availability
+- `Packages/EnsembleUI/Sources/Screens/SongsView.swift` - removed fixed-height frame for unsorted case
+- `Packages/EnsembleCore/Sources/ViewModels/LibraryViewModel.swift` - 150ms search debounce
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - Equatable LyricsLineView
+
 ### Live Lyrics (Mar 2026)
 Karaoke-style time-synced lyrics fetched from Plex and displayed in the Now Playing Lyrics Card:
 

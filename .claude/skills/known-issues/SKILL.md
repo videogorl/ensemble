@@ -142,6 +142,42 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Impact:** Minor visual delay; playback itself is unaffected since the visualizer is fully decoupled from the audio pipeline.
 - **Mitigation:** Offline downloads generate `.freq` sidecars immediately after download, so cached tracks have instant visualizer data.
 
+### Aurora Visualizer Optimized to 30fps + 3 Passes
+- **Resolved (March 11, 2026)**
+- **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet.
+- **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`.
+- **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Download System Query Batching
+- **Resolved (March 11, 2026)**
+- **Previous:** After each download completion, `refreshAllTargetProgresses()` ran O(targets x tracks) individual CoreData queries. iPhone 6s crawled during bulk downloads.
+- **Fix:** Targeted refresh only updates owning targets (`fetchTargetKeys(containing:)`). Batch download status queries use single `IN` predicate (`fetchDownloadsBatch`). Dynamic debounce: 3s when >3 pending, 1s otherwise.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadManager.swift`, `OfflineDownloadTargetRepository.swift`
+
+### PlaybackService objectWillChange Fired at 30Hz
+- **Resolved (March 11, 2026)**
+- **Previous:** `@Published var frequencyBands` caused `objectWillChange` to fire 30x/sec, re-rendering all views observing `PlaybackService`.
+- **Fix:** Replaced with `CurrentValueSubject<[Double], Never>`. `objectWillChange` no longer fires for band updates. `NowPlayingViewModel.applyLyricsPosition()` also guards against no-change assignments.
+- **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`
+
+### TrackRow Mass Re-Render on Availability Change
+- **Resolved (March 11, 2026)**
+- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused ALL visible TrackRows to re-render when generation counter bumped.
+- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. Applied to both `TrackRow` and `CompactTrackRow`.
+- **Key files:** `TrackRow.swift`, `CompactSearchRows.swift`
+
+### Songs View 1500+ Track Choppiness
+- **Resolved (March 11, 2026)**
+- **Previous:** `SongsView` wrapped `MediaTrackList` (UITableView) in a fixed-height frame (`CGFloat(trackCount * 68)`), defeating both `LazyVStack` lazy loading and UITableView cell recycling. Search filtering ran synchronously on every keystroke.
+- **Fix:** Non-indexed sort renders `MediaTrackList` directly without ScrollView wrapper or fixed-height frame. Search text filtering debounced at 150ms via Combine pipeline.
+- **Key files:** `SongsView.swift`, `LibraryViewModel.swift`
+
+### LyricsCard Full Re-Render Every 0.5s
+- **Resolved (March 11, 2026)**
+- **Previous:** When `currentLyricsLineIndex` changed, ALL lyrics lines recalculated visual params and triggered animations.
+- **Fix:** Extracted `LyricsLineView` as `Equatable` struct with pre-computed params. Wrapped in `EquatableView` so SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
+- **Key files:** `LyricsCard.swift`
+
 ## Future Enhancements (Waveform System)
 
 - Implement waveform seeking (jump to specific parts of track)
