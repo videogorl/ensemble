@@ -78,6 +78,23 @@ The goal of this app is to provide a beautiful, information-dense, and customiza
 
 ## Recent Major Changes
 
+### Low Power Mode Awareness (Mar 2026)
+`PowerStateMonitor` observes iOS Low Power Mode and automatically reduces GPU and network work across the app:
+
+- **PowerStateMonitor:** New `@MainActor ObservableObject` that listens for `NSProcessInfoPowerStateDidChange` notifications and publishes `isLowPowerMode: Bool`. Injected via `DependencyContainer`.
+- **Aurora visualizer throttling:** When LPM is active, aurora drops to 1 glow pass at 15fps (from 3 passes at 30fps in normal mode). `isLowPowerMode` plumbed through `MainTabView`, `NowPlayingSheetView`, and `NowPlayingCarousel` to `AuroraVisualizationView`.
+- **LyricsCard blur disabled:** Progressive blur returns 0 for all lines when LPM is active, eliminating expensive `GaussianBlur` filter applications on the lyrics surface.
+- **Download auto-pause:** `DependencyContainer` wiring auto-pauses active downloads when LPM activates and auto-resumes when LPM deactivates.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/PowerStateMonitor.swift` - LPM observer, publishes isLowPowerMode
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires PowerStateMonitor, auto-pauses/resumes downloads
+- `Packages/EnsembleUI/Sources/Components/AuroraVisualizationView.swift` - 1 glow pass at 15fps in LPM
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - progressive blur disabled in LPM
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/NowPlayingCarousel.swift` - plumbs isLowPowerMode to cards
+- `Packages/EnsembleUI/Sources/Screens/MainTabView.swift` - plumbs isLowPowerMode to aurora and Now Playing
+- `Packages/EnsembleUI/Sources/Screens/NowPlayingSheetView.swift` - plumbs isLowPowerMode to carousel
+
 ### App Performance Optimization (Mar 2026)
 Nine-phase optimization pass targeting GPU waste, download system queries, SwiftUI invalidation cascades, scroll performance, lyrics rendering, download queue polling, MediaTrackList layout waste, and WebSocket event spam:
 
