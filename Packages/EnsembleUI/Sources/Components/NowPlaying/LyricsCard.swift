@@ -7,6 +7,9 @@ public struct LyricsCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
 
+    // Track last scroll target to detect large jumps (seeks) vs natural progression
+    @State private var lastScrollIndex: Int?
+
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         self._currentPage = currentPage
@@ -165,11 +168,25 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, 48)
             }
-            // Scroll and highlight happen together
+            // Scroll to active lyric — animate for natural progression, snap for seeks
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
                 guard let newIndex, lyrics.isTimed else { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
+
+                let isLargeJump: Bool
+                if let last = lastScrollIndex {
+                    isLargeJump = abs(newIndex - last) > 2
+                } else {
+                    isLargeJump = true // First scroll — snap without animation
+                }
+                lastScrollIndex = newIndex
+
+                if isLargeJump {
+                    // Snap immediately for seeks — prevents animation backlog
                     proxy.scrollTo(newIndex, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(newIndex, anchor: .center)
+                    }
                 }
             }
         }
