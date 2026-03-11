@@ -106,12 +106,10 @@ public struct LyricsCard: View {
                         .frame(height: 120)
 
                     // Intro dot — always present for timed lyrics, tap to seek to beginning.
-                    // Shows as past (filled) once playback has started.
+                    // Time-synced when there's a real intro gap, otherwise just past/future.
                     if lyrics.isTimed {
-                        let introPast = viewModel.currentLyricsLineIndex != nil
-                            || viewModel.lyricsScrollTargetIndex != nil
                         let introBlur = lineBlurRadius(index: 0, isTimed: true)
-                        instrumentalIndicator(progress: introPast ? 1.0 : 0.0)
+                        instrumentalIndicator(progress: introProgress)
                             .blur(radius: introBlur)
                             .animation(.easeInOut(duration: 0.3), value: introBlur)
                             .id("intro-instrumental")
@@ -162,12 +160,11 @@ public struct LyricsCard: View {
                     }
 
                     // Outro dot — always present for timed lyrics, tap to seek to end.
-                    // Shows as past (filled) once playback reaches the last line.
+                    // Time-synced when there's a real outro gap, otherwise just past/future.
                     if lyrics.isTimed {
                         let lastIndex = lyrics.lines.count - 1
-                        let outroPast = isPastLine(index: lastIndex)
                         let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
-                        instrumentalIndicator(progress: outroPast ? 1.0 : 0.0)
+                        instrumentalIndicator(progress: outroProgress(lastIndex: lastIndex))
                             .blur(radius: outroBlur)
                             .animation(.easeInOut(duration: 0.3), value: outroBlur)
                             .id("outro-instrumental")
@@ -293,6 +290,34 @@ public struct LyricsCard: View {
     }
 
     // MARK: - Helpers
+
+    /// Intro dot progress: time-synced if there's a real intro gap, otherwise just past/future
+    private var introProgress: Double {
+        if viewModel.hasIntroInstrumentalGap {
+            let isIntroActive = viewModel.lyricsScrollTargetIndex == nil
+                && viewModel.instrumentalProgress != nil
+            if isIntroActive {
+                return viewModel.instrumentalProgress ?? 0
+            }
+        }
+        // Filled once any lyric line has been reached
+        let hasStarted = viewModel.currentLyricsLineIndex != nil
+            || viewModel.lyricsScrollTargetIndex != nil
+        return hasStarted ? 1.0 : 0.0
+    }
+
+    /// Outro dot progress: time-synced if there's a real outro gap, otherwise just past/future
+    private func outroProgress(lastIndex: Int) -> Double {
+        if viewModel.hasOutroInstrumentalGap {
+            let isOutroActive = viewModel.instrumentalProgress != nil
+                && viewModel.currentLyricsLineIndex == nil
+                && viewModel.lyricsScrollTargetIndex == lastIndex
+            if isOutroActive {
+                return viewModel.instrumentalProgress ?? 0
+            }
+        }
+        return isPastLine(index: lastIndex) ? 1.0 : 0.0
+    }
 
     /// Resume playback if currently paused (for tap-to-seek interactions)
     private func resumeIfPaused() {
