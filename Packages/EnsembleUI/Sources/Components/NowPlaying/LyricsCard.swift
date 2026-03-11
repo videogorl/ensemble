@@ -152,7 +152,11 @@ public struct LyricsCard: View {
                         )
                         .onTapGesture {
                             if lyrics.isTimed, let timestamp = line.timestamp {
-                                viewModel.seek(to: timestamp)
+                                // LRC timestamps mark when to START DISPLAYING a line,
+                                // which is slightly before the vocals begin. Add a small
+                                // offset so tap-to-seek lands on the actual vocal start
+                                // rather than the tail of the previous line.
+                                viewModel.seek(to: timestamp + 0.35)
                                 resumeIfPaused()
                             }
                         }
