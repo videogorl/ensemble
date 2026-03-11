@@ -644,7 +644,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
     @Published public private(set) var repeatMode: RepeatMode = RepeatMode(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
     @Published public private(set) var waveformHeights: [Double] = []
-    @Published public private(set) var frequencyBands: [Double] = []
+    /// Decoupled from @Published to avoid firing objectWillChange at 30Hz.
+    /// Views that need frequency data subscribe via frequencyBandsPublisher instead.
+    private let frequencyBandsSubject = CurrentValueSubject<[Double], Never>([])
+    public var frequencyBands: [Double] {
+        get { frequencyBandsSubject.value }
+        set { frequencyBandsSubject.send(newValue) }
+    }
     @Published public private(set) var isExternalPlaybackActive: Bool = false
     @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
     @Published public private(set) var autoplayTracks: [Track] = []
@@ -662,7 +668,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var shufflePublisher: AnyPublisher<Bool, Never> { $isShuffleEnabled.eraseToAnyPublisher() }
     public var repeatModePublisher: AnyPublisher<RepeatMode, Never> { $repeatMode.eraseToAnyPublisher() }
     public var waveformPublisher: AnyPublisher<[Double], Never> { $waveformHeights.eraseToAnyPublisher() }
-    public var frequencyBandsPublisher: AnyPublisher<[Double], Never> { $frequencyBands.eraseToAnyPublisher() }
+    public var frequencyBandsPublisher: AnyPublisher<[Double], Never> { frequencyBandsSubject.eraseToAnyPublisher() }
     public var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { $isExternalPlaybackActive.eraseToAnyPublisher() }
     public var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { $isAutoplayEnabled.eraseToAnyPublisher() }
     public var autoplayTracksPublisher: AnyPublisher<[Track], Never> { $autoplayTracks.eraseToAnyPublisher() }
