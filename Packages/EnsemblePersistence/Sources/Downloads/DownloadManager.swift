@@ -522,9 +522,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             let filename = Self.extractFilename(from: storedPath)
                             let absolutePath = Self.absolutePath(forFilename: filename)
                             try? FileManager.default.removeItem(atPath: absolutePath)
-                            // Also delete sidecars if they exist
+                            // Delete frequency analysis sidecar
                             try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".lrc")
                         }
 
                         download.track?.localFilePath = nil
@@ -614,7 +613,6 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             let absolutePath = Self.absolutePath(forFilename: filename)
                             try? FileManager.default.removeItem(atPath: absolutePath)
                             try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".lrc")
                         }
                         // Clear the track's local file path so it's no longer treated as offline
                         download.track?.localFilePath = nil

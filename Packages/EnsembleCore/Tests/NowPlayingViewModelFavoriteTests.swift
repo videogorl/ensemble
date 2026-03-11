@@ -269,8 +269,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         )
 
         let lyricsService = LyricsService(
-            syncCoordinator: syncCoordinator,
-            downloadManager: MockDownloadManager()
+            syncCoordinator: syncCoordinator
         )
 
         return (NowPlayingViewModel(

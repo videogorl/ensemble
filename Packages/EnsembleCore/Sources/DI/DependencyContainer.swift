@@ -196,6 +196,13 @@ public final class DependencyContainer: @unchecked Sendable {
         let toastCenterRef = MainActor.assumeIsolated { ToastCenter() }
         toastCenter = toastCenterRef
 
+        // Lyrics service — fetching, parsing, and caching lyrics
+        // Created before OfflineDownloadService so downloads can pre-cache lyrics
+        let lyricsServiceRef = MainActor.assumeIsolated {
+            LyricsService(syncCoordinator: syncCoordinatorRef)
+        }
+        lyricsService = lyricsServiceRef
+
         let offlineServiceRef = MainActor.assumeIsolated {
             OfflineDownloadService(
                 downloadManager: downloadManagerRef,
@@ -206,7 +213,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 networkMonitor: nm,
                 backgroundExecutionCoordinator: offlineBackgroundCoordinatorRef,
                 artworkDownloadManager: artworkDownloadRef,
-                toastCenter: toastCenterRef
+                toastCenter: toastCenterRef,
+                lyricsService: lyricsServiceRef
             )
         }
         offlineDownloadService = offlineServiceRef
@@ -302,12 +310,6 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: playlistRef
             )
         }
-
-        // Lyrics service — fetching, parsing, caching lyrics with offline sidecar support
-        let lyricsServiceRef = MainActor.assumeIsolated {
-            LyricsService(syncCoordinator: syncCoordinatorRef, downloadManager: downloadManagerRef)
-        }
-        lyricsService = lyricsServiceRef
 
         // Cache manager - must be initialized after downloadManager and lyricsService
         cacheManager = MainActor.assumeIsolated {

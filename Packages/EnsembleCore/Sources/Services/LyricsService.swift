@@ -204,7 +204,7 @@ enum LRCParser {
 
 // MARK: - Lyrics Service
 
-/// Orchestrates lyrics fetching, parsing, caching, and offline sidecar persistence.
+/// Orchestrates lyrics fetching, parsing, and caching.
 /// Uses a two-tier cache: in-memory (session) + persistent file cache (survives restarts
 /// and PMS LyricFind cache expiration).
 @MainActor
@@ -220,7 +220,6 @@ public final class LyricsService: ObservableObject {
     private var loadTask: Task<Void, Never>?
 
     private let syncCoordinator: SyncCoordinator
-    private let downloadManager: DownloadManagerProtocol
 
     // Persistent lyrics cache directory
     private static let lyricsCacheDir: URL = {
@@ -228,9 +227,8 @@ public final class LyricsService: ObservableObject {
         return appSupport.appendingPathComponent("Ensemble/LyricsCache", isDirectory: true)
     }()
 
-    public init(syncCoordinator: SyncCoordinator, downloadManager: DownloadManagerProtocol) {
+    public init(syncCoordinator: SyncCoordinator) {
         self.syncCoordinator = syncCoordinator
-        self.downloadManager = downloadManager
         // Ensure cache directory exists
         try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
     }
@@ -275,17 +273,9 @@ public final class LyricsService: ObservableObject {
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
         #endif
 
-        // 1. Check for offline LRC sidecar (downloaded tracks)
-        if let sidecarLyrics = await loadSidecarLyrics(for: track) {
-            #if DEBUG
-            EnsembleLogger.debug("Lyrics: loaded from sidecar (\(sidecarLyrics.lines.count) lines)")
-            #endif
-            return .available(sidecarLyrics)
-        }
-
-        // 2. Check persistent file cache (survives PMS LyricFind cache expiration)
+        // 1. Check persistent file cache (survives PMS LyricFind cache expiration)
         if let cachedContent = loadFromPersistentCache(for: track) {
-            let parsed = parseContent(cachedContent, codec: nil)
+            let parsed = Self.parseContent(cachedContent, codec: nil)
             if let parsed {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: loaded from persistent cache (\(parsed.lines.count) lines)")
@@ -294,7 +284,7 @@ public final class LyricsService: ObservableObject {
             }
         }
 
-        // 3. Fetch track metadata to discover lyrics streams
+        // 2. Fetch track metadata to discover lyrics streams
         guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
             #if DEBUG
             EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
@@ -328,7 +318,7 @@ public final class LyricsService: ObservableObject {
                 return .notAvailable
             }
 
-            // 4. Fetch lyrics content from PMS
+            // 3. Fetch lyrics content from PMS
             guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else {
                 #if DEBUG
                 EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey)")
@@ -343,8 +333,8 @@ public final class LyricsService: ObservableObject {
             EnsembleLogger.debug("Lyrics: content preview (\(content.count) chars): \(preview)")
             #endif
 
-            // 5. Parse based on codec/format, with fallback to plain text
-            let parsed = parseContent(content, codec: lyricsStream.codec)
+            // 4. Parse based on codec/format, with fallback to plain text
+            let parsed = Self.parseContent(content, codec: lyricsStream.codec)
 
             #if DEBUG
             EnsembleLogger.debug("Lyrics: parsed \(parsed?.lines.count ?? 0) lines (timed=\(parsed?.isTimed ?? false))")
@@ -352,9 +342,8 @@ public final class LyricsService: ObservableObject {
 
             guard let parsed, !parsed.lines.isEmpty else { return .notAvailable }
 
-            // 6. Save to persistent cache and sidecar
+            // 5. Save to persistent cache
             saveToPersistentCache(content, for: track)
-            await saveSidecarIfDownloaded(for: track, content: content)
 
             return .available(parsed)
         } catch {
@@ -367,7 +356,7 @@ public final class LyricsService: ObservableObject {
     }
 
     /// Parse lyrics content, trying LRC first then falling back to plain text
-    private func parseContent(_ content: String, codec: String?) -> ParsedLyrics? {
+    private nonisolated static func parseContent(_ content: String, codec: String?) -> ParsedLyrics? {
         // Try LRC first if codec suggests timed lyrics, or if content looks like LRC
         let looksLikeLRC = content.contains("[") && content.contains("]")
         if codec == "lrc" || looksLikeLRC {
@@ -380,46 +369,14 @@ public final class LyricsService: ObservableObject {
         return plain.lines.isEmpty ? nil : plain
     }
 
-    // MARK: - Sidecar Persistence
+    // MARK: - Pre-Cache for Downloads
 
-    /// Load lyrics from the .lrc sidecar file alongside a downloaded track
-    private func loadSidecarLyrics(for track: Track) async -> ParsedLyrics? {
-        guard let localPath = (try? await downloadManager.getLocalFilePath(
-            forTrackRatingKey: track.id,
-            sourceCompositeKey: track.sourceCompositeKey
-        )) ?? nil else { return nil }
-
-        let sidecarPath = localPath + ".lrc"
-        guard FileManager.default.fileExists(atPath: sidecarPath),
-              let data = FileManager.default.contents(atPath: sidecarPath),
-              let content = String(data: data, encoding: .utf8) else { return nil }
-
-        let parsed = LRCParser.parseLRC(content)
-        // If the LRC parse produced no timed lines, try as plain text
-        if parsed.lines.isEmpty {
-            let plain = LRCParser.parsePlainText(content)
-            return plain.lines.isEmpty ? nil : plain
-        }
-        return parsed
-    }
-
-    /// Save raw LRC content alongside a downloaded track for offline use
-    private func saveSidecarIfDownloaded(for track: Track, content: String) async {
-        guard let localPath = (try? await downloadManager.getLocalFilePath(
-            forTrackRatingKey: track.id,
-            sourceCompositeKey: track.sourceCompositeKey
-        )) ?? nil else { return }
-
-        let sidecarPath = localPath + ".lrc"
-        try? content.write(toFile: sidecarPath, atomically: true, encoding: .utf8)
-    }
-
-    /// Fetch and save lyrics sidecar for a track that was just downloaded.
-    /// Called fire-and-forget after audio download completion.
-    public nonisolated func fetchAndSaveSidecar(
+    /// Fetch and cache lyrics for a track that was just downloaded.
+    /// Called fire-and-forget after audio download completion so lyrics
+    /// are available immediately when the user plays the track offline.
+    public nonisolated func fetchAndCacheLyrics(
         trackRatingKey: String,
-        sourceCompositeKey: String?,
-        localFilePath: String
+        sourceCompositeKey: String?
     ) async {
         guard let sourceCompositeKey else { return }
 
@@ -438,9 +395,10 @@ public final class LyricsService: ObservableObject {
             // Fetch lyrics content
             guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else { return }
 
-            // Write sidecar
-            let sidecarPath = localFilePath + ".lrc"
-            try content.write(toFile: sidecarPath, atomically: true, encoding: .utf8)
+            // Parse and save to persistent cache
+            let parsed = Self.parseContent(content, codec: lyricsStream.codec)
+            guard parsed != nil else { return }
+            saveToPersistentCache(content: content, ratingKey: trackRatingKey, sourceKey: sourceCompositeKey)
         } catch {
             // Best-effort; failure is not critical
         }
@@ -490,6 +448,19 @@ public final class LyricsService: ObservableObject {
     /// Save lyrics content to persistent file cache
     private func saveToPersistentCache(_ content: String, for track: Track) {
         let url = Self.persistentCachePath(for: track)
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// File path for a track's cached lyrics by ratingKey and sourceKey
+    private nonisolated static func persistentCachePath(ratingKey: String, sourceKey: String) -> URL {
+        let key = "\(ratingKey)_\(sourceKey)"
+        let safeKey = key.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        return lyricsCacheDir.appendingPathComponent(safeKey + ".lrc")
+    }
+
+    /// Save lyrics content to persistent file cache by ratingKey and sourceKey
+    private nonisolated func saveToPersistentCache(content: String, ratingKey: String, sourceKey: String) {
+        let url = Self.persistentCachePath(ratingKey: ratingKey, sourceKey: sourceKey)
         try? content.write(to: url, atomically: true, encoding: .utf8)
     }
 
