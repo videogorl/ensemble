@@ -6,6 +6,8 @@
 	<array>
 		<string>group.com.videogorl.ensemble</string>
 	</array>
+	<key>com.apple.developer.music-kit</key>
+	<true/>
 	<key>com.apple.developer.siri</key>
 	<true/>
 </dict>
