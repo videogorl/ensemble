@@ -20,12 +20,9 @@ public struct TrackRow: View {
     let isFavorited: Bool?
     let recentPlaylistTitle: String?
     @Environment(\.dependencies) private var deps
-    /// Observed to trigger re-render when server health or download state changes.
-    /// Accessed via DependencyContainer.shared since @Environment values don't
-    /// create SwiftUI observation bindings for nested ObservableObjects.
-    @ObservedObject private var availabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
-    /// Tracks availability state changes to trigger dimming updates when server health changes
-    @State private var availabilityGeneration: UInt64 = 0
+    /// Cached per-track availability — only updated when this track's availability actually
+    /// changes, instead of re-rendering all visible rows on every generation bump.
+    @State private var cachedAvailability: TrackAvailability = .available
 
     public init(
         track: Track,
@@ -90,6 +87,18 @@ public struct TrackRow: View {
             }
         }
         #endif
+        // Update cached availability when generation bumps (network/server/download change).
+        // Only assigns @State (triggering re-render) when this track's availability actually changed.
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { _ in
+            let resolver = DependencyContainer.shared.trackAvailabilityResolver
+            let newAvailability = resolver.availability(for: track)
+            if newAvailability != cachedAvailability {
+                cachedAvailability = newAvailability
+            }
+        }
+        .onAppear {
+            cachedAvailability = DependencyContainer.shared.trackAvailabilityResolver.availability(for: track)
+        }
     }
 
     // MARK: - Extracted Row Content
@@ -225,20 +234,12 @@ public struct TrackRow: View {
         deps.offlineDownloadService.activeDownloadRatingKeys.contains(track.id)
     }
 
-    /// Track availability resolved from device connectivity, per-server health, and download state.
-    /// Uses the @ObservedObject resolver so SwiftUI re-evaluates when availability changes.
-    private var trackAvailability: TrackAvailability {
-        // Read the generation to create a SwiftUI dependency on the published property
-        _ = availabilityResolver.availabilityGeneration
-        return availabilityResolver.availability(for: track)
-    }
-
     private var isUnavailableOffline: Bool {
-        trackAvailability.shouldDim
+        cachedAvailability.shouldDim
     }
 
     private func handleTap() {
-        let availability = trackAvailability
+        let availability = cachedAvailability
         guard availability.canPlay else {
             deps.toastCenter.show(
                 ToastPayload(
