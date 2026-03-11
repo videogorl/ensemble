@@ -105,15 +105,13 @@ public struct LyricsCard: View {
                     Spacer()
                         .frame(height: 120)
 
-                    // Intro instrumental indicator (always visible if gap exists)
-                    if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
-                        // Intro is active only when scroll target is nil (before first lyric).
-                        // During mid-song gaps, scroll target is non-nil (tracks the preceding line).
-                        let isIntroActive = viewModel.lyricsScrollTargetIndex == nil
-                            && viewModel.instrumentalProgress != nil
-                        let progress = isIntroActive ? (viewModel.instrumentalProgress ?? 0) : 1.0
+                    // Intro dot — always present for timed lyrics, tap to seek to beginning.
+                    // Shows as past (filled) once playback has started.
+                    if lyrics.isTimed {
+                        let introPast = viewModel.currentLyricsLineIndex != nil
+                            || viewModel.lyricsScrollTargetIndex != nil
                         let introBlur = lineBlurRadius(index: 0, isTimed: true)
-                        instrumentalIndicator(progress: progress)
+                        instrumentalIndicator(progress: introPast ? 1.0 : 0.0)
                             .blur(radius: introBlur)
                             .animation(.easeInOut(duration: 0.3), value: introBlur)
                             .id("intro-instrumental")
@@ -163,18 +161,22 @@ public struct LyricsCard: View {
                         }
                     }
 
-                    // Outro instrumental indicator (after last lyric if gap exists)
-                    if lyrics.isTimed, viewModel.hasOutroInstrumentalGap {
+                    // Outro dot — always present for timed lyrics, tap to seek to end.
+                    // Shows as past (filled) once playback reaches the last line.
+                    if lyrics.isTimed {
                         let lastIndex = lyrics.lines.count - 1
-                        let isOutroActive = viewModel.instrumentalProgress != nil
-                            && viewModel.currentLyricsLineIndex == nil
-                            && !viewModel.hasIntroInstrumentalGap  // Not intro
-                        let progress = isOutroActive ? (viewModel.instrumentalProgress ?? 0) : (isPastLine(index: lastIndex) ? 1.0 : 0.0)
+                        let outroPast = isPastLine(index: lastIndex)
                         let outroBlur = lineBlurRadius(index: lastIndex + 1, isTimed: true)
-                        instrumentalIndicator(progress: progress)
+                        instrumentalIndicator(progress: outroPast ? 1.0 : 0.0)
                             .blur(radius: outroBlur)
                             .animation(.easeInOut(duration: 0.3), value: outroBlur)
                             .id("outro-instrumental")
+                            .onTapGesture {
+                                // Seek near track end (last 5 seconds)
+                                let endTime = max(viewModel.duration - 5, 0)
+                                viewModel.seek(to: endTime)
+                                resumeIfPaused()
+                            }
                     }
 
                     // Bottom spacer so last line can scroll to center
@@ -195,14 +197,12 @@ public struct LyricsCard: View {
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
                 guard lyrics.isTimed else { return }
 
-                // Determine scroll destination: active line, or first line if before lyrics
+                // Determine scroll destination: active line, or intro dot if before lyrics
                 let scrollTarget: AnyHashable
                 if let newIndex {
                     scrollTarget = newIndex
-                } else if lyrics.isTimed, viewModel.hasIntroInstrumentalGap {
-                    scrollTarget = "intro-instrumental"
                 } else {
-                    scrollTarget = 0 // First lyric line
+                    scrollTarget = "intro-instrumental" // Always present for timed lyrics
                 }
 
                 let isLargeJump: Bool
