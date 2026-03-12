@@ -334,10 +334,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
-    /// Height of the search field embedded in the table header. When > 0, the table
-    /// scrolls past this offset on initial load so the search bar starts hidden.
-    /// Users pull down from the top to reveal it.
-    let searchFieldHeight: CGFloat
+    /// When provided, a UISearchController is attached to the navigation bar —
+    /// hidden by default, revealed on pull-down like Apple Music / Settings.
+    /// The binding syncs the search text back to the parent view model.
+    let searchTextBinding: Binding<String>?
 
     @Environment(\.dependencies) private var dependencies
 
@@ -352,7 +352,7 @@ public struct MediaTrackList: UIViewRepresentable {
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
         tableHeaderContent: AnyView? = nil,
-        searchFieldHeight: CGFloat = 0,
+        searchTextBinding: Binding<String>? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -377,7 +377,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
         self.tableHeaderContent = tableHeaderContent
-        self.searchFieldHeight = searchFieldHeight
+        self.searchTextBinding = searchTextBinding
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -455,21 +455,27 @@ public struct MediaTrackList: UIViewRepresentable {
             hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
             tableView.tableHeaderView = hostingController.view
             context.coordinator.headerHostingController = hostingController
+        }
 
-            // When a search field is in the header, scroll past it on initial load
-            // so the search bar starts hidden. Users pull down to reveal it.
-            if searchFieldHeight > 0 {
-                context.coordinator.searchFieldHeight = searchFieldHeight
-                DispatchQueue.main.async {
-                    tableView.contentOffset.y += searchFieldHeight
-                }
-            }
+        // When a search binding is provided, set up a UISearchController once the
+        // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
+        // UIViewController and attach the search controller to its navigation item.
+        if let searchTextBinding {
+            context.coordinator.pendingSearchBinding = searchTextBinding
+            context.coordinator.pendingTableView = tableView
         }
 
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
+        // Attach UISearchController once the table is in a window.
+        // Must happen after the view is in the hierarchy so we can find the
+        // hosting UIViewController and its navigation controller.
+        if context.coordinator.pendingSearchBinding != nil && tableView.window != nil {
+            context.coordinator.attachSearchController()
+        }
+
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
         
         // Check if track list structure changed (additions/removals/reordering)
@@ -609,7 +615,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
         var tracks: [Track]
         var groupedTracks: [(disc: Int?, tracks: [Track])]
         var showArtwork: Bool
@@ -636,9 +642,15 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
-        /// Height of the search field in the table header, used to set initial
-        /// content offset so the search bar starts hidden (pull down to reveal).
-        var searchFieldHeight: CGFloat = 0
+        /// Pending search binding — set before the table is in a window, consumed
+        /// once the UISearchController is attached to the navigation item.
+        var pendingSearchBinding: Binding<String>?
+        /// Reference to the table view for setContentScrollView
+        weak var pendingTableView: UITableView?
+        /// Retains the search controller so it isn't deallocated
+        private var searchController: UISearchController?
+        /// Active search binding for UISearchResultsUpdating
+        private var activeSearchBinding: Binding<String>?
 
         init(
             tracks: [Track],
@@ -1034,6 +1046,47 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
+        // MARK: - Search Controller
+
+        /// Finds the hosting UIViewController and attaches a UISearchController to its
+        /// navigation item. Uses setContentScrollView so the navigation controller
+        /// knows which scroll view to observe for hide-on-scroll behavior.
+        func attachSearchController() {
+            guard let binding = pendingSearchBinding,
+                  let tableView = pendingTableView else { return }
+
+            // Walk up the responder chain to find the hosting UIViewController
+            var responder: UIResponder? = tableView
+            while let next = responder?.next {
+                if let vc = next as? UIViewController, vc.navigationController != nil {
+                    let sc = UISearchController(searchResultsController: nil)
+                    sc.searchResultsUpdater = self
+                    sc.obscuresBackgroundDuringPresentation = false
+                    sc.searchBar.placeholder = "Search tracks"
+                    sc.searchBar.text = binding.wrappedValue
+
+                    vc.navigationItem.searchController = sc
+                    vc.navigationItem.hidesSearchBarWhenScrolling = true
+                    vc.definesPresentationContext = true
+
+                    // Tell UIKit which scroll view to observe for hide-on-scroll.
+                    // Without this, the navigation controller can't detect scrolling
+                    // from a UIViewRepresentable's table view.
+                    vc.setContentScrollView(tableView, for: .top)
+
+                    searchController = sc
+                    activeSearchBinding = binding
+                    pendingSearchBinding = nil
+                    pendingTableView = nil
+                    return
+                }
+                responder = next
+            }
+        }
+
+        public func updateSearchResults(for searchController: UISearchController) {
+            activeSearchBinding?.wrappedValue = searchController.searchBar.text ?? ""
+        }
     }
 }
 #endif

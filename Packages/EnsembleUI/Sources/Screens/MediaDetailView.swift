@@ -741,7 +741,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             managesOwnScrolling: true,
             bottomContentInset: 140,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
-            searchFieldHeight: searchFieldHeight,
+            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -853,37 +853,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
     /// Scrolls with the track list while preserving cell recycling.
-    /// Height of the search field row in the table header (field + padding).
-    /// Used by MediaTrackList to set initial content offset past the search bar.
-    private var searchFieldHeight: CGFloat { showFilter ? 52 : 0 }
-
     private var tableHeaderForTrackList: some View {
         VStack(spacing: 0) {
             headerView
             actionButtons
-
-            // Search field embedded in the table header — scrolls with content.
-            // MediaTrackList scrolls past this on initial load so it starts hidden;
-            // pull down from the top to reveal it.
-            if showFilter {
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    TextField("Search tracks", text: $viewModel.filterOptions.searchText)
-                        .textFieldStyle(.plain)
-                        .autocorrectionDisabled()
-                }
-                .padding(8)
-                #if os(iOS)
-                .background(Color(.systemGray6))
-                #else
-                .background(Color(.controlBackgroundColor))
-                #endif
-                .cornerRadius(10)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-            }
 
             if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                 ProgressView()
