@@ -5,6 +5,31 @@ import Nuke
 #if canImport(UIKit)
 import UIKit
 
+// MARK: - Deferred Layout Table View
+
+/// UITableView subclass that skips layout passes before being added to a window.
+/// Prevents "UITableView layout outside view hierarchy" warnings when SwiftUI
+/// eagerly creates table views for navigation destinations not yet displayed.
+class DeferredLayoutTableView: UITableView {
+    private var hasAppearedInWindow = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil && !hasAppearedInWindow {
+            hasAppearedInWindow = true
+            // Trigger the first real layout now that we're in a window
+            reloadData()
+        }
+    }
+
+    override func layoutSubviews() {
+        // Skip layout passes before the table is in a window — these cause
+        // unnecessary work and "layout outside view hierarchy" warnings.
+        guard window != nil else { return }
+        super.layoutSubviews()
+    }
+}
+
 // MARK: - Track Table View Cell
 
 public class TrackTableViewCell: UITableViewCell {
@@ -291,10 +316,30 @@ public struct MediaTrackList: UIViewRepresentable {
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
 
+    /// Change token from TrackAvailabilityResolver — parent observes the singleton
+    /// and passes the generation here so MediaTrackList doesn't subscribe itself.
+    let availabilityGeneration: UInt64
+    /// Set of ratingKeys currently downloading — parent observes OfflineDownloadService once
+    /// instead of N instances each subscribing to the singleton.
+    let activeDownloadRatingKeys: Set<String>
+    /// When true, the UITableView manages its own scrolling and cell recycling.
+    /// When false (default), scroll is disabled and parent ScrollView handles scrolling.
+    /// Use true for large track lists (>200 tracks) embedded in a detail view.
+    let managesOwnScrolling: Bool
+    /// Bottom content inset for the UITableView. Used with self-scrolling tables to
+    /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
+    /// Only applies when managesOwnScrolling is true.
+    let bottomContentInset: CGFloat
+    /// Optional SwiftUI content to embed as the UITableView's `tableHeaderView`.
+    /// Scrolls naturally with the table while preserving full cell recycling.
+    /// Used by MediaDetailView to scroll album art + action buttons with the track list.
+    let tableHeaderContent: AnyView?
+    /// When provided, a UISearchController is attached to the navigation bar —
+    /// hidden by default, revealed on pull-down like Apple Music / Settings.
+    /// The binding syncs the search text back to the parent view model.
+    let searchTextBinding: Binding<String>?
+
     @Environment(\.dependencies) private var dependencies
-    @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(
         tracks: [Track],
@@ -302,6 +347,12 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
+        availabilityGeneration: UInt64 = 0,
+        activeDownloadRatingKeys: Set<String> = [],
+        managesOwnScrolling: Bool = false,
+        bottomContentInset: CGFloat = 0,
+        tableHeaderContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -321,6 +372,12 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showTrackNumbers = showTrackNumbers
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
+        self.availabilityGeneration = availabilityGeneration
+        self.activeDownloadRatingKeys = activeDownloadRatingKeys
+        self.managesOwnScrolling = managesOwnScrolling
+        self.bottomContentInset = bottomContentInset
+        self.tableHeaderContent = tableHeaderContent
+        self.searchTextBinding = searchTextBinding
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -337,7 +394,14 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .plain)
+        let tableView: UITableView
+        if managesOwnScrolling {
+            // Regular UITableView — manages its own scrolling and cell recycling.
+            tableView = UITableView(frame: .zero, style: .plain)
+        } else {
+            // DeferredLayoutTableView — parent ScrollView handles scrolling.
+            tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
+        }
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
@@ -349,12 +413,13 @@ public struct MediaTrackList: UIViewRepresentable {
             right: 0
         )
         tableView.backgroundColor = .clear
-        tableView.isScrollEnabled = false // Parent ScrollView handles scrolling
+        tableView.isScrollEnabled = managesOwnScrolling
 
-        // Disable automatic content inset adjustment — the table view is already
-        // positioned below the nav bar by SwiftUI, so letting UIKit also adjust
-        // contentInset.top causes a contentOffset shift that clips the last row.
-        tableView.contentInsetAdjustmentBehavior = .never
+        // Self-scrolling tables extend under the nav bar (via .ignoresSafeArea on the
+        // SwiftUI side) and use .automatic so UIKit adds the correct top content inset.
+        // This lets content scroll behind the translucent navigation bar.
+        // Non-scrolling tables embedded in a parent ScrollView use .never.
+        tableView.contentInsetAdjustmentBehavior = managesOwnScrolling ? .automatic : .never
 
         // Suppress any default section footer height so the content height stays
         // exactly N × rowHeight with no extra trailing space.
@@ -364,14 +429,53 @@ public struct MediaTrackList: UIViewRepresentable {
         // so the content height is exactly N × rowHeight with no leading offset.
         tableView.sectionHeaderTopPadding = 0
 
+        // Bottom content inset for scroll-behind-chrome behavior.
+        // Lets content scroll behind mini player/tab bar with blur effect.
+        if managesOwnScrolling && bottomContentInset > 0 {
+            tableView.contentInset.bottom = bottomContentInset
+        }
+
         // Enable drag-and-drop for downloaded tracks on iPad
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
+
+        // Install optional SwiftUI table header (album art, action buttons, etc.).
+        // Uses UIHostingController to bridge SwiftUI content into the UITableView's
+        // native tableHeaderView, which scrolls with the table and preserves cell recycling.
+        if let tableHeaderContent {
+            let hostingController = UIHostingController(rootView: tableHeaderContent)
+            hostingController.view.backgroundColor = .clear
+            // Size the header to fit its content
+            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+            let fittingSize = hostingController.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
+            tableView.tableHeaderView = hostingController.view
+            context.coordinator.headerHostingController = hostingController
+        }
+
+        // When a search binding is provided, set up a UISearchController once the
+        // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
+        // UIViewController and attach the search controller to its navigation item.
+        if let searchTextBinding {
+            context.coordinator.pendingSearchBinding = searchTextBinding
+            context.coordinator.pendingTableView = tableView
+        }
 
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
+        // Attach UISearchController once the table is in a window.
+        // Must happen after the view is in the hierarchy so we can find the
+        // hosting UIViewController and its navigation controller.
+        if context.coordinator.pendingSearchBinding != nil && tableView.window != nil {
+            context.coordinator.attachSearchController()
+        }
+
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
         
         // Check if track list structure changed (additions/removals/reordering)
@@ -383,12 +487,11 @@ public struct MediaTrackList: UIViewRepresentable {
             !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
 
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
-        let isOffline = !networkMonitor.isConnected
+        // Read network state from DependencyContainer (not observed — parent drives re-renders)
+        let isOffline = !dependencies.networkMonitor.isConnected
         let offlineStateChanged = context.coordinator.isOffline != isOffline
-        let newActiveDownloads = offlineDownloadService.activeDownloadRatingKeys
-        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != newActiveDownloads
-        let newAvailabilityGen = trackAvailabilityResolver.availabilityGeneration
-        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != newAvailabilityGen
+        let activeDownloadsChanged = context.coordinator.activeDownloadRatingKeys != activeDownloadRatingKeys
+        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -413,8 +516,33 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
-        context.coordinator.activeDownloadRatingKeys = newActiveDownloads
-        context.coordinator.lastAvailabilityGeneration = newAvailabilityGen
+        context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.lastAvailabilityGeneration = availabilityGeneration
+
+        // Update table header view size if needed (e.g., after initial width becomes available).
+        // UITableView requires explicit header resizing — it doesn't auto-layout the header.
+        if let headerHost = context.coordinator.headerHostingController,
+           let headerView = tableView.tableHeaderView,
+           tableView.bounds.width > 0 {
+            if let tableHeaderContent {
+                headerHost.rootView = tableHeaderContent
+            }
+            let targetWidth = tableView.bounds.width
+            let fittingSize = headerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            // Only reassign when height actually changes to avoid layout loops
+            if abs(headerView.frame.height - fittingSize.height) > 1 {
+                headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                tableView.tableHeaderView = headerView
+            }
+        }
+
+        // Skip reloads when the table isn't in a window yet — DeferredLayoutTableView
+        // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
+        guard tableView.window != nil else { return }
 
         // Only reload if data actually changed
         if dataChanged {
@@ -447,7 +575,7 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             tracks: tracks,
             groupedTracks: groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)],
             showArtwork: showArtwork,
@@ -469,9 +597,10 @@ public struct MediaTrackList: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
-            isOffline: !networkMonitor.isConnected,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys
+            isOffline: !dependencies.networkMonitor.isConnected,
+            activeDownloadRatingKeys: activeDownloadRatingKeys
         )
+        return coordinator
     }
     
     private func groupTracksByDisc(_ tracks: [Track]) -> [(disc: Int?, tracks: [Track])] {
@@ -486,7 +615,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
         var tracks: [Track]
         var groupedTracks: [(disc: Int?, tracks: [Track])]
         var showArtwork: Bool
@@ -511,6 +640,17 @@ public struct MediaTrackList: UIViewRepresentable {
         var isOffline: Bool
         var activeDownloadRatingKeys: Set<String>
         var lastAvailabilityGeneration: UInt64 = 0
+        /// Retains the UIHostingController used for the table header view
+        var headerHostingController: UIHostingController<AnyView>?
+        /// Pending search binding — set before the table is in a window, consumed
+        /// once the UISearchController is attached to the navigation item.
+        var pendingSearchBinding: Binding<String>?
+        /// Reference to the table view for setContentScrollView
+        weak var pendingTableView: UITableView?
+        /// Retains the search controller so it isn't deallocated
+        private var searchController: UISearchController?
+        /// Active search binding for UISearchResultsUpdating
+        private var activeSearchBinding: Binding<String>?
 
         init(
             tracks: [Track],
@@ -904,6 +1044,48 @@ public struct MediaTrackList: UIViewRepresentable {
             default:
                 return action.tint
             }
+        }
+
+        // MARK: - Search Controller
+
+        /// Finds the hosting UIViewController and attaches a UISearchController to its
+        /// navigation item. Uses setContentScrollView so the navigation controller
+        /// knows which scroll view to observe for hide-on-scroll behavior.
+        func attachSearchController() {
+            guard let binding = pendingSearchBinding,
+                  let tableView = pendingTableView else { return }
+
+            // Walk up the responder chain to find the hosting UIViewController
+            var responder: UIResponder? = tableView
+            while let next = responder?.next {
+                if let vc = next as? UIViewController, vc.navigationController != nil {
+                    let sc = UISearchController(searchResultsController: nil)
+                    sc.searchResultsUpdater = self
+                    sc.obscuresBackgroundDuringPresentation = false
+                    sc.searchBar.placeholder = "Search tracks"
+                    sc.searchBar.text = binding.wrappedValue
+
+                    vc.navigationItem.searchController = sc
+                    vc.navigationItem.hidesSearchBarWhenScrolling = true
+                    vc.definesPresentationContext = true
+
+                    // Tell UIKit which scroll view to observe for hide-on-scroll.
+                    // Without this, the navigation controller can't detect scrolling
+                    // from a UIViewRepresentable's table view.
+                    vc.setContentScrollView(tableView, for: .top)
+
+                    searchController = sc
+                    activeSearchBinding = binding
+                    pendingSearchBinding = nil
+                    pendingTableView = nil
+                    return
+                }
+                responder = next
+            }
+        }
+
+        public func updateSearchResults(for searchController: UISearchController) {
+            activeSearchBinding?.wrappedValue = searchController.searchBar.text ?? ""
         }
     }
 }

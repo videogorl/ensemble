@@ -1,18 +1,26 @@
 import EnsembleCore
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// Left card displaying lyrics with time-synced highlighting (karaoke style)
 /// Supports timed LRC lyrics with auto-scroll, plain text lyrics, and empty/loading states
 public struct LyricsCard: View {
     @ObservedObject var viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
 
+    /// When true, disables progressive blur on lyrics lines to reduce GPU work
+    let isLowPowerMode: Bool
+
     // Track last scroll target to detect large jumps (seeks) vs natural progression
     @State private var lastScrollIndex: Int?
 
-    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
+    public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>, isLowPowerMode: Bool = false) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self.isLowPowerMode = isLowPowerMode
     }
 
     public var body: some View {
@@ -53,22 +61,36 @@ public struct LyricsCard: View {
 
     // MARK: - Content
 
+    /// Whether this card is the active page in the carousel.
+    /// TabView's .page style renders ALL children simultaneously — gate expensive
+    /// blur/scroll/animation content behind this check to avoid GPU work off-screen.
+    private var isVisible: Bool {
+        currentPage == 2
+    }
+
     @ViewBuilder
     private var contentView: some View {
-        switch viewModel.lyricsState {
-        case .loading:
-            loadingView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .mask(fadeMask)
+        if isVisible {
+            switch viewModel.lyricsState {
+            case .loading:
+                loadingView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
 
-        case .notAvailable:
-            notAvailableView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .mask(fadeMask)
+            case .notAvailable:
+                notAvailableView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .mask(fadeMask)
 
-        case .available(let lyrics):
-            lyricsScrollView(lyrics: lyrics)
-                .mask(fadeMask)
+            case .available(let lyrics):
+                lyricsScrollView(lyrics: lyrics)
+                    .mask(fadeMask)
+            }
+        } else {
+            // Lightweight placeholder — keeps layout stable for TabView paging
+            // without any blur/scroll/animation GPU cost
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -130,7 +152,11 @@ public struct LyricsCard: View {
                         )
                         .onTapGesture {
                             if lyrics.isTimed, let timestamp = line.timestamp {
-                                viewModel.seek(to: timestamp)
+                                // LRC timestamps mark when to START DISPLAYING a line,
+                                // which is slightly before the vocals begin. Add a small
+                                // offset so tap-to-seek lands on the actual vocal start
+                                // rather than the tail of the previous line.
+                                viewModel.seek(to: timestamp + 0.5)
                                 resumeIfPaused()
                             }
                         }
@@ -182,17 +208,33 @@ public struct LyricsCard: View {
                 }
                 .padding(.horizontal, 48)
             }
-            // Detect user manual scroll and suppress auto-scroll temporarily.
-            // Only respond to vertical drags — horizontal swipes must pass through
-            // to the parent TabView for card navigation.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 10)
-                    .onChanged { value in
-                        if abs(value.translation.height) > abs(value.translation.width) {
-                            viewModel.userDidScrollLyrics()
-                        }
-                    }
+            // Detect vertical scrolls to suppress auto-scroll temporarily.
+            // Uses a UIKit gesture recognizer that only activates for vertical pans,
+            // allowing horizontal swipes to pass through to the parent TabView.
+            #if canImport(UIKit)
+            .background(
+                VerticalDragDetector {
+                    viewModel.userDidScrollLyrics()
+                }
             )
+            #endif
+            // Restore scroll position when view appears (e.g., swiping back from another card).
+            // The isVisible gate replaces the ScrollView with Color.clear when off-screen,
+            // so scroll position is lost. Snap to the current lyrics position on re-creation.
+            .onAppear {
+                guard lyrics.isTimed else { return }
+                let scrollTarget: AnyHashable
+                if let index = viewModel.lyricsScrollTargetIndex {
+                    scrollTarget = index
+                } else {
+                    scrollTarget = "intro-instrumental"
+                }
+                lastScrollIndex = viewModel.lyricsScrollTargetIndex
+                // Defer to next frame so the LazyVStack has laid out its content
+                DispatchQueue.main.async {
+                    proxy.scrollTo(scrollTarget, anchor: .center)
+                }
+            }
             // Scroll to active lyric — animate for natural progression, snap for seeks.
             // nil target means "before first lyric" — scroll to top (index 0 or intro).
             .onChange(of: viewModel.lyricsScrollTargetIndex) { newIndex in
@@ -236,17 +278,16 @@ public struct LyricsCard: View {
         isPast: Bool
     ) -> some View {
         let blur = lineBlurRadius(index: index, isTimed: isTimed)
-        return Text(line.text)
-            .font(.title3)
-            .fontWeight(.medium)
-            .foregroundColor(.primary)
-            .opacity(lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast))
-            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
-            .blur(radius: blur)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.25), value: isActive)
-            .animation(.easeInOut(duration: 0.3), value: blur)
+        let opacity = lineOpacity(isTimed: isTimed, isActive: isActive, isPast: isPast)
+        // Use Equatable wrapper so SwiftUI skips re-rendering lines whose params
+        // haven't changed — reduces N re-renders per tick to ~2 (old + new active line)
+        return EquatableView(content: LyricsLineView(
+            text: line.text,
+            isActive: isActive,
+            isTimed: isTimed,
+            opacity: opacity,
+            blur: blur
+        ))
     }
 
     // MARK: - Instrumental Indicator
@@ -340,9 +381,10 @@ public struct LyricsCard: View {
 
     /// Progressive blur based on distance from the active line (which is centered in viewport).
     /// Lines close to the active line are sharp; distant lines blur progressively.
-    /// Disabled for plain text lyrics and during user manual scroll.
+    /// Disabled for plain text lyrics and in Low Power Mode.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, !viewModel.isUserScrollingLyrics else { return 0 }
+        // No blur for plain text, Low Power Mode, or when user is manually scrolling
+        guard isTimed, !isLowPowerMode, !viewModel.isUserScrollingLyrics else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = viewModel.currentLyricsLineIndex
@@ -402,5 +444,146 @@ public struct LyricsCard: View {
             )
             .frame(height: 80)
         }
+    }
+}
+
+#if canImport(UIKit)
+// MARK: - Vertical Drag Detector
+
+/// Detects vertical scroll gestures by attaching a UIPanGestureRecognizer directly to the
+/// ancestor UIScrollView. Uses a hidden probe view in `.background` — when it appears in
+/// the window, it walks up the view hierarchy to find the ScrollView's underlying
+/// UIScrollView and adds a vertical-only pan gesture. This approach lets horizontal swipes
+/// pass through to the parent TabView for card navigation, while still detecting vertical
+/// scrolling for auto-scroll suppression.
+private struct VerticalDragDetector: UIViewRepresentable {
+    let onVerticalDrag: () -> Void
+
+    func makeUIView(context: Context) -> DragDetectorProbeView {
+        let view = DragDetectorProbeView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: DragDetectorProbeView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onVerticalDrag: onVerticalDrag)
+    }
+
+    // Hidden probe view that finds the ancestor UIScrollView on window attachment
+    class DragDetectorProbeView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            // Defer to let the view hierarchy settle
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator?.attachIfNeeded(from: self)
+            }
+        }
+    }
+
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        let onVerticalDrag: () -> Void
+        private var verticalDetector: UIPanGestureRecognizer?
+
+        init(onVerticalDrag: @escaping () -> Void) {
+            self.onVerticalDrag = onVerticalDrag
+        }
+
+        func attachIfNeeded(from view: UIView?) {
+            guard verticalDetector == nil, let view else { return }
+
+            // Walk up to find the lyrics UIScrollView, then continue to find
+            // the TabView's paging UIScrollView above it.
+            var lyricsScrollView: UIScrollView?
+            var pagingScrollView: UIScrollView?
+            var current: UIView? = view
+            while let v = current {
+                if let sv = v as? UIScrollView {
+                    if lyricsScrollView == nil {
+                        // First UIScrollView found = lyrics vertical scroll
+                        lyricsScrollView = sv
+                    } else if sv.isPagingEnabled {
+                        // Paging UIScrollView = TabView's horizontal page container
+                        pagingScrollView = sv
+                        break
+                    }
+                }
+                current = v.superview
+            }
+
+            guard let lyricsScrollView else { return }
+
+            // Vertical drag detector — fires callback for auto-scroll suppression.
+            // Only recognizes vertical pans so it doesn't interfere with page swiping.
+            let vertical = UIPanGestureRecognizer(
+                target: self,
+                action: #selector(handleVerticalPan(_:))
+            )
+            vertical.delegate = self
+            vertical.name = "lyrics-vertical-detector"
+            lyricsScrollView.addGestureRecognizer(vertical)
+            verticalDetector = vertical
+
+            // Make the TabView's paging pan wait for our vertical detector to fail.
+            // Vertical swipe → detector recognizes → TabView pan blocked → lyrics scroll works.
+            // Horizontal swipe → detector fails → TabView pan starts → page swipe works.
+            if let pagingScrollView {
+                pagingScrollView.panGestureRecognizer.require(toFail: vertical)
+            }
+        }
+
+        @objc func handleVerticalPan(_ gesture: UIPanGestureRecognizer) {
+            if gesture.state == .began {
+                onVerticalDrag()
+            }
+        }
+
+        // Only begin for predominantly vertical pans — lets horizontal swipes
+        // fall through to the TabView page gesture.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.y) > abs(velocity.x)
+        }
+
+        // Allow simultaneous recognition with the ScrollView's built-in pan
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            return true
+        }
+    }
+}
+#endif
+
+// MARK: - Equatable Lyrics Line
+
+private struct LyricsLineView: View, Equatable {
+    let text: String
+    let isActive: Bool
+    let isTimed: Bool
+    let opacity: Double
+    let blur: CGFloat
+
+    var body: some View {
+        Text(text)
+            .font(.title3)
+            .fontWeight(.medium)
+            .foregroundColor(.primary)
+            .opacity(opacity)
+            .scaleEffect(isActive && isTimed ? 1.05 : 1.0, anchor: .leading)
+            .blur(radius: blur)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: 0.25), value: isActive)
+            .animation(.easeInOut(duration: 0.3), value: blur)
     }
 }

@@ -80,6 +80,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
 
     public init(
         viewModel: ViewModel,
@@ -203,7 +205,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
+        // iOS: MediaTrackList handles its own bottomContentInset for scroll-behind-chrome.
+        // macOS: ScrollView-based layout uses miniPlayerBottomSpacing.
+        #if !os(iOS)
         .miniPlayerBottomSpacing(140)
+        #endif
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -226,7 +232,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var contentWithOptionalFilter: some View {
         if showFilter {
             baseContent
-                .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
                 .sheet(isPresented: $showFilterSheet) {
                     FilterSheet(filterOptions: $viewModel.filterOptions)
                 }
@@ -472,23 +477,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    /// Base content without filter UI — shared between filtered and unfiltered modes
+    /// Base content without filter UI — shared between filtered and unfiltered modes.
+    /// On iOS, uses a single self-scrolling MediaTrackList (UITableView) with the header
+    /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
+    /// scroll naturally with the track list while preserving UIKit cell recycling.
     private var baseContent: some View {
         ZStack(alignment: .top) {
             // Background gradient
             backgroundGradient
                 .ignoresSafeArea()
 
+            #if os(iOS)
+            tracksSection
+                .ignoresSafeArea(.container, edges: .top)
+            #else
             ScrollView {
                 VStack(spacing: 0) {
-                    // Header
                     headerView
-
-                    // Action buttons
                     actionButtons
-                        .background(ActionButtonsOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
-                    // Tracks
                     if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                         ProgressView()
                             .padding(.top, 40)
@@ -501,15 +508,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
             }
-            .coordinateSpace(name: "mediaDetailScroll")
-        }
-        .onPreferenceChange(ActionButtonsOffsetPreferenceKey.self) { maxY in
-            let shouldShow = maxY < 0
-            if shouldShow != showToolbarActions {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showToolbarActions = shouldShow
-                }
-            }
+            #endif
         }
         .navigationTitle("")
         #if os(iOS)
@@ -728,15 +727,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
-        let trackCount = viewModel.filteredTracks.count
-        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
-        
+        // Self-scrolling UITableView with the header embedded as tableHeaderView.
+        // Header (album art + action buttons) scrolls naturally with the tracks
+        // while preserving UIKit cell recycling for large track lists.
         MediaTrackList(
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
             currentTrackId: nowPlayingVM.currentTrack?.id,
+            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            managesOwnScrolling: true,
+            bottomContentInset: 140,
+            tableHeaderContent: AnyView(tableHeaderForTrackList),
+            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -785,7 +790,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        .frame(height: height)
         #else
         // Basic List fallback for macOS
         VStack(spacing: 0) {
@@ -845,5 +849,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
         #endif
+    }
+
+    /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
+    /// Scrolls with the track list while preserving cell recycling.
+    private var tableHeaderForTrackList: some View {
+        VStack(spacing: 0) {
+            headerView
+            actionButtons
+
+            if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                ProgressView()
+                    .padding(.top, 40)
+                    .padding(.bottom, 40)
+            } else if viewModel.filteredTracks.isEmpty {
+                Text("No tracks")
+                    .foregroundColor(.secondary)
+                    .padding(.top, 40)
+                    .padding(.bottom, 40)
+            }
+        }
     }
 }

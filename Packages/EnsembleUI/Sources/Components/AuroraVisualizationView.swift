@@ -62,16 +62,42 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - Init
 
-    public init(playbackService: PlaybackServiceProtocol, accentColor: Color) {
+    /// Whether the aurora should pause rendering (e.g. Now Playing sheet covers it)
+    private let isPaused: Bool
+
+    /// When true, reduces to 1 glow pass at 15fps to conserve battery
+    private let isLowPowerMode: Bool
+
+    public init(playbackService: PlaybackServiceProtocol, accentColor: Color, isPaused: Bool = false, isLowPowerMode: Bool = false) {
         self.playbackService = playbackService
         self.accentColor = accentColor
+        self.isPaused = isPaused
+        self.isLowPowerMode = isLowPowerMode
     }
 
     // MARK: - Body
 
+    /// Whether the TimelineView should be fully paused (no frames rendered).
+    /// Paused when: occluded by NP sheet, not visible, or not actively playing.
+    /// When paused, the last rendered frame stays on screen at zero GPU cost.
+    private var isTimelinePaused: Bool {
+        if isPaused || !isVisible { return true }
+        // Only animate when actively playing — the blur passes are expensive
+        // even at low frame rates. When paused, the aurora freezes in place.
+        return playbackState != .playing
+    }
+
+    /// Frame rate: 30fps normal, 15fps in Low Power Mode.
+    private var frameInterval: Double {
+        isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
+    }
+
     public var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(paused: false)) { timeline in
+            // Fully paused when not actively playing (see isTimelinePaused).
+            // The Canvas + 3 blur passes on 24 bands is too expensive to run
+            // just for the subtle breathing animation.
+            TimelineView(.animation(minimumInterval: frameInterval, paused: isTimelinePaused)) { timeline in
                 Canvas { context, size in
                     drawAurora(
                         context: context,
@@ -92,6 +118,8 @@ public struct AuroraVisualizationView: View {
             frequencyBands = bands
         }
         .onReceive(playbackService.playbackStatePublisher) { state in
+            // Deduplicate: skip repeated state values to avoid redundant visibility checks
+            guard state != playbackState else { return }
             playbackState = state
             // Animate visibility only when the playback state actively changes.
             // This produces the desired fade-in when the user first presses play.
@@ -111,7 +139,7 @@ public struct AuroraVisualizationView: View {
     // MARK: - Visibility
 
     /// Updates visibility based on playback state.
-    /// Aurora stays visible when paused (with breathing) but hides when stopped.
+    /// Aurora stays visible when paused (frozen last frame) but hides when stopped.
     /// Pass animated: false (e.g. on onAppear) to snap without the fade transition.
     private func updateVisibility(for state: PlaybackState, animated: Bool) {
         let newVisibility: Bool
@@ -129,7 +157,7 @@ public struct AuroraVisualizationView: View {
         guard newVisibility != isVisible else { return }
 
         #if DEBUG
-        EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated))")
+        EnsembleLogger.debug("Aurora visibility: \(newVisibility) (state: \(state), animated: \(animated), timelinePaused: \(state != .playing))")
         #endif
 
         if animated {
@@ -157,7 +185,7 @@ public struct AuroraVisualizationView: View {
         var newPeakHolds = peakHolds
         var newPeakTimers = peakDecayTimers
         
-        let deltaTime: Double = 1.0 / 60.0 // Approximate frame delta
+        let deltaTime: Double = 1.0 / 30.0 // Approximate frame delta (30fps cap)
         
         for i in 0..<bandCount {
             let target = targetBands[i]
@@ -193,18 +221,15 @@ public struct AuroraVisualizationView: View {
             self.peakDecayTimers = newPeakTimers
         }
 
-        // Draw multiple soft glow passes for ethereal blur effect (back to front)
-        // Wide, soft outer glow
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 60, opacity: 0.03)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 45, opacity: 0.05)
-        
-        // Mid-range glow for depth
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 30, opacity: 0.12)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.18)
-        
-        // Tighter glow for definition — minimum blur of 8 to prevent hard band edges
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.25)
-        drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.28)
+        // Normal: 3 soft glow passes for ethereal blur effect (back to front).
+        // Low Power Mode: single pass with bumped opacity to preserve visibility.
+        if isLowPowerMode {
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 10, opacity: 0.50)
+        } else {
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 18, opacity: 0.25)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 12, opacity: 0.30)
+            drawSoftGlowLayer(context: context, size: size, bands: newSmoothed, blur: 8, opacity: 0.35)
+        }
         
         // Peak highlights (subtle)
         if isPlaying {

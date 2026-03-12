@@ -119,8 +119,8 @@ public struct CompactTrackRow: View {
     let isPlaying: Bool
     let onTap: () -> Void
     @Environment(\.dependencies) private var deps
-    /// Observed to trigger re-render when server health or download state changes
-    @ObservedObject private var availabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    /// Cached per-track availability — only triggers re-render when this track's state changes
+    @State private var cachedAvailability: TrackAvailability = .available
 
     public init(track: Track, isPlaying: Bool = false, onTap: @escaping () -> Void) {
         self.track = track
@@ -172,11 +172,21 @@ public struct CompactTrackRow: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .opacity(trackAvailability.shouldDim ? 0.45 : 1)
+        .opacity(cachedAvailability.shouldDim ? 0.45 : 1)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { _ in
+            let resolver = DependencyContainer.shared.trackAvailabilityResolver
+            let newAvailability = resolver.availability(for: track)
+            if newAvailability != cachedAvailability {
+                cachedAvailability = newAvailability
+            }
+        }
+        .onAppear {
+            cachedAvailability = DependencyContainer.shared.trackAvailabilityResolver.availability(for: track)
+        }
         .onTapGesture {
-            let availability = trackAvailability
+            let availability = cachedAvailability
             guard availability.canPlay else {
                 deps.toastCenter.show(
                     ToastPayload(
@@ -193,13 +203,6 @@ public struct CompactTrackRow: View {
         }
     }
 
-    /// Track availability resolved from device connectivity, per-server health, and download state.
-    /// Uses the @ObservedObject resolver so SwiftUI re-evaluates when availability changes.
-    private var trackAvailability: TrackAvailability {
-        _ = availabilityResolver.availabilityGeneration
-        return availabilityResolver.availability(for: track)
-    }
-    
     private func formatDuration(_ seconds: TimeInterval) -> String {
         let totalSeconds = Int(seconds)
         let mins = totalSeconds / 60

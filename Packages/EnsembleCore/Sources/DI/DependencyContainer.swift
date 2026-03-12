@@ -52,6 +52,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let mutationCoordinator: MutationCoordinator
     public let songLinkService: SongLinkService
     public let shareService: ShareService
+    public let powerStateMonitor: PowerStateMonitor
 
     // MARK: - Network Infrastructure
 
@@ -231,6 +232,35 @@ public final class DependencyContainer: @unchecked Sendable {
             syncCoordinatorRef.onFavoritesRatingChanged = { [weak offlineServiceRef] in
                 await offlineServiceRef?.reconcileFavoritesTargetIfEnabled()
             }
+
+            // When PMS download queue completes an item, restart the download
+            // service queue so it picks up prepared downloads promptly.
+            wsc.onDownloadQueueCompleted = { [weak offlineServiceRef] in
+                await offlineServiceRef?.handleDownloadQueueCompleted()
+            }
+        }
+
+        // Power state monitor — observes Low Power Mode for battery-aware behavior
+        let powerMonitorRef = MainActor.assumeIsolated { PowerStateMonitor() }
+        powerStateMonitor = powerMonitorRef
+
+        // Pause/resume downloads when Low Power Mode is toggled
+        let offlineServiceForPower = offlineServiceRef
+        MainActor.assumeIsolated {
+            var powerCancellable: AnyCancellable?
+            let powerMonitor = powerMonitorRef
+            powerCancellable = powerMonitor.$isLowPowerMode
+                .dropFirst() // Skip initial value — only react to changes
+                .sink { [weak offlineServiceForPower] isLowPower in
+                    _ = powerCancellable // retain
+                    Task { @MainActor in
+                        if isLowPower {
+                            await offlineServiceForPower?.pauseQueue()
+                        } else {
+                            await offlineServiceForPower?.resumeQueue()
+                        }
+                    }
+                }
         }
 
         // Services using sync coordinator

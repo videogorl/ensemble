@@ -113,8 +113,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var hasIntroInstrumentalGap: Bool = false
     // Whether there's an instrumental gap after the last lyric (outro)
     @Published public private(set) var hasOutroInstrumentalGap: Bool = false
-    // Suppresses auto-scroll when user is manually scrolling lyrics
-    public private(set) var isUserScrollingLyrics: Bool = false
+    // Suppresses auto-scroll and disables blur when user is manually scrolling lyrics
+    @Published public private(set) var isUserScrollingLyrics: Bool = false
     private var userScrollResumeTask: Task<Void, Never>?
 
     private let playbackService: PlaybackServiceProtocol
@@ -361,7 +361,6 @@ public final class NowPlayingViewModel: ObservableObject {
             lyrics: lyrics, activeIndex: activeIndex,
             currentTime: anticipatedTime, trackDuration: self.duration
         )
-        self.instrumentalProgress = progress
 
         // Keep the lyric line highlighted for its typical vocal duration,
         // then de-highlight and let the dots take over as the "active" element
@@ -371,13 +370,25 @@ public final class NowPlayingViewModel: ObservableObject {
         } else {
             elapsedSinceLine = 0
         }
+        let newLineIndex: Int?
         if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
-            self.currentLyricsLineIndex = nil
+            newLineIndex = nil
         } else {
-            self.currentLyricsLineIndex = activeIndex
+            newLineIndex = activeIndex
         }
 
-        // Update scroll target (nil means "scroll to top" for before-first-lyric)
+        let newScrollTarget = self.isUserScrollingLyrics ? self.lyricsScrollTargetIndex : activeIndex
+
+        // Skip assignment if nothing changed — avoids firing @Published for 4 properties
+        // every 0.5s when the active line hasn't changed
+        if newLineIndex == self.currentLyricsLineIndex
+            && progress == self.instrumentalProgress
+            && newScrollTarget == self.lyricsScrollTargetIndex {
+            return
+        }
+
+        self.instrumentalProgress = progress
+        self.currentLyricsLineIndex = newLineIndex
         if !self.isUserScrollingLyrics {
             self.lyricsScrollTargetIndex = activeIndex
         }
@@ -386,7 +397,11 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Called by the lyrics view when user manually scrolls.
     /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
     public func userDidScrollLyrics() {
-        isUserScrollingLyrics = true
+        // Only fire @Published change when transitioning from false → true
+        if !isUserScrollingLyrics {
+            isUserScrollingLyrics = true
+        }
+        // Always reset the 5s resume timer
         userScrollResumeTask?.cancel()
         userScrollResumeTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)

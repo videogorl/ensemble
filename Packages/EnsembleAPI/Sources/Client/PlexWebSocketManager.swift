@@ -50,6 +50,12 @@ public actor PlexWebSocketManager {
     private static let maxBackoff: TimeInterval = 60
     private var consecutiveFailures = 0
 
+    // Circuit breaker: after repeated rapid failures (e.g. server always returns 1001),
+    // switch to a much longer retry interval to avoid burning CPU/network.
+    private static let circuitBreakerThreshold = 5
+    private static let circuitBreakerInterval: TimeInterval = 300 // 5 minutes
+    private var isCircuitOpen = false
+
     // Continuation-backed broadcast for events
     private var continuations: [UUID: AsyncStream<PlexServerEvent>.Continuation] = [:]
 
@@ -74,6 +80,7 @@ public actor PlexWebSocketManager {
         isStopped = false
         currentBackoff = Self.minBackoff
         consecutiveFailures = 0
+        isCircuitOpen = false
         connect()
     }
 
@@ -97,6 +104,7 @@ public actor PlexWebSocketManager {
         // Reset backoff since this is a deliberate endpoint switch, not a failure
         currentBackoff = Self.minBackoff
         consecutiveFailures = 0
+        isCircuitOpen = false
         // Force reconnect if currently active
         if !isStopped {
             reconnectTask?.cancel()
@@ -230,6 +238,10 @@ public actor PlexWebSocketManager {
     private func handleReceivedMessage(_ message: URLSessionWebSocketTask.Message) {
         consecutiveFailures = 0
         currentBackoff = Self.minBackoff
+        if isCircuitOpen {
+            EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Circuit breaker CLOSED — connection restored")
+            isCircuitOpen = false
+        }
 
         // Every received message is an implicit health signal
         broadcast(.connectionHealthy)
@@ -265,8 +277,20 @@ public actor PlexWebSocketManager {
         guard !isStopped else { return }
 
         consecutiveFailures += 1
-        let delay = currentBackoff
-        currentBackoff = min(currentBackoff * 2, Self.maxBackoff)
+
+        // Circuit breaker: if the server keeps rejecting connections (e.g. 1001 on every
+        // connect), stop hammering it and switch to a long retry interval.
+        let delay: TimeInterval
+        if consecutiveFailures >= Self.circuitBreakerThreshold {
+            if !isCircuitOpen {
+                isCircuitOpen = true
+                EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Circuit breaker OPEN after \(consecutiveFailures) failures — retrying every \(Int(Self.circuitBreakerInterval))s")
+            }
+            delay = Self.circuitBreakerInterval
+        } else {
+            delay = currentBackoff
+            currentBackoff = min(currentBackoff * 2, Self.maxBackoff)
+        }
 
         EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Reconnecting in \(Int(delay))s (attempt \(consecutiveFailures))")
 

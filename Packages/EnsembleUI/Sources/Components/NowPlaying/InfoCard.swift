@@ -18,6 +18,12 @@ public struct InfoCard: View {
         self._currentPage = currentPage
     }
 
+    /// Whether this card is the active page in the carousel.
+    /// Gate content and async fetches behind visibility to avoid unnecessary work off-screen.
+    private var isVisible: Bool {
+        currentPage == 3
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             // Pinned header
@@ -25,16 +31,32 @@ public struct InfoCard: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
 
-            // Scrollable content area with fade masks
-            contentView
-                .padding(.bottom, 60) // Space for fixed page indicator
+            if isVisible {
+                // Scrollable content area with fade masks
+                contentView
+                    .padding(.bottom, 60) // Space for fixed page indicator
+            } else {
+                // Lightweight placeholder when off-screen
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .task {
+            guard isVisible else { return }
             fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
         }
         .onChange(of: viewModel.currentTrack?.id) { _ in
+            guard isVisible else { return }
             Task {
                 fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+            }
+        }
+        .onChange(of: currentPage) { newPage in
+            // Fetch album data when user navigates to this card
+            if newPage == 3 && fetchedAlbum == nil {
+                Task {
+                    fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+                }
             }
         }
     }

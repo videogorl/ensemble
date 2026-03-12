@@ -53,6 +53,7 @@ public struct MainTabView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
     
     @Namespace private var playerNamespace
@@ -332,7 +333,9 @@ public struct MainTabView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
@@ -433,8 +436,9 @@ public struct SidebarView: View {
     @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
-    
+
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
@@ -639,7 +643,9 @@ public struct SidebarView: View {
             if settingsManager.auroraVisualizationEnabled {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
-                    accentColor: settingsManager.accentColor.color
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)

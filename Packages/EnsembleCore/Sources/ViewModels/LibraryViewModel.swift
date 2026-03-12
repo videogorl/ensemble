@@ -161,8 +161,10 @@ public final class LibraryViewModel: ObservableObject {
     /// Each collection is recomputed only when its relevant inputs change (not on every SwiftUI render).
     /// All pipeline values are passed through explicitly so no `self` capture is needed in map closures.
     private func setupComputedPipelines() {
-        // Tracks: recompute when the raw list, sort option, or filter options change
+        // Tracks: recompute when the raw list, sort option, or filter options change.
+        // Debounce by 150ms to avoid filtering 1500+ tracks on every keystroke.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
+            .debounce(for: .milliseconds(150), scheduler: DispatchQueue.main)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)

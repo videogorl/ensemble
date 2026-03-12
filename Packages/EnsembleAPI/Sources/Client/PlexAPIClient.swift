@@ -1068,7 +1068,11 @@ public actor PlexAPIClient {
         )
         #endif
 
+        // Poll with exponential backoff until the item is ready.
+        // Starts at 1s, doubles each iteration, capped at 15s.
         let timeoutDeadline = Date().addingTimeInterval(120)
+        var pollInterval: UInt64 = 1_000_000_000 // 1s initial
+        let maxPollInterval: UInt64 = 15_000_000_000 // 15s cap
         while Date() < timeoutDeadline {
             let item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
             switch item.status {
@@ -1079,12 +1083,13 @@ public actor PlexAPIClient {
                 throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
             case "expired":
                 try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: pollInterval)
             case "deciding", "waiting", "processing":
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: pollInterval)
             default:
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: pollInterval)
             }
+            pollInterval = min(pollInterval * 2, maxPollInterval)
         }
 
         throw DownloadQueueError.itemProcessingTimedOut

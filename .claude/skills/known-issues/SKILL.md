@@ -41,7 +41,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - `PlexWebSocketManager` maintains one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
 - **Plex Pass limitation:** Library change notifications (`timeline`, `activity`) are only delivered to server owner/admin accounts with Plex Pass. Non-Plex Pass shared users only receive session-level notifications (e.g., `playing`). The WebSocket still provides implicit health signals for all account types.
 - Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections at all.
-- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, the backoff cap prevents excessive reconnect attempts.
+- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, a circuit breaker activates after 5 failures and switches to 5-minute retry intervals (vs normal 5s→60s backoff). The circuit breaker resets on successful connection, deliberate start(), or endpoint URL change.
+
+### WebSocket Server 1001 (Going Away) Immediate Disconnect
+- **Location:** `PlexWebSocketManager.swift`
+- **Issue:** Some Plex servers (observed on specific PMS configurations) close the WebSocket connection with code 1001 immediately after the client connects, before sending any messages. This causes a reconnect loop.
+- **Impact:** Without the circuit breaker, the connection would retry every 60s forever, burning CPU and network. With the circuit breaker, retries drop to every 5 minutes after the first 5 failures.
+- **Root cause:** Unknown server-side issue. May be related to PMS configuration, NAT, or reverse proxy behavior. The WebSocket URL and auth token are confirmed valid.
 
 ### Artwork Pre-Caching Sync-Path Only
 - `ArtworkLoader.predownloadArtwork()` is now called during sync for albums, artists, and playlists
@@ -141,6 +147,127 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Issue:** When a track is played for the first time (no cached `.freq` sidecar), the frequency analysis runs asynchronously on the audio file. The visualizer shows no data until analysis completes (typically <1s for local files, longer for streamed files that must buffer first).
 - **Impact:** Minor visual delay; playback itself is unaffected since the visualizer is fully decoupled from the audio pipeline.
 - **Mitigation:** Offline downloads generate `.freq` sidecars immediately after download, so cached tracks have instant visualizer data.
+
+### Low Power Mode Awareness
+- **Resolved (March 11, 2026)**
+- **Feature:** `PowerStateMonitor` (@MainActor ObservableObject) observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`.
+- **GPU throttling:** Aurora visualizer drops to 1 glow pass at 15fps (from 3 at 30fps) when LPM active. LyricsCard disables progressive blur (returns 0 for all lines).
+- **Network throttling:** Downloads are auto-paused on LPM activation and auto-resumed on deactivation via `DependencyContainer` wiring.
+- **Key files:** `PowerStateMonitor.swift`, `AuroraVisualizationView.swift`, `LyricsCard.swift`, `DependencyContainer.swift`, `MainTabView.swift`
+
+### Aurora Visualizer Optimized to 30fps + 3 Passes + 4fps Breathing
+- **Resolved (March 11, 2026)**
+- **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet. Still ran at 30fps during breathing mode (playback paused), causing 25.6% GPU drain.
+- **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
+- **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Download Queue Workers Spawned With No Pending Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** `startQueueIfNeeded()` (called from `init` and ~15 other sites) only checked `queueTask == nil`, so 3 worker tasks were spawned on every app launch even with zero pending downloads. Each worker ran a CoreData query, found nothing, and exited — 18+ "Worker exit: no pending download" log lines.
+- **Fix:** `runQueueLoop()` now checks `fetchPendingDownloads().count` before spawning the task group. If zero pending, exits immediately without creating worker tasks.
+- **Key files:** `OfflineDownloadService.swift`
+
+### WebSocket Circuit Breaker for Repeated Failures
+- **Resolved (March 11, 2026)**
+- **Previous:** WebSocket reconnect backoff capped at 60s, retrying forever even when the server always returned 1001 (Going Away). This burned CPU and network during foreground.
+- **Fix:** Circuit breaker activates after 5 consecutive failures and switches to 5-minute retry intervals. Resets on successful message receipt, `start()`, or endpoint URL change.
+- **Key files:** `PlexWebSocketManager.swift`
+
+### Download System Query Batching
+- **Resolved (March 11, 2026)**
+- **Previous:** After each download completion, `refreshAllTargetProgresses()` ran O(targets x tracks) individual CoreData queries. iPhone 6s crawled during bulk downloads.
+- **Fix:** Targeted refresh only updates owning targets (`fetchTargetKeys(containing:)`). Batch download status queries use single `IN` predicate (`fetchDownloadsBatch`). Dynamic debounce: 3s when >3 pending, 1s otherwise.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadManager.swift`, `OfflineDownloadTargetRepository.swift`
+
+### PlaybackService objectWillChange Fired at 30Hz
+- **Resolved (March 11, 2026)**
+- **Previous:** `@Published var frequencyBands` caused `objectWillChange` to fire 30x/sec, re-rendering all views observing `PlaybackService`.
+- **Fix:** Replaced with `CurrentValueSubject<[Double], Never>`. `objectWillChange` no longer fires for band updates. `NowPlayingViewModel.applyLyricsPosition()` also guards against no-change assignments.
+- **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`
+
+### TrackRow Mass Re-Render on Availability Change
+- **Resolved (March 11, 2026)**
+- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused ALL visible TrackRows to re-render when generation counter bumped.
+- **Fix:** Replaced with `@State private var cachedAvailability` + `.onReceive` that only updates `@State` when THIS track's availability actually changed. Applied to both `TrackRow` and `CompactTrackRow`.
+- **Key files:** `TrackRow.swift`, `CompactSearchRows.swift`
+
+### Songs View 1500+ Track Choppiness
+- **Resolved (March 11, 2026)**
+- **Previous:** `SongsView` wrapped `MediaTrackList` (UITableView) in a fixed-height frame (`CGFloat(trackCount * 68)`), defeating both `LazyVStack` lazy loading and UITableView cell recycling. Search filtering ran synchronously on every keystroke.
+- **Fix:** Non-indexed sort renders `MediaTrackList` directly without ScrollView wrapper or fixed-height frame. Search text filtering debounced at 150ms via Combine pipeline.
+- **Key files:** `SongsView.swift`, `LibraryViewModel.swift`
+
+### LyricsCard Full Re-Render Every 0.5s
+- **Resolved (March 11, 2026)**
+- **Previous:** When `currentLyricsLineIndex` changed, ALL lyrics lines recalculated visual params and triggered animations.
+- **Fix:** Extracted `LyricsLineView` as `Equatable` struct with pre-computed params. Wrapped in `EquatableView` so SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
+- **Key files:** `LyricsCard.swift`
+
+### Download Queue Polling + WebSocket Routing
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexAPIClient.downloadTranscodedMediaViaQueue()` polled PMS every 1s with fixed interval. WebSocket `media.download` activity events were parsed but not routed — only `library.refresh`/`library.update` types were handled by `PlexWebSocketCoordinator`. This meant PMS download queue completions never notified the download service, so the queue could stall after workers exited.
+- **Fix:** Polling uses exponential backoff (1s→2s→4s→8s, capped 15s). `PlexWebSocketCoordinator` now handles `media.download ended` events via `onDownloadQueueCompleted` callback, which triggers `OfflineDownloadService.handleDownloadQueueCompleted()` to restart the queue.
+- **Key files:** `PlexAPIClient.swift`, `PlexWebSocketCoordinator.swift`, `OfflineDownloadService.swift`, `DependencyContainer.swift`
+
+### MediaTrackList Layout Outside View Hierarchy
+- **Resolved (March 11, 2026)**
+- **Previous:** SwiftUI eagerly created `MediaTrackList` UITableView instances for navigation destinations not yet displayed. UITableView performed layout on init even without a window, causing "layout outside view hierarchy" warnings and unnecessary work at launch.
+- **Fix:** `DeferredLayoutTableView` subclass skips `layoutSubviews()` when not in a window and triggers `reloadData()` on `didMoveToWindow`. `updateUIView` early-returns when the table has no window.
+- **Key files:** `MediaTrackList.swift`
+
+### WebSocket Settings Changed Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** Rapid bursts of PMS settings-changed WebSocket events (e.g. 5 pairs in 3s) each logged and processed individually.
+- **Fix:** Settings events debounced per server with 5s window in `PlexWebSocketCoordinator`.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
+### NowPlaying Carousel Cards Rendered Off-Screen
+- **Resolved (March 11, 2026)**
+- **Previous:** TabView `.page` style renders ALL child views simultaneously. LyricsCard's `.blur()` effects, QueueCard's UIKit QueueTableView, and InfoCard's async fetches all ran off-screen. LyricsCard blur alone was 3.8% of GPU trace (`RB::Filter::GaussianBlur`). QueueCard triggered "UITableView layout outside view hierarchy" warnings.
+- **Fix:** Each card gates its expensive content behind a `currentPage == N` check. Off-screen cards show a lightweight `Color.clear` placeholder. InfoCard also defers its async album fetch until the card becomes visible.
+- **Key files:** `LyricsCard.swift`, `QueueCard.swift`, `InfoCard.swift`
+
+### WebSocket Scan Progress Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexWebSocketCoordinator.serverScanProgress` (@Published) was updated every ~10ms during library scans with zero throttling. Each update fired `objectWillChange` on the singleton, causing cascading UI invalidations.
+- **Fix:** Only publish when progress changes by >=5 percentage points (or on started/ended), cutting ~95% of scan-related objectWillChange events.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
+### MediaTrackList Singleton Observer Cascade (N×3 Subscriptions)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaTrackList` directly observed 3 singletons as `@ObservedObject` (networkMonitor, offlineDownloadService, trackAvailabilityResolver). When SongsView rendered 26 alphabetic sections, this created 78 independent subscriptions (26×3). Every publish triggered `updateUIView` on ALL instances → reconfigured ALL visible cells.
+- **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadRatingKeys: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
+- **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `CoverFlowDetailView.swift`
+
+### Per-Track activeDownloadRatingKeys Refresh During Bulk Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** Each track completion called `refreshActiveDownloadRatingKeys()` via `refreshTargetsForTrack()`, firing the @Published property per-track and causing N UI updates during bulk downloads.
+- **Fix:** Removed redundant per-track call. The debounced `scheduleDownloadChangeNotification()` (1-3s window) already handles this, batching spinner updates.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Premature "Downloads Complete" Toast
+- **Resolved (March 11, 2026)**
+- **Previous:** Toast appeared at 73/79 tracks, then queue got stuck. Workers exited when `fetchNextPendingDownload()` returned nil, but PMS was still preparing remaining downloads. `queueTask` was only nil'd after the toast, so WebSocket-triggered `handleDownloadQueueCompleted()` couldn't restart the queue.
+- **Fix:** Nil `queueTask` before the wind-down check. Add 500ms grace period, then re-check for pending downloads. If more work arrived, restart the queue instead of showing toast.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Downloads View Artwork Flashing
+- **Resolved (March 11, 2026)**
+- **Previous:** `DownloadsViewModel` replaced the `items` array wholesale on every `offlineDownloadService.$targets` publish, causing ForEach to re-render all rows (including artwork) even when only progress numbers changed.
+- **Fix:** Made `DownloadedItemSummary` Equatable. Only assign `items` when mapped values actually differ. Guard `resolveThumbPaths()` against redundant publishes.
+- **Key files:** `DownloadsViewModel.swift`
+
+### Large Playlist Detail View Hang (1400+ tracks)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaDetailView.tracksSection` applied `.frame(height: CGFloat(trackCount * 68))` to MediaTrackList, forcing all 1436 cells to render at once — same anti-pattern fixed for unsorted SongsView.
+- **Fix:** Added `managesOwnScrolling: Bool` parameter to MediaTrackList. When track count >200, uses a regular UITableView with scroll enabled for cell recycling. Small lists (albums) keep embedded behavior. Removed fixed `.frame(height:)` for large lists.
+- **Key files:** `MediaTrackList.swift`, `MediaDetailView.swift`
+
+### Queue View Hang with Large Playlists + Artwork Race on Rearrange
+- **Resolved (March 11, 2026)**
+- **Previous:** `QueueTableView` used `IntrinsicTableView` inside a SwiftUI `ScrollView`. `IntrinsicTableView` reported full content height as `intrinsicContentSize`, forcing all 1436 cells to render. Artwork could also flash incorrectly during drag-to-rearrange due to stale async loads.
+- **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
+- **Key files:** `QueueTableView.swift`, `QueueCard.swift`
 
 ## Future Enhancements (Waveform System)
 

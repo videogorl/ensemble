@@ -586,41 +586,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return nil
     }
     
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Stop network monitoring and WebSocket connections to save battery
-        Task { @MainActor in
-            DependencyContainer.shared.networkMonitor.stopMonitoring()
-            DependencyContainer.shared.webSocketCoordinator.stop()
-
-            // Stop periodic sync timers
-            DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
-        }
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Resume network monitoring and WebSocket connections
-        Task { @MainActor in
-            DependencyContainer.shared.networkMonitor.startMonitoring()
-            DependencyContainer.shared.webSocketCoordinator.start()
-
-            // Route foreground refresh through SyncCoordinator to coalesce
-            // with network state transitions and cooldown/staleness guards.
-            await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-
-            // Adjust periodic sync timers based on WebSocket availability.
-            // With active WebSocket, polling is relaxed (4h); without it, default (1h).
-            let hasWebSocket = !DependencyContainer.shared.webSocketCoordinator.connectedServerKeys.isEmpty
-            DependencyContainer.shared.syncCoordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasWebSocket)
-
-            // Drain any pending offline mutations now that connectivity may have resumed.
-            // The queue also drains automatically when isConnected transitions to true,
-            // but an explicit call here handles the case where connectivity never dropped.
-            await DependencyContainer.shared.mutationCoordinator.drainQueue()
-
-            // Update Siri media user context in case library changed while backgrounded
-            await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
-        }
-    }
+    // NOTE: These methods are NOT called in SwiftUI lifecycle apps using @main App.
+    // Background/foreground handling lives in EnsembleApp.handleScenePhaseChange()
+    // via the scenePhase environment value. Keeping these as no-ops for documentation.
+    func applicationDidEnterBackground(_ application: UIApplication) {}
+    func applicationWillEnterForeground(_ application: UIApplication) {}
 
     func application(
         _ application: UIApplication,

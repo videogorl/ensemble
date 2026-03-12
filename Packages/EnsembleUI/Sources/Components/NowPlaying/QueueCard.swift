@@ -23,48 +23,61 @@ public struct QueueCard: View {
         self._currentPage = currentPage
     }
     
+    /// Whether this card is the active page in the carousel.
+    /// TabView's .page style renders ALL children simultaneously — gate the heavy
+    /// QueueTableView (UIKit UITableView) behind this to avoid layout/rendering off-screen.
+    private var isVisible: Bool {
+        currentPage == 0
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             // Pinned header
             headerView
                 .padding(.top, 16)
                 .padding(.bottom, 12)
-            
-            // Scrollable queue list with fade masks
-            ScrollView(showsIndicators: false) {
+
+            if isVisible {
+                // Queue list — QueueTableView manages its own scrolling now.
+                // No SwiftUI ScrollView wrapper — that was defeating cell recycling
+                // by forcing IntrinsicTableView to report full contentSize.
                 queueListView
+                    .mask(
+                        VStack(spacing: 0) {
+                            // Top fade
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.1)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 50)
+
+                            // Middle: full opacity
+                            Rectangle().fill(Color.black)
+
+                            // Bottom fade
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: .black, location: 0.7),
+                                    .init(color: .clear, location: 1)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 80)
+                        }
+                    )
+            } else {
+                // Lightweight placeholder — avoids UITableView layout off-screen
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .mask(
-                VStack(spacing: 0) {
-                    // Top fade (more gradual)
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.1)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 50)
-                    
-                    // Middle: full opacity
-                    Rectangle().fill(Color.black)
-                    
-                    // Bottom fade (more gradual)
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .black, location: 0.7),
-                            .init(color: .clear, location: 1)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 80)
-                }
-            )
-            
+
             Spacer(minLength: 0) // Push secondary controls to bottom, matching ControlsCard
-            
+
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: 8) {
                 secondaryControlsView

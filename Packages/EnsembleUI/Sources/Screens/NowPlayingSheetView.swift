@@ -5,6 +5,7 @@ import SwiftUI
 /// Uses native .sheet presentation with carousel layout
 public struct NowPlayingSheetView: View {
     @ObservedObject var viewModel: NowPlayingViewModel
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
@@ -107,7 +108,7 @@ public struct NowPlayingSheetView: View {
                     Color.clear
                         .tag(1)
                     
-                    LyricsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                    LyricsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isLowPowerMode: powerStateMonitor.isLowPowerMode)
                         .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))

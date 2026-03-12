@@ -22,6 +22,8 @@ struct CoverFlowDetailView: View {
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
+    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
     
     var body: some View {
         VStack(spacing: 0) {
@@ -62,6 +64,8 @@ struct CoverFlowDetailView: View {
                     showTrackNumbers: true,
                     groupByDisc: false,
                     currentTrackId: nowPlayingVM.currentTrack?.id,
+                    availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
+                    activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },

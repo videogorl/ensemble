@@ -45,6 +45,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Parameters: (ratingKey: String, artworkType: "album" | "artist").
     public var onArtworkInvalidation: ((String, String) async -> Void)?
 
+    /// Called when PMS download queue activity completes (media.download ended).
+    /// Used by OfflineDownloadService to restart its queue when PMS finishes preparing downloads.
+    public var onDownloadQueueCompleted: (() async -> Void)?
+
     private var managers: [String: PlexWebSocketManager] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
     private var accountObserver: AnyCancellable?
@@ -56,6 +60,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var pendingPlaylistUpdates: [String: Task<Void, Never>] = [:]
     private let libraryUpdateDebounce: TimeInterval = 3.0
     private let playlistUpdateDebounce: TimeInterval = 5.0
+
+    // Debounce settings-changed events per server to coalesce rapid bursts
+    private var pendingSettingsUpdates: [String: Task<Void, Never>] = [:]
+    private let settingsUpdateDebounce: TimeInterval = 5.0
 
     public init(
         accountManager: AccountManager,
@@ -125,6 +133,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             task.cancel()
         }
         pendingPlaylistUpdates.removeAll()
+        for (_, task) in pendingSettingsUpdates {
+            task.cancel()
+        }
+        pendingSettingsUpdates.removeAll()
     }
 
     // MARK: - Connection Management
@@ -261,7 +273,13 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             if type.contains("library.refresh") || type.contains("library.update") {
                 switch event {
                 case "started", "updated":
-                    serverScanProgress[serverKey] = progress
+                    // Only publish when progress changes by >=5% or on first report.
+                    // During library scans, PMS sends updates every ~10ms — throttle to
+                    // cut ~95% of objectWillChange events on this singleton.
+                    let oldProgress = serverScanProgress[serverKey] ?? -1
+                    if abs(progress - oldProgress) >= 5 || oldProgress < 0 {
+                        serverScanProgress[serverKey] = progress
+                    }
                 case "ended":
                     serverScanProgress.removeValue(forKey: serverKey)
                     #if DEBUG
@@ -274,6 +292,15 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 }
             }
 
+            // PMS download queue item finished — notify the download service
+            // so it can restart its queue if workers have exited.
+            if type.contains("media.download") && event == "ended" {
+                #if DEBUG
+                EnsembleLogger.debug("🔌 WebSocketCoordinator: Download queue completed for \(serverKey) (progress=\(progress))")
+                #endif
+                await onDownloadQueueCompleted?()
+            }
+
         case .serverShutdown:
             #if DEBUG
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Server shutdown for \(serverKey)")
@@ -283,10 +310,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             await onServerOffline?(serverKey)
 
         case .settingsUpdate:
-            // Server settings changed — may affect available libraries or permissions
-            #if DEBUG
-            EnsembleLogger.debug("🔌 WebSocketCoordinator: Settings changed for \(serverKey)")
-            #endif
+            // Server settings changed — debounce to coalesce rapid bursts (e.g. 5 events in 3s)
+            debouncedSettingsUpdate(serverKey: serverKey)
 
         case .connectionHealthy:
             // Reset health check TTL — no need to probe this server
@@ -334,6 +359,21 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             if let onPlaylistUpdate = await self?.onPlaylistUpdate {
                 await onPlaylistUpdate(serverKey)
             }
+        }
+    }
+
+    /// Debounce settings-changed events to avoid processing rapid bursts.
+    /// Only logs once per server within the debounce window.
+    private func debouncedSettingsUpdate(serverKey: String) {
+        pendingSettingsUpdates[serverKey]?.cancel()
+
+        pendingSettingsUpdates[serverKey] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.settingsUpdateDebounce ?? 5.0) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            #if DEBUG
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Settings changed for \(serverKey) (debounced)")
+            #endif
         }
     }
 

@@ -22,7 +22,7 @@ public struct LibraryDownloadSummary: Identifiable {
 
 // MARK: - Downloaded Item Summary
 
-public struct DownloadedItemSummary: Identifiable {
+public struct DownloadedItemSummary: Identifiable, Equatable {
     public let id: String
     public let key: String
     public let kind: CDOfflineDownloadTarget.Kind
@@ -79,14 +79,33 @@ public final class DownloadsViewModel: ObservableObject {
         self.accountManager = accountManager
         self.downloadManager = downloadManager
 
-        // Map snapshots to summaries immediately, then kick off async thumb resolution
+        // Map snapshots to summaries, preserving previously resolved thumbPaths.
+        // Without this, every publish creates items with thumbPath=nil which always
+        // differs from existing items that have resolved paths, causing artwork flashing.
         offlineDownloadService.$targets
             .sink { [weak self] snapshots in
                 guard let self else { return }
-                let mapped = Self.mapItems(from: snapshots)
-                self.items = mapped
-                Task { [weak self] in
-                    await self?.resolveThumbPaths()
+                var mapped = Self.mapItems(from: snapshots)
+
+                // Carry forward thumbPaths from existing items to avoid nil→resolved flicker
+                let existingThumbs = Dictionary(
+                    self.items.compactMap { item in
+                        item.thumbPath.map { (item.id, $0) }
+                    },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                for i in mapped.indices {
+                    if mapped[i].thumbPath == nil, let existing = existingThumbs[mapped[i].id] {
+                        mapped[i].thumbPath = existing
+                    }
+                }
+
+                if mapped != self.items {
+                    self.items = mapped
+                    // Still resolve thumbs for any new items that don't have paths yet
+                    Task { [weak self] in
+                        await self?.resolveThumbPaths()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -283,7 +302,10 @@ public final class DownloadsViewModel: ObservableObject {
         for i in updated.indices {
             updated[i].thumbPath = await resolveThumb(for: updated[i])
         }
-        items = updated
+        // Only publish when thumb paths actually changed
+        if updated != items {
+            items = updated
+        }
     }
 
     private func resolveThumb(for item: DownloadedItemSummary) async -> String? {

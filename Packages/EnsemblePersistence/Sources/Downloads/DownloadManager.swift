@@ -29,6 +29,9 @@ public protocol DownloadManagerProtocol: Sendable {
     func fetchNextPendingDownload() async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
     func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
+    /// Batch fetch downloads for multiple tracks in a single CoreData query.
+    /// Returns a dictionary keyed by "sourceCompositeKey|ratingKey" for O(1) lookup.
+    func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload]
     /// Fetch all downloads whose track belongs to the given library (by sourceCompositeKey)
     func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload]
 
@@ -255,6 +258,35 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let download = try context.fetch(request).first
                     continuation.resume(returning: download)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload] {
+        guard !references.isEmpty else { return [:] }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                do {
+                    // Fetch all downloads whose track ratingKey is in the reference set
+                    let ratingKeys = Array(Set(references.map(\.trackRatingKey)))
+                    let request = CDDownload.fetchRequest()
+                    request.predicate = NSPredicate(format: "track.ratingKey IN %@", ratingKeys)
+
+                    let downloads = try context.fetch(request)
+
+                    // Index by "sourceCompositeKey|ratingKey" for O(1) lookup
+                    var result: [String: CDDownload] = [:]
+                    result.reserveCapacity(downloads.count)
+                    for download in downloads {
+                        guard let track = download.track else { continue }
+                        let key = "\(track.sourceCompositeKey ?? "")|\(track.ratingKey)"
+                        result[key] = download
+                    }
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }
