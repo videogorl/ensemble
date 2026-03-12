@@ -260,9 +260,15 @@ public struct MainTabView: View {
     }
     
     private func handleTabTap(_ tag: TabItem) {
+        #if DEBUG
+        print("🧭 handleTabTap called: tag=\(tag), currentTab=\(navigationCoordinator.selectedTab), pathEmpty=\(pathForTab(tag).isEmpty)")
+        #endif
         if navigationCoordinator.selectedTab == tag {
             // Already on this tab
             if !pathForTab(tag).isEmpty {
+                #if DEBUG
+                print("🧭 handleTabTap -> popToRoot(\(tag)) — path had \(pathForTab(tag).count) items")
+                #endif
                 navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
                 searchVM.requestFocus()
@@ -270,7 +276,7 @@ public struct MainTabView: View {
         } else {
             navigationCoordinator.selectedTab = tag
         }
-        
+
         #if os(iOS)
         UISelectionFeedbackGenerator().selectionChanged()
         #endif

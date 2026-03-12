@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import os
 
 /// Centralized navigation coordinator for handling deep links and cross-tab navigation
 @MainActor
@@ -47,7 +48,11 @@ public final class NavigationCoordinator: ObservableObject {
     }
     
     @Published public var pendingNavigation: PendingNavigation?
-    
+
+    #if DEBUG
+    private let logger = Logger(subsystem: "com.ensemble", category: "NavigationCoordinator")
+    #endif
+
     public init() {}
     
     // MARK: - Navigation Methods
@@ -55,8 +60,17 @@ public final class NavigationCoordinator: ObservableObject {
     /// Push a destination onto a specific tab's stack
     public func push(_ destination: Destination, in tab: TabItem) {
         // No-op if already viewing same item as last in stack
-        guard path(for: tab).last != destination else { return }
-        
+        guard path(for: tab).last != destination else {
+            #if DEBUG
+            logger.debug("🧭 push SKIPPED (duplicate): \(String(describing: destination)) in \(String(describing: tab))")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        logger.debug("🧭 push: \(String(describing: destination)) in \(String(describing: tab)), pathCount before: \(self.path(for: tab).count)")
+        #endif
+
         switch tab {
         case .home: homePath.append(destination)
         case .songs: songsPath.append(destination)
@@ -69,10 +83,17 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.append(destination)
         case .settings: settingsPath.append(destination)
         }
+
+        #if DEBUG
+        logger.debug("🧭 push DONE, pathCount after: \(self.path(for: tab).count)")
+        #endif
     }
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
+        #if DEBUG
+        logger.debug("🧭 popToRoot: \(String(describing: tab)), pathCount was: \(self.path(for: tab).count)")
+        #endif
         switch tab {
         case .home: homePath.removeAll()
         case .songs: songsPath.removeAll()
@@ -95,6 +116,9 @@ public final class NavigationCoordinator: ObservableObject {
         } else {
             targetTab = selectedTab
         }
+        #if DEBUG
+        logger.debug("🧭 navigate(to:): dest=\(String(describing: destination)), selectedTab=\(String(describing: self.selectedTab)), targetTab=\(String(describing: targetTab))")
+        #endif
         selectedTab = targetTab
         push(destination, in: targetTab)
     }
