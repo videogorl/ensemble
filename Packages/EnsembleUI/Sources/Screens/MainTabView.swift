@@ -180,18 +180,17 @@ public struct MainTabView: View {
             .task {
                 await libraryVM.refresh()
             }
-            .onChange(of: showingNowPlaying) { isShowing in
-                // Handle pending navigation when NowPlaying dismisses
-                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                    // The coordinator already determined the correct tab (current or fallback)
+            .sheet(isPresented: $showingNowPlaying, onDismiss: {
+                // Handle pending navigation after NowPlaying sheet fully dismisses
+                guard let pending = navigationCoordinator.pendingNavigation else { return }
+                // Clear immediately to prevent double-execution
+                navigationCoordinator.pendingNavigation = nil
+                // Give NavigationStack one runloop cycle to settle after sheet dismissal
+                DispatchQueue.main.async {
                     navigationCoordinator.selectedTab = pending.tab
-                    
-                    // Push onto the target tab stack
                     navigationCoordinator.push(pending.destination, in: pending.tab)
-                    navigationCoordinator.pendingNavigation = nil
                 }
-            }
-            .sheet(isPresented: $showingNowPlaying) {
+            }) {
                 NowPlayingSheetView(
                     viewModel: nowPlayingVM,
                     namespace: playerNamespace,
@@ -528,7 +527,17 @@ public struct SidebarView: View {
             }
 
         }
-        .sheet(isPresented: $showingNowPlaying) {
+        .sheet(isPresented: $showingNowPlaying, onDismiss: {
+            // Handle pending navigation after NowPlaying sheet fully dismisses
+            guard let pending = navigationCoordinator.pendingNavigation else { return }
+            navigationCoordinator.pendingNavigation = nil
+            DispatchQueue.main.async {
+                // Switch sidebar to the section matching this destination type
+                let targetTab = self.targetTab(for: pending.destination)
+                self.selection = self.sidebarSection(for: pending.destination)
+                navigationCoordinator.push(pending.destination, in: targetTab)
+            }
+        }) {
             NowPlayingSheetView(
                 viewModel: nowPlayingVM,
                 namespace: playerNamespace,
@@ -559,6 +568,40 @@ public struct SidebarView: View {
         case .album: return "square.stack"
         case .artist: return "music.mic"
         case .playlist: return "music.note.list"
+        }
+    }
+
+    /// Map a navigation destination to the sidebar section that should be selected
+    private func sidebarSection(for destination: NavigationCoordinator.Destination) -> SidebarSection {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab):
+            switch tab {
+            case .home: return .home
+            case .songs: return .songs
+            case .artists: return .artists
+            case .albums: return .albums
+            case .genres: return .genres
+            case .playlists: return .playlists
+            case .favorites: return .favorites
+            case .search: return .search
+            case .downloads: return .downloads
+            case .settings: return .settings
+            }
+        }
+    }
+
+    /// Map a navigation destination to the tab whose NavigationStack should receive the push
+    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab): return tab
         }
     }
     
