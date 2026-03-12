@@ -265,6 +265,18 @@ public struct LyricsCard: View {
                     }
                 }
             }
+            // Re-center on active lyric when user scroll pause ends
+            .onChange(of: viewModel.isUserScrollingLyrics) { isScrolling in
+                guard !isScrolling, lyrics.isTimed else { return }
+                let scrollTarget: AnyHashable
+                if let index = viewModel.lyricsScrollTargetIndex {
+                    scrollTarget = index
+                } else {
+                    scrollTarget = "intro-instrumental"
+                }
+                // Snap back without animation (same as large jump behavior)
+                proxy.scrollTo(scrollTarget, anchor: .center)
+            }
         }
     }
 
