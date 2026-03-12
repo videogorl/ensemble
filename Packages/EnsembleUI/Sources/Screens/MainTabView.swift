@@ -180,17 +180,7 @@ public struct MainTabView: View {
             .task {
                 await libraryVM.refresh()
             }
-            .sheet(isPresented: $showingNowPlaying, onDismiss: {
-                // Handle pending navigation after NowPlaying sheet fully dismisses
-                guard let pending = navigationCoordinator.pendingNavigation else { return }
-                // Clear immediately to prevent double-execution
-                navigationCoordinator.pendingNavigation = nil
-                // Give NavigationStack one runloop cycle to settle after sheet dismissal
-                DispatchQueue.main.async {
-                    navigationCoordinator.selectedTab = pending.tab
-                    navigationCoordinator.push(pending.destination, in: pending.tab)
-                }
-            }) {
+            .sheet(isPresented: $showingNowPlaying) {
                 NowPlayingSheetView(
                     viewModel: nowPlayingVM,
                     namespace: playerNamespace,
@@ -527,17 +517,7 @@ public struct SidebarView: View {
             }
 
         }
-        .sheet(isPresented: $showingNowPlaying, onDismiss: {
-            // Handle pending navigation after NowPlaying sheet fully dismisses
-            guard let pending = navigationCoordinator.pendingNavigation else { return }
-            navigationCoordinator.pendingNavigation = nil
-            DispatchQueue.main.async {
-                // Switch sidebar to the section matching this destination type
-                let targetTab = self.targetTab(for: pending.destination)
-                self.selection = self.sidebarSection(for: pending.destination)
-                navigationCoordinator.push(pending.destination, in: targetTab)
-            }
-        }) {
+        .sheet(isPresented: $showingNowPlaying) {
             NowPlayingSheetView(
                 viewModel: nowPlayingVM,
                 namespace: playerNamespace,
@@ -560,6 +540,13 @@ public struct SidebarView: View {
             await libraryVM.refresh()
             await pinnedVM.loadPinnedItems()
         }
+        // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
+        // so navigate(to:) pushes onto the correct section's NavigationStack
+        .onChange(of: selection) { newSelection in
+            if let tab = newSelection?.correspondingTab {
+                navigationCoordinator.selectedTab = tab
+            }
+        }
     }
 
     /// SF Symbol for each pinned item type
@@ -571,39 +558,6 @@ public struct SidebarView: View {
         }
     }
 
-    /// Map a navigation destination to the sidebar section that should be selected
-    private func sidebarSection(for destination: NavigationCoordinator.Destination) -> SidebarSection {
-        switch destination {
-        case .artist: return .artists
-        case .album: return .albums
-        case .playlist: return .playlists
-        case .moodTracks: return .home
-        case .view(let tab):
-            switch tab {
-            case .home: return .home
-            case .songs: return .songs
-            case .artists: return .artists
-            case .albums: return .albums
-            case .genres: return .genres
-            case .playlists: return .playlists
-            case .favorites: return .favorites
-            case .search: return .search
-            case .downloads: return .downloads
-            case .settings: return .settings
-            }
-        }
-    }
-
-    /// Map a navigation destination to the tab whose NavigationStack should receive the push
-    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
-        switch destination {
-        case .artist: return .artists
-        case .album: return .albums
-        case .playlist: return .playlists
-        case .moodTracks: return .home
-        case .view(let tab): return tab
-        }
-    }
     
     @ViewBuilder
     private var detailView: some View {
@@ -731,4 +685,22 @@ public enum SidebarSection: Hashable {
     case downloads
     case settings
     case pin(id: String, type: PinnedItemType)
+
+    /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
+    /// Returns nil for pinned items which don't map to a standard tab.
+    var correspondingTab: TabItem? {
+        switch self {
+        case .home: return .home
+        case .songs: return .songs
+        case .artists: return .artists
+        case .albums: return .albums
+        case .genres: return .genres
+        case .playlists: return .playlists
+        case .favorites: return .favorites
+        case .search: return .search
+        case .downloads: return .downloads
+        case .settings: return .settings
+        case .pin: return nil
+        }
+    }
 }

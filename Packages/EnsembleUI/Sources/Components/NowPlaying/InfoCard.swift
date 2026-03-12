@@ -525,18 +525,19 @@ public struct InfoCard: View {
         }
     }
 
-    /// Navigate to artist detail
+    /// Navigate to artist detail — push immediately while sheet is still showing,
+    /// then dismiss. The NavigationStack processes the path change behind the sheet.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
+            deps.navigationCoordinator.navigate(to: .artist(id: artistId))
             dismiss()
         }
     }
 
-    /// Navigate to album detail
+    /// Navigate to album detail — push immediately, then dismiss
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
+            deps.navigationCoordinator.navigate(to: .album(id: albumId))
             dismiss()
         }
     }
