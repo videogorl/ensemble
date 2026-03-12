@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+If I give you a Notion page to pull from, use the Notion MCP to access the page. If you don't have access, don't just assume, ask.
+When starting work from a Notion page, change the status of the page to "In Progress" (or something appropriate).
+Once done with the work, mark the Notion page status as "Done"
+
 ## Skills (MUST load before starting work)
 
 Detailed reference material lives in `.claude/skills/`. **Always load the relevant skill(s) before beginning any non-trivial task** — these files contain project-specific rules that override general Swift/SwiftUI defaults.
