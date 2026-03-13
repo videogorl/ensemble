@@ -86,7 +86,7 @@ public struct ControlsCard: View {
             let maxWidth = geometry.size.width - 48  // 24pt padding each side
             let maxHeight = geometry.size.height * 0.4  // Max 40% of available height
             let artworkSize = min(maxWidth, maxHeight, 400)  // Cap at 400pt
-            
+
             // Artwork
             ArtworkView(track: track, size: .medium, cornerRadius: 12)
                 .frame(width: artworkSize, height: artworkSize)
@@ -98,22 +98,22 @@ public struct ControlsCard: View {
                 }
                 .padding(.top, 20)
                 .padding(.bottom, geometry.size.height > 700 ? 40 : 20)  // Reduce spacing on small screens
-            
+
             // Scrubber/waveform
             progressView(track: track)
                 .padding(.horizontal, 40)
-            
+
             // Track metadata
             trackMetadataView(track: track)
                 .padding(.horizontal, 40)
                 .padding(.top, geometry.size.height > 700 ? 16 : 8)
-            
+
             // Primary playback controls
             controlsView
                 .padding(.top, geometry.size.height > 700 ? 24 : 16)
-            
+
             Spacer(minLength: 0)
-            
+
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: 8) {
                 secondaryControlsView
