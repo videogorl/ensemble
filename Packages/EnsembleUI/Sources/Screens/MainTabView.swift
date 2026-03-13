@@ -1,5 +1,10 @@
 import EnsembleCore
+import OSLog
 import SwiftUI
+
+private extension Logger {
+    static let navigation = Logger(subsystem: "com.videogorl.ensemble", category: "navigation")
+}
 
 // MARK: - Tab View Factory
 
@@ -188,9 +193,7 @@ public struct MainTabView: View {
                     navigationCoordinator.pendingNavigation = nil
                     navigationCoordinator.selectedTab = pending.tab
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        #if DEBUG
-                        print("🧭 Triggering item-based navigation: \(pending.destination) on \(pending.tab)")
-                        #endif
+                        Logger.navigation.debug("🧭 Triggering item-based navigation: \(String(describing: pending.destination)) on \(String(describing: pending.tab))")
                         navigationCoordinator.setNowPlayingDestination(pending.destination, for: pending.tab)
                     }
                 }
@@ -823,9 +826,7 @@ struct NowPlayingPushModifier<D: View>: ViewModifier {
                     .nowPlayingDestPublisher(for: tab)
             ) { newDest in
                 if let dest = newDest {
-                    #if DEBUG
-                    print("🧭 NowPlayingPushModifier[\(tab)] received: \(dest)")
-                    #endif
+                    Logger.navigation.debug("🧭 NowPlayingPushModifier[\(String(describing: tab))] received: \(String(describing: dest))")
                     pushedDestination = dest
                     DependencyContainer.shared.navigationCoordinator.clearNowPlayingDest(for: tab)
                 }
