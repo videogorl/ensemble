@@ -526,6 +526,11 @@ public struct MediaTrackList: UIViewRepresentable {
            tableView.bounds.width > 0 {
             if let tableHeaderContent {
                 headerHost.rootView = tableHeaderContent
+                // Force the hosting controller to process the new SwiftUI content
+                // before measuring. Without this, systemLayoutSizeFitting returns
+                // the stale size and the "No tracks" placeholder never disappears.
+                headerHost.view.invalidateIntrinsicContentSize()
+                headerHost.view.layoutIfNeeded()
             }
             let targetWidth = tableView.bounds.width
             let fittingSize = headerHost.view.systemLayoutSizeFitting(
