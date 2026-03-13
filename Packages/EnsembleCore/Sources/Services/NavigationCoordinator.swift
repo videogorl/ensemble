@@ -49,31 +49,35 @@ public final class NavigationCoordinator: ObservableObject {
     
     @Published public var pendingNavigation: PendingNavigation?
 
-    /// Destination to push via navigationDestination(item:) after NowPlaying dismisses.
-    /// Set by the onChange handler in MainTabView/SidebarView; cleared by SwiftUI when
-    /// the user navigates back (two-way binding).
-    @Published public var activeNowPlayingDestination: Destination?
+    // Per-tab NowPlaying push destinations. Each tab gets its own @Published
+    // property so navigationDestination(item:) receives a real $-binding that
+    // SwiftUI can observe directly — custom Binding(get:set:) closures aren't
+    // monitored by .sidebarAdaptable TabView on iOS 18+.
+    @Published public var homeNowPlayingDest: Destination?
+    @Published public var songsNowPlayingDest: Destination?
+    @Published public var artistsNowPlayingDest: Destination?
+    @Published public var albumsNowPlayingDest: Destination?
+    @Published public var genresNowPlayingDest: Destination?
+    @Published public var playlistsNowPlayingDest: Destination?
+    @Published public var favoritesNowPlayingDest: Destination?
+    @Published public var searchNowPlayingDest: Destination?
+    @Published public var downloadsNowPlayingDest: Destination?
+    @Published public var settingsNowPlayingDest: Destination?
 
-    /// Which tab's NavigationStack should respond to activeNowPlayingDestination.
-    /// Only that tab's filtered binding returns non-nil, preventing multi-tab pushes.
-    @Published public var activeNowPlayingTab: TabItem?
-
-    /// Creates a per-tab binding that only returns the destination when this tab
-    /// is the intended target. Other tabs see nil and don't push.
-    public func nowPlayingDestinationBinding(for tab: TabItem) -> Binding<Destination?> {
-        Binding(
-            get: { [weak self] in
-                guard let self else { return nil }
-                return self.activeNowPlayingTab == tab ? self.activeNowPlayingDestination : nil
-            },
-            set: { [weak self] newValue in
-                guard let self else { return }
-                self.activeNowPlayingDestination = newValue
-                if newValue == nil {
-                    self.activeNowPlayingTab = nil
-                }
-            }
-        )
+    /// Set the NowPlaying push destination for a specific tab only.
+    public func setNowPlayingDestination(_ dest: Destination, for tab: TabItem) {
+        switch tab {
+        case .home: homeNowPlayingDest = dest
+        case .songs: songsNowPlayingDest = dest
+        case .artists: artistsNowPlayingDest = dest
+        case .albums: albumsNowPlayingDest = dest
+        case .genres: genresNowPlayingDest = dest
+        case .playlists: playlistsNowPlayingDest = dest
+        case .favorites: favoritesNowPlayingDest = dest
+        case .search: searchNowPlayingDest = dest
+        case .downloads: downloadsNowPlayingDest = dest
+        case .settings: settingsNowPlayingDest = dest
+        }
     }
 
     #if DEBUG

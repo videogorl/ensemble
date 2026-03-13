@@ -191,8 +191,7 @@ public struct MainTabView: View {
                         #if DEBUG
                         print("🧭 Triggering item-based navigation: \(pending.destination) on \(pending.tab)")
                         #endif
-                        navigationCoordinator.activeNowPlayingTab = pending.tab
-                        navigationCoordinator.activeNowPlayingDestination = pending.destination
+                        navigationCoordinator.setNowPlayingDestination(pending.destination, for: pending.tab)
                     }
                 }
             }
@@ -358,6 +357,21 @@ public struct MainTabView: View {
         }
     }
 
+    private func nowPlayingBinding(for tab: TabItem) -> Binding<NavigationCoordinator.Destination?> {
+        switch tab {
+        case .home: return $navigationCoordinator.homeNowPlayingDest
+        case .songs: return $navigationCoordinator.songsNowPlayingDest
+        case .artists: return $navigationCoordinator.artistsNowPlayingDest
+        case .albums: return $navigationCoordinator.albumsNowPlayingDest
+        case .genres: return $navigationCoordinator.genresNowPlayingDest
+        case .playlists: return $navigationCoordinator.playlistsNowPlayingDest
+        case .favorites: return $navigationCoordinator.favoritesNowPlayingDest
+        case .search: return $navigationCoordinator.searchNowPlayingDest
+        case .downloads: return $navigationCoordinator.downloadsNowPlayingDest
+        case .settings: return $navigationCoordinator.settingsNowPlayingDest
+        }
+    }
+
     private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
         switch tab {
         case .home: return navigationCoordinator.homePath
@@ -392,11 +406,10 @@ public struct MainTabView: View {
         }
 
         if #available(iOS 17.0, macOS 14.0, *) {
-            // Item-based push for NowPlaying navigation — uses a per-tab binding
-            // so only the target tab's NavigationStack responds (prevents all tabs
-            // pushing simultaneously from a single shared binding).
+            // Item-based push for NowPlaying navigation — each tab has its own
+            // @Published property so the $-binding is directly observable by SwiftUI.
             content
-                .navigationDestination(item: navigationCoordinator.nowPlayingDestinationBinding(for: tab)) { destination in
+                .navigationDestination(item: nowPlayingBinding(for: tab)) { destination in
                     destinationView(for: destination)
                         .auroraBackgroundSupport()
                 }
@@ -568,8 +581,7 @@ public struct SidebarView: View {
                 let targetTab = self.targetTab(for: pending.destination)
                 self.selection = self.sidebarSection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    navigationCoordinator.activeNowPlayingTab = targetTab
-                    navigationCoordinator.activeNowPlayingDestination = pending.destination
+                    navigationCoordinator.setNowPlayingDestination(pending.destination, for: targetTab)
                 }
             }
         }
@@ -726,6 +738,21 @@ public struct SidebarView: View {
         .miniPlayerBottomSpacing(64)
     }
     
+    private func sidebarNowPlayingBinding(for tab: TabItem) -> Binding<NavigationCoordinator.Destination?> {
+        switch tab {
+        case .home: return $navigationCoordinator.homeNowPlayingDest
+        case .songs: return $navigationCoordinator.songsNowPlayingDest
+        case .artists: return $navigationCoordinator.artistsNowPlayingDest
+        case .albums: return $navigationCoordinator.albumsNowPlayingDest
+        case .genres: return $navigationCoordinator.genresNowPlayingDest
+        case .playlists: return $navigationCoordinator.playlistsNowPlayingDest
+        case .favorites: return $navigationCoordinator.favoritesNowPlayingDest
+        case .search: return $navigationCoordinator.searchNowPlayingDest
+        case .downloads: return $navigationCoordinator.downloadsNowPlayingDest
+        case .settings: return $navigationCoordinator.settingsNowPlayingDest
+        }
+    }
+
     /// Sidebar section content with navigation destinations and item-based push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
@@ -736,7 +763,7 @@ public struct SidebarView: View {
 
         if #available(iOS 17.0, macOS 14.0, *) {
             content
-                .navigationDestination(item: navigationCoordinator.nowPlayingDestinationBinding(for: tab)) { destination in
+                .navigationDestination(item: sidebarNowPlayingBinding(for: tab)) { destination in
                     destinationView(for: destination)
                 }
         } else {
