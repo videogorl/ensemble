@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import os
 
 /// Centralized navigation coordinator for handling deep links and cross-tab navigation
 @MainActor
@@ -49,74 +48,6 @@ public final class NavigationCoordinator: ObservableObject {
     
     @Published public var pendingNavigation: PendingNavigation?
 
-    // Per-tab NowPlaying push destinations. Each tab gets its own @Published
-    // property so the modifier can subscribe via onReceive (Combine) which fires
-    // independently of SwiftUI's view re-rendering — working around the iOS 18+
-    // .sidebarAdaptable TabView bug where binding observation is broken.
-    @Published public var homeNowPlayingDest: Destination?
-    @Published public var songsNowPlayingDest: Destination?
-    @Published public var artistsNowPlayingDest: Destination?
-    @Published public var albumsNowPlayingDest: Destination?
-    @Published public var genresNowPlayingDest: Destination?
-    @Published public var playlistsNowPlayingDest: Destination?
-    @Published public var favoritesNowPlayingDest: Destination?
-    @Published public var searchNowPlayingDest: Destination?
-    @Published public var downloadsNowPlayingDest: Destination?
-    @Published public var settingsNowPlayingDest: Destination?
-
-    /// Set the NowPlaying push destination for a specific tab only.
-    public func setNowPlayingDestination(_ dest: Destination, for tab: TabItem) {
-        switch tab {
-        case .home: homeNowPlayingDest = dest
-        case .songs: songsNowPlayingDest = dest
-        case .artists: artistsNowPlayingDest = dest
-        case .albums: albumsNowPlayingDest = dest
-        case .genres: genresNowPlayingDest = dest
-        case .playlists: playlistsNowPlayingDest = dest
-        case .favorites: favoritesNowPlayingDest = dest
-        case .search: searchNowPlayingDest = dest
-        case .downloads: downloadsNowPlayingDest = dest
-        case .settings: settingsNowPlayingDest = dest
-        }
-    }
-
-    /// Clear the NowPlaying push destination after it's been consumed.
-    public func clearNowPlayingDest(for tab: TabItem) {
-        switch tab {
-        case .home: homeNowPlayingDest = nil
-        case .songs: songsNowPlayingDest = nil
-        case .artists: artistsNowPlayingDest = nil
-        case .albums: albumsNowPlayingDest = nil
-        case .genres: genresNowPlayingDest = nil
-        case .playlists: playlistsNowPlayingDest = nil
-        case .favorites: favoritesNowPlayingDest = nil
-        case .search: searchNowPlayingDest = nil
-        case .downloads: downloadsNowPlayingDest = nil
-        case .settings: settingsNowPlayingDest = nil
-        }
-    }
-
-    /// Combine publisher for a specific tab's NowPlaying destination.
-    /// Used by NowPlayingPushModifier to detect changes via onReceive.
-    public func nowPlayingDestPublisher(for tab: TabItem) -> Published<Destination?>.Publisher {
-        switch tab {
-        case .home: return $homeNowPlayingDest
-        case .songs: return $songsNowPlayingDest
-        case .artists: return $artistsNowPlayingDest
-        case .albums: return $albumsNowPlayingDest
-        case .genres: return $genresNowPlayingDest
-        case .playlists: return $playlistsNowPlayingDest
-        case .favorites: return $favoritesNowPlayingDest
-        case .search: return $searchNowPlayingDest
-        case .downloads: return $downloadsNowPlayingDest
-        case .settings: return $settingsNowPlayingDest
-        }
-    }
-
-    #if DEBUG
-    private let logger = Logger(subsystem: "com.ensemble", category: "NavigationCoordinator")
-    #endif
-
     public init() {}
     
     // MARK: - Navigation Methods
@@ -124,16 +55,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// Push a destination onto a specific tab's stack
     public func push(_ destination: Destination, in tab: TabItem) {
         // No-op if already viewing same item as last in stack
-        guard path(for: tab).last != destination else {
-            #if DEBUG
-            logger.debug("🧭 push SKIPPED (duplicate): \(String(describing: destination)) in \(String(describing: tab))")
-            #endif
-            return
-        }
-
-        #if DEBUG
-        logger.debug("🧭 push: \(String(describing: destination)) in \(String(describing: tab)), pathCount before: \(self.path(for: tab).count)")
-        #endif
+        guard path(for: tab).last != destination else { return }
 
         switch tab {
         case .home: homePath.append(destination)
@@ -147,17 +69,10 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.append(destination)
         case .settings: settingsPath.append(destination)
         }
-
-        #if DEBUG
-        logger.debug("🧭 push DONE, pathCount after: \(self.path(for: tab).count)")
-        #endif
     }
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
-        #if DEBUG
-        logger.debug("🧭 popToRoot: \(String(describing: tab)), pathCount was: \(self.path(for: tab).count)")
-        #endif
         switch tab {
         case .home: homePath.removeAll()
         case .songs: songsPath.removeAll()
@@ -180,9 +95,6 @@ public final class NavigationCoordinator: ObservableObject {
         } else {
             targetTab = selectedTab
         }
-        #if DEBUG
-        logger.debug("🧭 navigate(to:): dest=\(String(describing: destination)), selectedTab=\(String(describing: self.selectedTab)), targetTab=\(String(describing: targetTab))")
-        #endif
         selectedTab = targetTab
         push(destination, in: targetTab)
     }

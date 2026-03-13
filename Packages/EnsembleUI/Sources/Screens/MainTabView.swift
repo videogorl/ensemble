@@ -1,10 +1,5 @@
 import EnsembleCore
-import OSLog
 import SwiftUI
-
-private extension Logger {
-    static let navigation = Logger(subsystem: "com.videogorl.ensemble", category: "navigation")
-}
 
 // MARK: - Tab View Factory
 
@@ -197,15 +192,14 @@ public struct MainTabView: View {
                 await libraryVM.refresh()
             }
             .onChange(of: showingNowPlaying) { isShowing in
-                // Execute pending navigation after the sheet dismisses.
-                // Uses activeNowPlayingDestination (item-based push via navigationDestination)
-                // instead of path mutations, which NavigationStack ignores on iOS 18+.
+                // Execute pending navigation after the sheet fully dismisses.
+                // The 0.35s delay lets the NavigationStack settle after the
+                // sheet animation completes so path mutations are not dropped.
                 if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                     navigationCoordinator.pendingNavigation = nil
                     navigationCoordinator.selectedTab = pending.tab
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        Logger.navigation.debug("🧭 Triggering item-based navigation: \(String(describing: pending.destination)) on \(String(describing: pending.tab))")
-                        navigationCoordinator.setNowPlayingDestination(pending.destination, for: pending.tab)
+                        navigationCoordinator.push(pending.destination, in: pending.tab)
                     }
                 }
             }
@@ -294,15 +288,9 @@ public struct MainTabView: View {
     }
     
     private func handleTabTap(_ tag: TabItem) {
-        #if DEBUG
-        print("🧭 handleTabTap called: tag=\(tag), currentTab=\(navigationCoordinator.selectedTab), pathEmpty=\(pathForTab(tag).isEmpty)")
-        #endif
         if navigationCoordinator.selectedTab == tag {
-            // Already on this tab
+            // Already on this tab — pop to root or focus search
             if !pathForTab(tag).isEmpty {
-                #if DEBUG
-                print("🧭 handleTabTap -> popToRoot(\(tag)) — path had \(pathForTab(tag).count) items")
-                #endif
                 navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
                 searchVM.requestFocus()
@@ -391,12 +379,11 @@ public struct MainTabView: View {
         }
     }
 
-    /// Tab content with navigation destinations. Extracted so we can add the
-    /// iOS 17+ `navigationDestination(item:)` behind an availability check.
+    /// Tab content with navigation destinations registered for path-based push.
     @available(iOS 16.0, macOS 13.0, *)
     @ViewBuilder
     private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        let content = TabViewFactory.viewContent(
+        TabViewFactory.viewContent(
             for: tab,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
@@ -407,20 +394,6 @@ public struct MainTabView: View {
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
             destinationView(for: destination)
                 .auroraBackgroundSupport()
-        }
-
-        if #available(iOS 17.0, macOS 14.0, *) {
-            // Uses onReceive (Combine) to detect the @Published change, then copies
-            // to local @State — which navigationDestination(item:) always observes.
-            // This bypasses the iOS 18+ .sidebarAdaptable TabView bug where external
-            // @Published bindings aren't observed by navigationDestination modifiers.
-            content
-                .modifier(NowPlayingPushModifier(tab: tab) { destination in
-                    destinationView(for: destination)
-                        .auroraBackgroundSupport()
-                })
-        } else {
-            content
         }
     }
 
@@ -587,7 +560,7 @@ public struct SidebarView: View {
                 let targetTab = self.targetTab(for: pending.destination)
                 self.selection = self.sidebarSection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    navigationCoordinator.setNowPlayingDestination(pending.destination, for: targetTab)
+                    navigationCoordinator.push(pending.destination, in: targetTab)
                 }
             }
         }
@@ -744,22 +717,13 @@ public struct SidebarView: View {
         .miniPlayerBottomSpacing(64)
     }
     
-    /// Sidebar section content with navigation destinations and NowPlaying push
+    /// Sidebar section content with navigation destinations registered for path-based push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
-        let content = TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+        TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
             .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 destinationView(for: destination)
             }
-
-        if #available(iOS 17.0, macOS 14.0, *) {
-            content
-                .modifier(NowPlayingPushModifier(tab: tab) { destination in
-                    destinationView(for: destination)
-                })
-        } else {
-            content
-        }
     }
 
     @ViewBuilder
@@ -813,38 +777,6 @@ public enum SidebarSection: Hashable {
         case .settings: return .settings
         case .pin: return nil
         }
-    }
-}
-
-// MARK: - NowPlaying Navigation Modifier
-
-/// Bridges the coordinator's per-tab @Published destination into a local @State
-/// that navigationDestination(item:) always observes. Uses onReceive (Combine
-/// subscription) which fires independently of SwiftUI's view re-rendering,
-/// working around the iOS 18+ .sidebarAdaptable TabView bug (FB11710323)
-/// where external @Published bindings aren't observed by navigation modifiers.
-@available(iOS 17.0, macOS 14.0, *)
-struct NowPlayingPushModifier<D: View>: ViewModifier {
-    let tab: TabItem
-    @ViewBuilder let buildDestination: (NavigationCoordinator.Destination) -> D
-
-    @State private var pushedDestination: NavigationCoordinator.Destination?
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(
-                DependencyContainer.shared.navigationCoordinator
-                    .nowPlayingDestPublisher(for: tab)
-            ) { newDest in
-                if let dest = newDest {
-                    Logger.navigation.debug("🧭 NowPlayingPushModifier[\(String(describing: tab))] received: \(String(describing: dest))")
-                    pushedDestination = dest
-                    DependencyContainer.shared.navigationCoordinator.clearNowPlayingDest(for: tab)
-                }
-            }
-            .navigationDestination(item: $pushedDestination) { dest in
-                buildDestination(dest)
-            }
     }
 }
 
