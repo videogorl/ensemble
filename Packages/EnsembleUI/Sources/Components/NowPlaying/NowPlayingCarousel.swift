@@ -33,6 +33,9 @@ public struct NowPlayingCarousel: View {
             let pageWidth = geometry.size.width
 
             ZStack(alignment: .bottom) {
+                // Card strip — leading-aligned so page 0 starts at x=0.
+                // Each card is exactly pageWidth, so offsetting by
+                // -currentPage * pageWidth slides the correct card into view.
                 HStack(spacing: 0) {
                     // Page 0: Queue (swipe left from center)
                     QueueCard(viewModel: viewModel, currentPage: $currentPage)
@@ -51,6 +54,8 @@ public struct NowPlayingCarousel: View {
                         .frame(width: pageWidth)
                 }
                 .offset(x: -CGFloat(currentPage) * pageWidth + dragOffset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
                 .simultaneousGesture(pagingGesture(pageWidth: pageWidth))
 
                 // Fixed page indicator overlay — lyrics icon reflects availability
@@ -62,7 +67,6 @@ public struct NowPlayingCarousel: View {
                 .padding(.bottom, 10)
             }
         }
-        .clipped()
         .onChange(of: currentPage) { newPage in
             handlePageChange(from: previousPage, to: newPage)
             previousPage = newPage
