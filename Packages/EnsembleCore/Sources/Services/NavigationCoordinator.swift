@@ -54,6 +54,28 @@ public final class NavigationCoordinator: ObservableObject {
     /// the user navigates back (two-way binding).
     @Published public var activeNowPlayingDestination: Destination?
 
+    /// Which tab's NavigationStack should respond to activeNowPlayingDestination.
+    /// Only that tab's filtered binding returns non-nil, preventing multi-tab pushes.
+    @Published public var activeNowPlayingTab: TabItem?
+
+    /// Creates a per-tab binding that only returns the destination when this tab
+    /// is the intended target. Other tabs see nil and don't push.
+    public func nowPlayingDestinationBinding(for tab: TabItem) -> Binding<Destination?> {
+        Binding(
+            get: { [weak self] in
+                guard let self else { return nil }
+                return self.activeNowPlayingTab == tab ? self.activeNowPlayingDestination : nil
+            },
+            set: { [weak self] newValue in
+                guard let self else { return }
+                self.activeNowPlayingDestination = newValue
+                if newValue == nil {
+                    self.activeNowPlayingTab = nil
+                }
+            }
+        )
+    }
+
     #if DEBUG
     private let logger = Logger(subsystem: "com.ensemble", category: "NavigationCoordinator")
     #endif

@@ -191,6 +191,7 @@ public struct MainTabView: View {
                         #if DEBUG
                         print("🧭 Triggering item-based navigation: \(pending.destination) on \(pending.tab)")
                         #endif
+                        navigationCoordinator.activeNowPlayingTab = pending.tab
                         navigationCoordinator.activeNowPlayingDestination = pending.destination
                     }
                 }
@@ -391,11 +392,11 @@ public struct MainTabView: View {
         }
 
         if #available(iOS 17.0, macOS 14.0, *) {
-            // Item-based push for NowPlaying navigation — works reliably
-            // because the modifier is inside the NavigationStack (unlike external
-            // path mutations which NavigationStack may ignore on iOS 18+).
+            // Item-based push for NowPlaying navigation — uses a per-tab binding
+            // so only the target tab's NavigationStack responds (prevents all tabs
+            // pushing simultaneously from a single shared binding).
             content
-                .navigationDestination(item: $navigationCoordinator.activeNowPlayingDestination) { destination in
+                .navigationDestination(item: navigationCoordinator.nowPlayingDestinationBinding(for: tab)) { destination in
                     destinationView(for: destination)
                         .auroraBackgroundSupport()
                 }
@@ -564,8 +565,10 @@ public struct SidebarView: View {
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
                 // Switch sidebar to the matching section
+                let targetTab = self.targetTab(for: pending.destination)
                 self.selection = self.sidebarSection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    navigationCoordinator.activeNowPlayingTab = targetTab
                     navigationCoordinator.activeNowPlayingDestination = pending.destination
                 }
             }
@@ -733,7 +736,7 @@ public struct SidebarView: View {
 
         if #available(iOS 17.0, macOS 14.0, *) {
             content
-                .navigationDestination(item: $navigationCoordinator.activeNowPlayingDestination) { destination in
+                .navigationDestination(item: navigationCoordinator.nowPlayingDestinationBinding(for: tab)) { destination in
                     destinationView(for: destination)
                 }
         } else {
