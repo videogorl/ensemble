@@ -31,6 +31,8 @@ public struct ControlsCard: View {
     @State private var lastScrubRate: Double = 1.0
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    @State private var showLoadingIndicator = false
+    @State private var loadingDelayTask: Task<Void, Never>?
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -358,7 +360,7 @@ public struct ControlsCard: View {
             // (e.g. after queue restoration, before server health check completes)
             Button(action: viewModel.togglePlayPause) {
                 ZStack {
-                    if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                    if showLoadingIndicator {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 80))
                             .opacity(0.3)
@@ -374,6 +376,22 @@ public struct ControlsCard: View {
             }
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
+            .onChange(of: viewModel.playbackState) { newState in
+                // Debounce the loading indicator to avoid flicker during fast track skips
+                let isLoading = newState == .loading || newState == .buffering
+                if isLoading {
+                    loadingDelayTask?.cancel()
+                    loadingDelayTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                        guard !Task.isCancelled else { return }
+                        showLoadingIndicator = true
+                    }
+                } else {
+                    loadingDelayTask?.cancel()
+                    loadingDelayTask = nil
+                    showLoadingIndicator = false
+                }
+            }
             
             // Next
             Button(action: viewModel.next) {

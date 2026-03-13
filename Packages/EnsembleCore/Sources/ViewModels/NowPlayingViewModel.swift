@@ -503,12 +503,25 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Artwork Management
 
+    private var currentLoadArtworkPath: String?
+
     private func loadArtworkImage(for track: Track) {
         let trackID = track.id
         guard currentLoadTrackID != trackID else { return }
-        
+
+        // If the new track shares the same artwork path as the current one
+        // (e.g. tracks in the same album), skip the reload entirely
+        let effectiveArtworkPath = track.thumbPath ?? track.fallbackThumbPath
+        if effectiveArtworkPath != nil,
+           effectiveArtworkPath == currentLoadArtworkPath,
+           artworkImage != nil {
+            currentLoadTrackID = trackID
+            return
+        }
+
         artworkLoadTask?.cancel()
         currentLoadTrackID = trackID
+        currentLoadArtworkPath = effectiveArtworkPath
         
         artworkLoadTask = Task { @MainActor in
             // Check if cancelled early

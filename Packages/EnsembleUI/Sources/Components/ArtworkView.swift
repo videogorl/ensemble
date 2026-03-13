@@ -78,11 +78,6 @@ public struct ArtworkView: View {
         .aspectRatio(1, contentMode: .fill)
         .frame(maxWidth: size.cgSize.width, maxHeight: size.cgSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .id(loadID)  // Force view recreation only when artwork actually changes
-        .onChange(of: loadID) { _ in
-            // Clear artwork URL immediately when track changes to prevent stale display
-            artworkURL = nil
-        }
         .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
         }
