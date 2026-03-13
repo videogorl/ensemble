@@ -22,6 +22,7 @@ public struct ControlsCard: View {
     // Long-press seek state
     @State private var isSeekingForward = false
     @State private var isSeekingBackward = false
+    @State private var wasSeeking = false
     
     // Custom slider state
     @State private var isDraggingSlider = false
@@ -353,25 +354,25 @@ public struct ControlsCard: View {
     private var controlsView: some View {
         HStack(spacing: 50) {
             // Previous / Seek Backward
-            // Uses tap + long-press (not DragGesture) so horizontal swipes
-            // pass through to the TabView card pager instead of triggering
-            // the button.
-            ZStack {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 32))
+            // Uses Button (not DragGesture/onTapGesture) so horizontal swipes
+            // pass through to the TabView card pager. Button has built-in
+            // scroll-gesture cooperation that onTapGesture lacks.
+            Button {
+                if !wasSeeking { viewModel.previous() }
+            } label: {
+                ZStack {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 32))
 
-                if isSeekingBackward {
-                    Image(systemName: "chevron.left.2")
-                        .font(.system(size: 16))
-                        .offset(y: -28)
+                    if isSeekingBackward {
+                        Image(systemName: "chevron.left.2")
+                            .font(.system(size: 16))
+                            .offset(y: -28)
+                    }
                 }
+                .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
             }
-            .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                viewModel.previous()
-            }
-            .gesture(seekGesture(forward: false))
+            .simultaneousGesture(seekGesture(forward: false))
 
             // Play/Pause — disabled when track isn't yet confirmed playable
             // (e.g. after queue restoration, before server health check completes)
@@ -395,22 +396,22 @@ public struct ControlsCard: View {
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
             
             // Next / Seek Forward
-            ZStack {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 32))
+            Button {
+                if !wasSeeking { viewModel.next() }
+            } label: {
+                ZStack {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 32))
 
-                if isSeekingForward {
-                    Image(systemName: "chevron.right.2")
-                        .font(.system(size: 16))
-                        .offset(y: -28)
+                    if isSeekingForward {
+                        Image(systemName: "chevron.right.2")
+                            .font(.system(size: 16))
+                            .offset(y: -28)
+                    }
                 }
+                .scaleEffect(isSeekingForward ? 1.1 : 1.0)
             }
-            .scaleEffect(isSeekingForward ? 1.1 : 1.0)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                viewModel.next()
-            }
-            .gesture(seekGesture(forward: true))
+            .simultaneousGesture(seekGesture(forward: true))
         }
         .foregroundColor(.primary)
         // Removed shadow on controls
@@ -591,6 +592,10 @@ public struct ControlsCard: View {
         viewModel.stopFastSeeking()
         isSeekingForward = false
         isSeekingBackward = false
+        // Prevent the Button tap action from firing on the same runloop
+        // tick as the seek gesture's onEnded (both respond to touch-up).
+        wasSeeking = true
+        DispatchQueue.main.async { wasSeeking = false }
     }
     
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
