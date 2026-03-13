@@ -49,6 +49,11 @@ public final class NavigationCoordinator: ObservableObject {
     
     @Published public var pendingNavigation: PendingNavigation?
 
+    /// Destination to push via navigationDestination(item:) after NowPlaying dismisses.
+    /// Set by the onChange handler in MainTabView/SidebarView; cleared by SwiftUI when
+    /// the user navigates back (two-way binding).
+    @Published public var activeNowPlayingDestination: Destination?
+
     #if DEBUG
     private let logger = Logger(subsystem: "com.ensemble", category: "NavigationCoordinator")
     #endif

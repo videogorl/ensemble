@@ -181,17 +181,17 @@ public struct MainTabView: View {
                 await libraryVM.refresh()
             }
             .onChange(of: showingNowPlaying) { isShowing in
-                // Execute pending navigation AFTER the sheet fully dismisses.
-                // A delay is required because NavigationStack ignores path mutations
-                // while a sheet dismiss animation is still in flight (SwiftUI race condition).
+                // Execute pending navigation after the sheet dismisses.
+                // Uses activeNowPlayingDestination (item-based push via navigationDestination)
+                // instead of path mutations, which NavigationStack ignores on iOS 18+.
                 if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                     navigationCoordinator.pendingNavigation = nil
+                    navigationCoordinator.selectedTab = pending.tab
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         #if DEBUG
-                        print("🧭 Executing deferred navigation: \(pending.destination) on \(pending.tab)")
+                        print("🧭 Triggering item-based navigation: \(pending.destination) on \(pending.tab)")
                         #endif
-                        navigationCoordinator.selectedTab = pending.tab
-                        navigationCoordinator.push(pending.destination, in: pending.tab)
+                        navigationCoordinator.activeNowPlayingDestination = pending.destination
                     }
                 }
             }
@@ -302,18 +302,7 @@ public struct MainTabView: View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
                 NavigationStack(path: pathBinding(for: tab)) {
-                    TabViewFactory.viewContent(
-                        for: tab,
-                        libraryVM: libraryVM,
-                        nowPlayingVM: nowPlayingVM,
-                        searchVM: searchVM,
-                        isMoreRoot: isMoreRoot
-                    )
-                    .auroraBackgroundSupport()
-                    .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                        destinationView(for: destination)
-                            .auroraBackgroundSupport()
-                    }
+                    tabContentView(for: tab, isMoreRoot: isMoreRoot)
                 }
             } else {
                 NavigationView {
@@ -380,6 +369,38 @@ public struct MainTabView: View {
         case .search: return navigationCoordinator.searchPath
         case .downloads: return navigationCoordinator.downloadsPath
         case .settings: return navigationCoordinator.settingsPath
+        }
+    }
+
+    /// Tab content with navigation destinations. Extracted so we can add the
+    /// iOS 17+ `navigationDestination(item:)` behind an availability check.
+    @available(iOS 16.0, macOS 13.0, *)
+    @ViewBuilder
+    private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
+        let content = TabViewFactory.viewContent(
+            for: tab,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM,
+            isMoreRoot: isMoreRoot
+        )
+        .auroraBackgroundSupport()
+        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+            destinationView(for: destination)
+                .auroraBackgroundSupport()
+        }
+
+        if #available(iOS 17.0, macOS 14.0, *) {
+            // Item-based push for NowPlaying navigation — works reliably
+            // because the modifier is inside the NavigationStack (unlike external
+            // path mutations which NavigationStack may ignore on iOS 18+).
+            content
+                .navigationDestination(item: $navigationCoordinator.activeNowPlayingDestination) { destination in
+                    destinationView(for: destination)
+                        .auroraBackgroundSupport()
+                }
+        } else {
+            content
         }
     }
 
@@ -540,14 +561,12 @@ public struct SidebarView: View {
         }
         .onChange(of: showingNowPlaying) { isShowing in
             // Execute pending navigation after sheet fully dismisses.
-            // Delay lets NavigationStack settle after dismiss animation.
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
                 navigationCoordinator.pendingNavigation = nil
+                // Switch sidebar to the matching section
+                self.selection = self.sidebarSection(for: pending.destination)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    // Switch sidebar to the matching section and push
-                    let targetTab = self.targetTab(for: pending.destination)
-                    self.selection = self.sidebarSection(for: pending.destination)
-                    navigationCoordinator.push(pending.destination, in: targetTab)
+                    navigationCoordinator.activeNowPlayingDestination = pending.destination
                 }
             }
         }
@@ -633,10 +652,7 @@ public struct SidebarView: View {
             switch selection {
             case .home:
                 NavigationStack(path: $navigationCoordinator.homePath) {
-                    TabViewFactory.viewContent(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .home)
                 }
             case .songs:
                 NavigationStack {
@@ -644,17 +660,11 @@ public struct SidebarView: View {
                 }
             case .artists:
                 NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    TabViewFactory.viewContent(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .artists)
                 }
             case .albums:
                 NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    TabViewFactory.viewContent(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .albums)
                 }
             case .genres:
                 NavigationStack {
@@ -662,10 +672,7 @@ public struct SidebarView: View {
                 }
             case .playlists:
                 NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    TabViewFactory.viewContent(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .playlists)
                 }
             case .favorites:
                 NavigationStack {
@@ -673,10 +680,7 @@ public struct SidebarView: View {
                 }
             case .search:
                 NavigationStack(path: $navigationCoordinator.searchPath) {
-                    TabViewFactory.viewContent(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .search)
                 }
             case .downloads:
                 NavigationStack {
@@ -719,6 +723,24 @@ public struct SidebarView: View {
         .miniPlayerBottomSpacing(64)
     }
     
+    /// Sidebar section content with navigation destinations and item-based push
+    @ViewBuilder
+    private func sidebarContentView(for tab: TabItem) -> some View {
+        let content = TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                destinationView(for: destination)
+            }
+
+        if #available(iOS 17.0, macOS 14.0, *) {
+            content
+                .navigationDestination(item: $navigationCoordinator.activeNowPlayingDestination) { destination in
+                    destinationView(for: destination)
+                }
+        } else {
+            content
+        }
+    }
+
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
