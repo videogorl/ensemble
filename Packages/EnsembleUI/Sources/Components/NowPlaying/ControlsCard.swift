@@ -19,11 +19,6 @@ public struct ControlsCard: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.dismiss) private var dismiss
     
-    // Long-press seek state
-    @State private var isSeekingForward = false
-    @State private var isSeekingBackward = false
-    @State private var wasSeeking = false
-    
     // Custom slider state
     @State private var isDraggingSlider = false
     @State private var dragStartY: CGFloat = 0
@@ -353,26 +348,11 @@ public struct ControlsCard: View {
     
     private var controlsView: some View {
         HStack(spacing: 50) {
-            // Previous / Seek Backward
-            // Uses Button (not DragGesture/onTapGesture) so horizontal swipes
-            // pass through to the TabView card pager. Button has built-in
-            // scroll-gesture cooperation that onTapGesture lacks.
-            Button {
-                if !wasSeeking { viewModel.previous() }
-            } label: {
-                ZStack {
-                    Image(systemName: "backward.fill")
-                        .font(.system(size: 32))
-
-                    if isSeekingBackward {
-                        Image(systemName: "chevron.left.2")
-                            .font(.system(size: 16))
-                            .offset(y: -28)
-                    }
-                }
-                .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
+            // Previous
+            Button(action: viewModel.previous) {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 32))
             }
-            .simultaneousGesture(seekGesture(forward: false))
 
             // Play/Pause — disabled when track isn't yet confirmed playable
             // (e.g. after queue restoration, before server health check completes)
@@ -395,23 +375,11 @@ public struct ControlsCard: View {
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
             
-            // Next / Seek Forward
-            Button {
-                if !wasSeeking { viewModel.next() }
-            } label: {
-                ZStack {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 32))
-
-                    if isSeekingForward {
-                        Image(systemName: "chevron.right.2")
-                            .font(.system(size: 16))
-                            .offset(y: -28)
-                    }
-                }
-                .scaleEffect(isSeekingForward ? 1.1 : 1.0)
+            // Next
+            Button(action: viewModel.next) {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 32))
             }
-            .simultaneousGesture(seekGesture(forward: true))
         }
         .foregroundColor(.primary)
         // Removed shadow on controls
@@ -551,51 +519,6 @@ public struct ControlsCard: View {
             return
         }
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
-    }
-    
-    /// Long-press gesture for seek (fast-forward / rewind).
-    /// Uses LongPressGesture so horizontal swipes pass through to the
-    /// TabView card pager. The sequenced DragGesture detects finger lift
-    /// to stop seeking.
-    private func seekGesture(forward: Bool) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                switch value {
-                case .second(true, _):
-                    // Long press succeeded — start seeking if not already
-                    if forward && !isSeekingForward {
-                        startSeeking(forward: true)
-                    } else if !forward && !isSeekingBackward {
-                        startSeeking(forward: false)
-                    }
-                default:
-                    break
-                }
-            }
-            .onEnded { _ in
-                stopSeeking()
-            }
-    }
-
-    private func startSeeking(forward: Bool) {
-        if forward {
-            isSeekingForward = true
-        } else {
-            isSeekingBackward = true
-        }
-        // Use rate-based scrubbing for audible feedback
-        viewModel.startFastSeeking(forward: forward)
-    }
-
-    private func stopSeeking() {
-        viewModel.stopFastSeeking()
-        isSeekingForward = false
-        isSeekingBackward = false
-        // Prevent the Button tap action from firing on the same runloop
-        // tick as the seek gesture's onEnded (both respond to touch-up).
-        wasSeeking = true
-        DispatchQueue.main.async { wasSeeking = false }
     }
     
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
