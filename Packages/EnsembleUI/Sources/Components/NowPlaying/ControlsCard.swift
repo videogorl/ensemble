@@ -20,7 +20,6 @@ public struct ControlsCard: View {
     @Environment(\.dismiss) private var dismiss
     
     // Long-press seek state
-    @State private var seekWorkItem: DispatchWorkItem?
     @State private var isSeekingForward = false
     @State private var isSeekingBackward = false
     
@@ -354,10 +353,13 @@ public struct ControlsCard: View {
     private var controlsView: some View {
         HStack(spacing: 50) {
             // Previous / Seek Backward
+            // Uses tap + long-press (not DragGesture) so horizontal swipes
+            // pass through to the TabView card pager instead of triggering
+            // the button.
             ZStack {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 32))
-                
+
                 if isSeekingBackward {
                     Image(systemName: "chevron.left.2")
                         .font(.system(size: 16))
@@ -365,30 +367,11 @@ public struct ControlsCard: View {
                 }
             }
             .scaleEffect(isSeekingBackward ? 1.1 : 1.0)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isSeekingBackward && seekWorkItem == nil {
-                            let item = DispatchWorkItem {
-                                if !isSeekingBackward {
-                                    startSeeking(forward: false)
-                                }
-                            }
-                            seekWorkItem = item
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
-                        }
-                    }
-                    .onEnded { _ in
-                        seekWorkItem?.cancel()
-                        seekWorkItem = nil
-
-                        if isSeekingBackward {
-                            stopSeeking()
-                        } else {
-                            viewModel.previous()
-                        }
-                    }
-            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                viewModel.previous()
+            }
+            .gesture(seekGesture(forward: false))
 
             // Play/Pause — disabled when track isn't yet confirmed playable
             // (e.g. after queue restoration, before server health check completes)
@@ -415,7 +398,7 @@ public struct ControlsCard: View {
             ZStack {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 32))
-                
+
                 if isSeekingForward {
                     Image(systemName: "chevron.right.2")
                         .font(.system(size: 16))
@@ -423,30 +406,11 @@ public struct ControlsCard: View {
                 }
             }
             .scaleEffect(isSeekingForward ? 1.1 : 1.0)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isSeekingForward && seekWorkItem == nil {
-                            let item = DispatchWorkItem {
-                                if !isSeekingForward {
-                                    startSeeking(forward: true)
-                                }
-                            }
-                            seekWorkItem = item
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
-                        }
-                    }
-                    .onEnded { _ in
-                        seekWorkItem?.cancel()
-                        seekWorkItem = nil
-
-                        if isSeekingForward {
-                            stopSeeking()
-                        } else {
-                            viewModel.next()
-                        }
-                    }
-            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                viewModel.next()
+            }
+            .gesture(seekGesture(forward: true))
         }
         .foregroundColor(.primary)
         // Removed shadow on controls
@@ -588,6 +552,31 @@ public struct ControlsCard: View {
         playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: title)
     }
     
+    /// Long-press gesture for seek (fast-forward / rewind).
+    /// Uses LongPressGesture so horizontal swipes pass through to the
+    /// TabView card pager. The sequenced DragGesture detects finger lift
+    /// to stop seeking.
+    private func seekGesture(forward: Bool) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .second(true, _):
+                    // Long press succeeded — start seeking if not already
+                    if forward && !isSeekingForward {
+                        startSeeking(forward: true)
+                    } else if !forward && !isSeekingBackward {
+                        startSeeking(forward: false)
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                stopSeeking()
+            }
+    }
+
     private func startSeeking(forward: Bool) {
         if forward {
             isSeekingForward = true
