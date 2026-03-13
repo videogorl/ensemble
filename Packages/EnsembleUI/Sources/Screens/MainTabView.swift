@@ -123,7 +123,7 @@ public struct MainTabView: View {
                         },
                         isHidden: isImmersiveMode
                     )
-                    .tabViewStyle(sidebarAdaptableIfAvailable())
+                    .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
                 }
                 // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
                 // so content scrolls behind the tab bar with proper mini player clearance.
@@ -258,13 +258,18 @@ public struct MainTabView: View {
         #endif
     }
     
-    private func sidebarAdaptableIfAvailable() -> some TabViewStyle {
+    /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
+    /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
+    /// NavigationStack doesn't observe programmatic state changes until
+    /// a tab switch occurs. It gives the same visual tab bar as .automatic
+    /// on iPhone, so there's no downside to skipping it there.
+    private var useSidebarAdaptable: Bool {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            return .sidebarAdaptable
+            return UIDevice.current.userInterfaceIdiom == .pad
         }
         #endif
-        return .automatic
+        return false
     }
     
     private var tabBinding: Binding<TabItem> {
@@ -828,5 +833,29 @@ struct NowPlayingPushModifier<D: View>: ViewModifier {
             .navigationDestination(item: $pushedDestination) { dest in
                 buildDestination(dest)
             }
+    }
+}
+
+// MARK: - TabView Style Helper
+
+extension View {
+    /// Apply .sidebarAdaptable or .automatic TabView style.
+    /// Needed because different styles are different types and can't be
+    /// returned from a single `some TabViewStyle` function.
+    @ViewBuilder
+    func applyTabViewStyle(sidebarAdaptable: Bool) -> some View {
+        #if os(iOS)
+        if sidebarAdaptable {
+            if #available(iOS 18.0, *) {
+                self.tabViewStyle(.sidebarAdaptable)
+            } else {
+                self.tabViewStyle(.automatic)
+            }
+        } else {
+            self.tabViewStyle(.automatic)
+        }
+        #else
+        self.tabViewStyle(.automatic)
+        #endif
     }
 }
