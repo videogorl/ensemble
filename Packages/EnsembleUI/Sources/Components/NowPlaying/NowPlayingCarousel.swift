@@ -55,6 +55,9 @@ public struct NowPlayingCarousel: View {
                 }
                 .offset(x: -CGFloat(currentPage) * pageWidth + dragOffset)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Make the entire strip hit-testable so drags on empty
+                // areas (backgrounds, spacing) register the paging gesture
+                .contentShape(Rectangle())
                 .clipped()
                 .simultaneousGesture(pagingGesture(pageWidth: pageWidth))
 
