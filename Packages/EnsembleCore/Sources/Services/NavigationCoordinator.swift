@@ -50,9 +50,9 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var pendingNavigation: PendingNavigation?
 
     // Per-tab NowPlaying push destinations. Each tab gets its own @Published
-    // property so navigationDestination(item:) receives a real $-binding that
-    // SwiftUI can observe directly — custom Binding(get:set:) closures aren't
-    // monitored by .sidebarAdaptable TabView on iOS 18+.
+    // property so the modifier can subscribe via onReceive (Combine) which fires
+    // independently of SwiftUI's view re-rendering — working around the iOS 18+
+    // .sidebarAdaptable TabView bug where binding observation is broken.
     @Published public var homeNowPlayingDest: Destination?
     @Published public var songsNowPlayingDest: Destination?
     @Published public var artistsNowPlayingDest: Destination?
@@ -77,6 +77,39 @@ public final class NavigationCoordinator: ObservableObject {
         case .search: searchNowPlayingDest = dest
         case .downloads: downloadsNowPlayingDest = dest
         case .settings: settingsNowPlayingDest = dest
+        }
+    }
+
+    /// Clear the NowPlaying push destination after it's been consumed.
+    public func clearNowPlayingDest(for tab: TabItem) {
+        switch tab {
+        case .home: homeNowPlayingDest = nil
+        case .songs: songsNowPlayingDest = nil
+        case .artists: artistsNowPlayingDest = nil
+        case .albums: albumsNowPlayingDest = nil
+        case .genres: genresNowPlayingDest = nil
+        case .playlists: playlistsNowPlayingDest = nil
+        case .favorites: favoritesNowPlayingDest = nil
+        case .search: searchNowPlayingDest = nil
+        case .downloads: downloadsNowPlayingDest = nil
+        case .settings: settingsNowPlayingDest = nil
+        }
+    }
+
+    /// Combine publisher for a specific tab's NowPlaying destination.
+    /// Used by NowPlayingPushModifier to detect changes via onReceive.
+    public func nowPlayingDestPublisher(for tab: TabItem) -> Published<Destination?>.Publisher {
+        switch tab {
+        case .home: return $homeNowPlayingDest
+        case .songs: return $songsNowPlayingDest
+        case .artists: return $artistsNowPlayingDest
+        case .albums: return $albumsNowPlayingDest
+        case .genres: return $genresNowPlayingDest
+        case .playlists: return $playlistsNowPlayingDest
+        case .favorites: return $favoritesNowPlayingDest
+        case .search: return $searchNowPlayingDest
+        case .downloads: return $downloadsNowPlayingDest
+        case .settings: return $settingsNowPlayingDest
         }
     }
 

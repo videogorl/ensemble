@@ -357,21 +357,6 @@ public struct MainTabView: View {
         }
     }
 
-    private func nowPlayingBinding(for tab: TabItem) -> Binding<NavigationCoordinator.Destination?> {
-        switch tab {
-        case .home: return $navigationCoordinator.homeNowPlayingDest
-        case .songs: return $navigationCoordinator.songsNowPlayingDest
-        case .artists: return $navigationCoordinator.artistsNowPlayingDest
-        case .albums: return $navigationCoordinator.albumsNowPlayingDest
-        case .genres: return $navigationCoordinator.genresNowPlayingDest
-        case .playlists: return $navigationCoordinator.playlistsNowPlayingDest
-        case .favorites: return $navigationCoordinator.favoritesNowPlayingDest
-        case .search: return $navigationCoordinator.searchNowPlayingDest
-        case .downloads: return $navigationCoordinator.downloadsNowPlayingDest
-        case .settings: return $navigationCoordinator.settingsNowPlayingDest
-        }
-    }
-
     private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
         switch tab {
         case .home: return navigationCoordinator.homePath
@@ -406,13 +391,15 @@ public struct MainTabView: View {
         }
 
         if #available(iOS 17.0, macOS 14.0, *) {
-            // Item-based push for NowPlaying navigation — each tab has its own
-            // @Published property so the $-binding is directly observable by SwiftUI.
+            // Uses onReceive (Combine) to detect the @Published change, then copies
+            // to local @State — which navigationDestination(item:) always observes.
+            // This bypasses the iOS 18+ .sidebarAdaptable TabView bug where external
+            // @Published bindings aren't observed by navigationDestination modifiers.
             content
-                .navigationDestination(item: nowPlayingBinding(for: tab)) { destination in
+                .modifier(NowPlayingPushModifier(tab: tab) { destination in
                     destinationView(for: destination)
                         .auroraBackgroundSupport()
-                }
+                })
         } else {
             content
         }
@@ -738,22 +725,7 @@ public struct SidebarView: View {
         .miniPlayerBottomSpacing(64)
     }
     
-    private func sidebarNowPlayingBinding(for tab: TabItem) -> Binding<NavigationCoordinator.Destination?> {
-        switch tab {
-        case .home: return $navigationCoordinator.homeNowPlayingDest
-        case .songs: return $navigationCoordinator.songsNowPlayingDest
-        case .artists: return $navigationCoordinator.artistsNowPlayingDest
-        case .albums: return $navigationCoordinator.albumsNowPlayingDest
-        case .genres: return $navigationCoordinator.genresNowPlayingDest
-        case .playlists: return $navigationCoordinator.playlistsNowPlayingDest
-        case .favorites: return $navigationCoordinator.favoritesNowPlayingDest
-        case .search: return $navigationCoordinator.searchNowPlayingDest
-        case .downloads: return $navigationCoordinator.downloadsNowPlayingDest
-        case .settings: return $navigationCoordinator.settingsNowPlayingDest
-        }
-    }
-
-    /// Sidebar section content with navigation destinations and item-based push
+    /// Sidebar section content with navigation destinations and NowPlaying push
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
         let content = TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
@@ -763,9 +735,9 @@ public struct SidebarView: View {
 
         if #available(iOS 17.0, macOS 14.0, *) {
             content
-                .navigationDestination(item: sidebarNowPlayingBinding(for: tab)) { destination in
+                .modifier(NowPlayingPushModifier(tab: tab) { destination in
                     destinationView(for: destination)
-                }
+                })
         } else {
             content
         }
@@ -822,5 +794,39 @@ public enum SidebarSection: Hashable {
         case .settings: return .settings
         case .pin: return nil
         }
+    }
+}
+
+// MARK: - NowPlaying Navigation Modifier
+
+/// Bridges the coordinator's per-tab @Published destination into a local @State
+/// that navigationDestination(item:) always observes. Uses onReceive (Combine
+/// subscription) which fires independently of SwiftUI's view re-rendering,
+/// working around the iOS 18+ .sidebarAdaptable TabView bug (FB11710323)
+/// where external @Published bindings aren't observed by navigation modifiers.
+@available(iOS 17.0, macOS 14.0, *)
+struct NowPlayingPushModifier<D: View>: ViewModifier {
+    let tab: TabItem
+    @ViewBuilder let buildDestination: (NavigationCoordinator.Destination) -> D
+
+    @State private var pushedDestination: NavigationCoordinator.Destination?
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(
+                DependencyContainer.shared.navigationCoordinator
+                    .nowPlayingDestPublisher(for: tab)
+            ) { newDest in
+                if let dest = newDest {
+                    #if DEBUG
+                    print("🧭 NowPlayingPushModifier[\(tab)] received: \(dest)")
+                    #endif
+                    pushedDestination = dest
+                    DependencyContainer.shared.navigationCoordinator.clearNowPlayingDest(for: tab)
+                }
+            }
+            .navigationDestination(item: $pushedDestination) { dest in
+                buildDestination(dest)
+            }
     }
 }
