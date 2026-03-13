@@ -183,6 +183,17 @@ public struct MainTabView: View {
                 }
             }
             .task {
+                // Sync selectedTab with the actual first visible tab on launch.
+                // selectedTab defaults to .home, but the user may have reordered
+                // tabs so .home isn't in the bar — causing navigateFromNowPlaying
+                // to target the wrong tab until a manual tab switch.
+                if !didSetInitialTab {
+                    didSetInitialTab = true
+                    let firstTab = barTabs.first ?? .home
+                    if navigationCoordinator.selectedTab != firstTab {
+                        navigationCoordinator.selectedTab = firstTab
+                    }
+                }
                 await libraryVM.refresh()
             }
             .onChange(of: showingNowPlaying) { isShowing in
