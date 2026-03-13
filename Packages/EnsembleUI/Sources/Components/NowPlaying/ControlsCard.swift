@@ -33,6 +33,8 @@ public struct ControlsCard: View {
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
     @State private var loadingDelayTask: Task<Void, Never>?
+    // Hold the last settled play/pause icon during skip transitions
+    @State private var wasPlayingBeforeTransition = false
     
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -369,7 +371,11 @@ public struct ControlsCard: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .primary))
                             .scaleEffect(1.5)
                     } else {
-                        Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        // During loading/buffering, hold the last settled icon to prevent
+                        // the pause→play flicker when skipping tracks
+                        let showPause = viewModel.isPlaying ||
+                            ((viewModel.playbackState == .loading || viewModel.playbackState == .buffering) && wasPlayingBeforeTransition)
+                        Image(systemName: showPause ? "pause.circle.fill" : "play.circle.fill")
                             .font(.system(size: 80))
                     }
                 }
@@ -377,9 +383,9 @@ public struct ControlsCard: View {
             .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
             .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
             .onChange(of: viewModel.playbackState) { newState in
-                // Debounce the loading indicator to avoid flicker during fast track skips
                 let isLoading = newState == .loading || newState == .buffering
                 if isLoading {
+                    // Debounce the loading indicator to avoid flicker during fast track skips
                     loadingDelayTask?.cancel()
                     loadingDelayTask = Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
@@ -390,6 +396,8 @@ public struct ControlsCard: View {
                     loadingDelayTask?.cancel()
                     loadingDelayTask = nil
                     showLoadingIndicator = false
+                    // Track the settled play/pause state for next transition
+                    wasPlayingBeforeTransition = (newState == .playing)
                 }
             }
             

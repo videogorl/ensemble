@@ -14,6 +14,9 @@ public struct ArtworkView: View {
 
     @Environment(\.dependencies) private var dependencies
     @State private var artworkURL: URL?
+    /// Snapshot of the last successfully loaded image, shown during URL transitions
+    /// to prevent placeholder flash when switching albums
+    @State private var previousImage: Image?
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
     
@@ -57,9 +60,19 @@ public struct ArtworkView: View {
         LazyImage(url: artworkURL) { state in
             ZStack {
                 Color.gray.opacity(0.2)
-                
+
                 if let image = state.image {
                     image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .onAppear {
+                            // Capture successful loads so we can show them during transitions
+                            previousImage = state.image
+                        }
+                } else if let previous = previousImage {
+                    // Show the last loaded image during URL transitions to avoid
+                    // placeholder flash when switching between albums
+                    previous
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else if state.error != nil {
