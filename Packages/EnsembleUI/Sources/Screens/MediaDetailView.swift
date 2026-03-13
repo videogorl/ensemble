@@ -488,8 +488,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea()
 
             #if os(iOS)
-            tracksSection
+            // Loading/empty states use pure SwiftUI (not the UIKit table) to
+            // avoid UIHostingController tableHeaderView refresh issues.
+            if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        headerView
+                        actionButtons
+                        ProgressView()
+                            .padding(.top, 40)
+                    }
+                }
                 .ignoresSafeArea(.container, edges: .top)
+            } else if viewModel.filteredTracks.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        headerView
+                        actionButtons
+                        Text("No tracks")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    }
+                }
+                .ignoresSafeArea(.container, edges: .top)
+            } else {
+                tracksSection
+                    .ignoresSafeArea(.container, edges: .top)
+            }
             #else
             ScrollView {
                 VStack(spacing: 0) {
@@ -853,21 +878,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
     /// Scrolls with the track list while preserving cell recycling.
+    /// IMPORTANT: Keep this static (no conditionals that change after load).
+    /// UIHostingController embedded as tableHeaderView doesn't reliably
+    /// process rootView updates, so dynamic content gets stuck.
     private var tableHeaderForTrackList: some View {
         VStack(spacing: 0) {
             headerView
             actionButtons
-
-            if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                ProgressView()
-                    .padding(.top, 40)
-                    .padding(.bottom, 40)
-            } else if viewModel.filteredTracks.isEmpty {
-                Text("No tracks")
-                    .foregroundColor(.secondary)
-                    .padding(.top, 40)
-                    .padding(.bottom, 40)
-            }
         }
     }
 }
