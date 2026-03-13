@@ -180,6 +180,21 @@ public struct MainTabView: View {
             .task {
                 await libraryVM.refresh()
             }
+            .onChange(of: showingNowPlaying) { isShowing in
+                // Execute pending navigation AFTER the sheet fully dismisses.
+                // A delay is required because NavigationStack ignores path mutations
+                // while a sheet dismiss animation is still in flight (SwiftUI race condition).
+                if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                    navigationCoordinator.pendingNavigation = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        #if DEBUG
+                        print("🧭 Executing deferred navigation: \(pending.destination) on \(pending.tab)")
+                        #endif
+                        navigationCoordinator.selectedTab = pending.tab
+                        navigationCoordinator.push(pending.destination, in: pending.tab)
+                    }
+                }
+            }
             .sheet(isPresented: $showingNowPlaying) {
                 NowPlayingSheetView(
                     viewModel: nowPlayingVM,
@@ -523,6 +538,19 @@ public struct SidebarView: View {
             }
 
         }
+        .onChange(of: showingNowPlaying) { isShowing in
+            // Execute pending navigation after sheet fully dismisses.
+            // Delay lets NavigationStack settle after dismiss animation.
+            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                navigationCoordinator.pendingNavigation = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    // Switch sidebar to the matching section and push
+                    let targetTab = self.targetTab(for: pending.destination)
+                    self.selection = self.sidebarSection(for: pending.destination)
+                    navigationCoordinator.push(pending.destination, in: targetTab)
+                }
+            }
+        }
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingSheetView(
                 viewModel: nowPlayingVM,
@@ -561,6 +589,40 @@ public struct SidebarView: View {
         case .album: return "square.stack"
         case .artist: return "music.mic"
         case .playlist: return "music.note.list"
+        }
+    }
+
+    /// Map a navigation destination to the sidebar section that should be selected
+    private func sidebarSection(for destination: NavigationCoordinator.Destination) -> SidebarSection {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab):
+            switch tab {
+            case .home: return .home
+            case .songs: return .songs
+            case .artists: return .artists
+            case .albums: return .albums
+            case .genres: return .genres
+            case .playlists: return .playlists
+            case .favorites: return .favorites
+            case .search: return .search
+            case .downloads: return .downloads
+            case .settings: return .settings
+            }
+        }
+    }
+
+    /// Map a navigation destination to the tab whose NavigationStack should receive the push
+    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab): return tab
         }
     }
 

@@ -546,19 +546,19 @@ public struct ControlsCard: View {
     
     // MARK: - Helper Methods
     
-    /// Navigate to artist detail — push immediately while sheet is still showing,
-    /// then dismiss. The NavigationStack processes the path change behind the sheet.
+    /// Navigate to artist detail — store intent, then dismiss.
+    /// MainTabView/SidebarView executes the push after sheet fully dismisses.
     private func handleArtistTap(track: Track) {
         if let artistId = track.artistRatingKey {
-            deps.navigationCoordinator.navigate(to: .artist(id: artistId))
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
             dismiss()
         }
     }
 
-    /// Navigate to album detail — push immediately, then dismiss
+    /// Navigate to album detail — store intent, then dismiss
     private func handleAlbumTap(track: Track) {
         if let albumId = track.albumRatingKey {
-            deps.navigationCoordinator.navigate(to: .album(id: albumId))
+            deps.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
             dismiss()
         }
     }

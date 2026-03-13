@@ -190,13 +190,13 @@ public struct QueueCard: View {
                     },
                     onGoToAlbum: { track in
                         if let albumId = track.albumRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .album(id: albumId))
+                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .album(id: albumId))
                             dismiss()
                         }
                     },
                     onGoToArtist: { track in
                         if let artistId = track.artistRatingKey {
-                            DependencyContainer.shared.navigationCoordinator.navigate(to: .artist(id: artistId))
+                            DependencyContainer.shared.navigationCoordinator.navigateFromNowPlaying(to: .artist(id: artistId))
                             dismiss()
                         }
                     },
