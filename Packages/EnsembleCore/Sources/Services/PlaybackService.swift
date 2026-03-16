@@ -1013,6 +1013,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         self.hasScrobbled = false
                         self.hasLoggedDurationOverrun = false
 
+                        // Reset unexpected-pause loop detection for the new track.
+                        // The non-gapless path resets these in loadAndPlay(), but gapless
+                        // transitions bypass loadAndPlay() entirely — stale counts from
+                        // the previous track can trigger the backoff at item boundaries.
+                        self.unexpectedPauseCount = 0
+                        self.lastUnexpectedPauseAt = nil
+
                         // Reset wall-clock duration tracking for new track
                         self.seekCompletedAt = nil
                         self.remainingDurationAtSeek = nil
@@ -4181,7 +4188,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // resume playback once the system is ready.
         if isInterrupted || isRouteChangeInProgress {
             #if DEBUG
-            EnsembleLogger.debug("🎵 Session busy (interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)); deferring playback start")
+            EnsembleLogger.debug("⚠️ loadAndPlay deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress) — playback will resume when system clears")
             #endif
             playbackState = .buffering
             return

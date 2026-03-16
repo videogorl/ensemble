@@ -6,6 +6,16 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Background Playback Pause Bug Fix (Mar 2026)
+Fixed an inconsistent bug where a track ending in the background would queue the next track but immediately pause it, requiring the user to press Play from system controls to resume.
+
+**Root cause:** In the gapless transition path (`handleItemChange()`), `unexpectedPauseCount` and `lastUnexpectedPauseAt` were never reset when AVQueuePlayer auto-advanced to the next prefetched item. Stale pause counts from the previous track carried over. At gapless item boundaries, `timeControlStatus` briefly oscillates through `.paused`. If `unexpectedPauseCount` was already >0 from prior network stalls, the boundary pause could push it past the 3-pause loop-detection threshold, triggering the backoff (`playbackState = .buffering` + 5s stall recovery). The non-gapless path was unaffected because `loadAndPlay()` always resets the counter before calling `player?.play()`.
+
+**Fix:** Reset `unexpectedPauseCount = 0` and `lastUnexpectedPauseAt = nil` in `handleItemChange()` when a gapless track transition occurs, mirroring what `loadAndPlay()` already does. Also improved debug logging at the `loadAndPlay()` deferred-start path.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` — `handleItemChange()` counter reset; `loadAndPlay()` improved deferral log
+
 ### Low Power Mode Awareness (Mar 2026)
 `PowerStateMonitor` observes iOS Low Power Mode and automatically reduces GPU and network work across the app:
 
