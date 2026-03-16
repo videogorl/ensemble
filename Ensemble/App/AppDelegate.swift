@@ -634,7 +634,11 @@ private struct ExtensionSiriPayloadIdentifier: Codable {
     let displayName: String?
 }
 
-func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
+func executeSiriPlaybackInBackground(
+    payload: SiriPlaybackRequestPayload,
+    origin: String,
+    intentCompletion: ((INPlayMediaIntentResponse) -> Void)? = nil
+) {
     guard let executionSignature = SiriPlaybackExecutionGate.beginExecution(payload: payload) else {
         os_log(
             .info,
@@ -643,6 +647,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             payload.kind.rawValue,
             payload.entityID
         )
+        intentCompletion?(INPlayMediaIntentResponse(code: .success, userActivity: nil))
         return
     }
 
@@ -730,6 +735,11 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
                 .joined(separator: ",")
             os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
+            // Complete the intent response AFTER playback starts. Keeping
+            // the intent handler alive until now preserves the system's
+            // routing association with the requesting HomePod/AirPlay device.
+            intentCompletion?(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+
             // After playback starts, give the system time to establish the
             // AirPlay route to HomePod. Once we see it, nudge the player.
             let switchedAfterExecute = await waitForPotentialExternalRoute(
@@ -752,6 +762,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             } else {
                 os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
             }
+            intentCompletion?(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
         }
     }
 }
@@ -892,13 +903,14 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             payload.entityID
         )
 
-        // Reply immediately so Siri/HomePod does not time out while playback setup performs network work.
-        completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
-        executePlaybackAsync(payload: payload)
-    }
-
-    private func executePlaybackAsync(payload: SiriPlaybackRequestPayload) {
-        executeSiriPlaybackInBackground(payload: payload, origin: "inAppIntentHandler")
+        // Pass the completion through to executeSiriPlaybackInBackground so
+        // the intent handler stays alive until playback starts. This preserves
+        // the system's routing association with the requesting HomePod.
+        executeSiriPlaybackInBackground(
+            payload: payload,
+            origin: "inAppIntentHandler",
+            intentCompletion: completion
+        )
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
