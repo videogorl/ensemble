@@ -1370,12 +1370,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !isAudioSessionConfigured else { return true }
         do {
             let session = AVAudioSession.sharedInstance()
-            // .allowBluetooth is for HFP (microphone input) — not needed for music playback
-            // and causes error -12981 on iOS 26. .allowBluetoothA2DP covers audio output.
+            // No explicit options needed: .playback category allows AirPlay and
+            // Bluetooth A2DP by default. Explicitly setting AllowedRouteTypes
+            // (via .allowAirPlay/.allowBluetoothA2DP) triggers error -12981 on
+            // iOS 26 background Siri launches, cascading to setCategory returning -50.
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowAirPlay, .allowBluetoothA2DP]
+                options: []
             )
             isAudioSessionConfigured = true
             #if DEBUG
