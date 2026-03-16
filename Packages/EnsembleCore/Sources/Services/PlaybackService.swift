@@ -1451,16 +1451,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         switch reason {
         case .newDeviceAvailable:
+            // AirPlay (HomePod) needs a longer settle window than Bluetooth/wired because
+            // the Wi-Fi handshake and AirPlay 2 buffer negotiation can take several seconds.
+            let newOutputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            let isAirPlay = newOutputs.contains { $0.portType == .airPlay }
+            let settleNanoseconds: UInt64 = isAirPlay ? 4_000_000_000 : 2_000_000_000
             #if DEBUG
-            EnsembleLogger.debug("🎧 New audio device available (e.g. AirPlay/HomePod connected)")
+            EnsembleLogger.debug("🎧 New audio device available — isAirPlay=\(isAirPlay), settle=\(settleNanoseconds / 1_000_000_000)s")
             #endif
-            // Give the system a bit of time to settle the new route
+            // Give the system time to settle the new route before allowing
+            // the unexpected-pause counter to start accumulating again.
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s
+                try? await Task.sleep(nanoseconds: settleNanoseconds)
                 if self.lastRouteChangeAt == now {
                     self.isRouteChangeInProgress = false
+                    // Reset pause loop counters so that normal AirPlay buffer
+                    // negotiation after the settle window doesn't trip the backoff.
+                    self.unexpectedPauseCount = 0
+                    self.lastUnexpectedPauseAt = nil
                     #if DEBUG
-                    EnsembleLogger.debug("🎧 Route handover settle window finished")
+                    EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
                     #endif
                     if self.playbackState == .buffering {
                         self.resume()
@@ -2021,6 +2031,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             Task {
                 await syncCoordinator.reportTimeline(track: track, state: "playing", time: currentTime)
             }
+        }
+    }
+
+    /// Nudges the player to commit its audio to the current audio session route.
+    /// Used by the Siri HomePod path when an AirPlay route appears after playback
+    /// has already started on the local device. Unlike `resume()`, this works even
+    /// when `playbackState == .playing` — it resets the pause loop counters and
+    /// re-invokes `player.play()` so AVQueuePlayer re-negotiates its output to the
+    /// new route without interrupting the user-visible state.
+    public func nudgeForAirPlayRoute() {
+        guard currentTrack != nil, player?.currentItem != nil else {
+            #if DEBUG
+            EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: no active track, skipping")
+            #endif
+            return
+        }
+        // Reset pause loop counters so that AirPlay buffer negotiation pauses
+        // don't trip the unexpected-pause backoff.
+        unexpectedPauseCount = 0
+        lastUnexpectedPauseAt = nil
+        #if DEBUG
+        EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: state=\(playbackState) — re-asserting playback on new route")
+        #endif
+        if playbackState == .playing {
+            // Re-affirm play on the new route; AVQueuePlayer will re-buffer to the
+            // new output device without stopping the stream from the server's perspective.
+            player?.play()
+        } else if playbackState == .paused || playbackState == .buffering {
+            resume()
         }
     }
 
