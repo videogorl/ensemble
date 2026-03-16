@@ -658,11 +658,25 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         }
 
         // Siri can launch us without the normal UI lifecycle warmup.
+        // Load accounts, then establish server connectivity so the coordinator
+        // can build stream URLs. Without this, cold launch fails with
+        // "noServerSelected" because the health checks from didFinishLaunching
+        // haven't completed yet.
         DependencyContainer.shared.accountManager.loadAccounts()
+        DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
 
-        // Give the system a moment to settle after wake-up before we start
-        // demanding audio session priority and network resources.
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        // Wait briefly for the network monitor to detect connectivity,
+        // then run health checks to establish server endpoints.
+        let nm = DependencyContainer.shared.networkMonitor
+        for _ in 0..<10 {
+            if nm.networkState != .unknown { break }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+        }
+
+        let shc = DependencyContainer.shared.serverHealthChecker
+        await shc.checkAllServers()
+        await DependencyContainer.shared.syncCoordinator.refreshAPIClientConnections()
+        os_log(.info, "SIRI_APP: [origin=%{public}@] Server health checks complete", origin)
 
         do {
             // Configure audio session with .playback category and .longFormAudio
