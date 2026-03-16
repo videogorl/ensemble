@@ -67,9 +67,11 @@ public final class HubOrderManager {
         EnsembleLogger.debug("[HubOrder] Apply order sourceKey=\(sourceKey) hubs=\(hubs.count)")
         #endif
         
-        // Create a map of hub IDs to hubs for quick lookup
-        let hubMap = Dictionary(uniqueKeysWithValues: hubs.map { ($0.id, $0) })
-        
+        // Create a map of hub IDs to hubs for quick lookup.
+        // Use uniquingKeysWith to safely handle any duplicate IDs that may have
+        // entered the cache via a concurrent-save race in HubRepository.saveHubs.
+        let hubMap = Dictionary(hubs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
         var reorderedHubs: [Hub] = []
         var processedIds = Set<String>()
         
@@ -102,7 +104,7 @@ public final class HubOrderManager {
         EnsembleLogger.debug("[HubOrder] Apply default order sourceKey=\(sourceKey) hubs=\(hubs.count)")
         #endif
 
-        let hubMap = Dictionary(uniqueKeysWithValues: hubs.map { ($0.id, $0) })
+        let hubMap = Dictionary(hubs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var reorderedHubs: [Hub] = []
         var processedIds = Set<String>()
 

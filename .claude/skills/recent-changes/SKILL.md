@@ -6,6 +6,18 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Crash Fix: Duplicate Hub IDs in HubOrderManager (Mar 2026)
+Fixed a P0 crash affecting all users: `HubOrderManager.applyOrder(to:for:)` and `applyDefaultOrder(to:for:)` called `Dictionary(uniqueKeysWithValues:)` which Swift fatally traps on duplicate keys. Duplicate hub IDs entered CoreData via a concurrent-save race: both `HomeViewModel` and `SearchViewModel` call `saveHubs` via detached background Tasks that each do a delete-all + insert in separate CoreData contexts; when they run concurrently, both insert a full hub list → 2× rows with identical IDs in the store. The next launch reads those duplicates, calls `applyOrder`, and crashes immediately (3–4s after launch) with `EXC_BREAKPOINT` / `_assertionFailure`.
+
+**Fixes:**
+- `HubOrderManager.applyOrder` and `applyDefaultOrder`: changed `Dictionary(uniqueKeysWithValues:)` to `Dictionary(uniquingKeysWith:)` — crash guard against any future duplicates
+- `HubRepository.fetchHubs`: deduplicate by hub ID at read time so existing corrupt CoreData rows no longer reach `applyOrder`
+- `HubRepository.saveHubs`: deduplicate input by hub ID before inserting, so the race can no longer write duplicate rows
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/HubOrderManager.swift` — `applyOrder`, `applyDefaultOrder`
+- `Packages/EnsembleCore/Sources/Services/HubRepository.swift` — `fetchHubs`, `saveHubs`
+
 ### Background Playback Pause Bug Fix (Mar 2026)
 Fixed an inconsistent bug where a track ending in the background would queue the next track but immediately pause it, requiring the user to press Play from system controls to resume.
 
