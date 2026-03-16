@@ -161,6 +161,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
+        // Write payload to App Group as fallback in case user activity delivery fails.
+        // The app's Darwin notification handler will pick this up if onContinueUserActivity
+        // doesn't fire within a few seconds.
+        writePendingPayloadToAppGroup(payload)
+        postDarwinNotification()
+
+        // Return .handleInApp — this is the signal iOS needs to establish AirPlay
+        // routing from the requesting HomePod before delivering the user activity.
         logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
         os_log(.info, "SIRI_EXT: handle returning handleInApp kind=%{public}@", payload.kind)
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))

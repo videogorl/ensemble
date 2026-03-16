@@ -340,9 +340,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Any? {
         os_log(.info, "SIRI_APP: application(handlerFor:) called with intent type: %{public}@", String(describing: type(of: intent)))
 
-        if let playMediaIntent = intent as? INPlayMediaIntent {
-            os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for INPlayMediaIntent")
-            return InAppPlayMediaIntentHandler()
+        // Do NOT handle INPlayMediaIntent here — return nil so the system
+        // routes through the Siri extension. The extension returns .handleInApp,
+        // which is the signal iOS needs to establish AirPlay routing from HomePod.
+        // The user activity is then delivered via application(continue:) or
+        // onContinueUserActivity, which triggers playback.
+        if intent is INPlayMediaIntent {
+            os_log(.info, "SIRI_APP: Returning nil for INPlayMediaIntent (extension handles routing)")
+            return nil
         }
 
         os_log(.info, "SIRI_APP: No handler for intent type, returning nil")
