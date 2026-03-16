@@ -673,9 +673,13 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
         }
 
+        let sc = DependencyContainer.shared.syncCoordinator
         let shc = DependencyContainer.shared.serverHealthChecker
         await shc.checkAllServers()
-        await DependencyContainer.shared.syncCoordinator.refreshAPIClientConnections()
+        // Build sync providers (needed for stream URL resolution) and update
+        // API client connections from the registry endpoints.
+        sc.refreshProviders()
+        await sc.refreshAPIClientConnections()
         os_log(.info, "SIRI_APP: [origin=%{public}@] Server health checks complete", origin)
 
         do {
