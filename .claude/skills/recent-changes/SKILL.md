@@ -6,6 +6,18 @@ user-invocable: true
 
 # Recent Major Changes
 
+### HomePod Siri Route Failures (Mar 2026)
+Fixed three failure modes when HomePod Siri cold-launches Ensemble to play something:
+1. **Cold launch: session activation denied (error -16980)** — `setActive(true)` was called before the audio session category was configured. On cold launch the default category is `.soloAmbient` which doesn't support background audio, so iOS denied activation and the AirPlay route was never established. Fixed by calling `ensureAudioSessionConfigured()` (which sets `.playback` category) before `setActive(true)`, with error logging and one retry.
+2. **Playback started on iPhone instead of HomePod** — `AVAudioSession.setActive(true)` was called *after* the 6-second route poll. With an inactive session, `currentRoute` always shows the built-in speaker; iOS never establishes an AirPlay route for a dormant session. Fixed by activating the session *before* polling, and extending the pre-execute poll from 6s to 10s.
+3. **AirPlay starts but immediately pauses** — two compounding issues: (a) the post-execute "nudge" called `resume()` which is a no-op when `playbackState == .playing` (local audio already running); replaced with new `nudgeForAirPlayRoute()` which resets pause counters and calls `player.play()` regardless of state. (b) `unexpectedPauseCount` was not reset after the `newDeviceAvailable` route-change settle window, so AirPlay buffer negotiation pauses after settle tripped the loop-detection backoff. Fixed by resetting counters when the settle window clears. Also extended the AirPlay settle window from 2s to 4s (HomePod AirPlay 2 negotiation is slower than Bluetooth).
+
+Also removed `.allowBluetooth` from audio session options (HFP/microphone profile, not needed for music playback; caused error -12981 on iOS 26). `.allowBluetoothA2DP` already covers Bluetooth audio output.
+
+**Key files:**
+- `Ensemble/App/AppDelegate.swift` — session category config before activation, 10s pre-execute poll, `nudgeForAirPlayRoute()` call
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` — `ensureAudioSessionConfigured()` (now public, without `.allowBluetooth`), `nudgeForAirPlayRoute()` method, AirPlay settle window, counter reset on settle
+
 ### Crash Fix: Duplicate Hub IDs in HubOrderManager (Mar 2026)
 Fixed a P0 crash affecting all users: `HubOrderManager.applyOrder(to:for:)` and `applyDefaultOrder(to:for:)` called `Dictionary(uniqueKeysWithValues:)` which Swift fatally traps on duplicate keys. Duplicate hub IDs entered CoreData via a concurrent-save race: both `HomeViewModel` and `SearchViewModel` call `saveHubs` via detached background Tasks that each do a delete-all + insert in separate CoreData contexts; when they run concurrently, both insert a full hub list → 2× rows with identical IDs in the store. The next launch reads those duplicates, calls `applyOrder`, and crashes immediately (3–4s after launch) with `EXC_BREAKPOINT` / `_assertionFailure`.
 
