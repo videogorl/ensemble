@@ -670,7 +670,28 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             // audio — setActive(true) fails with -16980 "Cannot start playing".
             // Setting .playback first ensures iOS recognizes us as a media app
             // eligible for AirPlay routing.
-            DependencyContainer.shared.playbackService.ensureAudioSessionConfigured()
+            //
+            // On iOS 26, setCategory can fail with Code=-50 when the audio system
+            // isn't ready yet (~3s after cold launch). Retry up to 5 times with
+            // increasing delays to give the system time to initialize.
+            let playbackService = DependencyContainer.shared.playbackService
+            var categoryConfigured = playbackService.ensureAudioSessionConfigured()
+            if !categoryConfigured {
+                for attempt in 1...5 {
+                    let delayMs = UInt64(attempt) * 500
+                    os_log(
+                        .info,
+                        "SIRI_APP: [origin=%{public}@] setCategory failed, retry %d/5 in %llums",
+                        origin, attempt, delayMs
+                    )
+                    try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                    categoryConfigured = playbackService.ensureAudioSessionConfigured()
+                    if categoryConfigured { break }
+                }
+                if !categoryConfigured {
+                    os_log(.error, "SIRI_APP: [origin=%{public}@] setCategory failed after all retries — AirPlay routing may not work", origin)
+                }
+            }
 
             // Now activate — should succeed with .playback category
             let session = AVAudioSession.sharedInstance()
@@ -678,7 +699,6 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
                 try session.setActive(true)
             } catch {
                 os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying in 500ms", origin, error.localizedDescription)
-                // Retry once after a short delay — system may need more time on cold launch
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 try? session.setActive(true)
             }

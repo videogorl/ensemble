@@ -1358,16 +1358,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Configure the audio session category. Called lazily before first playback.
     /// AVPlayer activates the session automatically when playback starts, so
     /// we only need to set the category/mode/options here.
-    /// Safe to call multiple times — only configures once.
+    /// Safe to call multiple times — only configures once (on success).
     ///
-    /// Note: On iOS 26, `setCategory` may fail with Code=-50 when called before
-    /// the audio system is fully ready. Playback still works because AVPlayer
-    /// auto-activates the session. We mark configured regardless to avoid
-    /// retrying on every play attempt.
-    public func ensureAudioSessionConfigured() {
+    /// Returns `true` if the category was successfully configured (or was already
+    /// configured from a prior call). Returns `false` if `setCategory` failed
+    /// (e.g. Code=-50 on iOS 26 when the audio system isn't ready yet).
+    /// Callers that need the category set (like the Siri flow) can retry.
+    @discardableResult
+    public func ensureAudioSessionConfigured() -> Bool {
         #if !os(macOS)
-        guard !isAudioSessionConfigured else { return }
-        isAudioSessionConfigured = true
+        guard !isAudioSessionConfigured else { return true }
         do {
             let session = AVAudioSession.sharedInstance()
             // .allowBluetooth is for HFP (microphone input) — not needed for music playback
@@ -1377,16 +1377,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 mode: .default,
                 options: [.allowAirPlay, .allowBluetoothA2DP]
             )
+            isAudioSessionConfigured = true
             #if DEBUG
             EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
             #endif
+            return true
         } catch {
             // iOS 26: setCategory can fail with Code=-50 early in the app lifecycle.
             // AVPlayer auto-activates the session on playback, so this is non-fatal.
+            // Flag stays false so the next call will retry.
             #if DEBUG
-            EnsembleLogger.debug("⚠️ Audio session setCategory failed (non-fatal, AVPlayer auto-activates): \(error)")
+            EnsembleLogger.debug("⚠️ Audio session setCategory failed (will retry on next call): \(error)")
             #endif
+            return false
         }
+        #else
+        return true
         #endif
     }
 
