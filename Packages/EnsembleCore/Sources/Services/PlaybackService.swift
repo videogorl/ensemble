@@ -1370,13 +1370,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !isAudioSessionConfigured else { return true }
         do {
             let session = AVAudioSession.sharedInstance()
-            // No explicit options needed: .playback category allows AirPlay and
-            // Bluetooth A2DP by default. Explicitly setting AllowedRouteTypes
-            // (via .allowAirPlay/.allowBluetoothA2DP) triggers error -12981 on
-            // iOS 26 background Siri launches, cascading to setCategory returning -50.
+            // longFormAudio tells the system this is a music app eligible for
+            // cross-device routing (e.g. HomePod Siri → iPhone AirPlay). Without
+            // it, iOS won't establish an AirPlay session from a Siri-initiated
+            // HomePod request. No explicit options needed: .playback category
+            // allows AirPlay and Bluetooth A2DP by default. Explicit options
+            // trigger error -12981 on iOS 26 background Siri launches.
             try session.setCategory(
                 .playback,
                 mode: .default,
+                policy: .longFormAudio,
                 options: []
             )
             isAudioSessionConfigured = true

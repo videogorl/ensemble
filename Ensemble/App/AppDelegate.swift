@@ -665,92 +665,68 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         try? await Task.sleep(nanoseconds: 1_000_000_000)
 
         do {
-            // Configure audio session category BEFORE activation. On cold launch,
-            // the default category is .soloAmbient which doesn't support background
-            // audio — setActive(true) fails with -16980 "Cannot start playing".
-            // Setting .playback first ensures iOS recognizes us as a media app
-            // eligible for AirPlay routing.
+            // Configure audio session with .playback category and .longFormAudio
+            // policy BEFORE activation. This tells iOS we're a music app eligible
+            // for cross-device routing (HomePod Siri → iPhone AirPlay).
             //
-            // On iOS 26, setCategory can fail with Code=-50 when the audio system
-            // isn't ready yet (~3s after cold launch). Retry up to 5 times with
-            // increasing delays to give the system time to initialize.
+            // On iOS 26, setCategory can fail with Code=-50 if the audio system
+            // isn't ready yet. Retry up to 3 times with short delays.
             let playbackService = DependencyContainer.shared.playbackService
             var categoryConfigured = playbackService.ensureAudioSessionConfigured()
             if !categoryConfigured {
-                for attempt in 1...5 {
-                    let delayMs = UInt64(attempt) * 500
-                    os_log(
-                        .info,
-                        "SIRI_APP: [origin=%{public}@] setCategory failed, retry %d/5 in %llums",
-                        origin, attempt, delayMs
-                    )
-                    try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                for attempt in 1...3 {
+                    os_log(.info, "SIRI_APP: [origin=%{public}@] setCategory retry %d/3", origin, attempt)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
                     categoryConfigured = playbackService.ensureAudioSessionConfigured()
                     if categoryConfigured { break }
                 }
                 if !categoryConfigured {
-                    os_log(.error, "SIRI_APP: [origin=%{public}@] setCategory failed after all retries — AirPlay routing may not work", origin)
+                    os_log(.error, "SIRI_APP: [origin=%{public}@] setCategory failed after retries — proceeding anyway", origin)
                 }
             }
 
-            // Now activate — should succeed with .playback category
+            // Activate the session
             let session = AVAudioSession.sharedInstance()
             do {
                 try session.setActive(true)
             } catch {
-                os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying in 500ms", origin, error.localizedDescription)
+                os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 try? session.setActive(true)
             }
-            os_log(
-                .info,
-                "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@",
-                origin,
-                AVAudioSession.sharedInstance().currentRoute.outputs
-                    .map { "\($0.portType.rawValue):\($0.portName)" }
-                    .joined(separator: ",")
-            )
 
-            // Poll up to 10s — cold-launched apps need extra time for HomePod AirPlay
-            // to negotiate after the session becomes active.
-            let hadExternalRouteBeforeExecute = await waitForPotentialExternalRoute(
-                origin: origin,
-                timeoutNanoseconds: 10_000_000_000
-            )
-
-            let routeBefore = AVAudioSession.sharedInstance().currentRoute.outputs
+            let initialRoute = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route BEFORE execute: %{public}@", origin, routeBefore)
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
+
+            // Start playback ASAP — don't poll for an external route first.
+            // The AirPlay route from HomePod won't appear until playback begins
+            // and the system sees our longFormAudio session. Burning 10s+ polling
+            // before execute wastes precious background time.
             os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
             let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route AFTER execute: %{public}@", origin, routeAfter)
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS", origin)
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
-            // If the request started locally, give HomePod/AirPlay one more chance
-            // to finalize route transfer after playback setup.
-            if !hadExternalRouteBeforeExecute {
-                let switchedAfterExecute = await waitForPotentialExternalRoute(
-                    origin: origin,
-                    phase: "postExecute",
-                    timeoutNanoseconds: 6_000_000_000
+            // After playback starts, give the system time to establish the
+            // AirPlay route to HomePod. Once we see it, nudge the player.
+            let switchedAfterExecute = await waitForPotentialExternalRoute(
+                origin: origin,
+                phase: "postExecute",
+                timeoutNanoseconds: 10_000_000_000
+            )
+            if switchedAfterExecute {
+                os_log(
+                    .info,
+                    "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging playback in 500ms",
+                    origin
                 )
-                if switchedAfterExecute {
-                    os_log(
-                        .info,
-                        "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging playback for new route in 500ms",
-                        origin
-                    )
-                    // Wait for hardware/buffer to settle on the new route, then nudge.
-                    // Uses nudgeForAirPlayRoute() rather than resume() because resume()
-                    // is a no-op when playbackState == .playing (local audio already running).
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    DependencyContainer.shared.playbackService.nudgeForAirPlayRoute()
-                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                DependencyContainer.shared.playbackService.nudgeForAirPlayRoute()
             }
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {
