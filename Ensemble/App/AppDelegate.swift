@@ -920,14 +920,19 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             payload.entityID
         )
 
-        // Pass the completion through to executeSiriPlaybackInBackground so
-        // the intent handler stays alive until playback starts. This preserves
-        // the system's routing association with the requesting HomePod.
-        executeSiriPlaybackInBackground(
-            payload: payload,
-            origin: "inAppIntentHandler",
-            intentCompletion: completion
-        )
+        // Return .handleInApp with a user activity — this signals the system
+        // to establish AirPlay routing (e.g. HomePod → iPhone) before playback
+        // starts. The system will deliver the user activity back to the app via
+        // application(continue:) or onContinueUserActivity, which triggers the
+        // playback path. This mirrors what the extension's handle() does.
+        let activity = NSUserActivity(activityType: SiriPlaybackActivityCodec.activityType)
+        activity.title = "Play in Ensemble"
+        if let payloadData = try? SiriPlaybackActivityCodec.encode(payload) {
+            activity.userInfo = [SiriPlaybackActivityCodec.payloadUserInfoKey: payloadData]
+        }
+
+        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler returning .handleInApp")
+        completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
