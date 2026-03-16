@@ -104,31 +104,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         completion([.success(with: makeMediaItem(from: top))])
     }
 
-    public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        os_log(.info, "SIRI_EXT: confirm ENTRY")
-
-        // For HomePod requests, handle() is never called after confirm returns .ready.
-        // As a workaround, we write the payload to the App Group and post a Darwin
-        // notification so the app can pick it up directly.
-        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-
-        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
-            os_log(.info, "SIRI_EXT: confirm writing payload to App Group kind=%{public}@", payload.kind)
-            writePendingPayloadToAppGroup(payload)
-            postDarwinNotification()
-        }
-
-        // Also attach user activity in case the system decides to route it normally
-        let activity: NSUserActivity?
-        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
-            activity = playbackUserActivity(for: payload)
-        } else {
-            activity = nil
-        }
-
-        completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
-        os_log(.info, "SIRI_EXT: confirm EXIT returning .ready (not .handleInApp) for HomePod relay compatibility")
-    }
+    // confirm is intentionally NOT implemented. Apple recommends skipping
+    // confirm for media intents (WWDC23 session 10238). Implementing it with
+    // .ready prevented handle() from being called on HomePod requests, which
+    // blocked the system from establishing an AirPlay route back to the
+    // requesting device. Without confirm, the flow goes directly to handle()
+    // which returns .handleInApp — the signal iOS needs to set up AirPlay.
 
     private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {
         guard let containerURL = FileManager.default.containerURL(
