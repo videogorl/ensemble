@@ -713,6 +713,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Private Properties
 
     private var player: AVQueuePlayer?
+    private var nowPlayingSession: AnyObject?  // MPNowPlayingSession (iOS 16+)
     private var playerItems: [String: AVPlayerItem] = [:] // ratingKey: item
     private var playerItemsLRU: [String] = []  // Track order for LRU eviction
     private let maxCachedPlayerItems = 10  // Keep last 10 items cached for back navigation
@@ -973,6 +974,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
             }
         }
+
+        // Create an MPNowPlayingSession wrapping the player. Combined with
+        // the longFormAudio routing policy, this lets the system manage audio
+        // routing to recently-used AirPlay devices (e.g. HomePod that invoked
+        // Siri). Without this, longFormAudio only affects the route picker UI.
+        #if os(iOS) || os(tvOS)
+        if #available(iOS 16.0, tvOS 16.0, *), let player {
+            let session = MPNowPlayingSession(players: [player])
+            session.becomeActiveIfPossible { success in
+                #if DEBUG
+                EnsembleLogger.debug("🔊 MPNowPlayingSession.becomeActive: \(success)")
+                #endif
+            }
+            nowPlayingSession = session
+        }
+        #endif
     }
     
     private func handleItemChange(_ item: AVPlayerItem) {
