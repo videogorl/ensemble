@@ -1364,16 +1364,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// the audio system is fully ready. Playback still works because AVPlayer
     /// auto-activates the session. We mark configured regardless to avoid
     /// retrying on every play attempt.
-    func ensureAudioSessionConfigured() {
+    public func ensureAudioSessionConfigured() {
         #if !os(macOS)
         guard !isAudioSessionConfigured else { return }
         isAudioSessionConfigured = true
         do {
             let session = AVAudioSession.sharedInstance()
+            // .allowBluetooth is for HFP (microphone input) — not needed for music playback
+            // and causes error -12981 on iOS 26. .allowBluetoothA2DP covers audio output.
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
+                options: [.allowAirPlay, .allowBluetoothA2DP]
             )
             #if DEBUG
             EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")

@@ -665,12 +665,23 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         try? await Task.sleep(nanoseconds: 1_000_000_000)
 
         do {
-            // Activate audio session BEFORE polling for an external route. When the
-            // session is inactive, AVAudioSession.currentRoute always reports the
-            // built-in speaker — iOS cannot establish an AirPlay route for a dormant
-            // session, so polling before activation always misses the HomePod route
-            // on a cold launch.
-            try? AVAudioSession.sharedInstance().setActive(true)
+            // Configure audio session category BEFORE activation. On cold launch,
+            // the default category is .soloAmbient which doesn't support background
+            // audio — setActive(true) fails with -16980 "Cannot start playing".
+            // Setting .playback first ensures iOS recognizes us as a media app
+            // eligible for AirPlay routing.
+            DependencyContainer.shared.playbackService.ensureAudioSessionConfigured()
+
+            // Now activate — should succeed with .playback category
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setActive(true)
+            } catch {
+                os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying in 500ms", origin, error.localizedDescription)
+                // Retry once after a short delay — system may need more time on cold launch
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? session.setActive(true)
+            }
             os_log(
                 .info,
                 "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@",
