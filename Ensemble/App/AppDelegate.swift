@@ -708,13 +708,34 @@ func executeSiriPlaybackInBackground(
                 }
             }
 
-            // Activate the session
+            // Ask the system to prepare AirPlay route selection. For Siri
+            // requests from HomePod, this triggers the system to establish an
+            // AirPlay session back to the requesting device. Must be called
+            // after setCategory but before setActive/playback.
             let session = AVAudioSession.sharedInstance()
-            do {
-                try session.setActive(true)
-            } catch {
-                os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
-                try? await Task.sleep(nanoseconds: 500_000_000)
+            let shouldStartPlayback = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                session.prepareRouteSelectionForPlayback { shouldActivate, routeSelection in
+                    os_log(
+                        .info,
+                        "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d, route=%{public}@",
+                        origin,
+                        shouldActivate ? 1 : 0,
+                        routeSelection == .local ? "local" : "external"
+                    )
+                    continuation.resume(returning: shouldActivate)
+                }
+            }
+
+            if shouldStartPlayback {
+                do {
+                    try session.setActive(true)
+                } catch {
+                    os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    try? session.setActive(true)
+                }
+            } else {
+                os_log(.info, "SIRI_APP: [origin=%{public}@] System declined route activation — activating anyway", origin)
                 try? session.setActive(true)
             }
 
@@ -723,10 +744,6 @@ func executeSiriPlaybackInBackground(
                 .joined(separator: ",")
             os_log(.info, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
 
-            // Start playback ASAP — don't poll for an external route first.
-            // The AirPlay route from HomePod won't appear until playback begins
-            // and the system sees our longFormAudio session. Burning 10s+ polling
-            // before execute wastes precious background time.
             os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
