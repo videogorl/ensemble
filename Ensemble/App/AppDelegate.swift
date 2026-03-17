@@ -12,6 +12,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     static let launchTime = Date()
 
     private var coverFlowRotationSupportEnabled = false
+
+    /// Stored early health check task so executeSiriPlaybackInBackground can
+    /// await it instead of running redundant checks. Set in didFinishLaunching.
+    fileprivate var earlyHealthCheckTask: Task<Void, Never>?
+
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private static let siriLeadingMediaTypePrefixes = [
@@ -68,39 +73,41 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // brief window where all tracks appear available at startup.
         DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
 
-        // Start network monitoring immediately (non-blocking)
-        // Network monitor will publish initial state asynchronously
-        Task.detached(priority: .utility) {
-            await MainActor.run {
-                AppLogger.debug("📱 AppDelegate: Starting network monitor at \(Date())")
-                DependencyContainer.shared.networkMonitor.startMonitoring()
-                AppLogger.debug("📱 AppDelegate: Network monitor started at \(Date())")
-            }
-        }
-        
-        // Restore playback state after network monitor has had time to detect connectivity
-        // This prevents false "offline" errors during startup
-        Task.detached(priority: .utility) {
-            AppLogger.debug("📱 AppDelegate: Waiting for network monitor to initialize...")
-            
-            // Wait for network monitor to report a non-Unknown state
-            let networkMonitor = await MainActor.run { DependencyContainer.shared.networkMonitor }
-            var attempts = 0
-            let maxAttempts = 20 // 2 seconds max wait
-            
-            while attempts < maxAttempts {
-                let state = await MainActor.run { networkMonitor.networkState }
-                if state != .unknown {
-                    AppLogger.debug("📱 AppDelegate: Network state detected: \(state)")
-                    break
+        // Start network monitor and health checks in a single high-priority task.
+        // NetworkMonitor restores cached state on init (usually Online from the
+        // previous session), so health checks can begin immediately without polling
+        // for network state — this eliminates ~1.5s of scheduling + poll overhead.
+        // The task is stored so executeSiriPlaybackInBackground can await it instead
+        // of running redundant checks.
+        earlyHealthCheckTask = Task { @MainActor in
+            AppLogger.debug("📱 AppDelegate: Starting network monitor + early health checks at \(Date())")
+            DependencyContainer.shared.networkMonitor.startMonitoring()
+
+            // If the cached state was .unknown (first launch or cleared cache),
+            // wait briefly for NWPathMonitor to report real state.
+            let nm = DependencyContainer.shared.networkMonitor
+            if nm.networkState == .unknown {
+                for _ in 0..<10 { // 1s max
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    if nm.networkState != .unknown { break }
                 }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
             }
-            
-            // Small additional delay to ensure connections are stable
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            
+
+            let sc = DependencyContainer.shared.syncCoordinator
+            AppLogger.debug("📱 AppDelegate: Running early health checks (network: \(nm.networkState))...")
+            // Route through SyncCoordinator so lastHealthRefreshAt is set,
+            // preventing the initial Unknown→Online network transition from
+            // triggering a duplicate health check pass.
+            await sc.performStartupHealthChecks()
+            let shc = DependencyContainer.shared.serverHealthChecker
+            AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
+        }
+
+        // Restore playback state after health checks complete (needs server connectivity)
+        Task.detached(priority: .utility) {
+            // Wait for early health checks to finish (they populate server endpoints)
+            await self.earlyHealthCheckTask?.value
+
             AppLogger.debug("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
                 DependencyContainer.shared.playbackService
@@ -125,38 +132,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
                 #endif
             }
-            
+
             // Update Siri media user context with current library statistics
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
-        
+
         // Start WebSocket connections after accounts are loaded and network is starting.
         // This enables real-time push notifications from Plex servers.
         Task { @MainActor in
             DependencyContainer.shared.webSocketCoordinator.start()
-        }
-
-        // Run health checks early so track availability is resolved before the user interacts.
-        // This is separate from the full startup sync (which waits 5s for Siri) because
-        // health checks are lightweight and don't interfere with audio session setup.
-        Task { @MainActor in
-            // Wait for network monitor to report a non-Unknown state
-            let nm = DependencyContainer.shared.networkMonitor
-            var healthAttempts = 0
-            while healthAttempts < 20 {
-                if nm.networkState != .unknown { break }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
-                healthAttempts += 1
-            }
-
-            let sc = DependencyContainer.shared.syncCoordinator
-            AppLogger.debug("📱 AppDelegate: Running early health checks...")
-            // Route through SyncCoordinator so lastHealthRefreshAt is set,
-            // preventing the initial Unknown→Online network transition from
-            // triggering a duplicate health check pass.
-            await sc.performStartupHealthChecks()
-            let shc = DependencyContainer.shared.serverHealthChecker
-            AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
         }
 
         // Perform startup sync (non-blocking, runs in background)
@@ -668,26 +652,39 @@ func executeSiriPlaybackInBackground(
         }
 
         // Siri can launch us without the normal UI lifecycle warmup.
-        // Load accounts, then establish server connectivity so the coordinator
-        // can build stream URLs. Without this, cold launch fails with
-        // "noServerSelected" because the health checks from didFinishLaunching
-        // haven't completed yet.
+        // Load accounts synchronously (already done in didFinishLaunching,
+        // but harmless and safe for the cold-launch race).
         DependencyContainer.shared.accountManager.loadAccounts()
         DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
 
-        // Wait briefly for the network monitor to detect connectivity,
-        // then run health checks to establish server endpoints.
-        let nm = DependencyContainer.shared.networkMonitor
-        for _ in 0..<10 {
-            if nm.networkState != .unknown { break }
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+        // Await the early health check task from didFinishLaunching instead of
+        // running a separate set of health checks. This avoids redundant work
+        // and means Siri can proceed as soon as the already-in-flight checks finish.
+        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+        let shc = DependencyContainer.shared.serverHealthChecker
+        if let earlyTask = appDelegate?.earlyHealthCheckTask {
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Awaiting early health checks from didFinishLaunching...", origin)
+            await earlyTask.value
+            os_log(.info, "SIRI_APP: [origin=%{public}@] Early health checks done — serverStates: %{public}@", origin,
+                   shc.serverStates.values.contains { $0.isAvailable } ? "hasConnected" : "noConnected")
         }
 
-        let sc = DependencyContainer.shared.syncCoordinator
-        let shc = DependencyContainer.shared.serverHealthChecker
-        await shc.checkAllServers()
+        // If early checks didn't find any connected servers (edge case: first
+        // launch, network delay, etc.), fall back to running our own checks.
+        let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
+        if !hasConnectedServers {
+            os_log(.info, "SIRI_APP: [origin=%{public}@] No connected servers from early checks — running fallback health checks", origin)
+            let nm = DependencyContainer.shared.networkMonitor
+            for _ in 0..<10 {
+                if nm.networkState != .unknown { break }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            }
+            await shc.checkAllServers()
+        }
+
         // Build sync providers (needed for stream URL resolution) and update
         // API client connections from the registry endpoints.
+        let sc = DependencyContainer.shared.syncCoordinator
         sc.refreshProviders()
         await sc.refreshAPIClientConnections()
         os_log(.info, "SIRI_APP: [origin=%{public}@] Server health checks complete", origin)
