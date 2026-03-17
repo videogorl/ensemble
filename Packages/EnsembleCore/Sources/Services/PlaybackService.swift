@@ -748,6 +748,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var healthCheckCompletionObservation: AnyCancellable?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
     private var pendingPreBufferTime: TimeInterval?
+    /// Tracks the in-progress pre-buffer task so resume() can await it instead of
+    /// starting a redundant transcode download.
+    private var preBufferTask: Task<Void, Never>?
     private var qualityChangeObserver: NSObjectProtocol?
     private var qualityDebounceTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
@@ -2015,8 +2018,40 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         pendingPreBufferTime = nil
 
         // If no player item is loaded (e.g., after state restoration where pre-buffer
-        // hasn't completed yet), load and play the current queue item now.
+        // hasn't completed yet), check if a pre-buffer download is already in progress.
         if player?.currentItem == nil, currentTrack != nil {
+            if let task = preBufferTask {
+                // Pre-buffer is downloading the transcode — await it instead of
+                // starting a redundant second download (which wastes ~10s).
+                playbackState = .buffering
+                Task { @MainActor [weak self] in
+                    await task.value
+                    guard let self else { return }
+                    self.preBufferTask = nil
+                    // If pre-buffer succeeded, player item is now loaded — just play
+                    if self.player?.currentItem != nil {
+                        self.player?.play()
+                        self.playbackState = .playing
+                        self.updateNowPlayingInfo()
+                        self.audioAnalyzer.resumeUpdates()
+                        Task { await self.prefetchNextItem() }
+                        Task { await self.checkAndRefreshAutoplayQueue() }
+                        if let track = self.currentTrack {
+                            Task {
+                                await self.syncCoordinator.reportTimeline(
+                                    track: track, state: "playing", time: self.currentTime
+                                )
+                            }
+                        }
+                    } else {
+                        // Pre-buffer failed — fall back to full playCurrentQueueItem
+                        await self.playCurrentQueueItem(seekTo: self.currentTime, caller: "resume-after-prebuffer-fail")
+                    }
+                }
+                return
+            }
+
+            // No pre-buffer in progress — start fresh
             Task { @MainActor in
                 await playCurrentQueueItem(seekTo: currentTime, caller: "restorePlaybackState")
             }
@@ -5146,12 +5181,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #if DEBUG
             EnsembleLogger.debug("🏥 Health check complete — deferring pre-buffer by 3s")
             #endif
-            Task { @MainActor [weak self] in
+            preBufferTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 // preBufferRestoredTrack guards on pendingPreBufferTime != nil,
                 // playbackState == .paused, and player?.currentItem == nil —
                 // so it safely no-ops if the user already started playing.
                 await self?.preBufferRestoredTrack()
+                self?.preBufferTask = nil
             }
             return
         }
@@ -6058,9 +6094,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #if DEBUG
                 EnsembleLogger.debug("🔄 Scheduling deferred pre-buffer (3s delay, server already reachable)")
                 #endif
-                Task { @MainActor [weak self] in
+                preBufferTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     await self?.preBufferRestoredTrack()
+                    self?.preBufferTask = nil
                 }
             }
             // If server is not ready, handleHealthCheckCompletion() will

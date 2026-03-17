@@ -1544,17 +1544,39 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
             #endif
+
+            // Collect artwork ratingKeys BEFORE deleting CoreData records
+            var artworkKeysToDelete = Set<String>()
+            if let albums = try? await libraryRepository.fetchAlbums() {
+                for album in albums where album.sourceCompositeKey == sourceId.compositeKey {
+                    artworkKeysToDelete.insert(album.ratingKey)
+                }
+            }
+            if let artists = try? await libraryRepository.fetchArtists() {
+                for artist in artists where artist.sourceCompositeKey == sourceId.compositeKey {
+                    artworkKeysToDelete.insert(artist.ratingKey)
+                }
+            }
+
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
+
+            // Delete cached artwork files for the removed source
+            if !artworkKeysToDelete.isEmpty {
+                artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
+                #if DEBUG
+                EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
+                #endif
+            }
 
             // Clean up source-specific caches (lyrics, etc.)
             onSourceCleanup?(sourceId.compositeKey)
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)
-            
+
             // Clear API client cache for this source
             accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
-            
+
             #if DEBUG
             EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
             #endif
@@ -1569,10 +1591,26 @@ public final class SyncCoordinator: ObservableObject {
     public func cleanupServerPlaylists(accountId: String, serverId: String) async {
         let serverSourceKey = "plex:\(accountId):\(serverId)"
         do {
+            // Collect playlist ratingKeys before deletion for artwork cleanup
+            var playlistKeys = Set<String>()
+            if let playlists = try? await playlistRepository.fetchPlaylists(sourceCompositeKey: serverSourceKey) {
+                for playlist in playlists {
+                    playlistKeys.insert(playlist.ratingKey)
+                }
+            }
+
             try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
             UserDefaults.standard.removeObject(forKey: timestampKey)
+
+            // Delete cached playlist artwork files
+            if !playlistKeys.isEmpty {
+                artworkDownloadManager.deleteArtwork(forRatingKeys: playlistKeys)
+                #if DEBUG
+                EnsembleLogger.debug("🗑️ Deleted \(playlistKeys.count) playlist artwork files for server: \(serverSourceKey)")
+                #endif
+            }
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
