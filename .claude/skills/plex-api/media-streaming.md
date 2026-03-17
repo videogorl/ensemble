@@ -1,8 +1,16 @@
 # Media Streaming Endpoints
 
-## CRITICAL: Universal Transcode is the Primary Streaming Path
+## Streaming Strategy: Direct Stream First, Transcode Fallback
 
-**DO NOT use direct file URLs for streaming.** Direct file stream (`/library/parts/...`) returns 503 on some server configurations. The universal transcode endpoint is the only reliable streaming path.
+Ensemble uses smart routing via `PlexAPIClient.resolveStreamURL()`:
+
+1. **Original quality + stream key** → direct file URL (no decision call). Instant playback.
+2. **Non-original quality** → call decision endpoint. If PMS says `directplay` or `copy`, use direct file URL. If `transcode`, download full file (existing path).
+3. **No stream key** → download via transcode pipeline.
+
+Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) that AVPlayer handles natively. This gives <1s startup vs ~8s for full transcode download.
+
+Tracks that fail with direct stream are tracked in `PlexMusicSourceSyncProvider.directStreamFailedKeys` and automatically skip to the download path on retry. Cleared on connection refresh.
 
 **DO NOT "disable universal endpoint" as a fix for playback failures.** Curl testing has confirmed the universal endpoint returns valid audio data. The "resource unavailable" error is an AVPlayer-specific issue, not a server problem.
 
@@ -83,25 +91,37 @@ curl -s -o /dev/null -w "Stream: %{http_code} Size: %{size_download}\n" \
 ```
 
 
-## Direct File Stream (BROKEN — do not use as primary path)
+## Direct File Stream (Used for direct-play and copy decisions)
 
 ### `GET /library/parts/{partId}/{changestamp}/{filename}`
 
-Direct audio file URL. **Returns 503 Service Unavailable** on some server configurations. Only used as a last resort fallback in the provider code, and only when the universal endpoint itself fails to construct a URL (not when AVPlayer fails to play it).
+Direct audio file URL. Now the **preferred streaming path** when PMS determines no transcoding is needed (directplay/copy decision). Returns proper HTTP headers for native AVPlayer streaming:
+
+```
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Content-Length: {fileSize}
+Connection: Keep-Alive
+```
+
+Supports `206 Partial Content` for byte range requests (verified). AVPlayer can seek and report accurate progress.
 
 **URL construction:**
 ```
-{serverURL}/library/parts/{partId}/{changestamp}/{filename}?X-Plex-Token={token}
+{serverURL}/library/parts/{partId}/{changestamp}/{filename}?X-Plex-Token={token}&X-Plex-Client-Identifier={clientId}
 ```
 
+Built by `PlexAPIClient.getStreamURL(trackKey:)` using the track's stored `streamURL` (part key).
 
-## Universal Download URL (for offline downloads and playback)
+
+## Universal Download URL (for offline downloads and genuine transcodes)
 
 Same as the universal stream URL. The decision call IS required before start.mp3 (PMS returns 400
 without it). Each download uses a unique session ID so concurrent downloads do not conflict.
 
 - Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task (caller must call decision separately)
-- Playback: `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
+- Playback (transcode needed): `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
+- Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)` or `.downloadedFile(URL)` based on PMS decision
 
 
 ## Waveform / Loudness Data

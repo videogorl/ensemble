@@ -6,6 +6,27 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Direct Stream Routing for Instant Playback (Mar 2026)
+
+**Problem:** All playback downloaded the entire transcode file (~8s) before AVPlayer could start. PMS's chunked transcode response lacks `Content-Length` and `Accept-Ranges`, which AVPlayer's CFHTTP stack can't handle.
+
+**Solution:** `PlexAPIClient.resolveStreamURL()` now parses the transcode decision response and routes intelligently:
+- **Original quality + stream key** → direct file URL, no decision call (~<1s startup)
+- **Non-original + directplay/copy decision** → direct file URL (~<1s startup)
+- **Transcode decision** → full download with XING header injection (existing ~8s path)
+
+Direct file stream (`/library/parts/...`) returns `Accept-Ranges: bytes`, `Content-Length`, and supports `206 Partial Content` — AVPlayer handles this natively.
+
+**Fallback:** Tracks that fail with direct stream are tracked in `directStreamFailedKeys` and automatically skip to the download path. Cleared on connection refresh.
+
+**New types:**
+- `StreamResolution` enum: `.directStream(URL)` / `.downloadedFile(URL)`
+- `TranscodeDecisionResult`: parsed decision + part key from PMS
+
+**Key files:**
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` — `resolveStreamURL()`, `callTranscodeDecision()` (now returns parsed result), `parseTranscodeDecision()`, `downloadUniversalStreamToFileWithSession()`
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` — `getStreamURL()` routes through `resolveStreamURL()`, `directStreamFailedKeys` tracking
+
 ### Offline Artwork Mismatch Fix + Pre-Buffer Race Fix (Mar 2026)
 
 **Artwork mismatch fix:** `ArtworkLoader.artworkURLAsync()` now checks local cache (`ArtworkCache/`) before connectivity checks. All callers (ArtworkView 300px, NowPlayingViewModel 600px) get the same `file://` URL regardless of size, eliminating cache-lottery between independent Nuke data cache entries when offline. `ArtworkView.previousImage` cleared on artwork path change to prevent stale art from previous album.
