@@ -5138,9 +5138,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // conditions have changed, so give playback a fresh failure budget.
         consecutivePlaybackFailures = 0
 
-        // Pre-buffer a restored track now that the server is confirmed reachable
+        // Defer pre-buffer for restored streaming tracks by 3s so the critical
+        // launch path (health checks, UI rendering, sync) has time to complete.
+        // If the user taps play before the timer fires, resume() handles it
+        // directly and clears pendingPreBufferTime, so the deferred task no-ops.
         if pendingPreBufferTime != nil {
-            await preBufferRestoredTrack()
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                // preBufferRestoredTrack guards on pendingPreBufferTime != nil,
+                // playbackState == .paused, and player?.currentItem == nil —
+                // so it safely no-ops if the user already started playing.
+                await self?.preBufferRestoredTrack()
+            }
             return
         }
 
@@ -6030,11 +6039,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             pendingPreBufferTime = time
         }
 
-        // Pre-buffer immediately if: (a) track is downloaded locally, or
-        // (b) a health check has already completed (server is reachable).
-        // Otherwise, handleHealthCheckCompletion() will trigger it later.
-        let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
-        if track.localFilePath != nil || serverReady {
+        // Pre-buffer immediately only for local files (instant, no network).
+        // Streaming tracks defer pre-buffer to avoid a ~3MB transcode download
+        // during startup — the UI only needs metadata (already restored above).
+        // handleHealthCheckCompletion() will trigger a deferred pre-buffer after
+        // health checks pass. If the user taps play first, resume() handles it
+        // directly via playCurrentQueueItem().
+        if track.localFilePath != nil {
             await preBufferRestoredTrack()
         }
     }
