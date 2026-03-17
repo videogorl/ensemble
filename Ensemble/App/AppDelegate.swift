@@ -925,15 +925,18 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             payload.entityID
         )
 
-        // Start playback and defer the .success completion until after the
-        // coordinator finishes. Note: .handleInApp cannot be used here — that
-        // response code is only valid from the Siri extension (it tells the
-        // system "launch the app to handle this"). From the in-app handler,
-        // .handleInApp causes Siri to show an error.
+        // Return .success immediately so Siri doesn't time out during cold
+        // launch. On a fresh start the server health checks + playback setup
+        // can take 5-8 seconds, which exceeds Siri's ~8 second timeout.
+        // The extension already established the AirPlay route via .handleInApp,
+        // so we just need to acknowledge the intent quickly and start playback
+        // in the background.
+        completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+
         executeSiriPlaybackInBackground(
             payload: payload,
             origin: "inAppIntentHandler",
-            intentCompletion: completion
+            intentCompletion: nil
         )
     }
 
