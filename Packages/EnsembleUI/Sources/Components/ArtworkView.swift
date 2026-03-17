@@ -17,6 +17,9 @@ public struct ArtworkView: View {
     /// Snapshot of the last successfully loaded image, shown during URL transitions
     /// to prevent placeholder flash when switching albums
     @State private var previousImage: Image?
+    /// Tracks the current artwork path so we can clear previousImage when switching
+    /// to a different artwork source (prevents stale art from a previous album)
+    @State private var currentArtworkPath: String?
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
     
@@ -108,9 +111,9 @@ public struct ArtworkView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            // Re-trigger if we're showing a local-file fallback (from the startup race)
-            // so we can attempt the network URL now that the server is available
-            if let url = artworkURL, url.isFileURL {
+            // With local-first artwork, file URLs are the norm.
+            // Only retry when we have NO artwork at all (nil URL means no local cache existed).
+            if artworkURL == nil {
                 invalidationToken += 1
             }
         }
@@ -118,8 +121,15 @@ public struct ArtworkView: View {
     
     private func loadArtworkURL() async {
         let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
-        let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
-        
+
+        // Clear stale artwork only when switching to a different artwork source
+        // (preserves smooth same-album transitions, prevents showing Album A's
+        // art when playing Album B's track that has no artwork)
+        if actualPath != currentArtworkPath {
+            previousImage = nil
+            currentArtworkPath = actualPath
+        }
+
         guard actualPath != nil else {
             #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")

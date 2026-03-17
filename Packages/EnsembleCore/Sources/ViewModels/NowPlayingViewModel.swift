@@ -555,13 +555,21 @@ public final class NowPlayingViewModel: ObservableObject {
                 // Load asynchronously if not cached
                 if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
                     guard !Task.isCancelled else { return }
-                    
+
                     // Only update if this is still the current track
                     if self.currentLoadTrackID == trackID {
                         // Using a smooth cross-fade transition.
                         // DO NOT REMOVE THIS - it ensures beautiful track transitions.
                         withAnimation(.easeInOut(duration: 0.5)) {
                             self.artworkImage = result
+                        }
+                    }
+                } else {
+                    // Nuke failed to load — clear stale artwork from previous track
+                    guard !Task.isCancelled else { return }
+                    if self.currentLoadTrackID == trackID {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            self.artworkImage = nil
                         }
                     }
                 }

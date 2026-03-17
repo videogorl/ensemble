@@ -274,6 +274,19 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
         
         guard let finalPath = actualPath else { return nil }
+
+        // Prefer local cache first — all callers get the same file:// URL regardless of
+        // requested size, eliminating the cache-lottery mismatch between ArtworkView (300px),
+        // PlaybackService (600px), and NowPlayingViewModel (600px) when offline.
+        // Nuke applies per-caller resize processors on the local file.
+        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+            let localCacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):local"
+            if await urlCache.get(localCacheKey) == nil {
+                await urlCache.set(localCacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
+            }
+            return localURL
+        }
+
         let isOffline = await syncCoordinator.isOffline
         // Use optimistic check: treat .unknown/.connecting as "possibly available"
         // so artwork attempts the network URL instead of falling back to local files
@@ -286,20 +299,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             return cachedURL
         }
 
-        // When offline or server is known to be unreachable, use local cache directly.
-        // This avoids building a network URL that Nuke would time out fetching.
-        let serverUnavailable = !isOffline && !serverAvailable
-        if (isOffline || serverUnavailable), let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
-            #if DEBUG
-            await loadStats.recordLocalFallback()
-            #endif
-            await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
-            return localURL
-        }
-
         // Server is unavailable and no local cache — return nil immediately
         // rather than building a URL that will time out
-        if serverUnavailable {
+        let serverUnavailable = !isOffline && !serverAvailable
+        if isOffline || serverUnavailable {
             #if DEBUG
             await loadStats.recordUnavailable()
             #endif
