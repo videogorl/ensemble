@@ -6,6 +6,22 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Offline Artwork Mismatch Fix + Pre-Buffer Race Fix (Mar 2026)
+
+**Artwork mismatch fix:** `ArtworkLoader.artworkURLAsync()` now checks local cache (`ArtworkCache/`) before connectivity checks. All callers (ArtworkView 300px, NowPlayingViewModel 600px) get the same `file://` URL regardless of size, eliminating cache-lottery between independent Nuke data cache entries when offline. `ArtworkView.previousImage` cleared on artwork path change to prevent stale art from previous album.
+
+**Pre-buffer race fix:** `PlaybackService` now tracks the deferred pre-buffer as a `preBufferTask: Task`. When `resume()` is called while pre-buffer is downloading, it awaits the in-progress task instead of starting a redundant ~10s transcode download. Previously, both downloads raced and one was discarded.
+
+**Artwork cleanup on de-sync:** `cleanupRemovedSource()` and `cleanupServerPlaylists()` now collect ratingKeys before deleting CoreData records, then delete cached artwork files via `ArtworkDownloadManager.deleteArtwork(forRatingKeys:)`.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/ArtworkLoader.swift` — local-first artwork URL resolution
+- `Packages/EnsembleUI/Sources/Components/ArtworkView.swift` — previousImage + serversBecameAvailable fixes
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` — clear stale artwork on Nuke failure
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` — preBufferTask tracking, resume() awaits
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` — artwork cleanup in cleanupRemovedSource/cleanupServerPlaylists
+- `Packages/EnsemblePersistence/Sources/Downloads/ArtworkDownloadManager.swift` — bulk deleteArtwork(forRatingKeys:)
+
 ### Cold Launch Startup Optimization (Mar 2026)
 Three independent bottleneck fixes. Verified on simulator (iPhone 17 Pro):
 

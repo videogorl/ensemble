@@ -174,6 +174,7 @@ Persistent artwork caching that survives app restarts:
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
    - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+   - Artwork cleanup on de-sync: `SyncCoordinator.cleanupRemovedSource()` and `cleanupServerPlaylists()` collect ratingKeys before CoreData deletion, then call `ArtworkDownloadManager.deleteArtwork(forRatingKeys:)` to remove cached files
 
 5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction
    - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
