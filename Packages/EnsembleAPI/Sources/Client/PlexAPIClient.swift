@@ -40,16 +40,31 @@ public enum StreamingQuality: String, Sendable {
     case low = "low"          // 128 kbps
 }
 
-/// Result of resolving how to stream a track — either a remote URL AVPlayer
-/// can stream directly, or a local file that was fully downloaded (transcode).
-public enum StreamResolution: Sendable {
-    case directStream(URL)    // AVPlayer streams progressively from remote URL
-    case downloadedFile(URL)  // Full file downloaded locally (transcode was needed)
+/// Configuration for progressive transcode streaming via AVAssetResourceLoaderDelegate.
+/// Contains everything needed to start a URLSession data task and feed chunks to AVPlayer.
+public struct ProgressiveStreamConfig: Sendable {
+    public let streamRequest: URLRequest
+    public let ratingKey: String
+    public let estimatedContentLength: Int64
+    public let metadataDuration: Double?
+}
 
+/// Result of resolving how to stream a track — either a remote URL AVPlayer
+/// can stream directly, a local file that was fully downloaded, or a progressive
+/// transcode config for chunked streaming via resource loader delegate.
+public enum StreamResolution: Sendable {
+    case directStream(URL)                          // AVPlayer streams progressively from remote URL
+    case downloadedFile(URL)                        // Full file downloaded locally (transcode was needed)
+    case progressiveTranscode(ProgressiveStreamConfig)  // Chunked transcode via resource loader
+
+    /// Convenience accessor for cases that carry a URL directly.
+    /// Crashes on `.progressiveTranscode` — callers must switch explicitly.
     public var url: URL {
         switch self {
         case .directStream(let url), .downloadedFile(let url):
             return url
+        case .progressiveTranscode:
+            fatalError("progressiveTranscode does not have a direct URL — use switch to handle all cases")
         }
     }
 }
@@ -1465,32 +1480,41 @@ public actor PlexAPIClient {
                 return .directStream(url)
 
             case .transcode, .unknown:
-                // Transcoding required — download the full file with XING header injection.
+                // Transcoding required — return progressive stream config so the caller
+                // can feed chunks to AVPlayer via AVAssetResourceLoaderDelegate.
                 // Reuse the same session ID so PMS recognizes the warmed-up session.
                 #if DEBUG
-                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → downloading transcode")
+                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → progressive transcode")
                 #endif
-                let fileURL = try await downloadUniversalStreamToFileWithSession(
+                let config = try buildProgressiveStreamConfig(
                     ratingKey: ratingKey,
                     quality: quality,
-                    sessionId: sessionId,
                     queryItems: queryItems,
-                    metadataDurationSeconds: metadataDurationSeconds
+                    metadataDuration: metadataDurationSeconds
                 )
-                return .downloadedFile(fileURL)
+                return .progressiveTranscode(config)
             }
         }
 
-        // No stream key — can only use the transcode pipeline
+        // No stream key — build progressive transcode config with a fresh session
         #if DEBUG
-        EnsembleLogger.debug("🎵 resolveStreamURL: no stream key → downloading transcode")
+        EnsembleLogger.debug("🎵 resolveStreamURL: no stream key → progressive transcode")
         #endif
-        let fileURL = try await downloadUniversalStreamToFile(
+        let sessionId = UUID().uuidString
+        let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
             quality: quality,
-            metadataDurationSeconds: metadataDurationSeconds
+            sessionId: sessionId
         )
-        return .downloadedFile(fileURL)
+        // Warm up the session — PMS returns 400 on start.mp3 without a prior decision call
+        try await callTranscodeDecision(queryItems: queryItems)
+        let config = try buildProgressiveStreamConfig(
+            ratingKey: ratingKey,
+            quality: quality,
+            queryItems: queryItems,
+            metadataDuration: metadataDurationSeconds
+        )
+        return .progressiveTranscode(config)
     }
 
     /// Download universal stream with a pre-warmed session.
@@ -1639,6 +1663,51 @@ public actor PlexAPIClient {
         }
 
         return queryItems
+    }
+
+    /// Build a URLRequest for the start.mp3 transcode endpoint with Plex headers,
+    /// and wrap it in a `ProgressiveStreamConfig` for the resource loader delegate.
+    private func buildProgressiveStreamConfig(
+        ratingKey: String,
+        quality: StreamingQuality,
+        queryItems: [URLQueryItem],
+        metadataDuration metadataDurationSeconds: Double?
+    ) throws -> ProgressiveStreamConfig {
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let estimatedLength = estimateTranscodeSize(
+            quality: quality,
+            durationSeconds: metadataDurationSeconds
+        )
+
+        return ProgressiveStreamConfig(
+            streamRequest: request,
+            ratingKey: ratingKey,
+            estimatedContentLength: estimatedLength,
+            metadataDuration: metadataDurationSeconds
+        )
+    }
+
+    /// Estimate the download size of a transcode based on quality bitrate and duration.
+    /// Includes a 10% safety margin so AVPlayer doesn't think the stream ended early.
+    private func estimateTranscodeSize(quality: StreamingQuality, durationSeconds: Double?) -> Int64 {
+        let duration = durationSeconds ?? 240 // Default 4 minutes if unknown
+        let bitrateKbps: Double
+        switch quality {
+        case .original: bitrateKbps = 320  // Shouldn't hit this path, but safe fallback
+        case .high:     bitrateKbps = 320
+        case .medium:   bitrateKbps = 192
+        case .low:      bitrateKbps = 128
+        }
+        // bitrate (kbps) / 8 → KB/s, × duration → KB, × 1024 → bytes, × 1.1 → safety margin
+        return Int64(bitrateKbps / 8.0 * duration * 1024.0 * 1.1)
     }
 
     /// Call the transcode decision endpoint to warm up the session and parse PMS's decision.

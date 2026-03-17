@@ -613,16 +613,15 @@ public func getStreamURL(
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double? = nil
-    ) async throws -> URL {
+    ) async throws -> StreamResolution {
         #if DEBUG
         EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
 
-        // Try smart routing: direct stream for compatible tracks, download for transcodes.
-        // Direct stream gives instant playback (~<1s) vs full download (~8s) because PMS
-        // serves direct files with Accept-Ranges: bytes and Content-Length, which AVPlayer
-        // handles natively. The transcode download path is still used when PMS needs to
-        // actually transcode (e.g., FLAC at medium quality).
+        // Try smart routing: direct stream for compatible tracks, progressive transcode
+        // for transcodes. Direct stream gives instant playback (~<1s) because PMS serves
+        // direct files with Accept-Ranges: bytes and Content-Length. Progressive transcode
+        // gives ~1-2s startup by streaming chunks via AVAssetResourceLoaderDelegate.
         if !directStreamFailedKeys.contains(trackRatingKey) {
             do {
                 let resolution = try await apiClient.resolveStreamURL(
@@ -631,25 +630,24 @@ public func getStreamURL(
                     quality: quality,
                     metadataDurationSeconds: metadataDurationSeconds
                 )
+                #if DEBUG
                 switch resolution {
-                case .directStream(let url):
-                    #if DEBUG
+                case .directStream:
                     EnsembleLogger.debug("🎵 PlexProvider: Using direct stream (quality=\(quality.rawValue))")
-                    #endif
-                    return url
-                case .downloadedFile(let url):
-                    #if DEBUG
+                case .downloadedFile:
                     EnsembleLogger.debug("🎵 PlexProvider: Downloaded transcode to file (quality=\(quality.rawValue))")
-                    #endif
-                    return url
+                case .progressiveTranscode:
+                    EnsembleLogger.debug("🎵 PlexProvider: Progressive transcode (quality=\(quality.rawValue))")
                 }
+                #endif
+                return resolution
             } catch {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ PlexProvider: resolveStreamURL failed: \(error). Falling back to direct stream.")
                 #endif
             }
         } else {
-            // Previously failed with direct stream — skip straight to download
+            // Previously failed with direct stream — skip straight to full download
             #if DEBUG
             EnsembleLogger.debug("🎵 PlexProvider: ratingKey \(trackRatingKey) in directStreamFailedKeys, using download path")
             #endif
@@ -659,7 +657,7 @@ public func getStreamURL(
                     quality: quality,
                     metadataDurationSeconds: metadataDurationSeconds
                 )
-                return fileURL
+                return .downloadedFile(fileURL)
             } catch {
                 #if DEBUG
                 EnsembleLogger.debug("⚠️ PlexProvider: Download fallback also failed: \(error)")
@@ -672,7 +670,8 @@ public func getStreamURL(
             #if DEBUG
             EnsembleLogger.debug("🔍 PlexProvider: Last resort — using direct stream key: \(trackStreamKey)")
             #endif
-            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
+            let url = try await apiClient.getStreamURL(trackKey: trackStreamKey)
+            return .directStream(url)
         }
 
         #if DEBUG
@@ -685,7 +684,8 @@ public func getStreamURL(
             #endif
             throw PlexAPIError.invalidURL
         }
-        return try await apiClient.getStreamURL(trackKey: streamKey)
+        let url = try await apiClient.getStreamURL(trackKey: streamKey)
+        return .directStream(url)
     }
 
     /// Get a download URL for offline use. Skips the transcode decision endpoint

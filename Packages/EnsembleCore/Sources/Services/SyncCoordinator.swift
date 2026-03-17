@@ -1206,7 +1206,7 @@ public final class SyncCoordinator: ObservableObject {
     /// - Parameters:
     ///   - track: The track to stream
     ///   - quality: Streaming quality preference (default: original)
-    public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
+    public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> StreamResolution {
         #if DEBUG
         EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title) [quality: \(quality.rawValue)]")
         EnsembleLogger.debug("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
@@ -1222,7 +1222,7 @@ public final class SyncCoordinator: ObservableObject {
                 let accountId = String(components[1])
                 let serverId = String(components[2])
                 let libraryId = String(components[3])
-                
+
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
                    let server = account.servers.first(where: { $0.id == serverId }) {

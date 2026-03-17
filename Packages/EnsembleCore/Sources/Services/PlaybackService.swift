@@ -29,6 +29,7 @@ public enum PlaybackError: Error, LocalizedError {
     case offline
     case corruptLocalFile
     case serverUnavailable(message: String?)
+    case streamURLUnavailable
     case networkError(Error)
     case unknown(Error)
 
@@ -40,6 +41,8 @@ public enum PlaybackError: Error, LocalizedError {
             return "Downloaded file is corrupt"
         case .serverUnavailable(let message):
             return message ?? "Server is unavailable"
+        case .streamURLUnavailable:
+            return "Could not build stream URL"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
         case .unknown(let error):
@@ -715,6 +718,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var player: AVQueuePlayer?
     private var playerItems: [String: AVPlayerItem] = [:] // ratingKey: item
     private var playerItemsLRU: [String] = []  // Track order for LRU eviction
+    /// Active progressive stream loaders keyed by trackId. Kept alive so the
+    /// AVAssetResourceLoaderDelegate isn't deallocated while AVPlayer needs it.
+    private var streamLoaders: [String: ProgressiveStreamLoader] = [:]
     private let maxCachedPlayerItems = 10  // Keep last 10 items cached for back navigation
     /// In-flight player item creation tasks keyed by trackId.
     /// Prevents duplicate concurrent downloads when playCurrentQueueItem and prefetch
@@ -2126,6 +2132,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        // Cancel any in-flight progressive stream downloads
+        for loader in streamLoaders.values { loader.cancel() }
+        streamLoaders.removeAll()
+
         endTrackTransitionBackgroundTask()
         cleanup()
         cancelNowPlayingArtworkLoad(clearArtwork: true)
@@ -3087,10 +3097,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playerItemsLRU.insert(trackId, at: 0)
         playerItems[trackId] = item
 
-        // Evict oldest items if over limit, cleaning up associated temp files
+        // Evict oldest items if over limit, cleaning up associated temp files + loaders
         while playerItemsLRU.count > maxCachedPlayerItems {
             if let oldestId = playerItemsLRU.popLast() {
                 playerItems.removeValue(forKey: oldestId)
+                streamLoaders.removeValue(forKey: oldestId)?.cancel()
                 #if DEBUG
                 EnsembleLogger.debug("🗑️ Evicted cached player item: \(oldestId)")
                 #endif
@@ -3119,6 +3130,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func clearPlayerItemCache() {
         playerItems.removeAll()
         playerItemsLRU.removeAll()
+        for loader in streamLoaders.values { loader.cancel() }
+        streamLoaders.removeAll()
         cleanupStreamCacheFiles()
         #if DEBUG
         EnsembleLogger.debug("🗑️ Cleared player item cache")
@@ -3139,6 +3152,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         for id in evictIds {
             playerItems.removeValue(forKey: id)
+            streamLoaders.removeValue(forKey: id)?.cancel()
         }
         playerItemsLRU.removeAll { evictIds.contains($0) }
         // Clean up stream cache files since evicted items may reference them
@@ -3203,6 +3217,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let item = playerItems.removeValue(forKey: trackID) {
             item.asset.cancelLoading()
         }
+        streamLoaders.removeValue(forKey: trackID)?.cancel()
         playerItemsLRU.removeAll { $0 == trackID }
     }
 
@@ -3767,14 +3782,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             throw PlaybackError.serverUnavailable(message: failureMessage)
         }
 
-        // Attempt to get stream URL. If it fails due to connectivity issues, refresh
-        // the server connection and retry once before surfacing an error to the UI.
-        let streamURL: URL
+        // Attempt to get stream resolution. If it fails due to connectivity issues,
+        // refresh the server connection and retry once before surfacing an error to the UI.
+        let resolution: StreamResolution
         do {
             #if DEBUG
             EnsembleLogger.debug("   🔄 Getting stream URL...")
             #endif
-            streamURL = try await syncCoordinator.getStreamURL(for: track, quality: quality)
+            resolution = try await syncCoordinator.getStreamURL(for: track, quality: quality)
         } catch {
             #if DEBUG
             EnsembleLogger.debug("   ⚠️ Failed to get stream URL on first attempt: \(error)")
@@ -3786,7 +3801,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
                 do {
                     try await syncCoordinator.refreshConnection()
-                    streamURL = try await syncCoordinator.getStreamURL(for: track, quality: quality)
+                    resolution = try await syncCoordinator.getStreamURL(for: track, quality: quality)
                 } catch {
                     #if DEBUG
                     EnsembleLogger.debug("   ❌ Stream URL retry failed: \(error)")
@@ -3799,6 +3814,67 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 #endif
                 throw mapToPlaybackError(error)
             }
+        }
+
+        // Progressive transcode: use AVAssetResourceLoaderDelegate to feed chunks
+        // to AVPlayer as they arrive from PMS, instead of waiting for full download.
+        if case .progressiveTranscode(let config) = resolution {
+            guard let customURL = ProgressiveStreamLoader.customSchemeURL(from: config.streamRequest.url!) else {
+                throw PlaybackError.streamURLUnavailable
+            }
+
+            let loader = ProgressiveStreamLoader(
+                request: config.streamRequest,
+                ratingKey: config.ratingKey,
+                estimatedContentLength: config.estimatedContentLength,
+                metadataDuration: config.metadataDuration
+            )
+
+            // Post-download: XING header injection + frequency analysis
+            loader.onDownloadComplete = { [weak self] fileURL, duration in
+                if quality != .original {
+                    try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
+                        at: fileURL, metadataDurationSeconds: duration
+                    )
+                }
+                Task.detached { [weak self] in
+                    await self?.audioAnalyzer.loadTimeline(
+                        for: track.id, fileURL: fileURL, priority: .utility
+                    )
+                }
+            }
+
+            let asset = AVURLAsset(url: customURL)
+            asset.resourceLoader.setDelegate(loader, queue: loader.delegateQueue)
+            streamLoaders[track.id] = loader
+
+            let item = AVPlayerItem(asset: asset)
+            item.preferredForwardBufferDuration = activeBufferingProfile.preferredForwardBufferDuration
+
+            // Set forwardPlaybackEndTime for gapless transitions
+            if track.duration > 0 {
+                item.forwardPlaybackEndTime = CMTime(seconds: track.duration, preferredTimescale: 44100)
+                #if DEBUG
+                EnsembleLogger.debug("   ⏱️ Set forwardPlaybackEndTime=\(track.duration)s for progressive transcode")
+                #endif
+            }
+
+            #if DEBUG
+            EnsembleLogger.debug("   📡 Progressive transcode item created for: \(track.title)")
+            EnsembleLogger.debug(
+                "   🎚️ Buffer profile \(activeBufferingProfile.label): forwardBuffer=\(activeBufferingProfile.preferredForwardBufferDuration)s"
+            )
+            #endif
+            return (item, nil) // No local file URL yet — download is in progress
+        }
+
+        // Direct stream or downloaded file — extract URL
+        let streamURL: URL
+        switch resolution {
+        case .directStream(let url), .downloadedFile(let url):
+            streamURL = url
+        case .progressiveTranscode:
+            fatalError("Handled above")
         }
 
         #if DEBUG

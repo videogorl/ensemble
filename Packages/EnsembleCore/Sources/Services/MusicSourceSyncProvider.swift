@@ -32,13 +32,14 @@ public protocol MusicSourceSyncProvider: Sendable {
         progressHandler: @Sendable (Double) -> Void
     ) async throws
 
-    /// Get a streaming URL for a track
+    /// Get a streaming resolution for a track — may be a direct URL, downloaded file,
+    /// or progressive transcode config for chunked streaming.
     func getStreamURL(
         for trackRatingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double?
-    ) async throws -> URL
+    ) async throws -> StreamResolution
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
