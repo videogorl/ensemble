@@ -663,23 +663,29 @@ func executeSiriPlaybackInBackground(
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
         let shc = DependencyContainer.shared.serverHealthChecker
         if let earlyTask = appDelegate?.earlyHealthCheckTask {
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Awaiting early health checks from didFinishLaunching...", origin)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Awaiting early health checks from didFinishLaunching...", origin)
             await earlyTask.value
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Early health checks done — serverStates: %{public}@", origin,
-                   shc.serverStates.values.contains { $0.isAvailable } ? "hasConnected" : "noConnected")
+        } else {
+            os_log(.default, "SIRI_APP: [origin=%{public}@] No earlyHealthCheckTask found — running standalone health checks", origin)
         }
+
+        // Log server states at this point for diagnostics
+        let statesSummary = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
+        os_log(.default, "SIRI_APP: [origin=%{public}@] Post-health serverStates: [%{public}@]", origin, statesSummary)
 
         // If early checks didn't find any connected servers (edge case: first
         // launch, network delay, etc.), fall back to running our own checks.
         let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
         if !hasConnectedServers {
-            os_log(.info, "SIRI_APP: [origin=%{public}@] No connected servers from early checks — running fallback health checks", origin)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] No connected servers — running fallback health checks", origin)
             let nm = DependencyContainer.shared.networkMonitor
             for _ in 0..<10 {
                 if nm.networkState != .unknown { break }
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
             }
             await shc.checkAllServers()
+            let postFallback = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Post-fallback serverStates: [%{public}@]", origin, postFallback)
         }
 
         // Build sync providers (needed for stream URL resolution) and update
@@ -687,7 +693,7 @@ func executeSiriPlaybackInBackground(
         let sc = DependencyContainer.shared.syncCoordinator
         sc.refreshProviders()
         await sc.refreshAPIClientConnections()
-        os_log(.info, "SIRI_APP: [origin=%{public}@] Server health checks complete", origin)
+        os_log(.default, "SIRI_APP: [origin=%{public}@] Server connectivity ready", origin)
 
         do {
             // Configure audio session with .playback category and .longFormAudio
@@ -718,7 +724,7 @@ func executeSiriPlaybackInBackground(
             let shouldStartPlayback = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 session.prepareRouteSelectionForPlayback { shouldActivate, routeSelection in
                     os_log(
-                        .info,
+                        .default,
                         "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d, route=%{public}@",
                         origin,
                         shouldActivate ? 1 : 0,
@@ -744,15 +750,15 @@ func executeSiriPlaybackInBackground(
             let initialRoute = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
 
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
 
             let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
             // Complete the intent response AFTER playback starts. Keeping
             // the intent handler alive until now preserves the system's
@@ -907,7 +913,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     ]
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
+        os_log(.default, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
 
         guard let payload = payload(from: intent) else {
             os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload/query from intent")

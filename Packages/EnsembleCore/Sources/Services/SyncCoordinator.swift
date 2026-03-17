@@ -979,8 +979,11 @@ public final class SyncCoordinator: ObservableObject {
         // Run health checks first so serverStates is populated before sync begins.
         // This ensures TrackAvailabilityResolver has accurate data from the start,
         // and tracks from offline servers are correctly dimmed in the UI.
+        // Skip if performStartupHealthChecks() already ran (e.g. from AppDelegate's
+        // earlyHealthCheckTask) — avoids redundant ~4s of probing.
         let eligibleServers = enabledServerKeysForHealthChecks()
-        if !eligibleServers.isEmpty {
+        let healthChecksAlreadyDone = startupHealthChecksInitiated && lastHealthRefreshAt != nil
+        if !eligibleServers.isEmpty && !healthChecksAlreadyDone {
             // Mark initiated before awaiting so performStartupHealthChecks()
             // (which may fire concurrently from AppDelegate) skips immediately.
             startupHealthChecksInitiated = true
@@ -1006,6 +1009,12 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
             #endif
+        } else if healthChecksAlreadyDone {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Skipping startup sync health checks — already done by earlyHealthCheckTask")
+            #endif
+            // Still update source states in case they weren't synced
+            updateSourceConnectionStates()
         }
         
         // Determine sync strategy: full if >24h or never synced, incremental otherwise.
