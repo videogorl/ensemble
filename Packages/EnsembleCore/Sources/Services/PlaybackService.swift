@@ -5328,7 +5328,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Reload the currently playing track at the new streaming quality.
-    /// Preserves playback position so the transition is seamless.
+    /// Preserves playback position and play/pause state so the transition is seamless.
     private func reloadCurrentTrackForQualityChange() async {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
         let track = queue[currentQueueIndex].track
@@ -5339,15 +5339,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         // Only reload if actively playing or paused
+        let wasPaused: Bool
         switch playbackState {
-        case .playing, .paused: break
+        case .paused: wasPaused = true
+        case .playing: wasPaused = false
         default: return
         }
 
         let seekPosition = currentTime
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Reloading current track at new streaming quality, seeking to \(seekPosition)s")
+        EnsembleLogger.debug("🔄 Reloading current track at new streaming quality, seeking to \(seekPosition)s (wasPaused: \(wasPaused))")
         #endif
 
         // Evict the cached player item so a fresh one is created with the new quality
@@ -5357,6 +5359,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Replay from the saved position
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: seekPosition, caller: "qualityChange")
+
+        // If the user had paused, restore the paused state.
+        // playCurrentQueueItem always calls player?.play(), so we pause after it completes.
+        if wasPaused {
+            await MainActor.run {
+                player?.pause()
+                playbackState = .paused
+                updateNowPlayingInfo()
+            }
+            #if DEBUG
+            EnsembleLogger.debug("🔄 Restored paused state after quality change reload")
+            #endif
+        }
     }
 
     /// Invalidate prefetched player items after a quality change so the normal
