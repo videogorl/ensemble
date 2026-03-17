@@ -21,6 +21,7 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
 | `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
 | `recent-changes` | Debugging, investigating prior work, understanding how a feature was implemented, or before touching a recently modified area |
+| `simulator-test` | Verifying runtime behavior, measuring timing, or diagnosing issues by building and launching on the iOS simulator with debug log capture |
 
 **When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
 
