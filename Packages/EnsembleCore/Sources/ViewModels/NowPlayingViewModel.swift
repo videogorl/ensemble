@@ -564,15 +564,11 @@ public final class NowPlayingViewModel: ObservableObject {
                             self.artworkImage = result
                         }
                     }
-                } else {
-                    // Nuke failed to load — clear stale artwork from previous track
-                    guard !Task.isCancelled else { return }
-                    if self.currentLoadTrackID == trackID {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            self.artworkImage = nil
-                        }
-                    }
                 }
+                // If Nuke fails (transient network error, pipeline cancellation),
+                // keep the previous artwork rather than flashing to a placeholder.
+                // Tracks with truly no artwork are handled by the artworkURLAsync == nil
+                // path below, which clears artworkImage correctly.
             } else {
                 // No artwork URL available - clear previous artwork
                 guard !Task.isCancelled else { return }
