@@ -1,10 +1,23 @@
 ---
 name: recent-changes
-description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
+description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: cold launch optimization, low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
 user-invocable: true
 ---
 
 # Recent Major Changes
+
+### Cold Launch Startup Optimization (Mar 2026)
+Three independent bottleneck fixes saving ~7.5s total on normal user launches:
+
+1. **Deferred stream pre-buffer (saves ~3.35s):** `restoreQueueFromItems()` no longer immediately creates an `AVURLAsset` + `AVPlayerItem` for streaming tracks. The UI only needs track metadata (already restored from QueueItem JSON). Local files still pre-buffer instantly. Streaming tracks defer pre-buffer to 3s after health checks complete. `resume()` already handles the no-player-item case via `playCurrentQueueItem()`.
+
+2. **Removed 5s unconditional sync delay (saves ~5s):** The blanket `Task.sleep(5s)` before startup sync is removed. Normal launches start sync immediately. Siri launches retain a 2s delay for audio session setup. Sync runs at `.utility` priority so it doesn't compete with the Siri audio path.
+
+3. **MainActor task sequencing (saves ~300ms):** Siri media index rebuild and WebSocket coordinator start now `await earlyHealthCheckTask?.value` before beginning, giving health checks uncontested MainActor time during the critical launch window.
+
+**Key files:**
+- `Ensemble/App/AppDelegate.swift` — sync delay removal, MainActor sequencing
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` — deferred pre-buffer in `restoreQueueFromItems()` and `handleHealthCheckCompletion()`
 
 ### HomePod Siri AirPlay Routing — FIXED (Mar 2026)
 Fixed HomePod Siri → Ensemble playback routing to HomePod (previously played on iPhone speaker).
