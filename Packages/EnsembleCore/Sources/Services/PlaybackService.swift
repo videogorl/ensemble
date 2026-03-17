@@ -5143,6 +5143,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If the user taps play before the timer fires, resume() handles it
         // directly and clears pendingPreBufferTime, so the deferred task no-ops.
         if pendingPreBufferTime != nil {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Health check complete — deferring pre-buffer by 3s")
+            #endif
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 // preBufferRestoredTrack guards on pendingPreBufferTime != nil,
@@ -6039,14 +6042,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             pendingPreBufferTime = time
         }
 
-        // Pre-buffer immediately only for local files (instant, no network).
-        // Streaming tracks defer pre-buffer to avoid a ~3MB transcode download
-        // during startup — the UI only needs metadata (already restored above).
-        // handleHealthCheckCompletion() will trigger a deferred pre-buffer after
-        // health checks pass. If the user taps play first, resume() handles it
-        // directly via playCurrentQueueItem().
+        // Pre-buffer immediately for local files (instant, no network).
+        // Streaming tracks defer pre-buffer by 3s to avoid a ~3MB transcode
+        // download during the critical launch window. If the user taps play
+        // before the timer fires, resume() handles it via playCurrentQueueItem().
         if track.localFilePath != nil {
             await preBufferRestoredTrack()
+        } else {
+            // Schedule deferred pre-buffer. Health checks may have already
+            // completed (AppDelegate awaits them before calling restore),
+            // so handleHealthCheckCompletion() won't fire again. Schedule
+            // the pre-buffer directly with a 3s delay.
+            let serverReady = await MainActor.run { syncCoordinator.lastHealthCheckCompletion != nil }
+            if serverReady {
+                #if DEBUG
+                EnsembleLogger.debug("🔄 Scheduling deferred pre-buffer (3s delay, server already reachable)")
+                #endif
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await self?.preBufferRestoredTrack()
+                }
+            }
+            // If server is not ready, handleHealthCheckCompletion() will
+            // trigger deferred pre-buffer when the next health check passes.
         }
     }
 
