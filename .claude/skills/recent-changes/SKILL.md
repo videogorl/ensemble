@@ -6,26 +6,35 @@ user-invocable: true
 
 # Recent Major Changes
 
-### Direct Stream Routing for Instant Playback (Mar 2026)
+### Progressive Transcode Streaming (Mar 2026)
 
-**Problem:** All playback downloaded the entire transcode file (~8s) before AVPlayer could start. PMS's chunked transcode response lacks `Content-Length` and `Accept-Ranges`, which AVPlayer's CFHTTP stack can't handle.
+**Problem:** When PMS transcodes (e.g., FLAC at "low" quality), we downloaded the entire ~5MB file (~8s) before AVPlayer could start. PMS's `start.mp3` returns `Transfer-Encoding: chunked` with no `Content-Length` and `Accept-Ranges: none`, which AVPlayer's CFHTTP stack can't handle (error -16845).
 
-**Solution:** `PlexAPIClient.resolveStreamURL()` now parses the transcode decision response and routes intelligently:
+**Solution:** `ProgressiveStreamLoader` (AVAssetResourceLoaderDelegate + URLSessionDataDelegate) bridges PMS's chunked response to AVPlayer. A custom URL scheme (`ensemble-transcode://`) triggers the delegate instead of CFHTTP. Data is written to a growing temp file and served to AVPlayer as it arrives (~1-2s startup).
+
+**Routing strategy (resolveStreamURL):**
 - **Original quality + stream key** → direct file URL, no decision call (~<1s startup)
 - **Non-original + directplay/copy decision** → direct file URL (~<1s startup)
-- **Transcode decision** → full download with XING header injection (existing ~8s path)
+- **Transcode decision** → progressive stream via ProgressiveStreamLoader (~1-2s startup)
 
-Direct file stream (`/library/parts/...`) returns `Accept-Ranges: bytes`, `Content-Length`, and supports `206 Partial Content` — AVPlayer handles this natively.
+**Fallback:** Tracks that fail with direct stream are tracked in `directStreamFailedKeys` and automatically skip to the full download path. Cleared on connection refresh.
 
-**Fallback:** Tracks that fail with direct stream are tracked in `directStreamFailedKeys` and automatically skip to the download path. Cleared on connection refresh.
-
-**New types:**
-- `StreamResolution` enum: `.directStream(URL)` / `.downloadedFile(URL)`
+**Types:**
+- `StreamResolution` enum: `.directStream(URL)` / `.downloadedFile(URL)` / `.progressiveTranscode(ProgressiveStreamConfig)`
+- `ProgressiveStreamConfig`: URLRequest + ratingKey + estimatedContentLength + metadataDuration
 - `TranscodeDecisionResult`: parsed decision + part key from PMS
 
+**Post-download processing:** XING header injection + frequency analysis run via `onDownloadComplete` callback when the full file finishes downloading.
+
+**Gapless preservation:** `forwardPlaybackEndTime` set from `track.duration` on all progressive items. Prefetch creates next 2 items concurrently.
+
 **Key files:**
-- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` — `resolveStreamURL()`, `callTranscodeDecision()` (now returns parsed result), `parseTranscodeDecision()`, `downloadUniversalStreamToFileWithSession()`
-- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` — `getStreamURL()` routes through `resolveStreamURL()`, `directStreamFailedKeys` tracking
+- `Packages/EnsembleCore/Sources/Services/ProgressiveStreamLoader.swift` — AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` — `resolveStreamURL()`, `buildProgressiveStreamConfig()`, `estimateTranscodeSize()`, `callTranscodeDecision()`
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` — `createPlayerItemImpl()` handles `.progressiveTranscode`, `streamLoaders` dict, cleanup in stop/evict/clear
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` — returns `StreamResolution` directly
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` — `getStreamURL()` returns `StreamResolution`
+- `Packages/EnsembleCore/Sources/Services/MusicSourceSyncProvider.swift` — protocol returns `StreamResolution`
 
 ### Offline Artwork Mismatch Fix + Pre-Buffer Race Fix (Mar 2026)
 

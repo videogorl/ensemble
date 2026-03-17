@@ -4,11 +4,15 @@
 
 Ensemble uses smart routing via `PlexAPIClient.resolveStreamURL()`:
 
-1. **Original quality + stream key** → direct file URL (no decision call). Instant playback.
-2. **Non-original quality** → call decision endpoint. If PMS says `directplay` or `copy`, use direct file URL. If `transcode`, download full file (existing path).
-3. **No stream key** → download via transcode pipeline.
+1. **Original quality + stream key** → direct file URL (no decision call). Instant playback (<1s).
+2. **Non-original quality** → call decision endpoint:
+   - `directplay` or `copy` → direct file URL (<1s startup)
+   - `transcode` → **progressive stream** via `ProgressiveStreamLoader` (~1-2s startup)
+3. **No stream key** → progressive transcode stream (decision call + start.mp3).
 
-Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) that AVPlayer handles natively. This gives <1s startup vs ~8s for full transcode download.
+Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) that AVPlayer handles natively.
+
+Progressive transcode uses `AVAssetResourceLoaderDelegate` with custom `ensemble-transcode://` URL scheme to bridge PMS's chunked `Transfer-Encoding` response to AVPlayer. Data is written to a growing temp file and served to AVPlayer as it arrives. Post-download: XING header injection + frequency analysis via `onDownloadComplete` callback.
 
 Tracks that fail with direct stream are tracked in `PlexMusicSourceSyncProvider.directStreamFailedKeys` and automatically skip to the download path on retry. Cleared on connection refresh.
 
@@ -121,7 +125,8 @@ without it). Each download uses a unique session ID so concurrent downloads do n
 
 - Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task (caller must call decision separately)
 - Playback (transcode needed): `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
-- Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)` or `.downloadedFile(URL)` based on PMS decision
+- Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)`, `.downloadedFile(URL)`, or `.progressiveTranscode(ProgressiveStreamConfig)` based on PMS decision
+- Progressive streaming: `ProgressiveStreamLoader` (EnsembleCore) — AVAssetResourceLoaderDelegate that bridges chunked transcode to AVPlayer via `ensemble-transcode://` custom URL scheme
 
 
 ## Waveform / Loudness Data
