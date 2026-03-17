@@ -40,6 +40,31 @@ public enum StreamingQuality: String, Sendable {
     case low = "low"          // 128 kbps
 }
 
+/// Result of resolving how to stream a track — either a remote URL AVPlayer
+/// can stream directly, or a local file that was fully downloaded (transcode).
+public enum StreamResolution: Sendable {
+    case directStream(URL)    // AVPlayer streams progressively from remote URL
+    case downloadedFile(URL)  // Full file downloaded locally (transcode was needed)
+
+    public var url: URL {
+        switch self {
+        case .directStream(let url), .downloadedFile(let url):
+            return url
+        }
+    }
+}
+
+/// Parsed result from PMS's transcode decision endpoint.
+public struct TranscodeDecisionResult: Sendable {
+    public enum Decision: String, Sendable {
+        case directplay, copy, transcode, unknown
+    }
+
+    public let decision: Decision
+    /// Part key from the decision response (e.g. "/library/parts/8955/...")
+    public let directStreamPartKey: String?
+}
+
 public struct PlexServerConnection: Sendable {
     public let url: String
     public let alternativeURLs: [String]  // Additional connection URLs for failover
@@ -1390,6 +1415,171 @@ public actor PlexAPIClient {
         return destURL
     }
 
+    /// Resolve the best streaming approach for a track.
+    ///
+    /// Tries direct stream first (instant playback) and falls back to full transcode
+    /// download when PMS says transcoding is needed.
+    ///
+    /// - `original` quality with a stream key: direct stream URL, no decision call needed.
+    /// - Non-original quality: calls the decision endpoint. If PMS says `directplay` or `copy`,
+    ///   uses the direct stream URL. If `transcode` or `unknown`, downloads the full file.
+    /// - No stream key available: always downloads via the transcode pipeline.
+    public func resolveStreamURL(
+        ratingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double?
+    ) async throws -> StreamResolution {
+        // Original quality with a known stream key — skip the decision call entirely
+        // and stream the file directly. PMS serves these with Accept-Ranges: bytes
+        // and Content-Length, which AVPlayer handles natively.
+        if quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
+            let url = try getStreamURL(trackKey: streamKey)
+            #if DEBUG
+            EnsembleLogger.debug("🎵 resolveStreamURL: original quality → direct stream")
+            #endif
+            return .directStream(url)
+        }
+
+        // Non-original quality — ask PMS what it would do
+        if let streamKey = trackStreamKey, !streamKey.isEmpty {
+            let sessionId = UUID().uuidString
+            let queryItems = buildUniversalStreamQueryItems(
+                ratingKey: ratingKey,
+                quality: quality,
+                sessionId: sessionId
+            )
+
+            let decision = try await callTranscodeDecision(queryItems: queryItems)
+
+            switch decision.decision {
+            case .directplay, .copy:
+                // PMS says no transcoding needed — use direct file stream.
+                // Prefer the part key from the decision response if available,
+                // otherwise fall back to the track's stored stream key.
+                let partKey = decision.directStreamPartKey ?? streamKey
+                let url = try getStreamURL(trackKey: partKey)
+                #if DEBUG
+                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → direct stream")
+                #endif
+                return .directStream(url)
+
+            case .transcode, .unknown:
+                // Transcoding required — download the full file with XING header injection.
+                // Reuse the same session ID so PMS recognizes the warmed-up session.
+                #if DEBUG
+                EnsembleLogger.debug("🎵 resolveStreamURL: decision=\(decision.decision.rawValue) → downloading transcode")
+                #endif
+                let fileURL = try await downloadUniversalStreamToFileWithSession(
+                    ratingKey: ratingKey,
+                    quality: quality,
+                    sessionId: sessionId,
+                    queryItems: queryItems,
+                    metadataDurationSeconds: metadataDurationSeconds
+                )
+                return .downloadedFile(fileURL)
+            }
+        }
+
+        // No stream key — can only use the transcode pipeline
+        #if DEBUG
+        EnsembleLogger.debug("🎵 resolveStreamURL: no stream key → downloading transcode")
+        #endif
+        let fileURL = try await downloadUniversalStreamToFile(
+            ratingKey: ratingKey,
+            quality: quality,
+            metadataDurationSeconds: metadataDurationSeconds
+        )
+        return .downloadedFile(fileURL)
+    }
+
+    /// Download universal stream with a pre-warmed session.
+    /// Used by `resolveStreamURL` when the decision endpoint has already been called —
+    /// skips the redundant decision call and reuses the same session ID.
+    private func downloadUniversalStreamToFileWithSession(
+        ratingKey: String,
+        quality: StreamingQuality,
+        sessionId: String,
+        queryItems: [URLQueryItem],
+        metadataDurationSeconds: Double?
+    ) async throws -> URL {
+        // Build the start.mp3 URL (decision was already called by the caller)
+        let url = try buildTranscodeURL(
+            path: "/music/:/transcode/universal/start.mp3",
+            queryItems: queryItems
+        )
+
+        #if DEBUG
+        EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(sessionId.prefix(8))]")
+        #endif
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        addPlexHeaders(to: &request, token: serverConnection.token)
+
+        let (tempURL, response) = try await session.download(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
+            #endif
+            throw PlexAPIError.httpError(statusCode: statusCode)
+        }
+
+        // Move to stable temp location and determine file extension
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+        let fileExtension: String
+        if quality != .original {
+            fileExtension = "mp3"
+        } else {
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
+            switch contentType.lowercased() {
+            case let ct where ct.contains("flac"):
+                fileExtension = "flac"
+            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
+                fileExtension = "m4a"
+            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
+                fileExtension = "mp3"
+            case let ct where ct.contains("wav"):
+                fileExtension = "wav"
+            case let ct where ct.contains("aac"):
+                fileExtension = "aac"
+            default:
+                fileExtension = "audio"
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ Unknown Content-Type for stream: '\(contentType)'")
+                #endif
+            }
+        }
+
+        let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(sessionId).\(fileExtension)")
+        if FileManager.default.fileExists(atPath: destURL.path) {
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        try FileManager.default.moveItem(at: tempURL, to: destURL)
+
+        // Inject XING VBR header for transcoded MP3s (fixes duration and enables gapless)
+        if quality != .original {
+            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
+                at: destURL,
+                metadataDurationSeconds: metadataDurationSeconds
+            )
+        }
+
+        #if DEBUG
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
+        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        #endif
+
+        return destURL
+    }
+
     /// Build a universal download URL for offline use, skipping the decision endpoint.
     /// The decision call is only needed for AVPlayer streaming (session warmup); URLSession
     /// downloads work without it, saving an unnecessary HTTP roundtrip per download.
@@ -1451,9 +1641,11 @@ public actor PlexAPIClient {
         return queryItems
     }
 
-    /// Call the transcode decision endpoint to warm up the session.
+    /// Call the transcode decision endpoint to warm up the session and parse PMS's decision.
+    /// Returns the decision (directplay/copy/transcode) and the part key for direct streaming.
     /// This must be called before start.mp3 or PMS returns 400.
-    private func callTranscodeDecision(queryItems: [URLQueryItem]) async throws {
+    @discardableResult
+    private func callTranscodeDecision(queryItems: [URLQueryItem]) async throws -> TranscodeDecisionResult {
         // Use the same manual encoding as start.mp3 for consistency
         let url = try buildTranscodeURL(
             path: "/music/:/transcode/universal/decision",
@@ -1470,7 +1662,7 @@ public actor PlexAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         addPlexHeaders(to: &request, token: serverConnection.token)
 
-        let (_, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PlexAPIError.invalidResponse
@@ -1485,9 +1677,33 @@ public actor PlexAPIClient {
             throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
         }
 
+        // Parse the decision from the JSON response.
+        // Structure: { MediaContainer: { Metadata: [{ Media: [{ Part: [{ decision, key }] }] }] } }
+        let result = parseTranscodeDecision(from: data)
+
         #if DEBUG
-        EnsembleLogger.debug("✅ Transcode decision completed")
+        EnsembleLogger.debug("✅ Transcode decision completed: \(result.decision.rawValue), partKey: \(result.directStreamPartKey ?? "nil")")
         #endif
+
+        return result
+    }
+
+    /// Parse the transcode decision JSON into a structured result.
+    /// Returns `.unknown` with nil part key on any parse failure (safe fallback).
+    private func parseTranscodeDecision(from data: Data) -> TranscodeDecisionResult {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let container = json["MediaContainer"] as? [String: Any],
+              let metadata = (container["Metadata"] as? [[String: Any]])?.first,
+              let media = (metadata["Media"] as? [[String: Any]])?.first,
+              let part = (media["Part"] as? [[String: Any]])?.first else {
+            return TranscodeDecisionResult(decision: .unknown, directStreamPartKey: nil)
+        }
+
+        let decisionString = (part["decision"] as? String) ?? ""
+        let decision = TranscodeDecisionResult.Decision(rawValue: decisionString) ?? .unknown
+        let partKey = part["key"] as? String
+
+        return TranscodeDecisionResult(decision: decision, directStreamPartKey: partKey)
     }
 
     /// Build a transcode URL with manual query encoding.
