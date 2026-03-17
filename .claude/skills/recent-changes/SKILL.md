@@ -7,13 +7,30 @@ user-invocable: true
 # Recent Major Changes
 
 ### Cold Launch Startup Optimization (Mar 2026)
-Three independent bottleneck fixes saving ~7.5s total on normal user launches:
+Three independent bottleneck fixes. Verified on simulator (iPhone 17 Pro):
 
-1. **Deferred stream pre-buffer (saves ~3.35s):** `restoreQueueFromItems()` no longer immediately creates an `AVURLAsset` + `AVPlayerItem` for streaming tracks. The UI only needs track metadata (already restored from QueueItem JSON). Local files still pre-buffer instantly. Streaming tracks defer pre-buffer to 3s after health checks complete. `resume()` already handles the no-player-item case via `playCurrentQueueItem()`.
+**Before:** Restoration complete at T+4.3s, sync starts at T+5.1s.
+**After:** Restoration complete at T+0.9s, sync starts at T+0.1s, deferred pre-buffer at T+4.1s.
 
-2. **Removed 5s unconditional sync delay (saves ~5s):** The blanket `Task.sleep(5s)` before startup sync is removed. Normal launches start sync immediately. Siri launches retain a 2s delay for audio session setup. Sync runs at `.utility` priority so it doesn't compete with the Siri audio path.
+1. **Deferred stream pre-buffer:** `restoreQueueFromItems()` no longer immediately creates an `AVURLAsset` + `AVPlayerItem` for streaming tracks. The UI only needs track metadata (already restored from QueueItem JSON). Local files still pre-buffer instantly. Streaming tracks schedule a 3s-deferred pre-buffer either from `restoreQueueFromItems` (when server already reachable) or from `handleHealthCheckCompletion()` (when waiting for health checks). `resume()` handles the no-player-item case via `playCurrentQueueItem()`.
 
-3. **MainActor task sequencing (saves ~300ms):** Siri media index rebuild and WebSocket coordinator start now `await earlyHealthCheckTask?.value` before beginning, giving health checks uncontested MainActor time during the critical launch window.
+2. **Removed 5s unconditional sync delay:** The blanket `Task.sleep(5s)` before startup sync is removed. Normal launches start sync immediately. Siri launches retain a 2s delay for audio session setup. Sync runs at `.utility` priority so it doesn't compete with the Siri audio path.
+
+3. **MainActor task sequencing:** Siri media index rebuild and WebSocket coordinator start now `await earlyHealthCheckTask?.value` before beginning, giving health checks uncontested MainActor time during the critical launch window. Note: `EnsembleApp.swift` scene phase handler also calls `webSocketCoordinator.start()` on `.active`, so WebSocket may start slightly before health checks complete on cold launch via that path — this is acceptable as `start()` does minimal MainActor work.
+
+**Verified simulator timeline (iPhone 17 Pro):**
+```
+T+0ms      didFinishLaunching
+T+108ms    didFinishLaunching returns
+T+111ms    Startup sync starts (was T+5111ms)
+T+468ms    Health checks start
+T+830ms    Health checks complete (0.36s)
+T+853ms    restorePlaybackState starts
+T+926ms    Restoration complete — paused, NO stream download (was T+4300ms)
+T+1722ms   Startup sync complete
+T+4119ms   Deferred pre-buffer fires (3s after restore)
+T+6096ms   Pre-buffer complete
+```
 
 **Key files:**
 - `Ensemble/App/AppDelegate.swift` — sync delay removal, MainActor sequencing
