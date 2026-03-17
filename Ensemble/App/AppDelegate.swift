@@ -143,22 +143,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             DependencyContainer.shared.webSocketCoordinator.start()
         }
 
-        // Perform startup sync (non-blocking, runs in background)
+        // Perform startup sync (non-blocking, runs in background at .utility priority).
+        // Normal launches start immediately; Siri launches wait briefly for audio session.
         Task.detached(priority: .utility) {
-            // Wait longer to ensure any Siri playback has a chance to start first.
-            // Resource contention during background launch is a common cause of
-            // audio session interruptions.
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-            
-            // If Siri playback was recently triggered, wait even longer.
-            // Using a simple file-based check as a global flag since some functions are top-level.
+            // Check if Siri playback was recently triggered. If so, wait a short time
+            // to let the audio session activate and route selection complete.
+            // Sync at .utility priority won't compete meaningfully with the Siri audio
+            // path which runs at default/userInitiated priority.
             let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.videogorl.ensemble")
             let pendingFile = appGroup?.appendingPathComponent("siri-pending-playback.json")
             let hasPendingSiri = pendingFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-            
+
             if hasPendingSiri {
-                AppLogger.debug("📱 AppDelegate: Pending Siri playback detected, deferring startup sync further...")
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // Another 10s
+                AppLogger.debug("📱 AppDelegate: Pending Siri playback detected, deferring startup sync 2s...")
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s for audio session setup
             }
 
             AppLogger.debug("📱 AppDelegate: Starting startup sync...")
@@ -167,7 +165,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
             await syncCoordinator.performStartupSync()
             AppLogger.debug("📱 AppDelegate: Startup sync complete")
-            
+
             // Start periodic sync timer after startup sync completes
             await MainActor.run {
                 syncCoordinator.startPeriodicSync()
