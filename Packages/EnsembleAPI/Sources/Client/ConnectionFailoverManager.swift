@@ -16,10 +16,14 @@ public actor ConnectionFailoverManager {
     
     public init(timeout: TimeInterval = 5.0) {
         self.timeout = timeout
-        
+
         let config = URLSessionConfiguration.default
+        // Set session-level timeouts high so per-request timeouts (set on
+        // individual URLRequests) are the effective ceiling. This allows
+        // local endpoints to use a short timeout (1.5s) without the session
+        // overriding it.
         config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = timeout
+        config.timeoutIntervalForResource = timeout + 2
         let session = URLSession(configuration: config)
         self.requestPerformer = { request in
             try await session.data(for: request)
@@ -120,7 +124,11 @@ public actor ConnectionFailoverManager {
             EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint first: \(preferred.url)")
             #endif
 
-            let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: adaptiveTimeout)
+            // Use a tighter timeout for the preferred endpoint — it recently worked,
+            // so if it doesn't respond quickly, something changed and we should fall
+            // through to parallel probing rather than waiting the full timeout.
+            let preferredTimeout = preferred.local ? min(1.5, adaptiveTimeout) : min(3.0, adaptiveTimeout)
+            let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: preferredTimeout)
             if probe.success {
                 #if DEBUG
                 EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(preferred.url)")
@@ -154,15 +162,15 @@ public actor ConnectionFailoverManager {
 
         // Use Optional to distinguish real probe results from the grace-period
         // deadline sentinel (nil). When a working endpoint is found but higher-priority
-        // probes are still pending, we inject a deadline task that fires after 0.5s.
+        // probes are still pending, we inject a deadline task that fires after 0.25s.
         // If nothing better arrives by then, we cancel remaining probes and return.
-        let gracePeriodNs: UInt64 = 500_000_000  // 0.5s
+        let gracePeriodNs: UInt64 = 250_000_000  // 0.25s
 
         let (selected, probes) = await withTaskGroup(of: ConnectionProbeResult?.self) { group -> (PlexEndpointDescriptor?, [ConnectionProbeResult]) in
             for endpoint in candidates {
                 // Local endpoints respond in <100ms when reachable; use a shorter
-                // timeout to avoid blocking on unreachable LAN addresses.
-                let localTimeout = endpoint.local ? min(2.0, adaptiveTimeout) : adaptiveTimeout
+                // timeout so unreachable LAN/IPv6 addresses fail fast.
+                let localTimeout = endpoint.local ? min(1.5, adaptiveTimeout) : adaptiveTimeout
                 group.addTask {
                     await self.probeConnection(endpoint: endpoint, token: token, probeTimeout: localTimeout)
                 }
