@@ -117,8 +117,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             AppLogger.debug("📱 AppDelegate: Playback state restoration complete")
         }
 
-        // Ensure Siri media index exists even before the next sync/account-change notification.
+        // Siri media index and WebSocket connections are sequenced behind health checks
+        // so earlyHealthCheckTask gets uncontested MainActor time during launch.
+        // Both start immediately after health checks (~0.4s on simulator, ~3-7s on device).
         Task { @MainActor in
+            await self.earlyHealthCheckTask?.value
+
             let indexStore = DependencyContainer.shared.siriMediaIndexStore
             if indexStore.loadIndex(maxAge: 3600) == nil {
                 let rebuilt = await indexStore.rebuildIndex()
@@ -137,9 +141,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
 
-        // Start WebSocket connections after accounts are loaded and network is starting.
+        // Start WebSocket connections after health checks complete.
         // This enables real-time push notifications from Plex servers.
         Task { @MainActor in
+            await self.earlyHealthCheckTask?.value
             DependencyContainer.shared.webSocketCoordinator.start()
         }
 
