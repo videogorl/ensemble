@@ -6,6 +6,21 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Download CPU Contention + NVM Observation Cascade Fix — Run 3 (Mar 18, 2026)
+
+**Root cause:** Instruments Run 3 trace revealed two remaining issues: (1) download tasks running at default priority competed with UI for CPU on dual-core A9, and (2) eight more views still declared `@ObservedObject var nowPlayingVM` unnecessarily, cascading NVM publishes into full body re-evaluations.
+
+**Phase 1-2 — Download priority & concurrency:**
+- Lowered download tasks to `.utility` priority and reduced max concurrent downloads from 3 to 2 in `OfflineDownloadService.swift`. Frees main-thread budget for UI on resource-constrained devices.
+
+**Phase 3 — 8 more `@ObservedObject` → `let` conversions:**
+- Converted `@ObservedObject var nowPlayingVM` → `let nowPlayingVM` on DownloadsView, DownloadTargetDetailView, LibraryDownloadDetailView, ArtistDetailLoader, AlbumDetailLoader, PlaylistDetailLoader, PlaylistDetailView, and AlbumDetailView. These views only pass the reference through; child views that need reactivity own their own `@ObservedObject`.
+
+**Phase 4 — MainTabNowPlayingOverlay extraction:**
+- Extracted `MainTabNowPlayingOverlay` sub-view from `MainTabView` to isolate NVM-dependent branching (MiniPlayer visibility, now-playing sheet) from the tab bar body. `MainTabView.body` no longer re-evaluates when NVM publishes.
+
+**Key files:** `OfflineDownloadService.swift`, `MainTabView.swift` (+ `MainTabNowPlayingOverlay`), `DownloadsView.swift`, `DownloadTargetDetailView.swift`, `LibraryDownloadDetailView.swift`, `ArtistDetailLoader.swift`, `AlbumDetailLoader.swift`, `PlaylistDetailLoader.swift`, `PlaylistDetailView.swift`, `AlbumDetailView.swift`
+
 ### MiniPlayer Observation Storm Fix (Mar 18, 2026)
 
 **Root cause:** `MiniPlayer` declared `@ObservedObject var viewModel: NowPlayingViewModel` (28+ @Published properties). During playback, `currentTimePublisher` fires at 0.5s intervals updating `duration`, `currentLyricsLineIndex`, etc. Each publish triggered full body re-evaluation including `BlurredArtworkBackground` (blur/contrast/saturation), `ArtworkView` init, `LinearGradient` construction, gesture recognizers, and context menu rebuilds. On the dual-core A9 with iOS 15's less efficient SwiftUI diffing, this created a death spiral — 14,212 samples/trace of MiniPlayer.body.getter, causing complete app hangs.
