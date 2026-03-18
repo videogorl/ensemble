@@ -2214,14 +2214,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isSkipTransitionInProgress = true
         armSkipTransitionSafety()
         player?.pause()
-
-        // Set loading BEFORE updating Now Playing so playbackRate=0.0 is pushed.
-        // Without this, updateNowPlayingProgress() pushes rate=1.0 (same as last
-        // periodic update) and MPNowPlayingInfoCenter skips it as "identical".
         playbackState = .loading
-
-        // Freeze the lock screen progress bar immediately
-        updateNowPlayingProgress()
 
         EnsembleLogger.playback("SKIP: next() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
@@ -2240,10 +2233,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // even while the stream download is in progress.
                 let nextTrack = self.queue[nextIndex].track
                 self.currentTrack = nextTrack
-                // Push new track info to lock screen immediately (don't wait for
-                // playCurrentQueueItem which takes 0.5-1s due to async resolve).
+                // Push new track info to lock screen with rate=1.0 so it transitions
+                // directly from "old track playing" to "new track playing" — no visible
+                // pause state during the transcode buffering window.
                 self.currentTime = 0
-                self.updateNowPlayingInfo()
+                self.pushNowPlayingForSkipTransition()
 
                 guard !Task.isCancelled else { return }
                 await self.playCurrentQueueItem(caller: "next()")
@@ -2258,9 +2252,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         self.currentQueueIndex = wrappedIndex
                         let wrappedTrack = self.queue[wrappedIndex].track
                         self.currentTrack = wrappedTrack
-                        self.playbackState = .loading
                         self.currentTime = 0
-                        self.updateNowPlayingInfo()
+                        self.pushNowPlayingForSkipTransition()
 
                         guard !Task.isCancelled else { return }
                         await self.playCurrentQueueItem(caller: "next()-repeatAll")
@@ -2303,11 +2296,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isSkipTransitionInProgress = true
         armSkipTransitionSafety()
         player?.pause()
-
-        // Set loading BEFORE updating Now Playing so playbackRate=0.0 is pushed
-        // (see next() for full explanation)
         playbackState = .loading
-        updateNowPlayingProgress()
 
         EnsembleLogger.playback("SKIP: previous() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
@@ -2322,11 +2311,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         currentQueueIndex -= 1
 
-        // Push previous track info to lock screen immediately
+        // Push previous track info to lock screen with rate=1.0 (see next() for explanation)
         if currentQueueIndex >= 0, currentQueueIndex < queue.count {
             currentTrack = queue[currentQueueIndex].track
             currentTime = 0
-            updateNowPlayingInfo()
+            pushNowPlayingForSkipTransition()
         }
 
         Task {
@@ -6120,6 +6109,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         info[MPMediaItemPropertyPlaybackDuration] = duration
         info[MPNowPlayingInfoPropertyPlaybackRate] = playbackState == .playing ? 1.0 : 0.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Push Now Playing info with `playbackRate = 1.0` during skip transitions.
+    /// This makes the lock screen transition directly from "old track playing" to
+    /// "new track playing" with no visible "paused" flash during the buffering window.
+    /// The slight position inaccuracy (~1s) is corrected when audio starts and the
+    /// periodic timer takes over with real values.
+    private func pushNowPlayingForSkipTransition() {
+        updateNowPlayingInfo()
+        // Override the rate that updateNowPlayingInfo set (which would be 0.0
+        // since playbackState is .loading during skip transitions)
+        if var info = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+            info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        }
     }
 
     private func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
