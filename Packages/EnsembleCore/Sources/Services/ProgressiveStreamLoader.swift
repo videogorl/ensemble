@@ -186,7 +186,13 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         if let contentInfo = loadingRequest.contentInformationRequest {
             contentInfo.contentType = contentType
             contentInfo.isByteRangeAccessSupported = false
-            contentInfo.contentLength = estimatedContentLength
+            // Use actual size once download is complete to prevent AVPlayer from
+            // waiting for phantom data. Before completion, use the estimate.
+            if isComplete {
+                contentInfo.contentLength = bytesWritten
+            } else {
+                contentInfo.contentLength = estimatedContentLength
+            }
         }
 
         // Handle data request
@@ -289,8 +295,12 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
         _bytesWritten += Int64(data.count)
         lock.unlock()
 
-        // Serve data to any waiting AVPlayer requests
-        processPendingRequests()
+        // Serve data to any waiting AVPlayer requests.
+        // Must dispatch to delegateQueue because AVAssetResourceLoadingRequest
+        // methods must be called on the queue specified in setDelegate(_:queue:).
+        delegateQueue.async { [weak self] in
+            self?.processPendingRequests()
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -312,8 +322,10 @@ extension ProgressiveStreamLoader: URLSessionDataDelegate {
         let written = _bytesWritten
         lock.unlock()
 
-        // Fulfill any remaining pending requests with whatever data we have
-        processPendingRequests()
+        // Fulfill any remaining pending requests on the delegate queue
+        delegateQueue.async { [weak self] in
+            self?.processPendingRequests()
+        }
 
         // Notify caller for post-download processing (XING injection, frequency analysis)
         if error == nil {
