@@ -159,6 +159,9 @@ public final class OfflineDownloadService: ObservableObject {
 
         Task {
             await refreshState()
+            // Reset stale .downloading status from previous app session.
+            // At init time, no download can be actively in-progress.
+            try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
             startQueueIfNeeded()
         }
     }

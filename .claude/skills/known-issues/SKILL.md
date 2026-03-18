@@ -161,6 +161,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
 - **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
 
+### Downloads Stuck in "Downloading" After App Kill
+- **Resolved (March 18, 2026)**
+- **Previous:** When the app was killed mid-download, CoreData status stayed `.downloading`. On next launch, `fetchPendingDownloads()` counted them (includes `.downloading`) so workers spawned, but `fetchNextPendingDownload()` found 0 (only `.pending`) so workers immediately exited — endlessly.
+- **Fix:** `OfflineDownloadService.init()` resets stale `.downloading` → `.pending` before starting the queue. At init time, no download can be actively in-progress.
+- **Key files:** `OfflineDownloadService.swift`
+
 ### Download Queue Workers Spawned With No Pending Downloads
 - **Resolved (March 11, 2026)**
 - **Previous:** `startQueueIfNeeded()` (called from `init` and ~15 other sites) only checked `queueTask == nil`, so 3 worker tasks were spawned on every app launch even with zero pending downloads. Each worker ran a CoreData query, found nothing, and exited — 18+ "Worker exit: no pending download" log lines.
