@@ -6,6 +6,20 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Device-Specific Offline Indicator (Mar 18, 2026)
+
+Replaced `ConnectionStatusBanner` (full-width orange bar that pushed content down) with `OfflineIndicatorOverlay` — a subtle, device-aware indicator that uses hardware features to communicate connectivity status without consuming layout space.
+
+- **Dynamic Island devices:** 1.5pt capsule stroke around the DI cutout
+- **Notch devices:** Stroke path tracing screen corners and notch outline
+- **Classic devices (SE/8):** Solid color fill of the status bar area
+- Uses private `_displayCornerRadius` and `_exclusionArea` APIs with fallbacks
+- Renders as overlay (no layout shift), hidden in landscape and immersive mode
+
+**Key files:** `OfflineIndicatorOverlay.swift` (new), `MainTabView.swift` (modified), `ConnectionStatusBanner.swift` (deleted)
+
+---
+
 ### Artist Flicker + Playlist Stutter + Sync Lag — Run 6/7 (Mar 18, 2026)
 
 **Issue 1 — Artists flickering into different rows (Run 6 + Run 7):**

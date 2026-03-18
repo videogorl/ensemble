@@ -164,7 +164,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Tab bar | region | Bottom navigation bar with up to 5 tabs | `TabView` |
 | Tab item | control | Individual tab button with icon and label | `tabItem`, `Label` |
 | More tab | control | Fifth tab that opens overflow menu | `ellipsis`, `MoreView` |
-| Connection status banner | indicator | Top banner showing network/server connection status | `ConnectionStatusBanner` |
+| Offline indicator | indicator | Device-aware overlay showing network connectivity status | `OfflineIndicatorOverlay` |
 | Mini player | control | Floating persistent player widget above tab bar | `MiniPlayer` |
 | Tab selection | state | Currently active tab | `navigationCoordinator.selectedTab` |
 | Immersive mode | state | Hidden chrome state for cover flow views | `isImmersiveMode` |
@@ -848,23 +848,21 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
-## ConnectionStatusBanner
+## OfflineIndicatorOverlay
 
-- **View name:** `ConnectionStatusBanner`
-- **Canonical name:** ConnectionStatusBanner
+- **View name:** `OfflineIndicatorOverlay`
+- **Canonical name:** OfflineIndicatorOverlay
 - **Area:** Shared
-- **Platform:** iOS, iPadOS, macOS
+- **Platform:** iOS
 - **Definition status:** Draft
 
 ### Elements
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Banner container | region | Top-aligned status bar | |
-| Status icon | indicator | Icon representing connection state | |
-| Status message | text | Description of current network/server status | `networkState` |
-| Offline indicator | state | Shows when device is offline | |
-| Server unreachable indicator | state | Shows when Plex server is unreachable | |
+| Dynamic Island indicator | indicator | Capsule stroke around Dynamic Island cutout | `DynamicIslandIndicator` |
+| Notch indicator | indicator | Stroke path tracing screen corners and notch | `NotchIndicator` |
+| Classic status bar indicator | indicator | Solid fill of status bar area | `ClassicStatusBarIndicator` |
 
 ---
 

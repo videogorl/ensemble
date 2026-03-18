@@ -102,11 +102,6 @@ public struct MainTabView: View {
             let rootView = ZStack(alignment: .bottom) {
                 // Main content layer with TabView
                 VStack(spacing: 0) {
-                    // Connection status banner at top
-                    if !isImmersiveMode {
-                        ConnectionStatusBanner(networkState: networkMonitor.networkState)
-                    }
-                    
                     tabBarVisibility(
                         TabView(selection: tabBinding) {
                             ForEach(barTabs) { tab in
@@ -204,7 +199,17 @@ public struct MainTabView: View {
                 #endif
             }
 
-            applyChromeVisibilityObservation(to: rootView)
+            applyChromeVisibilityObservation(
+                to: rootView
+                    .overlay(alignment: .top) {
+                        if !isImmersiveMode {
+                            OfflineIndicatorOverlay(
+                                networkState: networkMonitor.networkState,
+                                topInset: geometry.safeAreaInsets.top
+                            )
+                        }
+                    }
+            )
         }
     }
 

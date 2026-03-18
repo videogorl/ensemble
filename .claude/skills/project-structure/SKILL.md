@@ -218,7 +218,7 @@ Sources/
 |   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
-|   +-- ConnectionStatusBanner.swift  # Network status UI indicator
+|   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- CoverFlowView.swift           # 3D carousel with perspective rotation and scaling
 |   +-- CoverFlowItemView.swift       # Individual item in CoverFlow carousel
 |   +-- CoverFlowDetailView.swift     # Flipped detail view for CoverFlow items
