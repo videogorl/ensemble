@@ -23,11 +23,25 @@ public struct ArtworkView: View {
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
     
-    // Unique ID to identify this specific artwork request
+    /// Whether the primary path is missing, so we fall back to fallbackPath/fallbackRatingKey
+    private var usesFallback: Bool {
+        path == nil || path?.isEmpty == true
+    }
+
+    /// Resolved path for cache lookups and load identity
+    private var effectivePath: String? {
+        usesFallback ? fallbackPath : path
+    }
+
+    /// Resolved ratingKey for cache lookups and load identity
+    private var effectiveRatingKey: String? {
+        usesFallback ? fallbackRatingKey : ratingKey
+    }
+
+    /// Unique ID to identify this specific artwork request — avoids string interpolation
+    /// by using a stable struct key
     private var loadID: String {
-        let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
-        let actualRatingKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
-        return "\(actualPath ?? "")|\(actualRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
+        "\(effectivePath ?? "")|\(effectiveRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
     }
 
     private var imagePriority: ImageRequest.Priority {
@@ -60,6 +74,10 @@ public struct ArtworkView: View {
     }
 
     public var body: some View {
+        // Cache CGSize to avoid recomputing on each access
+        let frameSize = size.cgSize
+        let iconSize = frameSize.width * 0.3
+
         LazyImage(url: artworkURL) { state in
             ZStack {
                 Color.gray.opacity(0.2)
@@ -80,19 +98,19 @@ public struct ArtworkView: View {
                         .aspectRatio(contentMode: .fill)
                 } else if state.error != nil {
                     Image(systemName: "music.note")
-                        .font(.system(size: size.cgSize.width * 0.3))
+                        .font(.system(size: iconSize))
                         .foregroundColor(.gray.opacity(0.5))
                 } else {
                     Image(systemName: "music.note")
-                        .font(.system(size: size.cgSize.width * 0.3))
+                        .font(.system(size: iconSize))
                         .foregroundColor(.gray.opacity(0.5))
                 }
             }
         }
-        .processors([.resize(size: size.cgSize, contentMode: .aspectFill, upscale: true)])
+        .processors([.resize(size: frameSize, contentMode: .aspectFill, upscale: true)])
         .priority(imagePriority)
         .aspectRatio(1, contentMode: .fill)
-        .frame(maxWidth: size.cgSize.width, maxHeight: size.cgSize.height)
+        .frame(maxWidth: frameSize.width, maxHeight: frameSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: "\(loadID)|\(invalidationToken)") {
             await loadArtworkURL()
@@ -102,8 +120,7 @@ public struct ArtworkView: View {
         ) { notification in
             // Re-trigger load if this artwork's ratingKey was invalidated
             guard let invalidatedKey = notification.userInfo?["ratingKey"] as? String else { return }
-            let effectiveKey = (path == nil || path?.isEmpty == true) ? fallbackRatingKey : ratingKey
-            if invalidatedKey == effectiveKey {
+            if invalidatedKey == effectiveRatingKey {
                 artworkURL = nil
                 invalidationToken += 1
             }
@@ -120,17 +137,17 @@ public struct ArtworkView: View {
     }
     
     private func loadArtworkURL() async {
-        let actualPath = (path == nil || path?.isEmpty == true) ? fallbackPath : path
+        let resolvedPath = effectivePath
 
         // Clear stale artwork only when switching to a different artwork source
         // (preserves smooth same-album transitions, prevents showing Album A's
         // art when playing Album B's track that has no artwork)
-        if actualPath != currentArtworkPath {
+        if resolvedPath != currentArtworkPath {
             previousImage = nil
-            currentArtworkPath = actualPath
+            currentArtworkPath = resolvedPath
         }
 
-        guard actualPath != nil else {
+        guard resolvedPath != nil else {
             #if DEBUG
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             #endif
