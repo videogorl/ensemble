@@ -6,21 +6,21 @@ user-invocable: true
 
 # Recent Major Changes
 
-### Artist Flicker + Playlist Stutter + Sync Lag — Run 6 (Mar 18, 2026)
+### Artist Flicker + Playlist Stutter + Sync Lag — Run 6/7 (Mar 18, 2026)
 
-**Issue 1 — Artists flickering into different rows:**
-- **Root cause:** `sortByCachedKey()` used Swift's unstable `.sorted()`. When two items share the same sort key, their relative order could flip on each re-sort. Combined with `ArtistsView.cachedArtistSections` being reassigned even when content was identical, causing LazyVGrid re-layout flicker.
-- **Fix A:** Added ID tiebreaker to `sortByCachedKey()` across all 3 ViewModels (LibraryViewModel, PlaylistViewModel, FavoritesViewModel) — `where T: Identifiable, T.ID == String`. Items with identical sort keys now maintain deterministic order.
-- **Fix B:** Added `sectionsEqual()` guard to ArtistsView and AlbumsView `.onReceive` handlers. Only reassigns `cachedArtistSections`/`cachedAlbumSections` when letter+ID content actually differs.
+**Issue 1 — Artists flickering into different rows (Run 6 + Run 7):**
+- **Contributing cause (Run 6):** `sortByCachedKey()` used Swift's unstable `.sorted()`. Added ID tiebreaker across all 3 ViewModels.
+- **Contributing cause (Run 6):** `cachedArtistSections` reassigned even when identical. Added `sectionsEqual()` guard to ArtistsView and AlbumsView.
+- **Root cause (Run 7 trace):** `applyVisibilityToPublishedCollections()` unconditionally assigned to `@Published artists/albums/tracks/genres` even when content was identical. Each assignment fires `objectWillChange`, causing ALL `@ObservedObject var libraryVM` subscribers to re-evaluate body. On iOS 15, LazyVGrid re-layout during these spurious evaluations causes visible cell rearrangement.
+- **Fix (Run 7):** Added `idsEqual()` guard to each assignment in `applyVisibilityToPublishedCollections()`. Only publishes when the ID sequence actually differs.
 
-**Issue 2 — Playlist searchable reveal stutter:**
-- **Root cause:** `displayedFilteredPlaylists` was a computed property running `.filter()` on every body evaluation. PlaylistViewModel's pipeline had no debounce and ran synchronously on main thread.
-- **Fix A:** Cached `displayedFilteredPlaylists` as `@State cachedDisplayedPlaylists`, updated via `.onReceive(viewModel.$filteredPlaylists)` and on deletion state changes.
-- **Fix B:** Added 100ms debounce on background queue to `PlaylistViewModel.setupFilteredPlaylistsPipeline()`, matching LibraryViewModel's pattern.
+**Issue 2 — Playlist/Album searchable reveal stutter (Run 6 + Run 7):**
+- **Contributing cause (Run 6):** `displayedFilteredPlaylists` computed on every body eval; PlaylistViewModel pipeline had no debounce. Cached as @State; added debounce.
+- **Root cause (Run 7 trace):** Both PlaylistsView and AlbumsView wrapped their entire body (including all `.alert`, `.onReceive`, `.toolbar` modifiers) in a `GeometryReader` for cover flow detection. `GeometryReader` re-evaluates its closure on ANY geometry change — including every pixel of `.searchable` bar reveal animation. Each re-eval ran full body with heavy Swift type demangling overhead.
+- **Fix (Run 7):** Replaced wrapping `GeometryReader` with lightweight `.background(GeometryReader { ... })` overlay that only updates `@State isCoverFlowActive`. Body now re-evaluates only when orientation actually changes (portrait ↔ landscape).
 
-**Issue 3 — UI lag during sync:**
-- **Root cause:** During sync, `LibraryViewModel.artists/albums/tracks` @Published properties update → all Combine pipelines re-fire → all `filteredX` properties publish → every subscribing view re-evaluates, even when sorted/filtered result is identical.
-- **Fix:** Added `.removeDuplicates()` (comparing by ID array) to all 4 filtered pipelines (tracks, artists, albums, genres) in LibraryViewModel. Prevents downstream `.onReceive` from firing when sync produces struct instances with identical content.
+**Issue 3 — UI lag during sync (Run 6):**
+- Added `.removeDuplicates()` to all 4 filtered pipelines in LibraryViewModel. Prevents cascading no-op publishes.
 
 **Key files:** `LibraryViewModel.swift`, `PlaylistViewModel.swift`, `FavoritesViewModel.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`
 
