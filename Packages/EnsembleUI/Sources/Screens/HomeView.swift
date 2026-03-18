@@ -6,9 +6,9 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var showingManageSources = false
+    // Targeted singleton observation: only fires when sync state changes (for empty state)
+    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
     @Environment(\.dependencies) private var deps
     
@@ -67,6 +67,9 @@ public struct HomeView: View {
                 PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: tracks, title: "Add to Playlist")
             }
         }
+        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+            if syncing != isSyncing { isSyncing = syncing }
+        }
         .task {
             await viewModel.loadHubs()
         }
@@ -119,7 +122,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            navigationCoordinator.showingAddAccount = true
+                            DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                         } label: {
                             Label("Add Source", systemImage: "plus.circle.fill")
                                 .padding(.horizontal, 20)
@@ -129,7 +132,7 @@ public struct HomeView: View {
                                 .cornerRadius(20)
                         }
                         .buttonStyle(.plain)
-                    } else if syncCoordinator.isSyncing {
+                    } else if isSyncing {
                         HStack(spacing: 8) {
                             ProgressView()
                             Text("Sync in progress…")

@@ -18,8 +18,10 @@ public struct FavoritesView: View {
 
     @StateObject private var viewModel: FavoritesViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    // Targeted singleton observation for empty state only
+    @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
+    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
+    @State private var hasEnabledLibrariesState = false
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
@@ -118,6 +120,16 @@ public struct FavoritesView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
+        .onReceive(DependencyContainer.shared.accountManager.$hasAnySources) { has in
+            if has != hasAnySources { hasAnySources = has }
+        }
+        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+            if syncing != isSyncing { isSyncing = syncing }
+        }
+        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { _ in
+            let has = Self.computeHasEnabledLibraries()
+            if has != hasEnabledLibrariesState { hasEnabledLibrariesState = has }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -208,7 +220,7 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            if !accountManager.hasAnySources {
+            if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -225,14 +237,14 @@ public struct FavoritesView: View {
                         .cornerRadius(20)
                 }
                 .buttonStyle(.plain)
-            } else if syncCoordinator.isSyncing {
+            } else if isSyncing {
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Sync in progress…")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-            } else if !hasEnabledLibraries {
+            } else if !hasEnabledLibrariesState {
                 Text("No libraries enabled")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -267,8 +279,8 @@ public struct FavoritesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var hasEnabledLibraries: Bool {
-        accountManager.plexAccounts.contains { account in
+    private static func computeHasEnabledLibraries() -> Bool {
+        DependencyContainer.shared.accountManager.plexAccounts.contains { account in
             account.servers.contains { server in
                 server.libraries.contains(where: \.isEnabled)
             }
