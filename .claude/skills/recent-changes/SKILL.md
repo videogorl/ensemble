@@ -6,6 +6,22 @@ user-invocable: true
 
 # Recent Major Changes
 
+### MiniPlayer Observation Storm Fix (Mar 18, 2026)
+
+**Root cause:** `MiniPlayer` declared `@ObservedObject var viewModel: NowPlayingViewModel` (28+ @Published properties). During playback, `currentTimePublisher` fires at 0.5s intervals updating `duration`, `currentLyricsLineIndex`, etc. Each publish triggered full body re-evaluation including `BlurredArtworkBackground` (blur/contrast/saturation), `ArtworkView` init, `LinearGradient` construction, gesture recognizers, and context menu rebuilds. On the dual-core A9 with iOS 15's less efficient SwiftUI diffing, this created a death spiral — 14,212 samples/trace of MiniPlayer.body.getter, causing complete app hangs.
+
+**Phase 1 — MiniPlayer `@ObservedObject` → `let` + scoped sub-views:**
+- Changed `@ObservedObject var viewModel` → `let viewModel` on MiniPlayer. Body no longer re-evaluates on NVM publishes.
+- Extracted `MiniPlayerTrackInfo` (artwork + text + swipe gesture + error banner), `MiniPlayerControls` (play/pause + next buttons), and `MiniPlayerBackground` (legacy blur/material stack) as private sub-views, each owning their own `@ObservedObject`. Only the relevant slice of UI re-renders.
+
+**Phase 2 — PlaybackProgressBar `@ObservedObject` → `let`:**
+- `TimelineView(.periodic(from: .now, by: 0.5))` already drives its own refresh cadence to read `viewModel.progress`. The `@ObservedObject` was redundant and cascaded unnecessary NVM observation re-renders.
+
+**Phase 3 — MiniPlayerContainer `@ObservedObject` → `let`:**
+- Container only passes viewModel through to MiniPlayer. No observation needed.
+
+**Key files:** `MiniPlayer.swift`
+
 ### Playlist & General Scroll Performance Fix Round 2 (Mar 18, 2026)
 
 **Root cause:** `NowPlayingViewModel` publishes `currentTime` every 0.5s during playback. Six container views (PlaylistsView, HomeView, ArtistsView, AlbumsView, SongsView, MoreView) declared `@ObservedObject var nowPlayingVM` but never read any `@Published` property in their body — they only passed the reference. Every publish triggered full body re-evaluation of ALL tabs, causing playlist stutter on the dual-core A9.
