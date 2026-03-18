@@ -27,7 +27,6 @@ public struct PlaylistsView: View {
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
     @State private var showingManageSources = false
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
@@ -386,7 +385,16 @@ public struct PlaylistsView: View {
                 )
                     .contextMenu {
                         if !isPendingCreation {
-                            playlistContextMenu(playlist)
+                            PlaylistViewContextMenu(
+                                playlist: playlist,
+                                nowPlayingVM: nowPlayingVM,
+                                onRename: {
+                                    playlistPendingRename = playlist
+                                    renamePlaylistTitle = playlist.title
+                                },
+                                onEdit: { playlistForEditSheet = playlist },
+                                onDelete: { playlistPendingSwipeDelete = playlist }
+                            )
                         }
                     }
                     .if(!playlist.isSmart && !isPendingCreation) { row in
@@ -567,127 +575,6 @@ public struct PlaylistsView: View {
         }
     }
 
-    @ViewBuilder
-    private func playlistContextMenu(_ playlist: Playlist) -> some View {
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-
-        if !playlist.isSmart {
-            Button {
-                playlistPendingRename = playlist
-                renamePlaylistTitle = playlist.title
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-
-            Button {
-                playlistForEditSheet = playlist
-            } label: {
-                Label("Edit Playlist", systemImage: "slider.horizontal.3")
-            }
-
-            Button(role: .destructive) {
-                playlistPendingSwipeDelete = playlist
-            } label: {
-                Label("Delete Playlist", systemImage: "trash")
-            }
-        }
-    }
-
-    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: playlist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after this playlist finishes syncing.",
-                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
-    }
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,6 +624,140 @@ public struct PlaylistsView: View {
                 )
             }
         }
+    }
+}
+
+// MARK: - Playlist Context Menu
+
+/// Dedicated View struct for playlist context menus. Scopes @ObservedObject pinManager
+/// to each menu instance rather than the entire PlaylistsView list.
+private struct PlaylistViewContextMenu: View {
+    let playlist: Playlist
+    let nowPlayingVM: NowPlayingViewModel
+    var onRename: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
+    var body: some View {
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.play(tracks: tracks)
+            }
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.shufflePlay(tracks: tracks)
+            }
+        } label: {
+            Label("Shuffle", systemImage: "shuffle")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+            )
+        }
+
+        let isPinned = pinManager.isPinned(id: playlist.id)
+        Button {
+            if isPinned {
+                pinManager.unpin(id: playlist.id)
+            } else {
+                pinManager.pin(
+                    id: playlist.id,
+                    sourceKey: playlist.sourceCompositeKey ?? "",
+                    type: .playlist,
+                    title: playlist.title
+                )
+            }
+        } label: {
+            if isPinned {
+                Label("Unpin", systemImage: "pin.slash")
+            } else {
+                Label("Pin", systemImage: "pin.fill")
+            }
+        }
+
+        if !playlist.isSmart {
+            Button {
+                onRename?()
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+
+            Button {
+                onEdit?()
+            } label: {
+                Label("Edit Playlist", systemImage: "slider.horizontal.3")
+            }
+
+            Button(role: .destructive) {
+                onDelete?()
+            } label: {
+                Label("Delete Playlist", systemImage: "trash")
+            }
+        }
+    }
+
+    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
+        Task {
+            let tracks = await resolveTracks(for: playlist)
+            guard !tracks.isEmpty else {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "No tracks available",
+                            message: "Try again after this playlist finishes syncing.",
+                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
+                        )
+                    )
+                }
+                return
+            }
+            await MainActor.run {
+                action(tracks)
+            }
+        }
+    }
+
+    private func resolveTracks(for playlist: Playlist) async -> [Track] {
+        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        ) {
+            return cachedPlaylist.tracksArray.map { Track(from: $0) }
+        }
+        return []
     }
 }
 
