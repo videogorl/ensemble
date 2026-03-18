@@ -31,7 +31,7 @@ user-invocable: true
 **4 bugs fixed from iOS 15 / iPhone 6s log analysis:**
 
 1. **Lyrics 404 on iOS 15:** Increased retries from 2→3 with longer delays (2s, 3s). Added background retry after 10s that updates UI if lyrics arrive late. PMS LyricFind cache expiration is more problematic on iOS 15.
-2. **PlaylistPickerSheet search freeze (all iOS):** Replaced `.searchable()` with inline `TextField`. SwiftUI bug causes `.searchable()` to freeze input in nested sheet contexts (sheet-on-fullScreenCover in NPV).
+2. **PlaylistPickerSheet search fix (all iOS):** Reverted to `@ObservedObject var nowPlayingVM` + simple `NavigationView { List { ... }.searchable() }` from develop. The `@ObservedObject` → `let` conversion (Run 5) broke `.searchable()` in nested sheet contexts; subsequent NavigationStack/TextField workarounds were unnecessary.
 3. **WebSocket continuation leak:** Replaced recursive `CheckedContinuation` + `scheduleReceive()` pattern with `AsyncStream` bridge. Old pattern leaked continuations when `URLSessionWebSocketTask` was cancelled externally (completion handler never fires on iOS 15).
 4. **FrequencyAnalysis running when disabled:** `object(forKey:) as? Bool` fails `NSNumber→Bool` bridging on iOS 15, causing `?? true` fallback. Switched to `.bool(forKey:)` + registered defaults at startup.
 
