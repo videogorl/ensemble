@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct PlaylistPickerSheet: View {
-    let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
 
@@ -13,8 +13,6 @@ public struct PlaylistPickerSheet: View {
     @State private var inferredServerSourceKey: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
-    // Targeted NVM observation: only re-evaluate on mutation state changes
-    @State private var isMutationInProgress = false
 
     public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
         self.nowPlayingVM = nowPlayingVM
@@ -23,117 +21,82 @@ public struct PlaylistPickerSheet: View {
     }
 
     public var body: some View {
-        // iOS 16+: NavigationStack avoids the ScrollPocketCollectorModel feedback
-        // loop that NavigationView triggers on iOS 26 when search activates.
-        // iOS 15: NavigationView with inline TextField (no .searchable — it freezes
-        // input in nested sheet contexts like sheet-on-fullScreenCover).
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                listContent
-                    .searchable(text: $searchText, prompt: "Find or create playlist")
-            }
-        } else {
-            NavigationView {
-                listContent
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-        }
-    }
+        NavigationView {
+            List {
+                Section("Playlists") {
+                    if isLoading {
+                        ProgressView("Loading playlists...")
+                    } else if compatibleTrackCountForSelectedServer == 0 {
+                        Text("No compatible tracks are available for playlist updates.")
+                            .foregroundColor(.secondary)
+                    } else if filteredPlaylists.isEmpty {
+                        Text("No playlists found.")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(filteredPlaylists) { playlist in
+                            Button {
+                                Task { await addToPlaylist(playlist) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
 
-    private var listContent: some View {
-        List {
-            // iOS 15 only: inline search field (see body comment)
-            if #unavailable(iOS 16.0) {
-                Section {
-                    TextField("Find or create playlist", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .disableAutocorrection(true)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                }
-            }
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(playlist.title)
+                                        Text("\(playlist.trackCount) songs")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
 
-            Section("Playlists") {
-                if isLoading {
-                    ProgressView("Loading playlists...")
-                } else if compatibleTrackCountForSelectedServer == 0 {
-                    Text("No compatible tracks are available for playlist updates.")
-                        .foregroundColor(.secondary)
-                } else if filteredPlaylists.isEmpty {
-                    Text("No playlists found.")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(filteredPlaylists) { playlist in
-                        Button {
-                            Task { await addToPlaylist(playlist) }
-                        } label: {
-                            HStack(spacing: 12) {
-                                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(playlist.title)
-                                    Text("\(playlist.trackCount) songs")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    Spacer()
                                 }
-
-                                Spacer()
                             }
+                            .disabled(
+                                isSubmitting ||
+                                nowPlayingVM.isPlaylistMutationInProgress ||
+                                nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+                            )
+                        }
+                    }
+                }
+
+                if shouldShowCreateAction {
+                    Section {
+                        Button {
+                            Task { await createPlaylist(named: newPlaylistName) }
+                        } label: {
+                            Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
                         }
                         .disabled(
                             isSubmitting ||
-                            isMutationInProgress ||
-                            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+                            nowPlayingVM.isPlaylistMutationInProgress ||
+                            inferredServerSourceKey == nil ||
+                            compatibleTrackCountForSelectedServer == 0
                         )
                     }
                 }
             }
-
-            if shouldShowCreateAction {
-                Section {
-                    Button {
-                        Task { await createPlaylist(named: newPlaylistName) }
-                    } label: {
-                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
-                    }
-                    .disabled(
-                        isSubmitting ||
-                        isMutationInProgress ||
-                        inferredServerSourceKey == nil ||
-                        compatibleTrackCountForSelectedServer == 0
-                    )
+            .searchable(text: $searchText, prompt: "Find or create playlist")
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
                 }
             }
-        }
-        .navigationTitle(title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") { dismiss() }
+            .task {
+                if inferredServerSourceKey == nil {
+                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+                }
+                await loadPlaylists()
             }
-        }
-        .task {
-            if inferredServerSourceKey == nil {
-                inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
-            }
-            await loadPlaylists()
-        }
-        .onReceive(nowPlayingVM.$isPlaylistMutationInProgress) { inProgress in
-            if inProgress != isMutationInProgress { isMutationInProgress = inProgress }
-        }
-        .overlay {
-            if isSubmitting {
-                ZStack {
-                    Color.black.opacity(0.12)
-                        .ignoresSafeArea()
-                    ProgressView("Updating playlist...")
-                        .padding(12)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                if isSubmitting {
+                    ZStack {
+                        Color.black.opacity(0.12)
+                            .ignoresSafeArea()
+                        ProgressView("Updating playlist...")
+                            .padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }
                 }
             }
         }
@@ -276,4 +239,3 @@ public struct PlaylistPickerSheet: View {
         }
     }
 }
-
