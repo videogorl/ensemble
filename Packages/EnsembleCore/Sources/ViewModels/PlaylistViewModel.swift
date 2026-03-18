@@ -231,11 +231,15 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
 
-    /// Sort by pre-computed string keys — computes sortingKey once per element
-    private static func sortByCachedKey<T>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] {
+    /// Sort by pre-computed string keys — computes sortingKey once per element.
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
         let keyed = items.map { ($0, keyExtractor($0)) }
         return keyed.sorted {
             let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
+            }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }.map { $0.0 }
     }
@@ -246,13 +250,19 @@ public final class PlaylistViewModel: ObservableObject {
         return playlists.filter { $0.title.lowercased().contains(searchLower) }
     }
 
-    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change
+    /// Background queue for sort/filter computation so the main thread stays responsive
+    private static let computeQueue = DispatchQueue(label: "com.ensemble.playlist-compute", qos: .userInitiated)
+
+    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change.
+    /// Debounced on a background queue to avoid main-thread stutter (e.g. when .searchable reveals).
     private func setupFilteredPlaylistsPipeline() {
         Publishers.CombineLatest3($playlists, $playlistSortOption, $filterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { playlists, sortOption, options -> [Playlist] in
                 let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
                 return Self.filterPlaylists(sorted, searchText: options.searchText)
             }
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredPlaylists = $0 }
             .store(in: &cancellables)
     }

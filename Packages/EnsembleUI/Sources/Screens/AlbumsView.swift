@@ -127,10 +127,16 @@ public struct AlbumsView: View {
                 #endif
             }
             .onReceive(libraryVM.$filteredAlbums) { albums in
-                cachedAlbumSections = Self.computeAlbumSections(albums: albums, sortOption: libraryVM.albumSortOption)
+                let newSections = Self.computeAlbumSections(albums: albums, sortOption: libraryVM.albumSortOption)
+                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
+                    cachedAlbumSections = newSections
+                }
             }
             .onReceive(libraryVM.$albumSortOption) { sortOption in
-                cachedAlbumSections = Self.computeAlbumSections(albums: libraryVM.filteredAlbums, sortOption: sortOption)
+                let newSections = Self.computeAlbumSections(albums: libraryVM.filteredAlbums, sortOption: sortOption)
+                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
+                    cachedAlbumSections = newSections
+                }
             }
             .sheet(isPresented: $showFilterSheet) {
                 FilterSheet(
@@ -260,6 +266,18 @@ public struct AlbumsView: View {
         let grouped = Dictionary(grouping: albums, by: groupingKey)
         return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted { $0.letter < $1.letter }
+    }
+
+    /// Fast equality check by letter + album IDs (avoids full Album equality)
+    private static func sectionsEqual(_ a: [AlbumSection], _ b: [AlbumSection]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (sa, sb) in zip(a, b) {
+            guard sa.letter == sb.letter, sa.albums.count == sb.albums.count else { return false }
+            for (aa, ab) in zip(sa.albums, sb.albums) {
+                guard aa.id == ab.id else { return false }
+            }
+        }
+        return true
     }
 
     private var isSortIndexed: Bool {

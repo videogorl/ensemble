@@ -103,7 +103,11 @@ public struct ArtistsView: View {
             #endif
         }
         .onReceive(libraryVM.$filteredArtists) { artists in
-            cachedArtistSections = Self.computeArtistSections(artists: artists)
+            let newSections = Self.computeArtistSections(artists: artists)
+            // Only update if content actually changed (avoids LazyVGrid re-layout flicker)
+            if !Self.sectionsEqual(cachedArtistSections, newSections) {
+                cachedArtistSections = newSections
+            }
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -209,6 +213,18 @@ public struct ArtistsView: View {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
+    }
+
+    /// Fast equality check by letter + artist IDs (avoids full Artist equality)
+    private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (sa, sb) in zip(a, b) {
+            guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
+            for (aa, ab) in zip(sa.artists, sb.artists) {
+                guard aa.id == ab.id else { return false }
+            }
+        }
+        return true
     }
 
     private var artistListView: some View {

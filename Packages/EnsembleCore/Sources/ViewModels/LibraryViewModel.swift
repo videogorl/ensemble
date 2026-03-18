@@ -166,6 +166,7 @@ public final class LibraryViewModel: ObservableObject {
     private func setupComputedPipelines() {
         // Tracks: recompute when the raw list, sort option, or filter options change.
         // Debounce by 150ms to avoid filtering 1500+ tracks on every keystroke.
+        // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
             .debounce(for: .milliseconds(150), scheduler: Self.computeQueue)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
@@ -174,6 +175,10 @@ public final class LibraryViewModel: ObservableObject {
                 let sections = LibraryViewModel.computeTrackSections(from: filtered)
                 return (filtered, sections)
             }
+            .removeDuplicates { old, new in
+                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
+                return zip(old.0, new.0).allSatisfy { $0.id == $1.id }
+            }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, sections in
                 self?.filteredTracks = filtered
@@ -181,34 +186,46 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Artists
+        // Artists — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest3($artists, $artistSortOption, $artistsFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { artists, sortOption, filterOptions -> [Artist] in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterArtists(sorted, with: filterOptions)
             }
+            .removeDuplicates { old, new in
+                guard old.count == new.count else { return false }
+                return zip(old, new).allSatisfy { $0.id == $1.id }
+            }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredArtists = $0 }
             .store(in: &cancellables)
 
-        // Albums
+        // Albums — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albums, sortOption, filterOptions -> [Album] in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
             }
+            .removeDuplicates { old, new in
+                guard old.count == new.count else { return false }
+                return zip(old, new).allSatisfy { $0.id == $1.id }
+            }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredAlbums = $0 }
             .store(in: &cancellables)
 
-        // Genres (no sort option — always alphabetical)
+        // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest($genres, $genresFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { genres, filterOptions -> [Genre] in
                 let sorted = LibraryViewModel.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
                 return LibraryViewModel.filterGenres(sorted, with: filterOptions)
+            }
+            .removeDuplicates { old, new in
+                guard old.count == new.count else { return false }
+                return zip(old, new).allSatisfy { $0.id == $1.id }
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredGenres = $0 }
@@ -563,10 +580,14 @@ public final class LibraryViewModel: ObservableObject {
 
     /// Sort by pre-computed string keys — computes sortingKey once per element
     /// instead of O(n log n) times via repeated closure calls.
-    private static func sortByCachedKey<T>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] {
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
         let keyed = items.map { ($0, keyExtractor($0)) }
         return keyed.sorted {
             let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
+            }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }.map { $0.0 }
     }

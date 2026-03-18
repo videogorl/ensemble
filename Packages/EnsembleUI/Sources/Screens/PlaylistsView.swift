@@ -27,6 +27,8 @@ public struct PlaylistsView: View {
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
     @State private var showingManageSources = false
+    // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
+    @State private var cachedDisplayedPlaylists: [Playlist] = []
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -163,13 +165,19 @@ public struct PlaylistsView: View {
             .task {
                 await viewModel.loadPlaylists()
             }
+            // Keep cached displayed playlists in sync (avoids recomputing .filter() on every body eval)
+            .onReceive(viewModel.$filteredPlaylists) { playlists in
+                cachedDisplayedPlaylists = playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.insert(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.remove(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
                     deps.toastCenter.dismiss(id: toastID)
                 }
@@ -182,6 +190,7 @@ public struct PlaylistsView: View {
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
+                    cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
@@ -369,7 +378,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(displayedFilteredPlaylists) { playlist in
+            ForEach(cachedDisplayedPlaylists) { playlist in
                 let isPendingCreation = viewModel.isPlaylistPendingCreation(playlist)
                 PlaylistRow(
                     playlist: playlist,
@@ -404,7 +413,7 @@ public struct PlaylistsView: View {
     
     private var coverFlowView: some View {
         CoverFlowView(
-            items: displayedFilteredPlaylists,
+            items: cachedDisplayedPlaylists,
             itemView: { playlist in
                 CoverFlowItemView(playlist: playlist)
             },
@@ -429,10 +438,6 @@ public struct PlaylistsView: View {
 
     private var effectivePlaylists: [Playlist] {
         viewModel.playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
-    }
-
-    private var displayedFilteredPlaylists: [Playlist] {
-        viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
     }
 
     private var hasEnabledLibraries: Bool {

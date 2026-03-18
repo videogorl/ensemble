@@ -148,11 +148,15 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
     }
 
-    /// Sort by pre-computed string keys — computes sortingKey once per element
-    private static func sortByCachedKey<T>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] {
+    /// Sort by pre-computed string keys — computes sortingKey once per element.
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
         let keyed = items.map { ($0, keyExtractor($0)) }
         return keyed.sorted {
             let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
+            }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }.map { $0.0 }
     }
