@@ -2104,11 +2104,17 @@ public actor PlexAPIClient {
         // addPlexHeaders causes PMS to return JSON instead. We handle both formats.
         let query = ["format": "xml", "includeInlineAttribution": "1"]
 
-        // Attempt fetch with one retry — PMS may return 404 if its LyricFind cache
+        // Attempt fetch with retries — PMS may return 404 if its LyricFind cache
         // expired and needs a moment to re-fetch from the provider.
-        for attempt in 1...2 {
+        // iOS 15 devices see more frequent 404s, so we use 3 attempts with longer delays.
+        let maxAttempts = 3
+        for attempt in 1...maxAttempts {
             do {
                 let data = try await serverRequest(path: streamKey, query: query)
+
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: content fetch succeeded for \(streamKey) on attempt \(attempt) (\(data.count) bytes)")
+                #endif
 
                 // Try JSON extraction (when Accept: application/json triggers JSON response)
                 if let text = Self.extractLyricsFromJSON(data) {
@@ -2123,15 +2129,19 @@ public actor PlexAPIClient {
                 // Fall back to treating the response as raw text (plain LRC/TXT)
                 return String(data: data, encoding: .utf8)
             } catch {
-                let isHTTP404 = "\(error)".contains("404")
-                if isHTTP404 && attempt == 1 {
-                    // Brief delay before retry — gives PMS time to re-fetch from LyricFind
-                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s
+                let errorString = "\(error)"
+                let isHTTP404 = errorString.contains("404")
+
+                #if DEBUG
+                EnsembleLogger.debug("Lyrics: fetch failed for \(streamKey) (attempt \(attempt)/\(maxAttempts)): \(error.localizedDescription) [is404=\(isHTTP404)]")
+                #endif
+
+                if isHTTP404 && attempt < maxAttempts {
+                    // Increasing delay between retries — gives PMS time to re-fetch from LyricFind
+                    let delaySeconds: UInt64 = attempt == 1 ? 2_000_000_000 : 3_000_000_000
+                    try? await Task.sleep(nanoseconds: delaySeconds)
                     continue
                 }
-                #if DEBUG
-                EnsembleLogger.debug("Lyrics content not available at \(streamKey) (attempt \(attempt)): \(error.localizedDescription)")
-                #endif
                 return nil
             }
         }

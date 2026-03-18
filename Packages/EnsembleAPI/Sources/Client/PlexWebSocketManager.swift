@@ -202,35 +202,46 @@ public actor PlexWebSocketManager {
         EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Receive loop started (subscribers=\(continuations.count))")
         #endif
 
-        // Use completion-handler receive to avoid actor-suspension issues
-        // with URLSessionWebSocketTask.receive() async
-        await withCheckedContinuation { (loopContinuation: CheckedContinuation<Void, Never>) in
-            scheduleReceive(task: task, loopContinuation: loopContinuation)
+        // Bridge the completion-handler receive API into an AsyncStream.
+        // This avoids the old recursive CheckedContinuation pattern which leaked
+        // continuations when the URLSessionWebSocketTask was cancelled externally
+        // (especially on iOS 15 where the completion handler may never fire).
+        let messageStream = AsyncStream<URLSessionWebSocketTask.Message> { streamContinuation in
+            streamContinuation.onTermination = { _ in
+                // Stream ended (cancelled or finished) — no leaked continuations
+            }
+            // Kick off the first receive
+            Self.scheduleStreamReceive(task: task, continuation: streamContinuation)
+        }
+
+        // Consume messages from the stream until it finishes or is cancelled
+        for await message in messageStream {
+            handleReceivedMessage(message)
+        }
+
+        // Stream ended — either task was cancelled or an error occurred.
+        // Reconnect if not deliberately stopped.
+        if !isStopped {
+            isConnected = false
+            scheduleReconnect()
         }
     }
 
-    /// Schedule a single receive using the completion-handler API, then recurse.
-    /// This avoids the async `task.receive()` which has actor interop issues.
-    nonisolated private func scheduleReceive(
+    /// Schedule a single receive and yield into the stream, then recurse for the next message.
+    nonisolated private static func scheduleStreamReceive(
         task: URLSessionWebSocketTask,
-        loopContinuation: CheckedContinuation<Void, Never>?
+        continuation: AsyncStream<URLSessionWebSocketTask.Message>.Continuation
     ) {
-        task.receive { [weak self] result in
-            guard let self else {
-                loopContinuation?.resume()
-                return
-            }
-
+        task.receive { result in
             switch result {
             case .success(let message):
-                Task { await self.handleReceivedMessage(message) }
+                continuation.yield(message)
                 // Schedule next receive
-                self.scheduleReceive(task: task, loopContinuation: loopContinuation)
+                scheduleStreamReceive(task: task, continuation: continuation)
 
-            case .failure(let error):
-                Task {
-                    await self.handleReceiveError(error, loopContinuation: loopContinuation)
-                }
+            case .failure:
+                // Error (disconnect, cancellation) — finish the stream
+                continuation.finish()
             }
         }
     }
@@ -256,19 +267,6 @@ public actor PlexWebSocketManager {
         @unknown default:
             break
         }
-    }
-
-    private func handleReceiveError(_ error: Error, loopContinuation: CheckedContinuation<Void, Never>?) {
-        guard !isStopped else {
-            loopContinuation?.resume()
-            return
-        }
-
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Disconnected — \(error.localizedDescription)")
-
-        isConnected = false
-        scheduleReconnect()
-        loopContinuation?.resume()
     }
 
     // MARK: - Reconnect

@@ -25,6 +25,17 @@ public struct PlaylistPickerSheet: View {
     public var body: some View {
         NavigationView {
             List {
+                // Inline search field — avoids .searchable() which breaks input
+                // when presented inside nested sheet contexts (sheet-on-fullScreenCover)
+                Section {
+                    TextField("Find or create playlist", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .disableAutocorrection(true)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+
                 Section("Playlists") {
                     if isLoading {
                         ProgressView("Loading playlists...")
@@ -77,7 +88,6 @@ public struct PlaylistPickerSheet: View {
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Find or create playlist")
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

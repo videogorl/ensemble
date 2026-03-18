@@ -42,6 +42,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
         EnsembleStartupTiming.launchTime = AppDelegate.launchTime
 
+        // Register UserDefaults defaults so .bool(forKey:) returns correct values
+        // before the user has ever toggled a setting. Without this, bool(forKey:)
+        // returns false for unset keys, which would disable the visualizer by default.
+        UserDefaults.standard.register(defaults: [
+            "auroraVisualizationEnabled": true
+        ])
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleCoverFlowRotationSupportChanged(_:)),

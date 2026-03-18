@@ -807,9 +807,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let downloadManager: DownloadManagerProtocol
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
-    /// to avoid @MainActor isolation issues with SettingsManager)
+    /// to avoid @MainActor isolation issues with SettingsManager).
+    /// Uses .bool(forKey:) which correctly bridges NSNumber on iOS 15,
+    /// avoiding the object(forKey:) as? Bool cast which can fail and
+    /// default to true even when the user disabled the visualizer.
     private var isVisualizerEnabled: Bool {
-        UserDefaults.standard.object(forKey: "auroraVisualizationEnabled") as? Bool ?? true
+        let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+        #if DEBUG
+        EnsembleLogger.debug("[FrequencyAnalysis] isVisualizerEnabled check: \(enabled)")
+        #endif
+        return enabled
     }
     private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
