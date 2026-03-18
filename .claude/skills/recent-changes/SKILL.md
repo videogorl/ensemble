@@ -6,6 +6,30 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Deep Observation + Diffing Optimization — Run 5 (Mar 18, 2026)
+
+**Root cause:** Run 5 trace (100s, iPhone 6s, iOS 15.8.7) showed "Serious" thermal state for entire trace with pervasive CPU pressure causing jank. No individual hangs >250ms, but NVM cascade from MainTabView, remaining @ObservedObject NVM views, and auto-synthesized struct equality caused cumulative CPU waste.
+
+**Phase 1 — MainTabView NVM cascade fix:**
+- `nowPlayingVM.currentTrack != nil` read in `.miniPlayerContainerInset()` caused full TabView tree re-evaluation on every NVM @Published change (~28 props fire during playback). Replaced with `@State hasCurrentTrack` + `.onReceive(nowPlayingVM.$currentTrack)`. Body still re-evaluates from @StateObject but produces identical view tree → SwiftUI short-circuits.
+
+**Phase 2 — Remaining @ObservedObject NVM → let (6 views):**
+- FavoritesView, MoodTracksView, MediaDetailView, PlaylistPickerSheet, SearchView, TrackSwipeContainer all had `@ObservedObject var nowPlayingVM` causing body re-evaluation on every NVM publish. Converted to `let` with targeted `@State` + `.onReceive` for body-path reads (currentTrackId, lastPlaylistTarget, isPlaylistMutationInProgress). TrackSwipeContainer also converted settingsManager and toastCenter to `let`.
+
+**Phase 3 — Custom Equatable for Album (8 fields) and Playlist (6 fields):**
+- Swift's auto-synthesized Equatable compared all 14 Album fields and 12 Playlist fields. Album.__derived_struct_equals consumed 60 profiler samples, Playlist 28. Custom Equatable compares only UI-visible fields (id, title, artistName, etc.), skipping internal fields (key, artPath, dateAdded, dateModified, sourceCompositeKey). Custom hash(into:) uses only id.
+
+**Phase 4 — HomeView/FavoritesView/SearchView singleton removals:**
+- Removed @ObservedObject for syncCoordinator and accountManager from HomeView, FavoritesView, SearchView. Only empty/no-results states read these values. Replaced with @State + .onReceive targeting $plexAccounts and $isSyncing.
+
+**Phase 5 — FavoritesViewModel filteredTracks → @Published:**
+- `filteredTracks` was a computed property running filter + O(n log n) sort on every body evaluation. Converted to @Published with Combine pipeline: tracks/sortOption/filterOptions changes debounce 100ms then filter+sort on background queue. totalDuration also derived from stored filteredTracks.
+
+**Phase 6 — sortingKey caching via sortByCachedKey():**
+- String.sortingKey creates a lowercased copy + 3 hasPrefix checks per call. During sort: 2 calls × O(n log n) comparisons (~4,400 calls for 277 albums). Added `sortByCachedKey()` helper that pre-computes sort keys once (O(n)) then sorts using cached values. Applied to all string-based sort paths in LibraryViewModel, PlaylistViewModel, FavoritesViewModel.
+
+**Key files:** `MainTabView.swift`, `FavoritesView.swift`, `MoodTracksView.swift`, `MediaDetailView.swift`, `PlaylistActionSheets.swift`, `SearchView.swift`, `TrackSwipeContainer.swift`, `HomeView.swift`, `DomainModels.swift`, `FavoritesViewModel.swift`, `LibraryViewModel.swift`, `PlaylistViewModel.swift`
+
 ### Observation Blast Radius + Section Caching — Run 4 (Mar 18, 2026)
 
 **Root cause:** Run 4 trace (5 min, iPhone 6s, music playing) showed artists/songs items jumping/disappearing while scrolling, laggy scrolling in playlists/downloads/albums, and album filter keyboard failing. Multiple high-traffic views subscribed to `offlineDownloadService` (5 @Published) and `navigationCoordinator` (14 @Published) via `@ObservedObject`, but only needed 1-2 specific values. ANY @Published change triggered full body re-evaluation of ALL subscribing views.
