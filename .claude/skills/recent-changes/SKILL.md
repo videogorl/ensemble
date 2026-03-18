@@ -6,6 +6,26 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Artist Flicker + Playlist Stutter + Sync Lag — Run 6 (Mar 18, 2026)
+
+**Issue 1 — Artists flickering into different rows:**
+- **Root cause:** `sortByCachedKey()` used Swift's unstable `.sorted()`. When two items share the same sort key, their relative order could flip on each re-sort. Combined with `ArtistsView.cachedArtistSections` being reassigned even when content was identical, causing LazyVGrid re-layout flicker.
+- **Fix A:** Added ID tiebreaker to `sortByCachedKey()` across all 3 ViewModels (LibraryViewModel, PlaylistViewModel, FavoritesViewModel) — `where T: Identifiable, T.ID == String`. Items with identical sort keys now maintain deterministic order.
+- **Fix B:** Added `sectionsEqual()` guard to ArtistsView and AlbumsView `.onReceive` handlers. Only reassigns `cachedArtistSections`/`cachedAlbumSections` when letter+ID content actually differs.
+
+**Issue 2 — Playlist searchable reveal stutter:**
+- **Root cause:** `displayedFilteredPlaylists` was a computed property running `.filter()` on every body evaluation. PlaylistViewModel's pipeline had no debounce and ran synchronously on main thread.
+- **Fix A:** Cached `displayedFilteredPlaylists` as `@State cachedDisplayedPlaylists`, updated via `.onReceive(viewModel.$filteredPlaylists)` and on deletion state changes.
+- **Fix B:** Added 100ms debounce on background queue to `PlaylistViewModel.setupFilteredPlaylistsPipeline()`, matching LibraryViewModel's pattern.
+
+**Issue 3 — UI lag during sync:**
+- **Root cause:** During sync, `LibraryViewModel.artists/albums/tracks` @Published properties update → all Combine pipelines re-fire → all `filteredX` properties publish → every subscribing view re-evaluates, even when sorted/filtered result is identical.
+- **Fix:** Added `.removeDuplicates()` (comparing by ID array) to all 4 filtered pipelines (tracks, artists, albums, genres) in LibraryViewModel. Prevents downstream `.onReceive` from firing when sync produces struct instances with identical content.
+
+**Key files:** `LibraryViewModel.swift`, `PlaylistViewModel.swift`, `FavoritesViewModel.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`
+
+---
+
 ### iOS 15 Performance & Stability Fixes (Mar 18, 2026)
 
 **4 bugs fixed from iOS 15 / iPhone 6s log analysis:**
