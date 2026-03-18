@@ -2215,6 +2215,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         armSkipTransitionSafety()
         player?.pause()
 
+        // Immediately freeze the lock screen progress bar. Without this, the lock screen
+        // still has playbackRate=1.0 from the last periodic update and extrapolates the
+        // progress bar forward even though audio has stopped.
+        updateNowPlayingProgress()
+
         EnsembleLogger.playback("SKIP: next() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
         // Record current track to history before advancing
@@ -2233,6 +2238,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 let nextTrack = self.queue[nextIndex].track
                 self.currentTrack = nextTrack
                 self.playbackState = .loading
+                // Push new track info to lock screen immediately (don't wait for
+                // playCurrentQueueItem which takes 0.5-1s due to async resolve).
+                self.currentTime = 0
+                self.updateNowPlayingInfo()
 
                 guard !Task.isCancelled else { return }
                 await self.playCurrentQueueItem(caller: "next()")
@@ -2248,6 +2257,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         let wrappedTrack = self.queue[wrappedIndex].track
                         self.currentTrack = wrappedTrack
                         self.playbackState = .loading
+                        self.currentTime = 0
+                        self.updateNowPlayingInfo()
 
                         guard !Task.isCancelled else { return }
                         await self.playCurrentQueueItem(caller: "next()-repeatAll")
@@ -2291,18 +2302,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         armSkipTransitionSafety()
         player?.pause()
 
+        // Immediately freeze the lock screen progress bar (see next() for explanation)
+        updateNowPlayingProgress()
+
         EnsembleLogger.playback("SKIP: previous() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
         // Set flag to prevent recording to history when navigating backward
         isNavigatingBackward = true
-        
+
         // Remove the last item from history since we're navigating back to it
         // This prevents duplicates when going forward again
         if !playbackHistory.isEmpty {
             playbackHistory.removeLast()
         }
-        
+
         currentQueueIndex -= 1
+
+        // Push previous track info to lock screen immediately
+        if currentQueueIndex >= 0, currentQueueIndex < queue.count {
+            currentTrack = queue[currentQueueIndex].track
+            playbackState = .loading
+            currentTime = 0
+            updateNowPlayingInfo()
+        }
+
         Task {
             await playCurrentQueueItem(caller: "previous()")
             savePlaybackState()
