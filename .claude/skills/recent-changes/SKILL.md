@@ -6,6 +6,24 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Observation Blast Radius + Section Caching — Run 4 (Mar 18, 2026)
+
+**Root cause:** Run 4 trace (5 min, iPhone 6s, music playing) showed artists/songs items jumping/disappearing while scrolling, laggy scrolling in playlists/downloads/albums, and album filter keyboard failing. Multiple high-traffic views subscribed to `offlineDownloadService` (5 @Published) and `navigationCoordinator` (14 @Published) via `@ObservedObject`, but only needed 1-2 specific values. ANY @Published change triggered full body re-evaluation of ALL subscribing views.
+
+**Phase 1 — offlineDownloadService/trackAvailabilityResolver `.onReceive`:**
+- Replaced `@ObservedObject` with `@State` + `.onReceive` targeting only `activeDownloadRatingKeys` and `availabilityGeneration` in 6 views: SongsView, FavoritesView, SearchView, ArtistDetailView, MediaDetailView, CoverFlowDetailView. Eliminates ~60-80% of spurious re-evals during downloads.
+
+**Phase 2 — navigationCoordinator removal:**
+- Removed `@ObservedObject private var navigationCoordinator` from 6 views that only write `showingAddAccount = true` in button closures (never read in body): ArtistsView, SongsView, AlbumsView, PlaylistsView, FavoritesView, SearchView. Use `DependencyContainer.shared.navigationCoordinator` directly in closures instead.
+
+**Phase 3 — Section caching:**
+- Replaced `albumSections` and `artistSections` computed properties (Dictionary grouping + map + sorted on every body eval) with `@State` cached values updated via `.onReceive` on `libraryVM.$filteredAlbums`/`$albumSortOption`/`$filteredArtists`. Avoids O(n log n) recomputation with 277 albums / 193 artists.
+
+**Phase 4 — ArtistDetailView + CoverFlowDetailView NVM `.onReceive`:**
+- Changed `@ObservedObject var nowPlayingVM` → `let nowPlayingVM` + `@State` + `.onReceive` targeting only `currentTrack` and `lastPlaylistTarget`. NVM has ~25 @Published properties publishing frequently during playback — reduces body re-evals from ~25/s to ~1/track change.
+
+**Key files:** `SongsView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`, `MediaDetailView.swift`, `CoverFlowDetailView.swift`
+
 ### Download CPU Contention + NVM Observation Cascade Fix — Run 3 (Mar 18, 2026)
 
 **Root cause:** Instruments Run 3 trace revealed two remaining issues: (1) download tasks running at default priority competed with UI for CPU on dual-core A9, and (2) eight more views still declared `@ObservedObject var nowPlayingVM` unnecessarily, cascading NVM publishes into full body re-evaluations.
