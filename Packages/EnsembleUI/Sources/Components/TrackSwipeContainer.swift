@@ -10,9 +10,9 @@ public struct TrackSwipeContainer<Content: View>: View {
     let onAddToPlaylist: (() -> Void)?
     let content: Content
 
-    @ObservedObject private var nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var toastCenter = DependencyContainer.shared.toastCenter
+    private let nowPlayingVM: NowPlayingViewModel
+    private let settingsManager = DependencyContainer.shared.settingsManager
+    private let toastCenter = DependencyContainer.shared.toastCenter
 
     @State private var offset: CGFloat = 0
     @State private var dragStartOffset: CGFloat = 0
@@ -29,7 +29,7 @@ public struct TrackSwipeContainer<Content: View>: View {
         @ViewBuilder content: () -> Content
     ) {
         self.track = track
-        _nowPlayingVM = ObservedObject(wrappedValue: nowPlayingVM)
+        self.nowPlayingVM = nowPlayingVM
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
