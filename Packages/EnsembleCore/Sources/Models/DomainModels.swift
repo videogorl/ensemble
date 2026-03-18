@@ -205,6 +205,24 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             artistName: artistName
         )
     }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
+    public static func == (lhs: Album, rhs: Album) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.artistName == rhs.artistName &&
+        lhs.albumArtist == rhs.albumArtist &&
+        lhs.year == rhs.year &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.thumbPath == rhs.thumbPath &&
+        lhs.rating == rhs.rating
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 private extension String {
@@ -390,6 +408,22 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             return "\(hours) hr \(minutes) min"
         }
         return "\(minutes) min"
+    }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
+    public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.duration == rhs.duration &&
+        lhs.compositePath == rhs.compositePath &&
+        lhs.isSmart == rhs.isSmart
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
