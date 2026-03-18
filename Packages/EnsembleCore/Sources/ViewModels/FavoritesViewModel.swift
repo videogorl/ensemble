@@ -58,8 +58,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         Publishers.CombineLatest3($tracks, $favoritesSortOption, $filterOptions)
             .debounce(for: .milliseconds(100), scheduler: DispatchQueue.global(qos: .userInitiated))
             .map { [weak self] tracks, sortOption, filterOptions -> [Track] in
-                guard let self else { return tracks }
-                return Self.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions)
+                guard self != nil else { return tracks }
+                return FavoritesViewModel.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions)
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered in
