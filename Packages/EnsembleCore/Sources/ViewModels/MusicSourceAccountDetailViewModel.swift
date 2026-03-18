@@ -8,12 +8,23 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let id: String
         public let serverName: String
         public let serverPlatform: String?
+        public let capabilities: PlexServerCapabilities?
+        public let hasPlexPass: Bool
         public let libraries: [LibraryRow]
 
-        public init(id: String, serverName: String, serverPlatform: String?, libraries: [LibraryRow]) {
+        public init(
+            id: String,
+            serverName: String,
+            serverPlatform: String?,
+            capabilities: PlexServerCapabilities? = nil,
+            hasPlexPass: Bool = false,
+            libraries: [LibraryRow]
+        ) {
             self.id = id
             self.serverName = serverName
             self.serverPlatform = serverPlatform
+            self.capabilities = capabilities
+            self.hasPlexPass = hasPlexPass
             self.libraries = libraries
         }
     }
@@ -25,17 +36,20 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let title: String
         public let isEnabled: Bool
         public let status: MusicSourceStatus?
+        public let allowSync: Bool?
 
         public init(
             sourceIdentifier: MusicSourceIdentifier,
             title: String,
             isEnabled: Bool,
-            status: MusicSourceStatus?
+            status: MusicSourceStatus?,
+            allowSync: Bool? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.title = title
             self.isEnabled = isEnabled
             self.status = status
+            self.allowSync = allowSync
         }
     }
 
@@ -339,7 +353,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                         id: discoveredLibrary.id,
                         key: discoveredLibrary.key,
                         title: discoveredLibrary.title,
-                        isEnabled: existingLibrary?.isEnabled ?? false
+                        isEnabled: existingLibrary?.isEnabled ?? false,
+                        allowSync: discoveredLibrary.allowSync
                     )
                 }
 
@@ -366,6 +381,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     connections: discoveredServer.connections,
                     token: discoveredServer.token,
                     platform: discoveredServer.platform,
+                    capabilities: discoveredServer.capabilities,
                     libraries: resolvedLibraries
                 )
             )
@@ -405,6 +421,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             displayTitle: nonEmpty(discovery.identity.displayTitle) ?? account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: discovery.subscription ?? account.subscription,
             servers: updatedServers
         )
 
@@ -434,6 +451,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         isReauthenticationRequired = metadata.isExpired()
         accountIdentifier = account.accountIdentifier
 
+        // Account-level Plex Pass from subscription
+        let accountHasPlexPass = account.subscription?.active == true
+
         sections = account.servers.map { server in
             let libraries = server.libraries.map { library in
                 let sourceIdentifier = MusicSourceIdentifier(
@@ -449,7 +469,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     sourceIdentifier: sourceIdentifier,
                     title: library.title,
                     isEnabled: library.isEnabled,
-                    status: status
+                    status: status,
+                    allowSync: library.allowSync
                 )
             }
 
@@ -457,6 +478,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                 id: server.id,
                 serverName: server.name,
                 serverPlatform: server.platform,
+                capabilities: server.capabilities,
+                hasPlexPass: accountHasPlexPass || (server.capabilities?.hasPlexPass ?? false),
                 libraries: libraries
             )
         }

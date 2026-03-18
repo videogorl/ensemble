@@ -328,6 +328,23 @@ public actor PlexAPIClient {
 
     // MARK: - Server API
 
+    /// Wrapper for decoding the server root response (`GET /`), which carries capability
+    /// attributes directly on the `MediaContainer` element rather than in a child array.
+    private struct PlexServerRootResponse: Codable {
+        let mediaContainer: PlexServerCapabilities
+        enum CodingKeys: String, CodingKey {
+            case mediaContainer = "MediaContainer"
+        }
+    }
+
+    /// Fetch server-level capabilities from the root endpoint (`GET /`).
+    /// Returns feature flags like Plex Pass status, lyrics, radio, and transcoding support.
+    public func getServerCapabilities() async throws -> PlexServerCapabilities {
+        let data = try await serverRequest(path: "/")
+        let response = try JSONDecoder().decode(PlexServerRootResponse.self, from: data)
+        return response.mediaContainer
+    }
+
     /// Get library sections
     public func getLibrarySections() async throws -> [PlexLibrarySection] {
         let data = try await serverRequest(path: "/library/sections")

@@ -185,6 +185,7 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public let agent: String?
     public let scanner: String?
     public let language: String?
+    public let allowSync: Bool?
 
     public var id: String { key }
 
@@ -647,6 +648,59 @@ public struct PlexUser: Codable, Sendable {
     public let email: String?
     public let thumb: String?
     public let authToken: String?
+    public let subscription: PlexSubscription?
+}
+
+// MARK: - Plex Pass Subscription
+
+public struct PlexSubscription: Codable, Sendable, Equatable {
+    public let active: Bool?
+    public let status: String?    // "Active", "Inactive", etc.
+    public let features: [String]?
+
+    public init(active: Bool? = nil, status: String? = nil, features: [String]? = nil) {
+        self.active = active
+        self.status = status
+        self.features = features
+    }
+}
+
+// MARK: - Server Capabilities (from GET / root endpoint)
+
+/// Decoded from the `MediaContainer` attributes of a Plex server's root endpoint (`GET /`).
+/// Contains server-level feature flags like Plex Pass status, lyrics, radio, and transcoding support.
+public struct PlexServerCapabilities: Codable, Sendable, Equatable {
+    public let myPlexSubscription: Bool?
+    public let ownerFeatures: String?
+    public let allowSync: Bool?
+    public let musicAnalysis: Int?       // 0 or 1
+    public let transcoderAudio: Bool?
+    public let transcoderLyrics: Bool?
+
+    public init(
+        myPlexSubscription: Bool? = nil,
+        ownerFeatures: String? = nil,
+        allowSync: Bool? = nil,
+        musicAnalysis: Int? = nil,
+        transcoderAudio: Bool? = nil,
+        transcoderLyrics: Bool? = nil
+    ) {
+        self.myPlexSubscription = myPlexSubscription
+        self.ownerFeatures = ownerFeatures
+        self.allowSync = allowSync
+        self.musicAnalysis = musicAnalysis
+        self.transcoderAudio = transcoderAudio
+        self.transcoderLyrics = transcoderLyrics
+    }
+
+    /// Parsed set of owner features from the comma-separated string.
+    public var ownerFeatureSet: Set<String> {
+        Set((ownerFeatures ?? "").split(separator: ",").map(String.init))
+    }
+
+    public var hasLyrics: Bool { ownerFeatureSet.contains("lyrics") }
+    public var hasRadio: Bool { ownerFeatureSet.contains("radio") || ownerFeatureSet.contains("shared-radio") }
+    public var hasPlexPass: Bool { myPlexSubscription == true || ownerFeatureSet.contains("pass") }
 }
 
 // MARK: - Hubs (Home Screen Content)

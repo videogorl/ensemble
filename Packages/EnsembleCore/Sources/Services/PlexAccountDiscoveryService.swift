@@ -22,15 +22,18 @@ public struct PlexAccountIdentity: Sendable, Equatable {
 
 public struct PlexAccountDiscoveryResult: Sendable, Equatable {
     public let identity: PlexAccountIdentity
+    public let subscription: PlexSubscription?
     public let servers: [PlexServerConfig]
     public let serverLibraryErrors: [String: String]
 
     public init(
         identity: PlexAccountIdentity,
+        subscription: PlexSubscription? = nil,
         servers: [PlexServerConfig],
         serverLibraryErrors: [String: String]
     ) {
         self.identity = identity
+        self.subscription = subscription
         self.servers = servers
         self.serverLibraryErrors = serverLibraryErrors
     }
@@ -48,6 +51,11 @@ public protocol PlexAccountDiscoveryClientProtocol: Sendable {
         token: String,
         allowInsecurePolicy: AllowInsecureConnectionsPolicy
     ) async throws -> [PlexLibrarySection]
+    func getServerCapabilities(
+        for device: PlexDevice,
+        token: String,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy
+    ) async throws -> PlexServerCapabilities
 }
 
 public protocol PlexAccountDiscoveryServiceProtocol: Sendable {
@@ -88,6 +96,27 @@ public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol 
         token: String,
         allowInsecurePolicy: AllowInsecureConnectionsPolicy
     ) async throws -> [PlexLibrarySection] {
+        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
+        _ = try await client.refreshConnection()
+        return try await client.getMusicLibrarySections()
+    }
+
+    public func getServerCapabilities(
+        for device: PlexDevice,
+        token: String,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy
+    ) async throws -> PlexServerCapabilities {
+        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
+        _ = try await client.refreshConnection()
+        return try await client.getServerCapabilities()
+    }
+
+    /// Creates a temporary `PlexAPIClient` for the given device during discovery.
+    private func makeClient(
+        for device: PlexDevice,
+        token: String,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy
+    ) throws -> PlexAPIClient {
         let orderedConnections = device.orderedConnections(
             selectionPolicy: .plexSpecBalanced,
             allowInsecure: allowInsecurePolicy
@@ -122,9 +151,7 @@ public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol 
             identifier: device.clientIdentifier,
             name: device.name
         )
-        let client = PlexAPIClient(connection: connection, keychain: keychain)
-        _ = try await client.refreshConnection()
-        return try await client.getMusicLibrarySections()
+        return PlexAPIClient(connection: connection, keychain: keychain)
     }
 }
 
@@ -217,6 +244,14 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                             token: authToken,
                             allowInsecurePolicy: allowInsecurePolicy
                         )
+
+                        // Fetch capabilities alongside sections — informational only, don't fail the server
+                        let capabilities: PlexServerCapabilities? = try? await self.client.getServerCapabilities(
+                            for: device,
+                            token: authToken,
+                            allowInsecurePolicy: allowInsecurePolicy
+                        )
+
                         let libraries = sections
                             .filter(\.isMusicLibrary)
                             .map { section in
@@ -224,7 +259,8 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                     id: section.key,
                                     key: section.key,
                                     title: section.title,
-                                    isEnabled: false
+                                    isEnabled: false,
+                                    allowSync: section.allowSync
                                 )
                             }
 
@@ -236,6 +272,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                 connections: connectionConfigs,
                                 token: device.accessToken ?? authToken,
                                 platform: device.platform,
+                                capabilities: capabilities,
                                 libraries: libraries
                             ),
                             nil
@@ -283,6 +320,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
 
         return PlexAccountDiscoveryResult(
             identity: identity,
+            subscription: user.subscription,
             servers: discoveredServers,
             serverLibraryErrors: serverLibraryErrors
         )
