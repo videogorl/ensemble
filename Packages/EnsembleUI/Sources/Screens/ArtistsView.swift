@@ -7,6 +7,9 @@ public struct ArtistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var showingManageSources = false
+    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
+    @State private var cachedArtistSections: [ArtistSection] = []
+
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -98,6 +101,9 @@ public struct ArtistsView: View {
                 }
             }
             #endif
+        }
+        .onReceive(libraryVM.$filteredArtists) { artists in
+            cachedArtistSections = Self.computeArtistSections(artists: artists)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -199,8 +205,8 @@ public struct ArtistsView: View {
         var id: String { letter }
     }
 
-    private var artistSections: [ArtistSection] {
-        let grouped = Dictionary(grouping: libraryVM.filteredArtists) { $0.name.indexingLetter }
+    private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
+        let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
     }
@@ -211,7 +217,7 @@ public struct ArtistsView: View {
                 ScrollView {
                     if libraryVM.artistSortOption == .name {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(artistSections) { section in
+                            ForEach(cachedArtistSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     ArtistGrid(
                                         artists: section.artists,
@@ -234,7 +240,7 @@ public struct ArtistsView: View {
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
-                        letters: artistSections.map { $0.letter },
+                        letters: cachedArtistSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
                             proxy.scrollTo(letter, anchor: .top)
