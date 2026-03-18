@@ -56,6 +56,10 @@
 			<string>Ensemble Player</string>
 		</dict>
 	</array>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
 	<key>INSupportedMediaCategories</key>
 	<array>
 		<string>INMediaCategoryMusic</string>
