@@ -23,104 +23,117 @@ public struct PlaylistPickerSheet: View {
     }
 
     public var body: some View {
-        NavigationView {
-            List {
-                // iOS 15: Inline TextField because .searchable() freezes input
-                // in nested sheet contexts (sheet-on-fullScreenCover in NPV).
-                // iOS 16+: Use .searchable() — the nested-sheet bug is fixed,
-                // and inline TextField triggers an observation feedback loop
-                // on iOS 26's ScrollPocketCollectorModel.
-                if #unavailable(iOS 16.0) {
-                    Section {
-                        TextField("Find or create playlist", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .disableAutocorrection(true)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                    }
+        // iOS 16+: NavigationStack avoids the ScrollPocketCollectorModel feedback
+        // loop that NavigationView triggers on iOS 26 when search activates.
+        // iOS 15: NavigationView with inline TextField (no .searchable — it freezes
+        // input in nested sheet contexts like sheet-on-fullScreenCover).
+        if #available(iOS 16.0, macOS 13.0, *) {
+            NavigationStack {
+                listContent
+                    .searchable(text: $searchText, prompt: "Find or create playlist")
+            }
+        } else {
+            NavigationView {
+                listContent
+            }
+            #if os(iOS)
+            .navigationViewStyle(.stack)
+            #endif
+        }
+    }
+
+    private var listContent: some View {
+        List {
+            // iOS 15 only: inline search field (see body comment)
+            if #unavailable(iOS 16.0) {
+                Section {
+                    TextField("Find or create playlist", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .disableAutocorrection(true)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
                 }
+            }
 
-                Section("Playlists") {
-                    if isLoading {
-                        ProgressView("Loading playlists...")
-                    } else if compatibleTrackCountForSelectedServer == 0 {
-                        Text("No compatible tracks are available for playlist updates.")
-                            .foregroundColor(.secondary)
-                    } else if filteredPlaylists.isEmpty {
-                        Text("No playlists found.")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(filteredPlaylists) { playlist in
-                            Button {
-                                Task { await addToPlaylist(playlist) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(playlist.title)
-                                        Text("\(playlist.trackCount) songs")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-
-                                    Spacer()
-                                }
-                            }
-                            .disabled(
-                                isSubmitting ||
-                                isMutationInProgress ||
-                                nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
-                            )
-                        }
-                    }
-                }
-
-                if shouldShowCreateAction {
-                    Section {
+            Section("Playlists") {
+                if isLoading {
+                    ProgressView("Loading playlists...")
+                } else if compatibleTrackCountForSelectedServer == 0 {
+                    Text("No compatible tracks are available for playlist updates.")
+                        .foregroundColor(.secondary)
+                } else if filteredPlaylists.isEmpty {
+                    Text("No playlists found.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(filteredPlaylists) { playlist in
                         Button {
-                            Task { await createPlaylist(named: newPlaylistName) }
+                            Task { await addToPlaylist(playlist) }
                         } label: {
-                            Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
+                            HStack(spacing: 12) {
+                                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(playlist.title)
+                                    Text("\(playlist.trackCount) songs")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+                            }
                         }
                         .disabled(
                             isSubmitting ||
                             isMutationInProgress ||
-                            inferredServerSourceKey == nil ||
-                            compatibleTrackCountForSelectedServer == 0
+                            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
                         )
                     }
                 }
             }
-            .navigationTitle(title)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .modifier(SearchableIfAvailable(text: $searchText, prompt: "Find or create playlist"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
-            .task {
-                if inferredServerSourceKey == nil {
-                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
-                }
-                await loadPlaylists()
-            }
-            .onReceive(nowPlayingVM.$isPlaylistMutationInProgress) { inProgress in
-                if inProgress != isMutationInProgress { isMutationInProgress = inProgress }
-            }
-            .overlay {
-                if isSubmitting {
-                    ZStack {
-                        Color.black.opacity(0.12)
-                            .ignoresSafeArea()
-                        ProgressView("Updating playlist...")
-                            .padding(12)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+
+            if shouldShowCreateAction {
+                Section {
+                    Button {
+                        Task { await createPlaylist(named: newPlaylistName) }
+                    } label: {
+                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
                     }
+                    .disabled(
+                        isSubmitting ||
+                        isMutationInProgress ||
+                        inferredServerSourceKey == nil ||
+                        compatibleTrackCountForSelectedServer == 0
+                    )
+                }
+            }
+        }
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
+        .task {
+            if inferredServerSourceKey == nil {
+                inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+            }
+            await loadPlaylists()
+        }
+        .onReceive(nowPlayingVM.$isPlaylistMutationInProgress) { inProgress in
+            if inProgress != isMutationInProgress { isMutationInProgress = inProgress }
+        }
+        .overlay {
+            if isSubmitting {
+                ZStack {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                    ProgressView("Updating playlist...")
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }
@@ -264,17 +277,3 @@ public struct PlaylistPickerSheet: View {
     }
 }
 
-/// Applies .searchable() on iOS 16+ where the nested-sheet keyboard bug is fixed.
-/// On iOS 15, the inline TextField is used instead (see PlaylistPickerSheet body).
-private struct SearchableIfAvailable: ViewModifier {
-    @Binding var text: String
-    let prompt: String
-
-    func body(content: Content) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            content.searchable(text: $text, prompt: prompt)
-        } else {
-            content
-        }
-    }
-}
