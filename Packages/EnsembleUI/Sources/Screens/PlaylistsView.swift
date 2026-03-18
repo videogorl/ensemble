@@ -27,7 +27,6 @@ public struct PlaylistsView: View {
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
     @State private var showingManageSources = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -323,7 +322,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

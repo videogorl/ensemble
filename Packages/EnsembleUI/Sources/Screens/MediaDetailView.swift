@@ -80,8 +80,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     public init(
         viewModel: ViewModel,
@@ -210,6 +211,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #if !os(iOS)
         .miniPlayerBottomSpacing(140)
         #endif
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -761,8 +768,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
             currentTrackId: nowPlayingVM.currentTrack?.id,
-            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
             bottomContentInset: 140,
             tableHeaderContent: AnyView(tableHeaderForTrackList),

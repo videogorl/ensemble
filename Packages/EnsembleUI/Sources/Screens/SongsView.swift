@@ -23,9 +23,10 @@ public struct SongsView: View {
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
     @State private var isCoverFlowActive = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change,
+    // not when any of offlineDownloadService's 5+ @Published props update
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     private var supportsCoverFlow: Bool {
         #if os(iOS)
@@ -174,6 +175,12 @@ public struct SongsView: View {
             }
             #endif
         }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions
@@ -233,7 +240,7 @@ public struct SongsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -334,8 +341,8 @@ public struct SongsView: View {
                 showTrackNumbers: false,
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
-                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -395,8 +402,8 @@ public struct SongsView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             currentTrackId: nowPlayingVM.currentTrack?.id,
-            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
             bottomContentInset: 140,
             onPlayNext: { track in

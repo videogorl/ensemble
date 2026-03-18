@@ -7,8 +7,6 @@ public struct ArtistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var showingManageSources = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -150,7 +148,7 @@ public struct ArtistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -273,8 +271,9 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -356,6 +355,12 @@ public struct ArtistDetailView: View {
             #endif
         }
         .miniPlayerBottomSpacing(140)
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
@@ -828,8 +833,8 @@ public struct ArtistDetailView: View {
                 showTrackNumbers: false,
                 groupByDisc: false,
                 currentTrackId: nowPlayingVM.currentTrack?.id,
-                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },

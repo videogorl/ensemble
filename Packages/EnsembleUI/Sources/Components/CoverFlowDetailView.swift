@@ -22,8 +22,9 @@ struct CoverFlowDetailView: View {
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     
     var body: some View {
         VStack(spacing: 0) {
@@ -64,8 +65,8 @@ struct CoverFlowDetailView: View {
                     showTrackNumbers: true,
                     groupByDisc: false,
                     currentTrackId: nowPlayingVM.currentTrack?.id,
-                    availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                    activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
@@ -131,6 +132,12 @@ struct CoverFlowDetailView: View {
                 }
                 #endif
             }
+        }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
         }
         .task(id: contentTypeId) {
             await loadTracks()
