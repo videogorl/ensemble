@@ -9,7 +9,7 @@ public struct SearchView: View {
     }
 
     @StateObject private var viewModel: SearchViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
     @StateObject private var libraryVM: LibraryViewModel
     @StateObject private var pinnedVM: PinnedViewModel
@@ -19,6 +19,9 @@ public struct SearchView: View {
     @State private var showingManageSources = false
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    // Targeted NVM observation: only re-evaluate on track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
@@ -57,6 +60,14 @@ public struct SearchView: View {
             await pinnedVM.loadPinnedItems()
         }
         .miniPlayerBottomSpacing(140)
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+        }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
         }
@@ -845,7 +856,7 @@ public struct SearchView: View {
                     ) {
                         CompactTrackRow(
                             track: track,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id
+                            isPlaying: track.id == currentTrackId
                         ) {
                             viewModel.commitCurrentSearch()
                             if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
@@ -932,7 +943,7 @@ public struct SearchView: View {
                 showArtwork: true,
                 showTrackNumbers: false,
                 groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.id,
+                currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
@@ -978,7 +989,7 @@ public struct SearchView: View {
                 canAddToRecentPlaylist: { track in
                     recentPlaylistTitle(for: track) != nil
                 },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                recentPlaylistTitle: nvmRecentPlaylistTitle
             ) { track, _ in
                 viewModel.commitCurrentSearch()
                 if let index = viewModel.trackResults.firstIndex(where: { $0.id == track.id }) {
