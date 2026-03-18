@@ -5669,20 +5669,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
                 changed = true
 
-                // Evict cached player item when download state changes for upcoming tracks
-                // so they re-resolve to the correct source (local file or stream).
-                // Skip the currently playing track — it will pick up local on next stall/retry.
+                // Evict cached player item when download state changes for non-current tracks.
+                // Covers both download completion (re-resolve to local file) and removal
+                // (stale item pointing to deleted file corrupts AVPlayer's queue).
+                // Also cancel in-flight creation tasks — they captured the old Track with
+                // the stale localFilePath, so their result would be immediately outdated.
                 if i != currentQueueIndex {
-                    if wasNotDownloaded && isNowDownloaded {
-                        // Download completed — evict so it re-resolves to local file
-                        await MainActor.run { removeCachedPlayerItem(for: track.id) }
-                    } else if !wasNotDownloaded && !isNowDownloaded {
-                        // Download removed — evict stale item that references the deleted file.
-                        // Without this, the prefetched AVPlayerItem still points to a gone file,
-                        // which corrupts AVPlayer's queue and stalls the current track.
-                        await MainActor.run {
-                            removeCachedPlayerItem(for: track.id)
-                        }
+                    await MainActor.run {
+                        removeCachedPlayerItem(for: track.id)
+                        itemCreationTasks[track.id]?.cancel()
+                        itemCreationTasks.removeValue(forKey: track.id)
                     }
                 }
             }
