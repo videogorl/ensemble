@@ -639,7 +639,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Publishers
 
     @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var playbackState: PlaybackState = .stopped
+    @Published public private(set) var playbackState: PlaybackState = .stopped {
+        didSet {
+            guard playbackState != oldValue else { return }
+            let trackTitle = currentTrack?.title ?? "nil"
+            EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+        }
+    }
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var bufferedProgress: Double = 0
     @Published public private(set) var queue: [QueueItem] = []
@@ -820,6 +826,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isReplacingPlayerItem = false  // Suppresses KVO during loadAndPlay remove/insert transition
     private var playbackGenerationCounter: UInt64 = 0  // Incremented on each new playback request to cancel stale completions
     private var hasLoggedDurationOverrun = false  // One-shot log per track for duration diagnostics
+    /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
+    private var queueExhaustedTimestamps: [Date] = []
+    /// Watchdog task that detects "stuck playing" state (playbackState == .playing but AVPlayer not actually playing)
+    private var stuckPlayingWatchdog: Task<Void, Never>?
+    /// Safety timer to force-reset isSkipTransitionInProgress if it gets stuck
+    private var skipTransitionSafetyTask: Task<Void, Never>?
 
     // Wall-clock based duration tracking: AVPlayer's reported position can diverge from
     // the actual audio playhead after seeking on HTTP progressive downloads. We track
@@ -1079,6 +1091,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Handles natural playback completion when AVQueuePlayer has no current item left.
     @MainActor
     private func handleQueueExhausted() async {
+        EnsembleLogger.playback("QUEUE_EXHAUSTED: idx=\(currentQueueIndex)/\(queue.count), state=\(playbackState), failures=\(consecutivePlaybackFailures)")
+
         // If a TLS connection refresh is in progress, wait for it to finish
         // so the retry completes before we try to advance the queue.
         if isHandlingTLSFailure {
@@ -1112,6 +1126,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         isHandlingQueueExhaustion = true
         defer { isHandlingQueueExhaustion = false }
+
+        // Rate-limit: if called >3 times within 2 seconds, stop playback to prevent cascade
+        let now = Date()
+        queueExhaustedTimestamps.append(now)
+        queueExhaustedTimestamps = queueExhaustedTimestamps.filter { now.timeIntervalSince($0) < 2.0 }
+        if queueExhaustedTimestamps.count > 3 {
+            EnsembleLogger.playback("RAPID_ADVANCE: handleQueueExhausted called \(queueExhaustedTimestamps.count)x in 2s — stopping")
+            queueExhaustedTimestamps.removeAll()
+            stop()
+            return
+        }
 
         #if DEBUG
         let throttleActive = (prefetchThrottleUntil?.timeIntervalSince(Date()) ?? 0) > 0
@@ -2148,7 +2173,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferedProgress = 0
         pendingLoadSeekTime = nil
         consecutivePlaybackFailures = 0
+        queueExhaustedTimestamps.removeAll()
         isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
         isReplacingPlayerItem = false
         seekCompletedAt = nil
         remainingDurationAtSeek = nil
@@ -2185,7 +2212,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // The skip flag prevents the "unexpected pause" handler from resuming
         // the old track while we load the new one.
         isSkipTransitionInProgress = true
+        armSkipTransitionSafety()
         player?.pause()
+
+        EnsembleLogger.playback("SKIP: next() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
         // Record current track to history before advancing
         if currentQueueIndex >= 0 && currentQueueIndex < queue.count {
@@ -2258,7 +2288,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // The skip flag prevents the "unexpected pause" handler from resuming
         // the old track while we load the new one.
         isSkipTransitionInProgress = true
+        armSkipTransitionSafety()
         player?.pause()
+
+        EnsembleLogger.playback("SKIP: previous() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
         // Set flag to prevent recording to history when navigating backward
         isNavigatingBackward = true
@@ -3249,6 +3282,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
         let recoverySeekTime = validatedRecoverySeekTime(startTime, for: track)
 
+        let hasLocalFile = track.localFilePath != nil
+        let quality = queue[currentQueueIndex].streamingQuality ?? "original"
+        EnsembleLogger.playback("TRACK: '\(track.title)' by \(track.artistName ?? "Unknown") [caller: \(caller), idx: \(currentQueueIndex)/\(queue.count), local: \(hasLocalFile), quality: \(quality)]")
+
         #if DEBUG
         let isCached = await MainActor.run { playerItems[track.id] != nil }
         EnsembleLogger.debug("🎵 ═══════════════════════════════════════════════════════")
@@ -3284,6 +3321,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Cleared in loadAndPlay() once the player item is replaced,
             // or in the error path at the end of this method.
             isSkipTransitionInProgress = true
+            armSkipTransitionSafety()
             player?.pause()
             if let observer = timeObserver {
                 player?.removeTimeObserver(observer)
@@ -3475,6 +3513,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let errorMessage = lastError?.localizedDescription ?? "Failed to load track"
         await MainActor.run {
             self.isSkipTransitionInProgress = false
+            self.disarmSkipTransitionSafety()
             self.player?.pause()
             self.playbackState = .failed(errorMessage)
         }
@@ -4337,6 +4376,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Old item is gone — safe to allow "unexpected pause" handling again
         isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
 
         // Activate pre-computed frequency timeline for the visualizer
         audioAnalyzer.activateTimeline(for: track.id)
@@ -4524,6 +4564,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             self.audioAnalyzer.resumeUpdates()  // Visualizer starts only after audio confirmed
                             self.adaptiveBufferingState.conservativeWaitCycles = 0
 
+                            // AVPlayer confirmed playing — cancel the stuck-playing watchdog
+                            self.stuckPlayingWatchdog?.cancel()
+                            self.stuckPlayingWatchdog = nil
+
                             // Audio is confirmed — release background task protection
                             self.endTrackTransitionBackgroundTask()
 
@@ -4531,7 +4575,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                             // This is the only automatic reset point; manual resets remain in
                             // next(), previous(), retryCurrentTrack(), stop(), and play(tracks:).
                             self.consecutivePlaybackFailures = 0
-                            
+
                             let now = Date()
                             // Only reset loop detection if we've been playing for a bit
                             if let lastPlay = self.lastSuccessfulPlayAt, now.timeIntervalSince(lastPlay) > 2.0 {
@@ -4902,6 +4946,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .playing
         adaptiveBufferingState.conservativeWaitCycles = 0
 
+        // Watchdog: verify AVPlayer actually transitions to .playing within 3s.
+        // If playbackState says .playing but AVPlayer disagrees, recover.
+        startStuckPlayingWatchdog()
+
         // Reset wall-clock tracking so buffering time doesn't count toward
         // the remaining-duration boundary check. This prevents premature
         // track advancement when buffering stalls after a seek.
@@ -5015,6 +5063,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func setupStallRecovery(recordStallEvent: Bool = true) {
+        EnsembleLogger.playback("STALL: recovery armed, timeout=\(activeBufferingProfile.stallRecoveryTimeout)s, track='\(currentTrack?.title ?? "nil")'")
         let now = Date()
         #if DEBUG
         let isLocal = isCurrentPlaybackUsingLocalFile()
@@ -5042,6 +5091,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleStallRecoveryTimeout() async {
         guard playbackState == .buffering else { return }
+        EnsembleLogger.playback("STALL_TIMEOUT: track='\(currentTrack?.title ?? "nil")', local=\(isCurrentPlaybackUsingLocalFile())")
 
         if isCurrentPlaybackUsingLocalFile() {
             // Local files don't need network buffering — attempt immediate resume rather than failing.
@@ -5196,6 +5246,47 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("⚠️ Playback stalled - retrying current track")
         #endif
         await retryCurrentTrack(forceConnectionRefresh: false, reason: "stall-timeout")
+    }
+
+    // MARK: - Stuck-Playing Watchdog
+
+    /// Starts a 3-second watchdog that verifies AVPlayer actually transitions to `.playing`.
+    /// If `playbackState == .playing` but `player.timeControlStatus != .playing` after 3s,
+    /// we treat it as a stall and trigger recovery.
+    @MainActor
+    private func startStuckPlayingWatchdog() {
+        stuckPlayingWatchdog?.cancel()
+        stuckPlayingWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            guard self.playbackState == .playing,
+                  self.player?.timeControlStatus != .playing else { return }
+            EnsembleLogger.playback("STUCK_PLAYING: playbackState=.playing but AVPlayer not playing after 3s — triggering stall recovery")
+            self.playbackState = .buffering
+            self.setupStallRecovery(recordStallEvent: true)
+        }
+    }
+
+    // MARK: - Skip Transition Safety
+
+    /// Arms a 10-second safety timer that force-resets `isSkipTransitionInProgress` if it
+    /// gets stuck `true`. This prevents skip commands from being permanently dropped.
+    private func armSkipTransitionSafety() {
+        skipTransitionSafetyTask?.cancel()
+        skipTransitionSafetyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            if self.isSkipTransitionInProgress {
+                EnsembleLogger.playback("SKIP_SAFETY: isSkipTransitionInProgress stuck for >10s — force resetting")
+                self.isSkipTransitionInProgress = false
+            }
+        }
+    }
+
+    /// Cancels the skip transition safety timer (called when `isSkipTransitionInProgress` is cleared normally).
+    private func disarmSkipTransitionSafety() {
+        skipTransitionSafetyTask?.cancel()
+        skipTransitionSafetyTask = nil
     }
 
     /// Set up network state observation to handle network transitions during playback
@@ -5849,6 +5940,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
+
+        stuckPlayingWatchdog?.cancel()
+        stuckPlayingWatchdog = nil
+
+        skipTransitionSafetyTask?.cancel()
+        skipTransitionSafetyTask = nil
 
         loadingStateTask?.cancel()
         loadingStateTask = nil
