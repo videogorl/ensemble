@@ -4,7 +4,7 @@ import Nuke
 
 public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator

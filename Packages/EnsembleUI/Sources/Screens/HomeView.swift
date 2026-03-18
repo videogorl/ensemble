@@ -5,7 +5,7 @@ import SwiftUI
 /// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var showingManageSources = false

@@ -7,7 +7,7 @@ import UIKit
 /// The "More" tab containing additional sections not in the main tab bar
 public struct MoreView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dependencies) private var deps
 

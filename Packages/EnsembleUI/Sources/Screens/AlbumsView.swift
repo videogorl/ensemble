@@ -3,7 +3,7 @@ import SwiftUI
 
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var showingManageSources = false

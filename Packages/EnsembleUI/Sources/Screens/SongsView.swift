@@ -17,7 +17,7 @@ public struct SongsView: View {
 
     @Environment(\.dependencies) private var deps
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var playlistPickerPayload: PlaylistPickerPayload?

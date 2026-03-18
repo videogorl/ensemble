@@ -12,7 +12,7 @@ private extension Notification.Name {
 
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
@@ -28,8 +28,8 @@ public struct PlaylistsView: View {
     @State private var playlistForEditSheet: Playlist?
     @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     private var supportsCoverFlow: Bool {
@@ -219,12 +219,10 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        // Extracted to scope syncCoordinator observation to just the button
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
-                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -256,12 +254,9 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .automatic) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
-                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -624,6 +619,24 @@ public struct PlaylistsView: View {
                 )
             }
         }
+    }
+}
+
+// MARK: - "New Playlist" Toolbar Button
+
+/// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
+/// not the entire PlaylistsView list.
+private struct PlaylistsNewButton: View {
+    let action: () -> Void
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            Label("New Playlist", systemImage: "plus")
+        }
+        .disabled(syncCoordinator.isOffline)
     }
 }
 
