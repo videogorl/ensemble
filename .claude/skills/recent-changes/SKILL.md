@@ -6,6 +6,21 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Defensive Playback Hardening (Mar 18, 2026)
+
+**Problem:** Two intermittent playback issues on real devices: (1) rapid queue skipping cascade after buffering, (2) skip controls causing pause/stuck state. Both transient (resolved on restart), no AVPlayer errors in logs, and all device logs redacted as `<private>`.
+
+**Changes:**
+- **`EnsembleLogger.playback()`** — new `.info`-level logger with `"playback"` category, NOT behind `#if DEBUG`. Persists in unified log for post-hoc device diagnostics via `log stream --predicate 'category == "playback"'`.
+- **Public log points:** `playbackState` transitions (via `didSet`), track changes in `playCurrentQueueItem`, `handleQueueExhausted` invocations, stall recovery triggers/timeouts, skip commands.
+- **Rapid-advance rate limiter:** `handleQueueExhausted` tracks call timestamps; >3 calls in 2s stops playback to prevent cascade.
+- **Stuck-playing watchdog:** `resumePlayerFromBuffering` starts a 3s watchdog. If `playbackState == .playing` but `player.timeControlStatus != .playing` after 3s, transitions to `.buffering` and triggers stall recovery. Cancelled when `timeControlStatus` confirms `.playing`.
+- **Skip transition safety:** 10s timeout auto-resets `isSkipTransitionInProgress` if it gets stuck, preventing skip commands from being permanently dropped. Armed on every `isSkipTransitionInProgress = true`, disarmed on every `= false`.
+
+**Key files:** `EnsembleLogger.swift`, `PlaybackService.swift`
+
+---
+
 ### Progressive Transcode Streaming (Mar 2026)
 
 **Problem:** When PMS transcodes (e.g., FLAC at "low" quality), we downloaded the entire ~5MB file (~8s) before AVPlayer could start. PMS's `start.mp3` returns `Transfer-Encoding: chunked` with no `Content-Length` and `Accept-Ranges: none`, which AVPlayer's CFHTTP stack can't handle (error -16845).
