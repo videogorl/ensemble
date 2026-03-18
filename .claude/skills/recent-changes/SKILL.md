@@ -6,6 +6,27 @@ user-invocable: true
 
 # Recent Major Changes
 
+### iPhone 6s Albums View Scroll Performance Fix (Mar 18, 2026)
+
+**Phase 1 — Quick wins:**
+- **Guard `loadTimeline` behind visualizer setting** — All 5 FFT analysis call sites now check `isVisualizerEnabled` (reads `UserDefaults` directly for thread safety) before dispatching work. Prevents CPU starvation on dual-core A9 when visualizer is disabled (~471ms eliminated).
+- **`CDArtist.newestAlbum`** — O(n) `max(by:)` replaces O(n log n) `albumsArray.first` sort for fallback artwork lookup in `Artist(from: CDArtist)` (~418ms eliminated).
+- **CoreData prefetching** — `fetchArtists/Albums/Tracks` now set `relationshipKeyPathsForPrefetching` (albums, artist, album+artist respectively) to batch-fault relationships instead of individual SQLite hits.
+- **`stalenessInterval = 5.0`** — Replaced `0` (always refetch) with 5s; `automaticallyMergesChangesFromParent` + `refreshContext()` already ensure freshness.
+
+**Phase 2 — Off-main-thread mapping (~3.7s eliminated):**
+- **`fetchAndMapInBackground()`** — New `nonisolated static` method on `LibraryViewModel` creates a background `NSManagedObjectContext`, fetches all 4 entity types with prefetching, and maps to domain models. Only final `@Published` assignment happens on `@MainActor`.
+- **Batch `FileManager` checks** — `Track(from:downloadedFilenames:)` initializer accepts a pre-computed `Set<String>` from a single `contentsOfDirectory` call instead of 1400+ individual `fileExists` calls.
+- **Background sort/filter pipelines** — `setupComputedPipelines()` debounces and computes on a `userInitiated` background queue via `Self.computeQueue`. Results are `receive(on: .main)`.
+
+**Phase 3 — Lazy context menus (~1,068ms eliminated):**
+- **Extracted context menu View structs** — `AlbumContextMenu`, `ArtistContextMenu` (AlbumCard.swift, ArtistCard.swift), `SearchAlbumContextMenu`, `SearchArtistContextMenu`, `SearchPlaylistContextMenu` (SearchView.swift).
+- **Removed `@ObservedObject pinManager`** from `AlbumGrid`, `ArtistGrid`, and `SearchView`. Pin observation is now scoped per-menu, preventing wholesale grid re-renders.
+
+**Phase 4 — Logging audit:** All `EnsembleLogger` calls in hot paths already behind `#if DEBUG`. No changes needed.
+
+**Key files:** `PlaybackService.swift`, `ManagedObjects.swift`, `ModelMappers.swift`, `LibraryRepository.swift`, `CoreDataStack.swift`, `LibraryViewModel.swift`, `AlbumCard.swift`, `ArtistCard.swift`, `SearchView.swift`
+
 ### Playback Hardening & Lock Screen Fixes (Mar 18, 2026)
 
 **Defensive hardening:**
