@@ -2776,9 +2776,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         savePlaybackState()
 
-        // Rebuild autoplay based on last non-autoplay track
-        Task {
-            await checkAndRefreshAutoplayQueue()
+        // Clear prefetched items from AVQueuePlayer — they're from the old order.
+        // Without this, AVPlayer gaplessly advances to the wrong (pre-shuffle) track.
+        // Then re-prefetch based on the new queue order, and rebuild autoplay.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.clearPrefetchedItems()
+            await self.prefetchNextItem()
+            await self.checkAndRefreshAutoplayQueue()
         }
     }
 
