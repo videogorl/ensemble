@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct PlaylistPickerSheet: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
 
@@ -13,6 +13,8 @@ public struct PlaylistPickerSheet: View {
     @State private var inferredServerSourceKey: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
+    // Targeted NVM observation: only re-evaluate on mutation state changes
+    @State private var isMutationInProgress = false
 
     public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
         self.nowPlayingVM = nowPlayingVM
@@ -52,7 +54,7 @@ public struct PlaylistPickerSheet: View {
                             }
                             .disabled(
                                 isSubmitting ||
-                                nowPlayingVM.isPlaylistMutationInProgress ||
+                                isMutationInProgress ||
                                 nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
                             )
                         }
@@ -68,7 +70,7 @@ public struct PlaylistPickerSheet: View {
                         }
                         .disabled(
                             isSubmitting ||
-                            nowPlayingVM.isPlaylistMutationInProgress ||
+                            isMutationInProgress ||
                             inferredServerSourceKey == nil ||
                             compatibleTrackCountForSelectedServer == 0
                         )
@@ -87,6 +89,9 @@ public struct PlaylistPickerSheet: View {
                     inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
                 }
                 await loadPlaylists()
+            }
+            .onReceive(nowPlayingVM.$isPlaylistMutationInProgress) { inProgress in
+                if inProgress != isMutationInProgress { isMutationInProgress = inProgress }
             }
             .overlay {
                 if isSubmitting {

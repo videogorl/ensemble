@@ -17,12 +17,15 @@ public struct FavoritesView: View {
     }
 
     @StateObject private var viewModel: FavoritesViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
+    // Targeted NVM observation: only re-evaluate when track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
@@ -106,6 +109,14 @@ public struct FavoritesView: View {
                 }
             }
             #endif
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
@@ -336,7 +347,7 @@ public struct FavoritesView: View {
                     showArtwork: true,
                     showTrackNumbers: false,
                     groupByDisc: false,
-                    currentTrackId: nowPlayingVM.currentTrack?.id,
+                    currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
                     onPlayNext: { track in
@@ -378,7 +389,7 @@ public struct FavoritesView: View {
                     canAddToRecentPlaylist: { track in
                         recentPlaylistTitle(for: track) != nil
                     },
-                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                    recentPlaylistTitle: nvmRecentPlaylistTitle
                 ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
@@ -390,7 +401,7 @@ public struct FavoritesView: View {
                         TrackRow(
                             track: track,
                             showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            isPlaying: track.id == currentTrackId,
                             onPlayNext: { nowPlayingVM.playNext(track) },
                             onPlayLast: { nowPlayingVM.playLast(track) },
                             onAddToPlaylist: { presentPlaylistPicker(with: [track]) },

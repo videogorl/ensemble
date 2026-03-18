@@ -58,7 +58,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     @ObservedObject var viewModel: ViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     let headerData: MediaHeaderData
     let navigationTitle: String
@@ -77,6 +77,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    // Targeted NVM observation: only re-evaluate on track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
@@ -233,6 +236,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
         }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let id = target?.id
+            if id != nvmLastPlaylistTargetId { nvmLastPlaylistTargetId = id }
+        }
     }
 
     @ViewBuilder
@@ -258,7 +269,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var quickTargetRefreshKey: String {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
-        let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
+        let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
@@ -767,7 +778,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             groupByDisc: groupByDisc,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
@@ -829,7 +840,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 TrackRow(
                     track: track,
                     showArtwork: showArtwork,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    isPlaying: track.id == currentTrackId,
                     onPlayNext: { nowPlayingVM.playNext(track) },
                     onPlayLast: { nowPlayingVM.playLast(track) },
                     onAddToPlaylist: {
