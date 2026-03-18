@@ -16,6 +16,10 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var error: String?
+    // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
+    @Published public private(set) var filteredTracks: [Track] = []
+    // Pre-computed total duration derived from filteredTracks
+    @Published public private(set) var totalDuration: String = "0 min"
 
     private let libraryRepository: LibraryRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -32,6 +36,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
 
         setupFilterPersistence()
+        setupFilteredTracksPipeline()
         observeDownloadChanges()
 
         // Initial load
@@ -44,6 +49,23 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "Favorites") }
+            .store(in: &cancellables)
+    }
+
+    /// Reactive pipeline: recompute filteredTracks whenever inputs change.
+    /// Runs filter+sort on a background queue with debouncing.
+    private func setupFilteredTracksPipeline() {
+        Publishers.CombineLatest3($tracks, $favoritesSortOption, $filterOptions)
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.global(qos: .userInitiated))
+            .map { [weak self] tracks, sortOption, filterOptions -> [Track] in
+                guard let self else { return tracks }
+                return Self.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] filtered in
+                self?.filteredTracks = filtered
+                self?.totalDuration = Self.computeTotalDuration(filtered)
+            }
             .store(in: &cancellables)
     }
 
@@ -64,7 +86,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
         isLoading = false
     }
-    
+
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
@@ -78,7 +100,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             .store(in: &cancellables)
     }
 
-    public var filteredTracks: [Track] {
+    // MARK: - Filter + Sort (static for background pipeline)
+
+    private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
         var filtered = tracks
 
         if !filterOptions.searchText.isEmpty {
@@ -94,15 +118,13 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             filtered = filtered.filter { $0.isDownloaded }
         }
 
-        return sortTracks(filtered)
+        return sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
     }
 
-    // MARK: - Sorting
-
-    private func sortTracks(_ tracks: [Track]) -> [Track] {
-        let ascending = filterOptions.sortDirection == .ascending
+    private static func sortTracks(_ tracks: [Track], by sortOption: FavoritesSortOption, direction: SortDirection) -> [Track] {
+        let ascending = direction == .ascending
         return tracks.sorted { a, b in
-            switch favoritesSortOption {
+            switch sortOption {
             case .title:
                 let result = a.title.sortingKey.localizedStandardCompare(b.title.sortingKey)
                 return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -139,7 +161,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
 
     /// Compares optional dates with nils sorting last regardless of direction
-    private func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
+    private static func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
         switch (a, b) {
         case (.some(let aDate), .some(let bDate)):
             return ascending ? aDate < bDate : aDate > bDate
@@ -152,8 +174,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
     }
 
-    public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
+    private static func computeTotalDuration(_ tracks: [Track]) -> String {
+        let total = tracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
         if minutes >= 60 {
             let hours = minutes / 60
