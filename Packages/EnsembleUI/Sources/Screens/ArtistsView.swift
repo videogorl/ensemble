@@ -273,13 +273,16 @@ public struct ArtistDetailView: View {
     }
 
     @StateObject private var viewModel: ArtistDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    // Targeted NVM observation: only re-evaluate for track changes and playlist target
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -366,6 +369,14 @@ public struct ArtistDetailView: View {
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
         .task {
             await viewModel.loadAlbums()
@@ -838,7 +849,7 @@ public struct ArtistDetailView: View {
                 showArtwork: true,
                 showTrackNumbers: false,
                 groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.id,
+                currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
@@ -876,7 +887,7 @@ public struct ArtistDetailView: View {
                 canAddToRecentPlaylist: { track in
                     recentPlaylistTitle(for: track) != nil
                 },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                recentPlaylistTitle: nvmRecentPlaylistTitle
             ) { track, index in
                 nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
             }
@@ -888,7 +899,7 @@ public struct ArtistDetailView: View {
                     TrackRow(
                         track: track,
                         showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        isPlaying: track.id == currentTrackId,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
                         onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
