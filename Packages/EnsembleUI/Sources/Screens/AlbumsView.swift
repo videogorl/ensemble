@@ -340,7 +340,7 @@ public struct AlbumsView: View {
 
 public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     
     private let album: Album
 

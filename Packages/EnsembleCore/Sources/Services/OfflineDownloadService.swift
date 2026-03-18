@@ -828,7 +828,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     /// Maximum number of downloads that run simultaneously
-    private static let maxConcurrentDownloads = 3
+    private static let maxConcurrentDownloads = 2
 
     private func runQueueLoop() async {
         // Quick check: if no pending downloads, exit immediately without spawning workers.
@@ -938,7 +938,7 @@ public final class OfflineDownloadService: ObservableObject {
                 // The detached task hops to main actor only when calling @MainActor services,
                 // but network I/O runs fully in parallel across workers.
                 let selfRef = self
-                let detachedProcess = Task.detached {
+                let detachedProcess = Task.detached(priority: .utility) {
                     await selfRef.process(download: nextDownload)
                 }
                 // Bridge cancellation so pause/cancel stops the download
@@ -1202,7 +1202,7 @@ public final class OfflineDownloadService: ObservableObject {
         // Run the streaming I/O in a detached task to avoid blocking @MainActor.
         // withTaskCancellationHandler bridges parent cancellation to the detached task
         // so the download stops when the queue is paused/cancelled.
-        let detachedTask = Task.detached { [dm] () -> (URL, URLResponse) in
+        let detachedTask = Task.detached(priority: .utility) { [dm] () -> (URL, URLResponse) in
             let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
             // Use Content-Length if the server provides it, otherwise fall back to the
             // bitrate-based estimate passed by the caller

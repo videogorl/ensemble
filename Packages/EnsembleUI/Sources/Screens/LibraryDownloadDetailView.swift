@@ -6,7 +6,7 @@ import SwiftUI
 /// regardless of which target type triggered the download.
 struct LibraryDownloadDetailView: View {
     @StateObject private var viewModel: LibraryDownloadDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     init(

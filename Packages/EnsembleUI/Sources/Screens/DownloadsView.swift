@@ -3,7 +3,7 @@ import SwiftUI
 
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @State private var isRefreshingDownloadQuality = false
     @AppStorage("downloadQuality") private var downloadQuality = "high"

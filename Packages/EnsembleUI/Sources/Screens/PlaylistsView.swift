@@ -778,7 +778,7 @@ private struct PlaylistViewContextMenu: View {
 
 public struct PlaylistDetailView: View {
     @StateObject private var viewModel: PlaylistDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
