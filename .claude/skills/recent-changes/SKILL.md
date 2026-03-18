@@ -6,6 +6,26 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Playlist & General Scroll Performance Fix Round 2 (Mar 18, 2026)
+
+**Root cause:** `NowPlayingViewModel` publishes `currentTime` every 0.5s during playback. Six container views (PlaylistsView, HomeView, ArtistsView, AlbumsView, SongsView, MoreView) declared `@ObservedObject var nowPlayingVM` but never read any `@Published` property in their body — they only passed the reference. Every publish triggered full body re-evaluation of ALL tabs, causing playlist stutter on the dual-core A9.
+
+**Phase 1 — Stop nowPlayingVM observation cascade:**
+- Changed `@ObservedObject var nowPlayingVM` → `let nowPlayingVM` on all 6 container views. Child views that need reactivity declare their own `@ObservedObject`.
+
+**Phase 2 — Scoped toolbar observation on PlaylistsView:**
+- Changed `@ObservedObject` → `let` for `syncCoordinator` and `accountManager` on PlaylistsView (only used in empty state).
+- Extracted "New Playlist" button into `PlaylistsNewButton` sub-view that owns the `@ObservedObject syncCoordinator` for the `isOffline` check. Only the button re-renders on sync state changes.
+
+**Phase 3 — Cached filteredPlaylists with Combine pipeline:**
+- Replaced computed `sortedPlaylists`/`filteredPlaylists` on `PlaylistViewModel` with a Combine `CombineLatest3` pipeline that caches the result as `@Published`. Sort+filter now only runs when inputs change, not on every body evaluation during scroll.
+
+**Phase 4 — ArtworkView body optimization:**
+- Cached `size.cgSize` in a local `let` to avoid 4x `CGSize` recomputation per body call.
+- Extracted fallback logic into `usesFallback`, `effectivePath`, `effectiveRatingKey` computed properties, eliminating duplicated nil/empty checks across `loadID`, `loadArtworkURL`, and the invalidation handler.
+
+**Key files:** `PlaylistsView.swift`, `HomeView.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `SongsView.swift`, `MoreView.swift`, `PlaylistViewModel.swift`, `ArtworkView.swift`
+
 ### iPhone 6s Albums View Scroll Performance Fix (Mar 18, 2026)
 
 **Phase 1 — Quick wins:**
