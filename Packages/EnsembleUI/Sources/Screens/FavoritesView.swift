@@ -120,15 +120,14 @@ public struct FavoritesView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$hasAnySources) { has in
+        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
+            let has = !accounts.isEmpty
             if has != hasAnySources { hasAnySources = has }
+            let enabledLibs = Self.computeHasEnabledLibraries()
+            if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
-        }
-        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { _ in
-            let has = Self.computeHasEnabledLibraries()
-            if has != hasEnabledLibrariesState { hasEnabledLibrariesState = has }
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }

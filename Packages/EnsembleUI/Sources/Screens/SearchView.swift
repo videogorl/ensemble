@@ -19,8 +19,8 @@ public struct SearchView: View {
     @State private var showingManageSources = false
     // Targeted singleton observation for empty/no-results states
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
-    @State private var isSyncing = DependencyContainer.shared.isSyncing
-    @State private var hasEnabledLibrariesStateState = false
+    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
+    @State private var hasEnabledLibrariesState = false
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -70,15 +70,14 @@ public struct SearchView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$hasAnySources) { has in
+        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
+            let has = !accounts.isEmpty
             if has != hasAnySources { hasAnySources = has }
+            let enabledLibs = Self.computeHasEnabledLibraries()
+            if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
-        }
-        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { _ in
-            let has = Self.computeHasEnabledLibraries()
-            if has != hasEnabledLibrariesState { hasEnabledLibrariesState = has }
         }
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
