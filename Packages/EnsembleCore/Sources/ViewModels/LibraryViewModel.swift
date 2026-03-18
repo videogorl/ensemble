@@ -207,7 +207,7 @@ public final class LibraryViewModel: ObservableObject {
         Publishers.CombineLatest($genres, $genresFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { genres, filterOptions -> [Genre] in
-                let sorted = genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+                let sorted = LibraryViewModel.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
                 return LibraryViewModel.filterGenres(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
@@ -426,7 +426,7 @@ public final class LibraryViewModel: ObservableObject {
     public var sortedArtists: [Artist] { LibraryViewModel.sortArtists(artists, by: artistSortOption, direction: artistsFilterOptions.sortDirection) }
     public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection) }
     public var sortedGenres: [Genre] {
-        genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+        Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
     }
 
     private func applyVisibilityToPublishedCollections() {
@@ -487,20 +487,12 @@ public final class LibraryViewModel: ObservableObject {
         let asc = direction == .ascending
         switch option {
         case .title:
-            return tracks.sorted { asc
-                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
-                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
-            }
+            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
+            return sortByCachedKey(tracks, keyExtractor: { $0.title.sortingKey }, ascending: asc)
         case .artist:
-            return tracks.sorted {
-                let result = ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey)
-                return asc ? result == .orderedAscending : result == .orderedDescending
-            }
+            return sortByCachedKey(tracks, keyExtractor: { ($0.artistName ?? "").sortingKey }, ascending: asc)
         case .album:
-            return tracks.sorted {
-                let result = ($0.albumName ?? "").sortingKey.localizedStandardCompare(($1.albumName ?? "").sortingKey)
-                return asc ? result == .orderedAscending : result == .orderedDescending
-            }
+            return sortByCachedKey(tracks, keyExtractor: { ($0.albumName ?? "").sortingKey }, ascending: asc)
         case .duration:
             return tracks.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
         case .dateAdded:
@@ -529,10 +521,7 @@ public final class LibraryViewModel: ObservableObject {
         let asc = direction == .ascending
         switch option {
         case .name:
-            return artists.sorted { asc
-                ? $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedAscending
-                : $0.name.sortingKey.localizedStandardCompare($1.name.sortingKey) == .orderedDescending
-            }
+            return sortByCachedKey(artists, keyExtractor: { $0.name.sortingKey }, ascending: asc)
         case .dateAdded:
             return artists.sorted { asc
                 ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
@@ -550,20 +539,11 @@ public final class LibraryViewModel: ObservableObject {
         let asc = direction == .ascending
         switch option {
         case .title:
-            return albums.sorted { asc
-                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
-                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
-            }
+            return sortByCachedKey(albums, keyExtractor: { $0.title.sortingKey }, ascending: asc)
         case .artist:
-            return albums.sorted {
-                let result = ($0.artistName ?? "").sortingKey.localizedStandardCompare(($1.artistName ?? "").sortingKey)
-                return asc ? result == .orderedAscending : result == .orderedDescending
-            }
+            return sortByCachedKey(albums, keyExtractor: { ($0.artistName ?? "").sortingKey }, ascending: asc)
         case .albumArtist:
-            return albums.sorted {
-                let result = ($0.albumArtist ?? "").sortingKey.localizedStandardCompare(($1.albumArtist ?? "").sortingKey)
-                return asc ? result == .orderedAscending : result == .orderedDescending
-            }
+            return sortByCachedKey(albums, keyExtractor: { ($0.albumArtist ?? "").sortingKey }, ascending: asc)
         case .year:
             return albums.sorted { asc ? ($0.year ?? 0) < ($1.year ?? 0) : ($0.year ?? 0) > ($1.year ?? 0) }
         case .dateAdded:
@@ -579,6 +559,16 @@ public final class LibraryViewModel: ObservableObject {
         case .rating:
             return albums.sorted { asc ? $0.rating < $1.rating : $0.rating > $1.rating }
         }
+    }
+
+    /// Sort by pre-computed string keys — computes sortingKey once per element
+    /// instead of O(n log n) times via repeated closure calls.
+    private static func sortByCachedKey<T>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] {
+        let keyed = items.map { ($0, keyExtractor($0)) }
+        return keyed.sorted {
+            let result = $0.1.localizedStandardCompare($1.1)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map { $0.0 }
     }
 
     // MARK: - Sections

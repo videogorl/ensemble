@@ -123,41 +123,38 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
     private static func sortTracks(_ tracks: [Track], by sortOption: FavoritesSortOption, direction: SortDirection) -> [Track] {
         let ascending = direction == .ascending
-        return tracks.sorted { a, b in
-            switch sortOption {
-            case .title:
-                let result = a.title.sortingKey.localizedStandardCompare(b.title.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .artist:
-                let aName = a.artistName ?? ""
-                let bName = b.artistName ?? ""
-                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .album:
-                let aName = a.albumName ?? ""
-                let bName = b.albumName ?? ""
-                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .dateFavorited:
-                // Use lastRatedAt (when the track was favorited), fall back to dateAdded
-                return compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
-
-            case .duration:
-                return ascending ? a.duration < b.duration : a.duration > b.duration
-
-            case .lastPlayed:
-                return compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
-
-            case .rating:
-                return ascending ? a.rating < b.rating : a.rating > b.rating
-
-            case .playCount:
-                return ascending ? a.playCount < b.playCount : a.playCount > b.playCount
+        switch sortOption {
+        case .title:
+            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
+            return sortByCachedKey(tracks, keyExtractor: { $0.title.sortingKey }, ascending: ascending)
+        case .artist:
+            return sortByCachedKey(tracks, keyExtractor: { ($0.artistName ?? "").sortingKey }, ascending: ascending)
+        case .album:
+            return sortByCachedKey(tracks, keyExtractor: { ($0.albumName ?? "").sortingKey }, ascending: ascending)
+        case .dateFavorited:
+            return tracks.sorted { a, b in
+                compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
             }
+        case .duration:
+            return tracks.sorted { ascending ? $0.duration < $1.duration : $0.duration > $1.duration }
+        case .lastPlayed:
+            return tracks.sorted { a, b in
+                compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
+            }
+        case .rating:
+            return tracks.sorted { ascending ? $0.rating < $1.rating : $0.rating > $1.rating }
+        case .playCount:
+            return tracks.sorted { ascending ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
         }
+    }
+
+    /// Sort by pre-computed string keys — computes sortingKey once per element
+    private static func sortByCachedKey<T>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] {
+        let keyed = items.map { ($0, keyExtractor($0)) }
+        return keyed.sorted {
+            let result = $0.1.localizedStandardCompare($1.1)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map { $0.0 }
     }
 
     /// Compares optional dates with nils sorting last regardless of direction
