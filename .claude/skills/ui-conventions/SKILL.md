@@ -214,6 +214,14 @@ This prevents the entire parent tree from re-evaluating on every publish.
 ### `.searchable()` in Nested Sheets
 `.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input. iOS 26 triggers ScrollPocketCollectorModel feedback loops with NavigationView. **Do not** try to work around with version branching or inline TextField replacements — use the simple `.searchable()` pattern and accept its limitations. When version-conditional workarounds start accumulating, the simple approach is correct.
 
+## Informational Badges
+
+### Feature / Capability Badges
+- **Pattern:** `ServerFeatureBadges` (private view in `MusicSourceAccountDetailView.swift`) displays small icon+label badges for server-level capabilities (e.g., Plex Pass, hardware transcoding).
+- **Style:** Compact horizontal badges with SF Symbol + short label, secondary foreground color.
+- **Per-library indicators:** Download permission badge (arrow.down.circle.fill) shown inline on library rows when `allowSync` is true.
+- **Data source:** Badges are driven by `PlexServerCapabilities` and `PlexSubscription` populated during discovery -- no additional API calls at display time.
+
 ## Feature Philosophy
 
 ### Preserve Existing Functionality

@@ -28,6 +28,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAuthService` (actor) -- PIN-based OAuth authentication
 - `PlexAuthTokenMetadata` -- Parsed auth token metadata (`iat`/`exp`) used for lifecycle enforcement
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
+  - Server capabilities: `getServerCapabilities()` (fetches root endpoint for subscription & feature info)
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
   - Stream routing: `resolveStreamURL()` → `StreamResolution` (.directStream / .downloadedFile)
   - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
@@ -38,7 +39,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
 - `PlexWebSocketManager` (actor) -- Per-server WebSocket connections with exponential backoff reconnect
 - `KeychainService` -- Token persistence using KeychainAccess library
-- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
+- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, `PlexSubscription`, `PlexServerCapabilities`, etc.)
 
 ### EnsemblePersistence (Data Layer)
 - **Location:** `Packages/EnsemblePersistence/`
@@ -101,7 +102,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
-- `PlexAccountConfig` -- Account/server/library hierarchy for configuration
+- `PlexAccountConfig` -- Account/server/library hierarchy for configuration (includes `PlexSubscription` on account, `PlexServerCapabilities` on server, `allowSync` on library)
 - `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
@@ -286,6 +287,8 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Account-Centric Source Management
 
 - Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
+- Discovery flow also fetches per-server capabilities (`getServerCapabilities`) and populates `PlexSubscription` (account), `PlexServerCapabilities` (server), and `allowSync` (library) for feature gating.
+- `MusicSourceAccountDetailView` displays `ServerFeatureBadges` (Plex Pass, hardware transcoding) and per-library download badges based on discovered capabilities.
 - `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
 - `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.

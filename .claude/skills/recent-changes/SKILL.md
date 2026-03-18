@@ -1,10 +1,29 @@
 ---
 name: recent-changes
-description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: cold launch optimization, low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
+description: "Changelog of recent major features and subsystem changes. Load when debugging, investigating prior work, understanding how a feature was implemented, or before touching an area that was recently modified. Covers: feature availability per account/server/library, cold launch optimization, low power mode, app performance optimization, live lyrics, sharing, startup/sync performance, playback/scroll performance, frequency visualizer, WebSocket enhancements, network resilience, offline downloads, universal transcode, Siri intents, account management, sync system, playlist mutations, gesture actions, network health, Plex connectivity, adaptive playback."
 user-invocable: true
 ---
 
 # Recent Major Changes
+
+### Feature Availability Per Account/Server/Library (Mar 18, 2026)
+
+Added capability detection during server discovery so the app knows per-account subscription status, per-server capabilities, and per-library sync permissions. Enables gating features (e.g., lyrics require Plex Pass, offline sync requires `allowSync`) based on what the account/server/library actually supports.
+
+- New API types: `PlexSubscription`, `PlexServerCapabilities` in `PlexModels.swift`
+- New API method: `PlexAPIClient.getServerCapabilities()` (fetches `GET /` root endpoint)
+- Extended `PlexAccountConfig` with `subscription: PlexSubscription?`
+- Extended `PlexServerConfig` with `capabilities: PlexServerCapabilities?`
+- Extended `PlexLibraryConfig` with `allowSync: Bool?`
+- Discovery protocol extended with `getServerCapabilities`; discovery flow fetches capabilities per-server alongside library sections
+- `ServerSection` ViewModel gains `capabilities` and `hasPlexPass` fields
+- `LibraryRow` ViewModel gains `allowSync` field
+- New `ServerFeatureBadges` private view in `MusicSourceAccountDetailView.swift` shows capability badges
+- Download badge (arrow.down.circle.fill) on library rows when `allowSync` is true
+
+**Key files:** `PlexModels.swift`, `PlexAPIClient.swift`, `PlexAccountDiscoveryService` (discovery protocol), `MusicSourceAccountDetailView.swift`, `PlexAccountConfig`/`PlexServerConfig`/`PlexLibraryConfig` (EnsembleCore models)
+
+---
 
 ### Device-Specific Offline Indicator (Mar 18, 2026)
 
