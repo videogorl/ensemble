@@ -157,14 +157,17 @@ public final class LibraryViewModel: ObservableObject {
         observeDownloadChanges()
     }
 
+    /// Background queue for sort/filter computation so the main thread stays responsive
+    private static let computeQueue = DispatchQueue(label: "com.ensemble.library-compute", qos: .userInitiated)
+
     /// Wires Combine pipelines that keep the cached filtered collections up to date.
     /// Each collection is recomputed only when its relevant inputs change (not on every SwiftUI render).
-    /// All pipeline values are passed through explicitly so no `self` capture is needed in map closures.
+    /// Sort/filter work runs on a background queue; results are delivered on main.
     private func setupComputedPipelines() {
         // Tracks: recompute when the raw list, sort option, or filter options change.
         // Debounce by 150ms to avoid filtering 1500+ tracks on every keystroke.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
-            .debounce(for: .milliseconds(150), scheduler: DispatchQueue.main)
+            .debounce(for: .milliseconds(150), scheduler: Self.computeQueue)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
@@ -180,30 +183,36 @@ public final class LibraryViewModel: ObservableObject {
 
         // Artists
         Publishers.CombineLatest3($artists, $artistSortOption, $artistsFilterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { artists, sortOption, filterOptions -> [Artist] in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterArtists(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
-            .assign(to: &$filteredArtists)
+            .sink { [weak self] in self?.filteredArtists = $0 }
+            .store(in: &cancellables)
 
         // Albums
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albums, sortOption, filterOptions -> [Album] in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
-            .assign(to: &$filteredAlbums)
+            .sink { [weak self] in self?.filteredAlbums = $0 }
+            .store(in: &cancellables)
 
         // Genres (no sort option — always alphabetical)
         Publishers.CombineLatest($genres, $genresFilterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { genres, filterOptions -> [Genre] in
                 let sorted = genres.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
                 return LibraryViewModel.filterGenres(sorted, with: filterOptions)
             }
             .receive(on: DispatchQueue.main)
-            .assign(to: &$filteredGenres)
+            .sink { [weak self] in self?.filteredGenres = $0 }
+            .store(in: &cancellables)
     }
 
     private static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
@@ -265,31 +274,84 @@ public final class LibraryViewModel: ObservableObject {
         error = nil
 
         do {
-            // Refresh context to ensure we get fresh data after sync
+            // Refresh view context to ensure merge state is current
             await libraryRepository.refreshContext()
 
-            async let artistsTask = libraryRepository.fetchArtists()
-            async let albumsTask = libraryRepository.fetchAlbums()
-            async let tracksTask = libraryRepository.fetchTracks()
-            async let genresTask = libraryRepository.fetchGenres()
+            // Fetch and map on a background context to keep the main thread free.
+            // Domain model structs (Artist, Album, Track, Genre) are value types
+            // and safe to pass across threads.
+            let result = try await Self.fetchAndMapInBackground()
 
-            let (fetchedArtists, fetchedAlbums, fetchedTracks, fetchedGenres) = try await (
-                artistsTask,
-                albumsTask,
-                tracksTask,
-                genresTask
-            )
-
-            allArtists = fetchedArtists.map { Artist(from: $0) }
-            allAlbums = fetchedAlbums.map { Album(from: $0) }
-            allTracks = fetchedTracks.map { Track(from: $0) }
-            allGenres = fetchedGenres.map { Genre(from: $0) }
+            allArtists = result.artists
+            allAlbums = result.albums
+            allTracks = result.tracks
+            allGenres = result.genres
             applyVisibilityToPublishedCollections()
         } catch {
             self.error = error.localizedDescription
         }
 
         isLoading = false
+    }
+
+    /// Fetches all library entities on a background CoreData context and maps
+    /// them to domain model arrays. Runs entirely off the main thread.
+    private nonisolated static func fetchAndMapInBackground() async throws -> (
+        artists: [Artist], albums: [Album], tracks: [Track], genres: [Genre]
+    ) {
+        let context = CoreDataStack.shared.newBackgroundContext()
+        context.stalenessInterval = 0  // Always fresh for this one-shot fetch
+
+        return try await context.perform {
+            // Pre-compute downloaded filenames once (single directory listing
+            // instead of 1400+ individual FileManager.fileExists calls)
+            let downloadedFilenames: Set<String>
+            do {
+                let contents = try FileManager.default.contentsOfDirectory(
+                    at: DownloadManager.downloadsDirectory,
+                    includingPropertiesForKeys: nil
+                )
+                downloadedFilenames = Set(contents.map { $0.lastPathComponent })
+            } catch {
+                downloadedFilenames = []
+            }
+
+            // Fetch artists with prefetched albums
+            let artistRequest = CDArtist.fetchRequest()
+            artistRequest.sortDescriptors = [
+                NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
+            ]
+            artistRequest.relationshipKeyPathsForPrefetching = ["albums"]
+            let cdArtists = try context.fetch(artistRequest)
+            let artists = cdArtists.map { Artist(from: $0) }
+
+            // Fetch albums with prefetched artist
+            let albumRequest = CDAlbum.fetchRequest()
+            albumRequest.sortDescriptors = [
+                NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                NSSortDescriptor(key: "year", ascending: false)
+            ]
+            albumRequest.relationshipKeyPathsForPrefetching = ["artist"]
+            let cdAlbums = try context.fetch(albumRequest)
+            let albums = cdAlbums.map { Album(from: $0) }
+
+            // Fetch tracks with prefetched album and artist
+            let trackRequest = CDTrack.fetchRequest()
+            trackRequest.sortDescriptors = [
+                NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
+            ]
+            trackRequest.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+            let cdTracks = try context.fetch(trackRequest)
+            let tracks = cdTracks.map { Track(from: $0, downloadedFilenames: downloadedFilenames) }
+
+            // Fetch genres
+            let genreRequest = CDGenre.fetchRequest()
+            genreRequest.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+            let cdGenres = try context.fetch(genreRequest)
+            let genres = cdGenres.map { Genre(from: $0) }
+
+            return (artists, albums, tracks, genres)
+        }
     }
 
     public func syncLibrary() async {

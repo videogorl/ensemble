@@ -70,6 +70,12 @@ public extension Track {
     }
 
     init(from cd: CDTrack) {
+        self.init(from: cd, downloadedFilenames: nil)
+    }
+
+    /// Batch-optimized initializer that checks a pre-computed set of downloaded filenames
+    /// instead of calling FileManager.fileExists() per track.
+    init(from cd: CDTrack, downloadedFilenames: Set<String>?) {
         // Resolve stored filename to absolute path in the current sandbox.
         // CoreData stores just the filename; we reconstruct the full path here
         // so all downstream code gets a valid, current absolute path.
@@ -77,6 +83,9 @@ public extension Track {
             guard !stored.isEmpty else { return nil }
             let filename = DownloadManager.extractFilename(from: stored)
             let absolute = DownloadManager.absolutePath(forFilename: filename)
+            if let knownFiles = downloadedFilenames {
+                return knownFiles.contains(filename) ? absolute : nil
+            }
             return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
         }
 
