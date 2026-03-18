@@ -2215,9 +2215,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         armSkipTransitionSafety()
         player?.pause()
 
-        // Immediately freeze the lock screen progress bar. Without this, the lock screen
-        // still has playbackRate=1.0 from the last periodic update and extrapolates the
-        // progress bar forward even though audio has stopped.
+        // Set loading BEFORE updating Now Playing so playbackRate=0.0 is pushed.
+        // Without this, updateNowPlayingProgress() pushes rate=1.0 (same as last
+        // periodic update) and MPNowPlayingInfoCenter skips it as "identical".
+        playbackState = .loading
+
+        // Freeze the lock screen progress bar immediately
         updateNowPlayingProgress()
 
         EnsembleLogger.playback("SKIP: next() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
@@ -2237,7 +2240,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // even while the stream download is in progress.
                 let nextTrack = self.queue[nextIndex].track
                 self.currentTrack = nextTrack
-                self.playbackState = .loading
                 // Push new track info to lock screen immediately (don't wait for
                 // playCurrentQueueItem which takes 0.5-1s due to async resolve).
                 self.currentTime = 0
@@ -2302,7 +2304,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         armSkipTransitionSafety()
         player?.pause()
 
-        // Immediately freeze the lock screen progress bar (see next() for explanation)
+        // Set loading BEFORE updating Now Playing so playbackRate=0.0 is pushed
+        // (see next() for full explanation)
+        playbackState = .loading
         updateNowPlayingProgress()
 
         EnsembleLogger.playback("SKIP: previous() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
@@ -2321,7 +2325,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Push previous track info to lock screen immediately
         if currentQueueIndex >= 0, currentQueueIndex < queue.count {
             currentTrack = queue[currentQueueIndex].track
-            playbackState = .loading
             currentTime = 0
             updateNowPlayingInfo()
         }
