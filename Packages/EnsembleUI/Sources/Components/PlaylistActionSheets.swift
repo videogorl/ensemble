@@ -25,15 +25,20 @@ public struct PlaylistPickerSheet: View {
     public var body: some View {
         NavigationView {
             List {
-                // Inline search field — avoids .searchable() which breaks input
-                // when presented inside nested sheet contexts (sheet-on-fullScreenCover)
-                Section {
-                    TextField("Find or create playlist", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .disableAutocorrection(true)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
+                // iOS 15: Inline TextField because .searchable() freezes input
+                // in nested sheet contexts (sheet-on-fullScreenCover in NPV).
+                // iOS 16+: Use .searchable() — the nested-sheet bug is fixed,
+                // and inline TextField triggers an observation feedback loop
+                // on iOS 26's ScrollPocketCollectorModel.
+                if #unavailable(iOS 16.0) {
+                    Section {
+                        TextField("Find or create playlist", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .disableAutocorrection(true)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                    }
                 }
 
                 Section("Playlists") {
@@ -90,12 +95,9 @@ public struct PlaylistPickerSheet: View {
             }
             .navigationTitle(title)
             #if os(iOS)
-            // Inline title prevents iOS 26's ScrollPocketCollectorModel from creating
-            // an observation feedback loop when the search TextField gains focus.
-            // Large title mode + List scroll tracking + keyboard appearance = infinite
-            // invalidation cycle on NavigationBarContentView.
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .modifier(SearchableIfAvailable(text: $searchText, prompt: "Find or create playlist"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -258,6 +260,21 @@ public struct PlaylistPickerSheet: View {
                     dedupeKey: "playlist-create-error-\(name.lowercased())"
                 )
             )
+        }
+    }
+}
+
+/// Applies .searchable() on iOS 16+ where the nested-sheet keyboard bug is fixed.
+/// On iOS 15, the inline TextField is used instead (see PlaylistPickerSheet body).
+private struct SearchableIfAvailable: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            content.searchable(text: $text, prompt: prompt)
+        } else {
+            content
         }
     }
 }
