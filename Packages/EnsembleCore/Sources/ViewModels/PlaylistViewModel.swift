@@ -15,6 +15,8 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
     @Published public var filterOptions: FilterOptions
+    /// Cached sorted + filtered playlists, updated via Combine pipeline instead of re-computed on every body access
+    @Published public private(set) var filteredPlaylists: [Playlist] = []
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -44,6 +46,9 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
+        setupFilteredPlaylistsPipeline()
 
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
@@ -197,9 +202,10 @@ public final class PlaylistViewModel: ObservableObject {
         Self.isOptimisticCreatingPlaylistID(playlist.id)
     }
     
-    public var sortedPlaylists: [Playlist] {
-        let asc = filterOptions.sortDirection == .ascending
-        switch playlistSortOption {
+    // MARK: - Sort & Filter (static, used by Combine pipeline)
+
+    private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
+        switch option {
         case .title:
             return playlists.sorted { asc
                 ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
@@ -226,28 +232,22 @@ public final class PlaylistViewModel: ObservableObject {
             }
         }
     }
-    
-    // MARK: - Filtered Collections
-    
-    /// Filtered playlists based on current filter options
-    public var filteredPlaylists: [Playlist] {
-        applyFilters(to: sortedPlaylists, with: filterOptions)
+
+    private static func filterPlaylists(_ playlists: [Playlist], searchText: String) -> [Playlist] {
+        guard !searchText.isEmpty else { return playlists }
+        let searchLower = searchText.lowercased()
+        return playlists.filter { $0.title.lowercased().contains(searchLower) }
     }
-    
-    // MARK: - Filter Application
-    
-    private func applyFilters(to playlists: [Playlist], with options: FilterOptions) -> [Playlist] {
-        var filtered = playlists
-        
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
+
+    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change
+    private func setupFilteredPlaylistsPipeline() {
+        Publishers.CombineLatest3($playlists, $playlistSortOption, $filterOptions)
+            .map { playlists, sortOption, options -> [Playlist] in
+                let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
+                return Self.filterPlaylists(sorted, searchText: options.searchText)
             }
-        }
-        
-        return filtered
+            .sink { [weak self] in self?.filteredPlaylists = $0 }
+            .store(in: &cancellables)
     }
 
     private func reloadPlaylists(showLoading: Bool) async {
