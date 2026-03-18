@@ -5669,16 +5669,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
                 changed = true
 
-                // Evict cached player item for newly downloaded upcoming tracks
-                // so they re-resolve to the local file on next access.
+                // Evict cached player item when download state changes for upcoming tracks
+                // so they re-resolve to the correct source (local file or stream).
                 // Skip the currently playing track — it will pick up local on next stall/retry.
-                if wasNotDownloaded && isNowDownloaded && i != currentQueueIndex {
-                    await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                if i != currentQueueIndex {
+                    if wasNotDownloaded && isNowDownloaded {
+                        // Download completed — evict so it re-resolves to local file
+                        await MainActor.run { removeCachedPlayerItem(for: track.id) }
+                    } else if !wasNotDownloaded && !isNowDownloaded {
+                        // Download removed — evict stale item that references the deleted file.
+                        // Without this, the prefetched AVPlayerItem still points to a gone file,
+                        // which corrupts AVPlayer's queue and stalls the current track.
+                        await MainActor.run {
+                            removeCachedPlayerItem(for: track.id)
+                        }
+                    }
                 }
             }
         }
         if changed {
             savePlaybackState()
+
+            // Clear stale prefetched items from AVQueuePlayer and re-prefetch.
+            // Without this, AVPlayer's internal queue still holds items referencing
+            // deleted local files, which corrupts gapless transitions.
+            await MainActor.run {
+                clearPrefetchedItems()
+            }
+            await prefetchUpcomingItems(depth: activeBufferingProfile.prefetchDepth)
         }
     }
 
