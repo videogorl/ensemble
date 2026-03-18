@@ -9,6 +9,8 @@ public struct AlbumsView: View {
     @State private var showingManageSources = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
+    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
+    @State private var isCoverFlowActive = false
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -32,21 +34,32 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                    loadingView
-                } else if libraryVM.albums.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeCoverFlowView
-                } else {
-                    albumGridView
-                }
+        Group {
+            if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                loadingView
+            } else if libraryVM.albums.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeCoverFlowView
+            } else {
+                albumGridView
             }
+        }
+        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // instead of re-evaluating the entire body on every geometry change
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        let active = supportsCoverFlow && newSize.width > newSize.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+            }
+        )
             .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
             .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
@@ -165,7 +178,6 @@ public struct AlbumsView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
-        }
     }
 
     private var landscapeCoverFlowView: some View {

@@ -446,12 +446,26 @@ public final class LibraryViewModel: ObservableObject {
         Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
     }
 
+    /// Applies visibility filtering and assigns to @Published properties.
+    /// Guards each assignment to avoid firing objectWillChange when content hasn't changed,
+    /// which would cause spurious body re-evaluations in all subscribing views.
     private func applyVisibilityToPublishedCollections() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        artists = Self.filterArtistsForVisibility(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        albums = Self.filterAlbumsForVisibility(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        tracks = Self.filterTracksForVisibility(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        genres = Self.filterGenresForVisibility(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newArtists = Self.filterArtistsForVisibility(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newAlbums = Self.filterAlbumsForVisibility(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newTracks = Self.filterTracksForVisibility(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newGenres = Self.filterGenresForVisibility(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+
+        if !Self.idsEqual(artists, newArtists) { artists = newArtists }
+        if !Self.idsEqual(albums, newAlbums) { albums = newAlbums }
+        if !Self.idsEqual(tracks, newTracks) { tracks = newTracks }
+        if !Self.idsEqual(genres, newGenres) { genres = newGenres }
+    }
+
+    /// Fast ID-based equality check — avoids full Equatable comparison
+    private static func idsEqual<T: Identifiable>(_ a: [T], _ b: [T]) -> Bool where T.ID == String {
+        guard a.count == b.count else { return false }
+        return zip(a, b).allSatisfy { $0.id == $1.id }
     }
 
     internal static func filterTracksForVisibility(

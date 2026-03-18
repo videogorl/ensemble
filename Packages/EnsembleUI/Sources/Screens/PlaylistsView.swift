@@ -29,6 +29,8 @@ public struct PlaylistsView: View {
     @State private var showingManageSources = false
     // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
     @State private var cachedDisplayedPlaylists: [Playlist] = []
+    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
+    @State private var isCoverFlowActive = false
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -47,21 +49,32 @@ public struct PlaylistsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if viewModel.isLoading && effectivePlaylists.isEmpty {
-                    loadingView
-                } else if effectivePlaylists.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeCoverFlowView
-                } else {
-                    playlistListView
-                }
+        Group {
+            if viewModel.isLoading && effectivePlaylists.isEmpty {
+                loadingView
+            } else if effectivePlaylists.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeCoverFlowView
+            } else {
+                playlistListView
             }
+        }
+        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // instead of re-evaluating the entire body on every geometry change
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        let active = supportsCoverFlow && newSize.width > newSize.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+            }
+        )
             .alert("New Playlist", isPresented: $showCreatePlaylistPrompt) {
                 TextField("Playlist name", text: $newPlaylistName)
                 Button("Cancel", role: .cancel) {
@@ -294,7 +307,6 @@ public struct PlaylistsView: View {
             }
             #endif
             }
-        }
     }
 
     private var landscapeCoverFlowView: some View {
