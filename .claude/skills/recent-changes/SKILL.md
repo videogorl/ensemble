@@ -6,16 +6,25 @@ user-invocable: true
 
 # Recent Major Changes
 
-### Defensive Playback Hardening (Mar 18, 2026)
+### Playback Hardening & Lock Screen Fixes (Mar 18, 2026)
 
-**Problem:** Two intermittent playback issues on real devices: (1) rapid queue skipping cascade after buffering, (2) skip controls causing pause/stuck state. Both transient (resolved on restart), no AVPlayer errors in logs, and all device logs redacted as `<private>`.
-
-**Changes:**
+**Defensive hardening:**
 - **`EnsembleLogger.playback()`** — new `.info`-level logger with `"playback"` category, NOT behind `#if DEBUG`. Persists in unified log for post-hoc device diagnostics via `log stream --predicate 'category == "playback"'`.
 - **Public log points:** `playbackState` transitions (via `didSet`), track changes in `playCurrentQueueItem`, `handleQueueExhausted` invocations, stall recovery triggers/timeouts, skip commands.
 - **Rapid-advance rate limiter:** `handleQueueExhausted` tracks call timestamps; >3 calls in 2s stops playback to prevent cascade.
-- **Stuck-playing watchdog:** `resumePlayerFromBuffering` starts a 3s watchdog. If `playbackState == .playing` but `player.timeControlStatus != .playing` after 3s, transitions to `.buffering` and triggers stall recovery. Cancelled when `timeControlStatus` confirms `.playing`.
-- **Skip transition safety:** 10s timeout auto-resets `isSkipTransitionInProgress` if it gets stuck, preventing skip commands from being permanently dropped. Armed on every `isSkipTransitionInProgress = true`, disarmed on every `= false`.
+- **Stuck-playing watchdog:** `resumePlayerFromBuffering` starts a 3s watchdog. If `playbackState == .playing` but `player.timeControlStatus != .playing` after 3s, transitions to `.buffering` and triggers stall recovery.
+- **Skip transition safety:** 10s timeout auto-resets `isSkipTransitionInProgress` if stuck.
+
+**Shuffle prefetch fix:** `toggleShuffle()` now calls `clearPrefetchedItems()` + re-prefetch after reshuffling the queue. Previously AVQueuePlayer's internal prefetch kept the pre-shuffle next track, causing gapless transition to play the wrong song.
+
+**Lock screen Now Playing fixes:**
+- `next()`/`previous()` now set `playbackState = .loading` BEFORE calling `updateNowPlayingProgress()` so `playbackRate=0.0` is pushed and accepted by `MPNowPlayingInfoCenter` (previously skipped as "identical" because state was still `.playing`).
+- New track info (`currentTrack`, `currentTime=0`) is pushed immediately in the skip Task, before `playCurrentQueueItem` runs (saves ~0.5s).
+
+**Download removal safety:**
+- `refreshQueueDownloadState()` now evicts cached player items AND cancels in-flight `itemCreationTasks` for ALL non-current tracks with download state changes (previously only handled download completion, not removal).
+- After any download state change, `clearPrefetchedItems()` + `prefetchUpcomingItems()` ensures AVQueuePlayer has no stale items referencing deleted local files.
+- **Root cause:** Removing downloads for queued tracks left stale `AVPlayerItem`s in AVQueuePlayer pointing to deleted files. Gapless transition to these items corrupted AVPlayer's internal state, causing perpetual buffering of the current track.
 
 **Key files:** `EnsembleLogger.swift`, `PlaybackService.swift`
 
