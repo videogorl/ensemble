@@ -167,7 +167,7 @@ public extension Artist {
     }
 
     init(from cd: CDArtist) {
-        let firstAlbum = cd.albumsArray.first
+        let firstAlbum = cd.newestAlbum
         
         self.init(
             id: cd.ratingKey,

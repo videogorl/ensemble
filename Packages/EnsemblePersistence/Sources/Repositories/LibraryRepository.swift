@@ -251,6 +251,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             context.perform {
                 let request = CDArtist.fetchRequest()
                 request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.relationshipKeyPathsForPrefetching = ["albums"]
                 do {
                     let artists = try context.fetch(request)
                     continuation.resume(returning: artists)
@@ -357,6 +358,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
                     NSSortDescriptor(key: "year", ascending: false)
                 ]
+                request.relationshipKeyPathsForPrefetching = ["artist"]
                 do {
                     let albums = try context.fetch(request)
                     continuation.resume(returning: albums)
@@ -500,6 +502,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                 request.sortDescriptors = [
                     NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
                 ]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
                 do {
                     let tracks = try context.fetch(request)
                     continuation.resume(returning: tracks)

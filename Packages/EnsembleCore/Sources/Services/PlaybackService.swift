@@ -805,6 +805,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
+
+    /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
+    /// to avoid @MainActor isolation issues with SettingsManager)
+    private var isVisualizerEnabled: Bool {
+        UserDefaults.standard.object(forKey: "auroraVisualizationEnabled") as? Bool ?? true
+    }
     private var mutationCoordinator: MutationCoordinator?
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
@@ -3390,7 +3396,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Trigger frequency analysis for the cached item (prefetch may have
             // been skipped if another analysis was running at the time)
-            if let urlAsset = cachedItem.asset as? AVURLAsset, urlAsset.url.isFileURL {
+            if isVisualizerEnabled,
+               let urlAsset = cachedItem.asset as? AVURLAsset, urlAsset.url.isFileURL {
                 let fileURL = urlAsset.url
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
@@ -3452,7 +3459,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Use Task.detached to avoid contending with MainActor during the
                 // multi-second FFT analysis await — only hops to MainActor for the
                 // brief loadTimeline entry/exit points, not the entire suspension.
-                if let fileURL {
+                if isVisualizerEnabled, let fileURL {
                     #if DEBUG
                     EnsembleLogger.debug("🎛️ Launching detached loadTimeline for \(track.title) — \(fileURL.lastPathComponent)")
                     #endif
@@ -3896,10 +3903,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         at: fileURL, metadataDurationSeconds: duration
                     )
                 }
-                Task.detached { [weak self] in
-                    await self?.audioAnalyzer.loadTimeline(
-                        for: track.id, fileURL: fileURL, priority: .utility
-                    )
+                if self?.isVisualizerEnabled == true {
+                    Task.detached { [weak self] in
+                        await self?.audioAnalyzer.loadTimeline(
+                            for: track.id, fileURL: fileURL, priority: .utility
+                        )
+                    }
                 }
             }
 
@@ -4282,7 +4291,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                     // Pre-compute frequency timeline so the visualizer is ready
                     // on gapless transitions (detached to avoid MainActor contention)
-                    if let fileURL {
+                    if isVisualizerEnabled, let fileURL {
                         let analyzer = self.audioAnalyzer
                         Task.detached {
                             await analyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .utility)
@@ -5430,7 +5439,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Pre-load frequency timeline and activate it so the visualizer
             // is ready when the user taps play (resume() calls resumeUpdates())
-            if let fileURL {
+            if isVisualizerEnabled, let fileURL {
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(
                         for: track.id, fileURL: fileURL, priority: .utility
