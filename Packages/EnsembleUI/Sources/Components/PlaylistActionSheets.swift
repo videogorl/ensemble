@@ -89,6 +89,13 @@ public struct PlaylistPickerSheet: View {
                 }
             }
             .navigationTitle(title)
+            #if os(iOS)
+            // Inline title prevents iOS 26's ScrollPocketCollectorModel from creating
+            // an observation feedback loop when the search TextField gains focus.
+            // Large title mode + List scroll tracking + keyboard appearance = infinite
+            // invalidation cycle on NavigationBarContentView.
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
