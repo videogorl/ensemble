@@ -66,6 +66,8 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
+    // Targeted NVM observation: only re-evaluate when track presence changes
+    @State private var hasCurrentTrack = false
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -131,7 +133,7 @@ public struct MainTabView: View {
                 .miniPlayerContainerInset(
                     70,
                     isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
-                        && nowPlayingVM.currentTrack != nil
+                        && hasCurrentTrack
                 )
                 .zIndex(0)
 
@@ -163,6 +165,12 @@ public struct MainTabView: View {
                     }
                 }
                 await libraryVM.refresh()
+            }
+            // Track presence observation — only fires on track start/stop,
+            // not on every NVM @Published change (lyrics, progress, queue, etc.)
+            .onReceive(nowPlayingVM.$currentTrack) { track in
+                let has = track != nil
+                if has != hasCurrentTrack { hasCurrentTrack = has }
             }
             .onChange(of: showingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
