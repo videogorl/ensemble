@@ -159,6 +159,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 For detailed architecture, invoke the `architecture` skill.
 
 
+## Performance
+
+This app targets iOS 15 on A9 devices (2GB RAM). SwiftUI observation cascades are the primary performance risk. Load `code-style` and `ui-conventions` skills before writing any view code — they contain mandatory iOS 15 performance patterns (observation extraction, Combine caching, GeometryReader rules, etc.). Do not apply observation extraction to short-lived modals (see the PlaylistPickerSheet revert lesson in memory).
+
+
 ## External Dependencies
 
 - **KeychainAccess** (4.2.0+) -- Secure token storage (EnsembleAPI). SPM: `https://github.com/kishikawakatsumi/KeychainAccess.git`

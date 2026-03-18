@@ -198,6 +198,22 @@ struct AlbumDetailLoader: View {
 - **Home screen loading:** 2s to prevent rapid reloads
 - **App launch:** Network monitor starts with 500ms delay
 
+### GeometryReader: Background, Not Wrapper
+Never wrap large view trees in `GeometryReader`. Use `.background(GeometryReader { ... })` to capture geometry into `@State`, then branch on the state value in body. Wrapping causes the entire subtree to re-layout on every geometry change.
+
+### Context Menu Extraction
+If a grid/list holds `@ObservedObject` only for context menu content (e.g., pinManager), extract the context menu into a separate View struct that owns the observation. This prevents the entire grid from re-evaluating when pin state changes.
+
+### Scoped Sub-View Observation (MiniPlayer Pattern)
+When a view needs multiple fields from a frequently-publishing ViewModel, extract observation into small sub-views:
+- **Parent:** `let viewModel` (no observation) — handles layout, gestures, context menu
+- **Sub-views:** `@ObservedObject var viewModel` — each reads only its relevant fields (track info, controls, background)
+
+This prevents the entire parent tree from re-evaluating on every publish.
+
+### `.searchable()` in Nested Sheets
+`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input. iOS 26 triggers ScrollPocketCollectorModel feedback loops with NavigationView. **Do not** try to work around with version branching or inline TextField replacements — use the simple `.searchable()` pattern and accept its limitations. When version-conditional workarounds start accumulating, the simple approach is correct.
+
 ## Feature Philosophy
 
 ### Preserve Existing Functionality
