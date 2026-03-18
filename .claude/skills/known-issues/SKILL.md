@@ -22,10 +22,10 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 
 ### Intermittent 404 on /library/streams/ for Lyrics
 - **Location:** `LyricsService.swift`, `PlexAPIClient.getLyricsContent(streamKey:)`
-- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored.
+- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored. More frequent on iOS 15.
 - **Impact:** Lyrics show "No Lyrics" for affected tracks despite the track appearing to have a lyrics attachment.
-- **Current behavior:** `LyricsService` treats the 404 as `.notAvailable` and does not retry. The result is cached to avoid repeated 404 traffic for the same track.
-- **Workaround:** None; the issue is server-side. Pulling to refresh or clearing cache may resolve it if the server regenerates the stream.
+- **Current behavior (Mar 18, 2026):** `PlexAPIClient.getLyricsContent` retries 3 times with increasing delays (2s, 3s). If all fail, `LyricsService` schedules a background retry after 10s. If the background retry succeeds and the same track is still playing (lyrics still showing `.notAvailable`), the UI updates automatically. `.notAvailable` results are NOT cached so subsequent playback can retry.
+- **Workaround:** None needed for most cases; the retry logic handles transient PMS cache misses. Persistent 404s are server-side.
 
 ### BG Continued Processing Is Best-Effort (iOS 26+)
 - `OfflineBackgroundExecutionCoordinator` submits `BGContinuedProcessingTaskRequest` for user-initiated bulk offline work.

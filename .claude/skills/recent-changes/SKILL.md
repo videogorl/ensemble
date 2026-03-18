@@ -6,6 +6,19 @@ user-invocable: true
 
 # Recent Major Changes
 
+### iOS 15 Performance & Stability Fixes (Mar 18, 2026)
+
+**4 bugs fixed from iOS 15 / iPhone 6s log analysis:**
+
+1. **Lyrics 404 on iOS 15:** Increased retries from 2→3 with longer delays (2s, 3s). Added background retry after 10s that updates UI if lyrics arrive late. PMS LyricFind cache expiration is more problematic on iOS 15.
+2. **PlaylistPickerSheet search freeze (all iOS):** Replaced `.searchable()` with inline `TextField`. SwiftUI bug causes `.searchable()` to freeze input in nested sheet contexts (sheet-on-fullScreenCover in NPV).
+3. **WebSocket continuation leak:** Replaced recursive `CheckedContinuation` + `scheduleReceive()` pattern with `AsyncStream` bridge. Old pattern leaked continuations when `URLSessionWebSocketTask` was cancelled externally (completion handler never fires on iOS 15).
+4. **FrequencyAnalysis running when disabled:** `object(forKey:) as? Bool` fails `NSNumber→Bool` bridging on iOS 15, causing `?? true` fallback. Switched to `.bool(forKey:)` + registered defaults at startup.
+
+**Key files:** `PlexAPIClient.swift` (getLyricsContent), `LyricsService.swift` (background retry), `PlaylistActionSheets.swift` (inline TextField), `PlexWebSocketManager.swift` (AsyncStream receive loop), `PlaybackService.swift` (isVisualizerEnabled), `AppDelegate.swift` (register defaults)
+
+---
+
 ### Deep Observation + Diffing Optimization — Run 5 (Mar 18, 2026)
 
 **Root cause:** Run 5 trace (100s, iPhone 6s, iOS 15.8.7) showed "Serious" thermal state for entire trace with pervasive CPU pressure causing jank. No individual hangs >250ms, but NVM cascade from MainTabView, remaining @ObservedObject NVM views, and auto-synthesized struct equality caused cumulative CPU waste.
