@@ -88,9 +88,10 @@ public final class AccountManager: ObservableObject {
             id: updatedLibraries[libraryIndex].id,
             key: updatedLibraries[libraryIndex].key,
             title: updatedLibraries[libraryIndex].title,
-            isEnabled: false
+            isEnabled: false,
+            allowSync: updatedLibraries[libraryIndex].allowSync
         )
-        
+
         // Create new server with updated libraries
         var updatedServers = account.servers
         updatedServers[serverIndex] = PlexServerConfig(
@@ -100,9 +101,10 @@ public final class AccountManager: ObservableObject {
             connections: server.connections,
             token: server.token,
             platform: server.platform,
+            capabilities: server.capabilities,
             libraries: updatedLibraries
         )
-        
+
         // Create new account with updated servers
         plexAccounts[accountIndex] = PlexAccountConfig(
             id: account.id,
@@ -111,9 +113,10 @@ public final class AccountManager: ObservableObject {
             displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
             servers: updatedServers
         )
-        
+
         saveAccounts()
     }
 
@@ -144,7 +147,8 @@ public final class AccountManager: ObservableObject {
             id: library.id,
             key: library.key,
             title: library.title,
-            isEnabled: isEnabled
+            isEnabled: isEnabled,
+            allowSync: library.allowSync
         )
 
         var updatedServers = account.servers
@@ -155,6 +159,7 @@ public final class AccountManager: ObservableObject {
             connections: server.connections,
             token: server.token,
             platform: server.platform,
+            capabilities: server.capabilities,
             libraries: updatedLibraries
         )
 
@@ -165,6 +170,7 @@ public final class AccountManager: ObservableObject {
             displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
             servers: updatedServers
         )
 

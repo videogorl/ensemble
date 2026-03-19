@@ -535,6 +535,7 @@ public final class ServerHealthChecker: ObservableObject {
                 connections: refreshedConnections,
                 token: existingServer.token,
                 platform: existingServer.platform,
+                capabilities: existingServer.capabilities,
                 libraries: existingServer.libraries
             )
 
@@ -548,6 +549,7 @@ public final class ServerHealthChecker: ObservableObject {
                 displayTitle: account.displayTitle,
                 authToken: account.authToken,
                 authTokenMetadata: account.authTokenMetadata,
+                subscription: account.subscription,
                 servers: updatedServers
             )
             accountManager.updatePlexAccount(updatedAccount)

@@ -149,27 +149,23 @@ private struct DynamicIslandIndicator: View {
     }
 
     var body: some View {
-        GeometryReader { _ in
-            let screen = UIScreen.main
-            let defaults = Self.defaultDIDimensions(screenWidth: screen.bounds.width)
-            let cutout = screen.exclusionRect
+        let screen = UIScreen.main
+        let defaults = Self.defaultDIDimensions(screenWidth: screen.bounds.width)
+        let cutout = screen.exclusionRect
 
-            // Use exclusion rect only when its dimensions are plausible (> 50pt wide),
-            // otherwise fall back to device-specific defaults. `_exclusionArea` can return
-            // very small rects on some OS versions (sensor area, not the visible pill).
-            let diWidth: CGFloat = (cutout.map { $0.width > 50 ? $0.width : nil } ?? nil) ?? defaults.width
-            let diHeight: CGFloat = (cutout.map { $0.height > 20 ? $0.height : nil } ?? nil) ?? defaults.height
-            let diY: CGFloat = (cutout.map { $0.minY > 0 ? $0.minY : nil } ?? nil) ?? defaults.y
+        // Use exclusion rect only when its dimensions are plausible (> 50pt wide),
+        // otherwise fall back to device-specific defaults. `_exclusionArea` can return
+        // very small rects on some OS versions (sensor area, not the visible pill).
+        let diWidth: CGFloat = (cutout.map { $0.width > 50 ? $0.width : nil } ?? nil) ?? defaults.width
+        let diHeight: CGFloat = (cutout.map { $0.height > 20 ? $0.height : nil } ?? nil) ?? defaults.height
+        let diY: CGFloat = (cutout.map { $0.minY > 0 ? $0.minY : nil } ?? nil) ?? defaults.y
 
-            Capsule()
-                .stroke(color, lineWidth: 1.5)
-                .frame(width: diWidth + 4, height: diHeight + 4)
-                .position(
-                    x: screen.bounds.width / 2,
-                    y: diY + diHeight / 2
-                )
-        }
-        .ignoresSafeArea(.all, edges: .top)
+        Capsule()
+            .stroke(color, lineWidth: 1.5)
+            .frame(width: diWidth + 4, height: diHeight + 4)
+            .offset(y: diY)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea(.all, edges: .top)
     }
 }
 #endif
