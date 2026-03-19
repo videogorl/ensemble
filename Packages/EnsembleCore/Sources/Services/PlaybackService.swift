@@ -1823,7 +1823,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // to mediaserverd may be corrupted. Create a fresh player so the new queue
         // doesn't inherit the broken state.
         if case .failed = playbackState {
-            recreatePlayer()
+            await MainActor.run { recreatePlayer() }
         }
 
         await playCurrentQueueItem(caller: "play(tracks:)")
@@ -1877,7 +1877,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // If the previous session ended in failure, create a fresh AVPlayer
         // (see play(tracks:) for explanation).
         if case .failed = playbackState {
-            recreatePlayer()
+            await MainActor.run { recreatePlayer() }
         }
 
         await playCurrentQueueItem(caller: "shufflePlay")
