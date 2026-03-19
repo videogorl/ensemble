@@ -292,7 +292,8 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let grandparentRatingKey: String?  // Artist
     public let title: String
     public let parentTitle: String?  // Album name
-    public let grandparentTitle: String?  // Artist name
+    public let grandparentTitle: String?  // Album artist name
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let index: Int?  // Track number
     public let parentIndex: Int?  // Disc number
@@ -319,6 +320,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case title
         case parentTitle
         case grandparentTitle
+        case originalTitle
         case summary
         case index
         case parentIndex
@@ -370,6 +372,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         let decodedParentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
         parentTitle = PlexTitleFallback.albumTitle(from: decodedParentTitle, media: media)
         grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        originalTitle = try container.decodeIfPresent(String.self, forKey: .originalTitle)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
         index = try container.decodeIfPresent(Int.self, forKey: .index)
         parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)

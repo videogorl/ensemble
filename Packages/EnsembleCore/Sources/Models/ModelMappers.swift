@@ -14,7 +14,7 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -46,7 +46,7 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
