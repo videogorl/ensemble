@@ -6,6 +6,33 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Now Playing Info Card Restructure + Track Artist Fix (Mar 19, 2026)
+
+**Track artist fix:** Now Playing and all track displays now show the track artist (`originalTitle`) instead of the album artist (`grandparentTitle`). Fixed in sync provider (both incremental and full sync paths) and hub/search mapper — the previous commit only fixed `ModelMappers` but missed the CoreData write paths.
+
+**Info card restructure:** Info card reorganized into three sections:
+- **Track:** Album, Artist (tappable), Track Artist (when different, plain text), Year, Track/Disc, Duration, Plays, Added, Source, Quality, Lyrics
+- **File (new):** Codec, Bitrate, Sample Rate, Bit Depth, File Size — fetched on demand from Plex API
+- **Server (renamed from Streaming):** Server, Library, Connection, Status, Network
+
+**New domain model:** `AudioFileInfo` struct holds audio format metadata. `NowPlayingViewModel.fetchAudioFileInfoForCurrentTrack()` fetches via `PlexAPIClient.getTrack()` on demand. New fields decoded in `PlexStream`: `bitrate`, `bitDepth`, `samplingRate`, `channels`.
+
+**Album detail track rows:** Album name hidden in track row subtitle when viewing album detail (redundant). `showAlbumName` parameter added to `MediaTrackList` and `TrackTableViewCell`.
+
+**Track model:** Added `albumArtistName` field to `Track` domain model (always `grandparentTitle`), populated in all mapper paths. `originalTitle` added to `PlexHubMetadata`.
+
+**Key files:**
+- `Packages/EnsembleAPI/Sources/Models/PlexModels.swift` — PlexStream new fields, PlexHubMetadata.originalTitle
+- `Packages/EnsembleCore/Sources/Models/DomainModels.swift` — AudioFileInfo, Track.albumArtistName
+- `Packages/EnsembleCore/Sources/Models/ModelMappers.swift` — AudioFileInfo mapper, albumArtistName population
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` — fetchAudioFileInfoForCurrentTrack()
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` — originalTitle in sync paths
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/InfoCard.swift` — 3-section layout, File section
+- `Packages/EnsembleUI/Sources/Components/MediaTrackList.swift` — showAlbumName parameter
+- `Packages/EnsembleUI/Sources/Screens/MediaDetailView.swift` — passes showAlbumName: false for albums
+
+---
+
 ### Queue Skipping Cascade Fix + iOS 26 Search Bar Crash (Mar 18, 2026)
 
 Fixed two bugs: (1) Rapid previous()/next() taps caused a cascade where AVPlayer XPC corruption triggered phantom auto-advance via `handleQueueExhausted()`, making the queue unrecoverable — even starting a new queue failed. (2) `NavigationView` + `.searchable()` on iOS 26 crashed with 997+ "Observation tracking feedback loop" errors from `ScrollPocketCollectorModel`.
