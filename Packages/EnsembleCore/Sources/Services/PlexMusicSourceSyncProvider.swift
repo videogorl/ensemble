@@ -214,7 +214,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
-                artistName: track.grandparentTitle,
+                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
                 albumName: track.parentTitle,
                 albumRatingKey: track.parentRatingKey,
                 trackNumber: track.index,
@@ -363,7 +363,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
-                artistName: track.grandparentTitle,
+                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
                 albumName: track.parentTitle,
                 albumRatingKey: track.parentRatingKey,
                 trackNumber: track.index,

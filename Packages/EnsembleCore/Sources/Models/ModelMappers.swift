@@ -382,7 +382,7 @@ public extension HubItem {
         // Determine subtitle based on type
         let subtitle: String?
         if type == "track" {
-            subtitle = plex.grandparentTitle ?? plex.parentTitle
+            subtitle = plex.originalTitle ?? plex.grandparentTitle ?? plex.parentTitle
         } else {
             subtitle = plex.parentTitle
         }
@@ -420,7 +420,7 @@ public extension HubItem {
                 id: plex.ratingKey,
                 key: plex.key,
                 title: plex.title,
-                artistName: plex.grandparentTitle,
+                artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
                 albumName: plex.parentTitle,
                 albumRatingKey: plex.parentRatingKey,
                 artistRatingKey: plex.grandparentRatingKey,

@@ -749,6 +749,7 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let parentTitle: String?  // Artist name for albums/tracks
     public let grandparentRatingKey: String?  // Artist ratingKey for tracks
     public let grandparentTitle: String?  // Artist name for tracks
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let thumb: String?
     public let art: String?
