@@ -777,6 +777,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
+            showAlbumName: !(viewModel is AlbumDetailViewModel),
             groupByDisc: groupByDisc,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
