@@ -659,6 +659,21 @@ public final class NowPlayingViewModel: ObservableObject {
         return nil
     }
 
+    /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
+    public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
+        guard let track = currentTrack,
+              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
+        do {
+            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
+            return AudioFileInfo(from: plexTrack)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
+            #endif
+            return nil
+        }
+    }
+
     // MARK: - Playback Controls
 
     public func play(track: Track) {

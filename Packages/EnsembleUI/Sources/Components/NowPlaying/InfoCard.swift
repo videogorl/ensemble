@@ -10,8 +10,9 @@ public struct InfoCard: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("streamingQuality") private var streamingQuality: String = "high"
 
-    // Album fetched asynchronously for year display
+    // Metadata fetched asynchronously when card becomes visible
     @State private var fetchedAlbum: Album?
+    @State private var audioFileInfo: AudioFileInfo?
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
@@ -43,19 +44,29 @@ public struct InfoCard: View {
         }
         .task {
             guard isVisible else { return }
-            fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+            async let album = viewModel.fetchAlbumForCurrentTrack()
+            async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
+            fetchedAlbum = await album
+            audioFileInfo = await fileInfo
         }
         .onChange(of: viewModel.currentTrack?.id) { _ in
             guard isVisible else { return }
+            audioFileInfo = nil  // Clear stale data immediately
             Task {
-                fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+                async let album = viewModel.fetchAlbumForCurrentTrack()
+                async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
+                fetchedAlbum = await album
+                audioFileInfo = await fileInfo
             }
         }
         .onChange(of: currentPage) { newPage in
-            // Fetch album data when user navigates to this card
+            // Fetch metadata when user navigates to this card
             if newPage == 3 && fetchedAlbum == nil {
                 Task {
-                    fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+                    async let album = viewModel.fetchAlbumForCurrentTrack()
+                    async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
+                    fetchedAlbum = await album
+                    audioFileInfo = await fileInfo
                 }
             }
         }
@@ -88,8 +99,16 @@ public struct InfoCard: View {
                     .padding(.vertical, 16)
                     .padding(.horizontal, 40)
 
-                // Streaming info section
-                streamingInfoSection
+                // File info section (codec, bitrate, sample rate, etc.)
+                fileInfoSection
+
+                // Divider
+                Divider()
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 40)
+
+                // Server info section
+                serverInfoSection
             }
             .padding(.top, 8)
         }
@@ -154,29 +173,84 @@ public struct InfoCard: View {
             if let dateAdded = viewModel.currentTrack?.dateAdded {
                 infoRow(label: "Added", value: formatDate(dateAdded))
             }
+
+            // Source (streaming vs downloaded)
+            if viewModel.currentTrack != nil {
+                infoRow(label: "Source", value: resolvePlaybackSource())
+            }
+
+            // Playback quality
+            infoRow(label: "Quality", value: resolvePlaybackQuality())
+
+            // Lyrics source/status
+            lyricsInfoRow
         }
         .padding(.horizontal, 40)
     }
 
-    // MARK: - Streaming Info Section
+    // MARK: - File Info Section
 
-    private var streamingInfoSection: some View {
+    private var fileInfoSection: some View {
         VStack(spacing: 12) {
             // Section header
             HStack {
-                Text("Streaming")
+                Text("File")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
             }
             .padding(.bottom, 4)
 
-            if viewModel.currentTrack != nil {
-                infoRow(label: "Source", value: resolvePlaybackSource())
-            }
+            if let info = audioFileInfo {
+                // Codec
+                if let codec = info.codec {
+                    infoRow(label: "Codec", value: formatCodecName(codec))
+                }
 
-            // Actual playback quality for the current source.
-            infoRow(label: "Playback Quality", value: resolvePlaybackQuality())
+                // Bitrate
+                if let bitrate = info.bitrate {
+                    infoRow(label: "Bitrate", value: "\(bitrate) kbps")
+                }
+
+                // Sample rate
+                if let sampleRate = info.sampleRate {
+                    infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                }
+
+                // Bit depth (nil for lossy codecs like MP3)
+                if let bitDepth = info.bitDepth {
+                    infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
+                }
+
+                // File size
+                if let fileSize = info.fileSize {
+                    infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file))
+                }
+            } else {
+                // Loading placeholder
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.horizontal, 40)
+    }
+
+    // MARK: - Server Info Section
+
+    private var serverInfoSection: some View {
+        VStack(spacing: 12) {
+            // Section header
+            HStack {
+                Text("Server")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.bottom, 4)
 
             // Server name
             if let serverName = resolveServerName() {
@@ -213,9 +287,6 @@ public struct InfoCard: View {
 
             // Network type
             infoRow(label: "Network", value: formatNetworkState(deps.networkMonitor.networkState))
-
-            // Lyrics source/status
-            lyricsInfoRow
         }
         .padding(.horizontal, 40)
     }
@@ -299,6 +370,28 @@ public struct InfoCard: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter.string(from: date)
+    }
+
+    /// Format sample rate for display (e.g. 44100 → "44.1 kHz", 96000 → "96 kHz")
+    private func formatSampleRate(_ rate: Int) -> String {
+        if rate % 1000 == 0 {
+            return "\(rate / 1000) kHz"
+        }
+        return String(format: "%.1f kHz", Double(rate) / 1000.0)
+    }
+
+    /// Format codec name for display
+    private func formatCodecName(_ codec: String) -> String {
+        switch codec.lowercased() {
+        case "flac": return "FLAC"
+        case "mp3": return "MP3"
+        case "aac": return "AAC"
+        case "alac": return "ALAC"
+        case "wav", "pcm": return "WAV"
+        case "opus": return "Opus"
+        case "vorbis": return "Vorbis"
+        default: return codec.uppercased()
+        }
     }
 
     /// Format streaming quality setting for display

@@ -497,6 +497,10 @@ public struct PlexStream: Codable, Sendable {
     public let loudness: Double?  // Loudness value if analyzed
     public let lra: Double?  // Loudness range if analyzed
     public let peak: Double?  // Peak loudness if analyzed
+    public let bitrate: Int?  // kbps
+    public let bitDepth: Int?  // e.g. 16, 24 (nil for lossy codecs like MP3)
+    public let samplingRate: Int?  // Hz, e.g. 44100, 96000
+    public let channels: Int?  // e.g. 2 for stereo
     public let key: String?  // Fetch path for lyrics streams (e.g. /library/streams/12345)
     public let format: String?  // "lrc" or "txt" for lyrics streams
     public let timed: Int?  // 1 for time-synced lyrics (LRC)
@@ -510,6 +514,10 @@ public struct PlexStream: Codable, Sendable {
         case loudness
         case lra
         case peak
+        case bitrate
+        case bitDepth
+        case samplingRate
+        case channels
         case key
         case format
         case timed
@@ -527,7 +535,11 @@ public struct PlexStream: Codable, Sendable {
         format = try container.decodeIfPresent(String.self, forKey: .format)
         provider = try container.decodeIfPresent(String.self, forKey: .provider)
 
-        // Plex returns timed/minLines as strings ("1", "3") despite being numeric
+        // Plex returns many integer fields as strings — use decodeIntOrString for safety
+        bitrate = PlexStream.decodeIntOrString(container: container, forKey: .bitrate)
+        bitDepth = PlexStream.decodeIntOrString(container: container, forKey: .bitDepth)
+        samplingRate = PlexStream.decodeIntOrString(container: container, forKey: .samplingRate)
+        channels = PlexStream.decodeIntOrString(container: container, forKey: .channels)
         timed = PlexStream.decodeIntOrString(container: container, forKey: .timed)
         minLines = PlexStream.decodeIntOrString(container: container, forKey: .minLines)
 

@@ -2,6 +2,27 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+// MARK: - Audio File Info Mapper
+
+public extension AudioFileInfo {
+    /// Extract audio format metadata from a PlexTrack's media/stream objects
+    init?(from plexTrack: PlexTrack) {
+        guard let media = plexTrack.media?.first else { return nil }
+        let part = media.part?.first
+        let audioStream = part?.stream?.first(where: { $0.streamType == 2 })
+
+        self.init(
+            codec: audioStream?.codec ?? media.audioCodec,
+            bitrate: audioStream?.bitrate ?? media.bitrate,
+            sampleRate: audioStream?.samplingRate,
+            bitDepth: audioStream?.bitDepth,
+            fileSize: part?.size,
+            channels: audioStream?.channels ?? media.audioChannels,
+            container: media.container
+        )
+    }
+}
+
 // MARK: - Plex API to Domain Model Mappers
 
 public extension Track {

@@ -20,6 +20,30 @@ import Foundation
 ///
 /// All models conform to Sendable for safe async/concurrent usage
 
+// MARK: - Audio File Info
+
+/// Audio format metadata fetched on demand from the Plex API.
+/// Not persisted in CoreData — only displayed on the Now Playing Info card.
+public struct AudioFileInfo: Sendable, Equatable {
+    public let codec: String?       // e.g. "flac", "mp3", "aac"
+    public let bitrate: Int?        // kbps
+    public let sampleRate: Int?     // Hz, e.g. 44100, 96000
+    public let bitDepth: Int?       // e.g. 16, 24 (nil for lossy codecs)
+    public let fileSize: Int?       // bytes
+    public let channels: Int?       // e.g. 2 for stereo
+    public let container: String?   // e.g. "flac", "mp3"
+
+    public init(codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
+        self.codec = codec
+        self.bitrate = bitrate
+        self.sampleRate = sampleRate
+        self.bitDepth = bitDepth
+        self.fileSize = fileSize
+        self.channels = channels
+        self.container = container
+    }
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
