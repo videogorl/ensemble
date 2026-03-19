@@ -186,6 +186,9 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     /// Update the visualizer's playback position (for scrubber drag sync)
     func updateVisualizerPosition(_ time: TimeInterval)
+
+    /// Returns codec and file size of the file currently being decoded by AVPlayer
+    func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?)
 }
 
 // MARK: - Playback Service Implementation
@@ -4122,6 +4125,57 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         return false
+    }
+
+    /// Returns codec and file size of the file currently being decoded by AVPlayer.
+    /// For local/downloaded files: codec from format description, size from disk.
+    /// For progressive transcodes: codec from format description, size from loader.
+    /// For direct streams: codec from format description, size unavailable.
+    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+        // Extract codec from AVPlayerItem's audio track format description
+        let codec: String? = {
+            guard let item = player?.currentItem else { return nil }
+            guard let audioTrack = item.asset.tracks.first(where: { $0.mediaType == .audio }) else { return nil }
+            guard let formatDesc = audioTrack.formatDescriptions.first else { return nil }
+            let desc = formatDesc as! CMAudioFormatDescription
+            let formatID = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee.mFormatID ?? 0
+            switch formatID {
+            case kAudioFormatMPEGLayer3: return "mp3"
+            case kAudioFormatMPEG4AAC, kAudioFormatMPEG4AAC_HE, kAudioFormatMPEG4AAC_HE_V2: return "aac"
+            case kAudioFormatFLAC: return "flac"
+            case kAudioFormatAppleLossless: return "alac"
+            case kAudioFormatLinearPCM: return "pcm"
+            case kAudioFormatOpus: return "opus"
+            default:
+                // Try to get a four-char code string
+                let bytes = withUnsafeBytes(of: formatID.bigEndian) { Array($0) }
+                let str = String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces)
+                return str?.isEmpty == false ? str : nil
+            }
+        }()
+
+        // Determine file size based on playback source
+        let fileSize: Int64? = {
+            // Local downloaded file
+            if let localPath = currentTrack?.localFilePath,
+               FileManager.default.fileExists(atPath: localPath),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: localPath),
+               let size = attrs[.size] as? Int64 {
+                return size
+            }
+
+            // Progressive transcode — get size from the loader's temp file
+            if let trackId = currentTrack?.id,
+               let loader = streamLoaders[trackId] {
+                let size = loader.currentFileSize
+                return size > 0 ? size : nil
+            }
+
+            // Direct stream — file size not available client-side
+            return nil
+        }()
+
+        return (codec, fileSize)
     }
 
     /// Normalize local playback URL so container/extension mismatches do not prevent decode.

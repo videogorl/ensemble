@@ -203,10 +203,13 @@ public struct InfoCard: View {
             // Lyrics source/status
             lyricsInfoRow
 
+            // Playback codec and file size (what AVPlayer is actually decoding)
+            playbackFileInfoRows
+
             if let info = audioFileInfo {
-                // Codec
+                // Source file codec
                 if let codec = info.codec {
-                    infoRow(label: "Codec", value: formatCodecName(codec))
+                    infoRow(label: "Source Codec", value: formatCodecName(codec))
                 }
 
                 // Bitrate
@@ -224,9 +227,9 @@ public struct InfoCard: View {
                     infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
                 }
 
-                // File size
+                // Source file size
                 if let fileSize = info.fileSize {
-                    infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file))
+                    infoRow(label: "Source Size", value: ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file))
                 }
             } else {
                 // Loading placeholder
@@ -304,6 +307,16 @@ public struct InfoCard: View {
             detail = source.displayText
         }
         return infoRow(label: "Lyrics", value: detail)
+    }
+
+    /// Codec and file size of what AVPlayer is actually decoding
+    @ViewBuilder
+    private var playbackFileInfoRows: some View {
+        let info = viewModel.currentPlaybackFileInfo()
+        if let codec = info.codec {
+            let sizeText = info.fileSize.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? ""
+            infoRow(label: "Playing", value: "\(formatCodecName(codec))\(sizeText)")
+        }
     }
 
     // MARK: - Helpers

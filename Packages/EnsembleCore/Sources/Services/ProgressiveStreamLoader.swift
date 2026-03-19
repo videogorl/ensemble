@@ -76,6 +76,12 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
         set { lock.lock(); defer { lock.unlock() }; _error = newValue }
     }
 
+    /// Current downloaded file size in bytes (thread-safe)
+    var currentFileSize: Int64 { bytesWritten }
+
+    /// The local temp file URL where the stream is being written
+    var localFileURL: URL { fileURL }
+
     // MARK: - Lifecycle
 
     /// Start downloading immediately. The data task runs on `delegateQueue`.

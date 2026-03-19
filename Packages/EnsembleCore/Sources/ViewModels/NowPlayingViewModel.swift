@@ -659,6 +659,11 @@ public final class NowPlayingViewModel: ObservableObject {
         return nil
     }
 
+    /// Returns codec and file size of what AVPlayer is actually decoding right now
+    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+        playbackService.currentPlaybackFileInfo()
+    }
+
     /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
     public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
         guard let track = currentTrack,
