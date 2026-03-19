@@ -2204,11 +2204,11 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        // Interface switches and user-initiated account refreshes bypass cooldown
-        // to ensure connections are refreshed immediately.
+        // Reconnects, interface switches, and user-initiated account refreshes bypass
+        // cooldown to ensure connections are refreshed immediately.
         let bypassCooldown: Bool
         switch reason {
-        case .interfaceSwitch, .accountInventoryRefresh:
+        case .networkReconnect, .interfaceSwitch, .accountInventoryRefresh:
             bypassCooldown = true
         default:
             bypassCooldown = false
