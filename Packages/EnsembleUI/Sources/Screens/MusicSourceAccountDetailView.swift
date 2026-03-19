@@ -197,13 +197,13 @@ private struct LibrarySyncStatusRow: View {
                     Text(row.title)
                         .foregroundColor(.primary)
 
+                    Spacer()
+
                     if row.allowSync == true {
                         Image(systemName: "arrow.down.circle.fill")
                             .font(.caption2)
                             .foregroundColor(.accentColor)
                     }
-
-                    Spacer()
                 }
                 .contentShape(Rectangle())
             }

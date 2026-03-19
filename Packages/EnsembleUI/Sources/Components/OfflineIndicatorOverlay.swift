@@ -132,14 +132,34 @@ public struct OfflineIndicatorOverlay: View {
 private struct DynamicIslandIndicator: View {
     let color: Color
 
+    /// Known DI pill dimensions (points) by screen width, covering all Dynamic Island iPhones.
+    /// When `_exclusionArea` returns unreliable values we fall back to these.
+    private static func defaultDIDimensions(screenWidth: CGFloat) -> (width: CGFloat, height: CGFloat, y: CGFloat) {
+        switch screenWidth {
+        case ...375:
+            // iPhone 16e (compact DI)
+            return (width: 120, height: 35, y: 11)
+        case 376...393:
+            // iPhone 14 Pro / 15 / 16 series (6.1")
+            return (width: 126, height: 37, y: 11)
+        default:
+            // iPhone 14 Pro Max / 15 Plus / 16 Plus/Pro Max (6.7")
+            return (width: 126, height: 37, y: 11)
+        }
+    }
+
     var body: some View {
         GeometryReader { _ in
             let screen = UIScreen.main
+            let defaults = Self.defaultDIDimensions(screenWidth: screen.bounds.width)
             let cutout = screen.exclusionRect
-            // DI dimensions: use exclusion rect or sensible defaults
-            let diWidth: CGFloat = cutout?.width ?? 126
-            let diHeight: CGFloat = cutout?.height ?? 37
-            let diY: CGFloat = cutout?.minY ?? 11
+
+            // Use exclusion rect only when its dimensions are plausible (> 50pt wide),
+            // otherwise fall back to device-specific defaults. `_exclusionArea` can return
+            // very small rects on some OS versions (sensor area, not the visible pill).
+            let diWidth: CGFloat = (cutout.map { $0.width > 50 ? $0.width : nil } ?? nil) ?? defaults.width
+            let diHeight: CGFloat = (cutout.map { $0.height > 20 ? $0.height : nil } ?? nil) ?? defaults.height
+            let diY: CGFloat = (cutout.map { $0.minY > 0 ? $0.minY : nil } ?? nil) ?? defaults.y
 
             Capsule()
                 .stroke(color, lineWidth: 1.5)

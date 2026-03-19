@@ -1,5 +1,6 @@
 import EnsembleAPI
 import Foundation
+import os
 
 public struct PlexAccountIdentity: Sendable, Equatable {
     public let id: String
@@ -246,11 +247,24 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                         )
 
                         // Fetch capabilities alongside sections — informational only, don't fail the server
-                        let capabilities: PlexServerCapabilities? = try? await self.client.getServerCapabilities(
-                            for: device,
-                            token: authToken,
-                            allowInsecurePolicy: allowInsecurePolicy
-                        )
+                        let capabilities: PlexServerCapabilities?
+                        do {
+                            capabilities = try await self.client.getServerCapabilities(
+                                for: device,
+                                token: authToken,
+                                allowInsecurePolicy: allowInsecurePolicy
+                            )
+                            #if DEBUG
+                            Logger(subsystem: "com.nysics.Ensemble", category: "Discovery")
+                                .debug("[\(device.name)] capabilities: plexPass=\(capabilities?.hasPlexPass ?? false), lyrics=\(capabilities?.hasLyrics ?? false), radio=\(capabilities?.hasRadio ?? false), ownerFeatures=\(capabilities?.ownerFeatures ?? "nil")")
+                            #endif
+                        } catch {
+                            capabilities = nil
+                            #if DEBUG
+                            Logger(subsystem: "com.nysics.Ensemble", category: "Discovery")
+                                .warning("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
+                            #endif
+                        }
 
                         let libraries = sections
                             .filter(\.isMusicLibrary)
