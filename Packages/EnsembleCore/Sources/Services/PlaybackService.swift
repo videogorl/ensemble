@@ -1157,12 +1157,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // A track is actively loading. The queue isn't exhausted — give it time.
-        if case .loading = playbackState {
-            EnsembleLogger.playback("QUEUE_EXHAUSTED: ignored — playbackState is .loading")
-            return
-        }
-
         guard !isHandlingQueueExhaustion else {
             #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
