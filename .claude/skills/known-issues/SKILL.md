@@ -18,6 +18,19 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   2. Refactor watchOS to use existing `AddPlexAccountViewModel`
   3. Create watchOS-specific auth flow that matches iOS patterns
 
+## Resolved Issues
+
+### Queue Skipping Cascade (Mar 18, 2026)
+- **Location:** `PlaybackService.swift`
+- **Issue:** Rapid previous()/next() taps caused a cascade: AVPlayer XPC errors (`err=-17221`) → old AVPlayerItem fails asynchronously → `handleQueueExhausted()` fires phantom auto-advance → queue never recovers, even starting a new queue fails.
+- **Root causes:** (1) `handleQueueExhausted()` didn't guard for `isSkipTransitionInProgress` or `.loading` state. (2) `previous()` didn't cancel `skipTransitionTask`, piling up concurrent loads. (3) `consecutivePlaybackFailures` was reset on skip entry, disabling the circuit breaker.
+- **Fix:** Guards in `handleQueueExhausted()`, `previous()` now manages `skipTransitionTask` like `next()`, failure counter only resets on confirmed audio. Added `recreatePlayer()` for corrupted AVPlayer recovery and a 15s stuck-loading watchdog.
+
+### iOS 26 `.searchable()` Crash in Sheets (Mar 18, 2026)
+- **Location:** `PlaylistActionSheets.swift`
+- **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
+- **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
+
 ## Feature Completeness Gaps
 
 ### Intermittent 404 on /library/streams/ for Lyrics

@@ -212,7 +212,11 @@ When a view needs multiple fields from a frequently-publishing ViewModel, extrac
 This prevents the entire parent tree from re-evaluating on every publish.
 
 ### `.searchable()` in Nested Sheets
-`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input. iOS 26 triggers ScrollPocketCollectorModel feedback loops with NavigationView. **Do not** try to work around with version branching or inline TextField replacements — use the simple `.searchable()` pattern and accept its limitations. When version-conditional workarounds start accumulating, the simple approach is correct.
+`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input.
+
+**iOS 26 crash:** `NavigationView` + `.searchable()` triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app. **Fix:** Use `NavigationStack` on iOS 16+ (which is already the default in `MainTabView.tabRootView`). For sheets that create their own navigation container (like `PlaylistPickerSheet`), use `if #available(iOS 16.0, ...) { NavigationStack } else { NavigationView }`.
+
+Tab-level views are already inside `NavigationStack` on iOS 16+ and are not affected. The crash was specific to `NavigationView` in sheet contexts.
 
 ## Informational Badges
 

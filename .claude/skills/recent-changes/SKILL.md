@@ -6,6 +6,18 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Queue Skipping Cascade Fix + iOS 26 Search Bar Crash (Mar 18, 2026)
+
+Fixed two bugs: (1) Rapid previous()/next() taps caused a cascade where AVPlayer XPC corruption triggered phantom auto-advance via `handleQueueExhausted()`, making the queue unrecoverable — even starting a new queue failed. (2) `NavigationView` + `.searchable()` on iOS 26 crashed with 997+ "Observation tracking feedback loop" errors from `ScrollPocketCollectorModel`.
+
+Queue cascade fixes: Guards in `handleQueueExhausted()` for skip-in-progress and loading states; `previous()` now cancels/replaces `skipTransitionTask`; failure counter reset removed from skip entry (only resets on confirmed audio). Recovery: `recreatePlayer()` method for corrupted AVPlayer, called when starting new queue from failed state; 15s stuck-loading watchdog recreates player if loading stalls.
+
+Search crash fix: `PlaylistPickerSheet` now uses `NavigationStack` on iOS 16+ instead of `NavigationView`.
+
+**Key files:** `PlaybackService.swift`, `PlaylistActionSheets.swift`
+
+---
+
 ### Feature Availability Per Account/Server/Library (Mar 18, 2026)
 
 Added capability detection during server discovery so the app knows per-account subscription status, per-server capabilities, and per-library sync permissions. Enables gating features (e.g., lyrics require Plex Pass, offline sync requires `allowSync`) based on what the account/server/library actually supports.
