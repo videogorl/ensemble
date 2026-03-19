@@ -26,7 +26,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
-    public let artistName: String?
+    public let artistName: String?  // Track artist (originalTitle, falls back to album artist)
+    public let albumArtistName: String?  // Album artist (grandparentTitle)
     public let albumName: String?
     public let albumRatingKey: String?
     public let artistRatingKey: String?
@@ -52,6 +53,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         key: String,
         title: String,
         artistName: String? = nil,
+        albumArtistName: String? = nil,
         albumName: String? = nil,
         albumRatingKey: String? = nil,
         artistRatingKey: String? = nil,
@@ -80,6 +82,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             streamKey: streamKey
         )
         self.artistName = artistName
+        self.albumArtistName = albumArtistName
         self.albumName = albumName
         self.albumRatingKey = albumRatingKey
         self.artistRatingKey = artistRatingKey

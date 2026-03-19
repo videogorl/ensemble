@@ -111,15 +111,23 @@ public struct InfoCard: View {
                 }
             }
 
-            // Artist (tappable)
-            if let track = viewModel.currentTrack, track.artistName != nil {
+            // Album Artist (tappable — navigates to artist page)
+            if let track = viewModel.currentTrack, let albumArtist = track.albumArtistName {
                 infoRow(
                     label: "Artist",
-                    value: track.artistName ?? "—",
+                    value: albumArtist,
                     isTappable: track.artistRatingKey != nil
                 ) {
                     handleArtistTap(track: track)
                 }
+            }
+
+            // Track Artist (plain text — only shown when different from album artist)
+            if let track = viewModel.currentTrack,
+               let trackArtist = track.artistName,
+               let albumArtist = track.albumArtistName,
+               trackArtist != albumArtist {
+                infoRow(label: "Track Artist", value: trackArtist)
             }
 
             // Year (from fetched album)

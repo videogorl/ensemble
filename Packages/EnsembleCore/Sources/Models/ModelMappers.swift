@@ -15,6 +15,7 @@ public extension Track {
             key: plex.key,
             title: plex.title,
             artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -47,6 +48,7 @@ public extension Track {
             key: plex.key,
             title: plex.title,
             artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -94,6 +96,7 @@ public extension Track {
             key: cd.key,
             title: cd.title,
             artistName: cd.artistName,
+            albumArtistName: cd.album?.artist?.name,  // Album artist from artist entity
             albumName: cd.albumName,
             albumRatingKey: cd.album?.ratingKey,
             artistRatingKey: cd.album?.artist?.ratingKey,
@@ -421,6 +424,7 @@ public extension HubItem {
                 key: plex.key,
                 title: plex.title,
                 artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+                albumArtistName: plex.grandparentTitle,
                 albumName: plex.parentTitle,
                 albumRatingKey: plex.parentRatingKey,
                 artistRatingKey: plex.grandparentRatingKey,
