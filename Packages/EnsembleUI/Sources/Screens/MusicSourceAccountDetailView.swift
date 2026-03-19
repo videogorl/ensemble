@@ -362,12 +362,12 @@ private struct ServerFeatureBadges: View {
                     .foregroundColor(.accentColor)
             }
             if section.capabilities?.hasLyrics == true {
-                Image(systemName: "text.quote")
+                Image(systemName: "quote.bubble.fill")
                     .font(.caption2)
                     .foregroundColor(.accentColor)
             }
             if section.capabilities?.hasRadio == true {
-                Image(systemName: "antenna.radiowaves.left.and.right")
+                Image(systemName: "infinity")
                     .font(.caption2)
                     .foregroundColor(.accentColor)
             }
