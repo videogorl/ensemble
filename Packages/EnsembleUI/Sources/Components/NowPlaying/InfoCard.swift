@@ -174,16 +174,6 @@ public struct InfoCard: View {
                 infoRow(label: "Added", value: formatDate(dateAdded))
             }
 
-            // Source (streaming vs downloaded)
-            if viewModel.currentTrack != nil {
-                infoRow(label: "Source", value: resolvePlaybackSource())
-            }
-
-            // Playback quality
-            infoRow(label: "Quality", value: resolvePlaybackQuality())
-
-            // Lyrics source/status
-            lyricsInfoRow
         }
         .padding(.horizontal, 40)
     }
@@ -200,6 +190,17 @@ public struct InfoCard: View {
                 Spacer()
             }
             .padding(.bottom, 4)
+
+            // Source (streaming vs downloaded)
+            if viewModel.currentTrack != nil {
+                infoRow(label: "Source", value: resolvePlaybackSource())
+            }
+
+            // Playback quality
+            infoRow(label: "Quality", value: resolvePlaybackQuality())
+
+            // Lyrics source/status
+            lyricsInfoRow
 
             if let info = audioFileInfo {
                 // Codec
