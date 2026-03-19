@@ -1131,6 +1131,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        // During a skip transition, a nil currentItem is expected — the old item was
+        // removed, the new one hasn't loaded yet. Don't treat this as queue exhaustion.
+        if isSkipTransitionInProgress {
+            EnsembleLogger.playback("QUEUE_EXHAUSTED: ignored — skip transition in progress")
+            return
+        }
+
+        // A track is actively loading. The queue isn't exhausted — give it time.
+        if case .loading = playbackState {
+            EnsembleLogger.playback("QUEUE_EXHAUSTED: ignored — playbackState is .loading")
+            return
+        }
+
         guard !isHandlingQueueExhaustion else {
             #if DEBUG
             EnsembleLogger.debug("⏭️ Queue exhaustion handling already in progress - ignoring duplicate event")
@@ -2212,8 +2225,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("⏭️ next() called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
         #endif
 
-        consecutivePlaybackFailures = 0
-
         // Cancel any in-progress skip transition (e.g., a previous next() that's
         // still downloading the stream). Without this, rapid next() calls pile up
         // concurrent downloads, each creating large temp files.
@@ -2288,8 +2299,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func previous() {
-        consecutivePlaybackFailures = 0
-
         // If more than 3 seconds in, restart current track
         if currentTime > 3 {
             seek(to: 0)
@@ -2306,6 +2315,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // async task below resolves the previous track and loads it.
         // The skip flag prevents the "unexpected pause" handler from resuming
         // the old track while we load the new one.
+        // Cancel any in-progress skip transition (same as next() — prevents piling
+        // up concurrent playCurrentQueueItem calls during rapid previous() taps)
+        skipTransitionTask?.cancel()
+        skipTransitionTask = nil
+
         isSkipTransitionInProgress = true
         armSkipTransitionSafety()
         player?.pause()
@@ -2331,10 +2345,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             pushNowPlayingForSkipTransition()
         }
 
-        Task {
-            await playCurrentQueueItem(caller: "previous()")
-            savePlaybackState()
-            await checkAndRefreshAutoplayQueue()
+        skipTransitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            await self.playCurrentQueueItem(caller: "previous()")
+            guard !Task.isCancelled else { return }
+            self.savePlaybackState()
+            await self.checkAndRefreshAutoplayQueue()
         }
     }
 
