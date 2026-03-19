@@ -111,6 +111,7 @@ public struct InfoCard: View {
                 serverInfoSection
             }
             .padding(.top, 8)
+            .padding(.bottom, 32)
         }
         .mask(fadeMask)
     }
