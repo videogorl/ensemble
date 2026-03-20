@@ -161,7 +161,7 @@ public struct TrackRow: View {
         .overlay(alignment: .leading) {
             if effectiveIsFavorited {
                 Image(systemName: "heart.fill")
-                    .font(.system(size: 8))
+                    .font(.system(size: 10))
                     .foregroundColor(.pink)
                     .offset(x: -12)
             }

@@ -127,10 +127,10 @@ public class TrackTableViewCell: UITableViewCell {
 
         NSLayoutConstraint.activate([
             // Heart sits in the existing 16pt leading margin — no content shift
-            favoriteHeartView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            favoriteHeartView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 3),
             favoriteHeartView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            favoriteHeartView.widthAnchor.constraint(equalToConstant: 8),
-            favoriteHeartView.heightAnchor.constraint(equalToConstant: 8),
+            favoriteHeartView.widthAnchor.constraint(equalToConstant: 10),
+            favoriteHeartView.heightAnchor.constraint(equalToConstant: 10),
 
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),

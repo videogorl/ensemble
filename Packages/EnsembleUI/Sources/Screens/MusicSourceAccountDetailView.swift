@@ -153,6 +153,8 @@ public struct MusicSourceAccountDetailView: View {
                     }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+                } header: {
+                    Text("Legend")
                 }
 
                 // Remove source

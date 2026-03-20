@@ -590,59 +590,50 @@ public struct AlbumDetailView: View {
 
     // MARK: - More by Artist / Similar Albums
 
-    private var moreByArtistSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("More by \(album.artistName ?? "Artist")")
-                .font(.title2)
-                .fontWeight(.bold)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
-                    ForEach(viewModel.relatedAlbums) { relatedAlbum in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.album(id: relatedAlbum.id)) {
-                                AlbumCard(album: relatedAlbum)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                AlbumDetailView(album: relatedAlbum, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                AlbumCard(album: relatedAlbum)
-                            }
-                            .buttonStyle(.plain)
+    /// Horizontal album card scroll — needs explicit height because LazyHStack
+    /// inside a horizontal ScrollView doesn't report intrinsic height to
+    /// UIHostingController's systemLayoutSizeFitting (used for table footer sizing).
+    private func albumCardScroll(albums: [Album]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(albums) { scrollAlbum in
+                    if #available(iOS 16.0, macOS 13.0, *) {
+                        NavigationLink(value: NavigationCoordinator.Destination.album(id: scrollAlbum.id)) {
+                            AlbumCard(album: scrollAlbum)
                         }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink {
+                            AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
+                        } label: {
+                            AlbumCard(album: scrollAlbum)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
+        // Fixed height: 100pt artwork + ~60pt text = ~160pt
+        .frame(height: 170)
+    }
+
+    private var moreByArtistSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("More by \(album.artistName ?? "Artist")")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            albumCardScroll(albums: viewModel.relatedAlbums)
+        }
     }
 
     private var similarAlbumsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Related Albums")
                 .font(.title2)
                 .fontWeight(.bold)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
-                    ForEach(viewModel.similarAlbums) { similarAlbum in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.album(id: similarAlbum.id)) {
-                                AlbumCard(album: similarAlbum)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                AlbumDetailView(album: similarAlbum, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                AlbumCard(album: similarAlbum)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
+            albumCardScroll(albums: viewModel.similarAlbums)
         }
     }
 }
