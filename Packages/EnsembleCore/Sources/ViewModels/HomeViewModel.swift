@@ -933,7 +933,7 @@ public final class HomeViewModel: ObservableObject {
 
         return mergedResults
     }
-    
+
     // MARK: - Edit Mode
 
     /// Extract the server key from a hub ID.
@@ -1045,27 +1045,24 @@ public final class HomeViewModel: ObservableObject {
     }
     
     /// Look up the library title for a hub based on its ID.
-    /// Hub IDs contain the library key as the 4th component: "plex:{acct}:{srv}:{lib}:{hubType}".
+    /// Hub IDs contain the account, server, and library key: "plex:{acct}:{srv}:{lib}:{hubType}".
+    /// Matches on both server ID and library key to avoid cross-server collisions
+    /// (different servers can have the same library key for different libraries).
     /// Returns nil for merged hubs or if the library isn't found.
     public func libraryName(forHubId hubId: String) -> String? {
         let components = hubId.split(separator: ":")
         // Merged hubs don't have a library key
         guard components.count >= 5, components[3] != "merged" else { return nil }
+        let serverId = String(components[2])
         let libraryKey = String(components[3])
 
         for account in accountManager.plexAccounts {
-            for server in account.servers {
+            for server in account.servers where server.id == serverId {
                 if let library = server.libraries.first(where: { $0.key == libraryKey }) {
-                    #if DEBUG
-                    EnsembleLogger.debug("[HubOrder] libraryName lookup: hubId=\(hubId) libKey=\(libraryKey) -> \(library.title)")
-                    #endif
                     return library.title
                 }
             }
         }
-        #if DEBUG
-        EnsembleLogger.debug("[HubOrder] libraryName lookup MISS: hubId=\(hubId) libKey=\(libraryKey) available=\(accountManager.plexAccounts.flatMap { $0.servers.flatMap { $0.libraries.map { "\($0.key)=\($0.title)" } } })")
-        #endif
         return nil
     }
 
