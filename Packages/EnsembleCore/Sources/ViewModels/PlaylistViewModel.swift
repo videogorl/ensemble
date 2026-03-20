@@ -446,8 +446,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
-        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
-        
+        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
+
         // Save filter options when they change
         setupFilterPersistence()
 
@@ -459,9 +459,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     private func setupFilterPersistence() {
+        let playlistId = playlist.id
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "PlaylistDetail") }
+            .sink { FilterPersistence.save($0, for: "PlaylistDetail-\(playlistId)") }
             .store(in: &cancellables)
     }
 
