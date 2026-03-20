@@ -468,6 +468,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         // Install optional SwiftUI table footer (loading/empty indicators).
+        // Only set tableFooterView when the content has real height — an empty
+        // hosting controller can interfere with bottomContentInset scroll-behind.
         if let tableFooterContent {
             let footerHost = UIHostingController(rootView: tableFooterContent)
             footerHost.view.backgroundColor = .clear
@@ -478,7 +480,9 @@ public struct MediaTrackList: UIViewRepresentable {
                 verticalFittingPriority: .fittingSizeLevel
             )
             footerHost.view.frame = CGRect(origin: .zero, size: fittingSize)
-            tableView.tableFooterView = footerHost.view
+            if fittingSize.height >= 1 {
+                tableView.tableFooterView = footerHost.view
+            }
             context.coordinator.footerHostingController = footerHost
         }
 
@@ -566,9 +570,10 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        // Update table footer view size (mirrors header resize logic above).
+        // Update table footer view — dynamically add/remove based on content height.
+        // An empty footer (EmptyView) must be removed entirely so it doesn't interfere
+        // with bottomContentInset scroll-behind behavior (mini player / tab bar).
         if let footerHost = context.coordinator.footerHostingController,
-           let footerView = tableView.tableFooterView,
            tableView.bounds.width > 0 {
             if let tableFooterContent {
                 footerHost.rootView = tableFooterContent
@@ -579,9 +584,21 @@ public struct MediaTrackList: UIViewRepresentable {
                 withHorizontalFittingPriority: .required,
                 verticalFittingPriority: .fittingSizeLevel
             )
-            if abs(footerView.frame.height - fittingSize.height) > 1 {
-                footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                tableView.tableFooterView = footerView
+            if fittingSize.height < 1 {
+                // Footer content is empty — remove to preserve scroll-behind inset
+                if tableView.tableFooterView != nil {
+                    tableView.tableFooterView = nil
+                }
+            } else if let footerView = tableView.tableFooterView {
+                // Footer exists — resize if height changed
+                if abs(footerView.frame.height - fittingSize.height) > 1 {
+                    footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                    tableView.tableFooterView = footerView
+                }
+            } else {
+                // Footer became non-empty — install it
+                footerHost.view.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                tableView.tableFooterView = footerHost.view
             }
         }
 
