@@ -41,6 +41,11 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var filteredGenres: [Genre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
 
+    // Available genres for chip bar filtering (derived from albums/tracks)
+    @Published public private(set) var availableAlbumGenres: [String] = []
+    @Published public private(set) var availableTrackGenres: [String] = []
+    @Published public private(set) var availableArtistGenres: [String] = []
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let toastCenter: ToastCenter
@@ -186,12 +191,12 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Artists — removeDuplicates prevents no-op publishes during sync
-        Publishers.CombineLatest3($artists, $artistSortOption, $artistsFilterOptions)
+        // Artists — include albums for genre filtering (artist genres derived from album genres)
+        Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { artists, sortOption, filterOptions -> [Artist] in
+            .map { artists, sortOption, filterOptions, albums -> [Artist] in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
-                return LibraryViewModel.filterArtists(sorted, with: filterOptions)
+                return LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
             }
             .removeDuplicates { old, new in
                 guard old.count == new.count else { return false }
@@ -229,6 +234,38 @@ public final class LibraryViewModel: ObservableObject {
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.filteredGenres = $0 }
+            .store(in: &cancellables)
+
+        // Available genres for chip bar filtering (derived from raw collections)
+        $albums
+            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .map { Self.extractUniqueGenres(from: $0.flatMap(\.genres)) }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.availableAlbumGenres = $0 }
+            .store(in: &cancellables)
+
+        $tracks
+            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .map { Self.extractUniqueGenres(from: $0.flatMap(\.genres)) }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.availableTrackGenres = $0 }
+            .store(in: &cancellables)
+
+        // Artist genres: derived from albums via artistRatingKey lookup
+        $albums
+            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .map { albums -> [String] in
+                var allGenres = Set<String>()
+                for album in albums where !album.genres.isEmpty {
+                    album.genres.forEach { allGenres.insert($0) }
+                }
+                return allGenres.sorted()
+            }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.availableArtistGenres = $0 }
             .store(in: &cancellables)
     }
 
@@ -616,6 +653,11 @@ public final class LibraryViewModel: ObservableObject {
 
     // MARK: - Filter Implementations (static so Combine pipelines can call them without actor capture)
 
+    /// Extract unique sorted genre names from a flat list
+    static func extractUniqueGenres(from names: [String]) -> [String] {
+        Array(Set(names)).sorted()
+    }
+
     private static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
         var filtered = tracks
 
@@ -628,6 +670,10 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
+        if !options.selectedGenres.isEmpty {
+            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
+        }
+
         if options.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
@@ -635,7 +681,7 @@ public final class LibraryViewModel: ObservableObject {
         return filtered
     }
 
-    private static func filterArtists(_ artists: [Artist], with options: FilterOptions) -> [Artist] {
+    private static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album] = []) -> [Artist] {
         var filtered = artists
 
         if !options.searchText.isEmpty {
@@ -643,7 +689,19 @@ public final class LibraryViewModel: ObservableObject {
             filtered = filtered.filter { $0.name.lowercased().contains(searchLower) }
         }
 
-        // Genre filtering for artists requires album lookups — not yet implemented
+        // Genre filtering: build artist-to-genres map from albums
+        if !options.selectedGenres.isEmpty {
+            var artistGenres: [String: Set<String>] = [:]
+            for album in albums {
+                guard let artistKey = album.artistRatingKey, !album.genres.isEmpty else { continue }
+                artistGenres[artistKey, default: []].formUnion(album.genres)
+            }
+            filtered = filtered.filter { artist in
+                guard let genres = artistGenres[artist.id] else { return false }
+                return !options.selectedGenres.isDisjoint(with: genres)
+            }
+        }
+
         return filtered
     }
 
@@ -657,6 +715,10 @@ public final class LibraryViewModel: ObservableObject {
                 ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
                 ($0.albumArtist?.lowercased().contains(searchLower) ?? false)
             }
+        }
+
+        if !options.selectedGenres.isEmpty {
+            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
         }
 
         if let yearRange = options.yearRange {
