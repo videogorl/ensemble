@@ -32,18 +32,19 @@ public struct GenreChipBar: View {
         if availableGenres.count >= 2 {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // Clear button (when any genres are included or excluded)
-                    if hasActiveChips {
-                        Button {
-                            selectedGenres.removeAll()
-                            excludedGenres.removeAll()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
+                    // Clear button — always present to prevent layout shift,
+                    // hidden when no chips are active
+                    Button {
+                        selectedGenres.removeAll()
+                        excludedGenres.removeAll()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
                     }
+                    .buttonStyle(.plain)
+                    .opacity(hasActiveChips ? 1 : 0)
+                    .disabled(!hasActiveChips)
 
                     ForEach(availableGenres, id: \.self) { genre in
                         GenreChip(
