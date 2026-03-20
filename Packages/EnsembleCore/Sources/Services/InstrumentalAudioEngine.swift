@@ -4,7 +4,11 @@ import Combine
 
 /// Isolated AVAudioEngine wrapper that routes audio through AUSoundIsolation
 /// for vocal attenuation (instrumental mode). Completely separate from the
-/// AVQueuePlayer path — used only when instrumental mode is active.
+/// AVQueuePlayer path -- used only when instrumental mode is active.
+///
+/// AUSoundIsolation uses an on-device neural network to separate vocals from audio.
+/// WetDryMixPercent controls vocal removal: 0 = original audio, 100 = max vocal removal.
+/// We set it to 100 for full instrumental output.
 ///
 /// Audio graph:
 /// ```
@@ -22,6 +26,9 @@ public final class InstrumentalAudioEngine {
     private var seekFrameOffset: AVAudioFramePosition = 0
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
+    /// Generation counter incremented on each schedule -- suppresses stale completions
+    /// from playerNode.stop() during seek/stop (which fires all pending completion handlers)
+    private var scheduleGeneration: UInt64 = 0
 
     /// Current playback time, updated at ~10Hz
     let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
@@ -42,7 +49,7 @@ public final class InstrumentalAudioEngine {
         // Create AUSoundIsolation effect
         var desc = AudioComponentDescription(
             componentType: kAudioUnitType_Effect,
-            componentSubType: 0x766F6973, // 'vois' — kAudioUnitSubType_AUSoundIsolation
+            componentSubType: 0x766F6973, // 'vois' -- kAudioUnitSubType_AUSoundIsolation
             componentManufacturer: kAudioUnitManufacturer_Apple,
             componentFlags: 0,
             componentFlagsMask: 0
@@ -54,9 +61,25 @@ public final class InstrumentalAudioEngine {
         let effect = AVAudioUnitEffect(audioComponentDescription: desc)
         isolationEffect = effect
 
-        // Set WetDryMix to 100% for full vocal removal
-        // Parameter ID 0 = WetDryMixPercent
-        effect.auAudioUnit.parameterTree?.parameter(withAddress: 0)?.value = 100.0
+        #if DEBUG
+        // Enumerate all parameters for diagnostics
+        if let tree = effect.auAudioUnit.parameterTree {
+            for param in tree.allParameters {
+                EnsembleLogger.debug("[InstrumentalEngine] Parameter: address=\(param.address), identifier='\(param.identifier)', name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
+            }
+        }
+        #endif
+
+        // Configure AUSoundIsolation parameters:
+        // - WetDryMixPercent (address 0): 0=original, 100=max vocal removal (instrumental)
+        // - UseTuningMode (address 0x17626 / 95782): enables tuning mode
+        // - TuningMode (address 0x17627 / 95783): tuning mode setting
+        // These values are based on reverse-engineering of Apple Music Sing behavior.
+        // Reference: https://github.com/spotlightishere/QuietNow
+        let paramTree = effect.auAudioUnit.parameterTree
+        paramTree?.parameter(withAddress: 0)?.value = 100.0
+        paramTree?.parameter(withAddress: 95782)?.value = 1.0
+        paramTree?.parameter(withAddress: 95783)?.value = 1.0
 
         // Attach nodes
         engine.attach(playerNode)
@@ -71,7 +94,7 @@ public final class InstrumentalAudioEngine {
         isSetUp = true
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Audio graph set up: playerNode -> AUSoundIsolation -> mixer -> output")
+        EnsembleLogger.debug("[InstrumentalEngine] Audio graph set up: playerNode -> AUSoundIsolation(wetDry=100) -> mixer -> output")
         #endif
     }
 
@@ -96,7 +119,7 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Playback Control
 
-    /// Start playback from the given time offset
+    /// Schedule and start playback from the given time offset
     func play(from time: TimeInterval = 0) throws {
         guard let file = audioFile else {
             throw InstrumentalEngineError.noFileLoaded
@@ -105,10 +128,14 @@ public final class InstrumentalAudioEngine {
         let startFrame = AVAudioFramePosition(time * sampleRate)
         let totalFrames = file.length
         guard startFrame < totalFrames else {
-            // Past end of file — trigger completion
+            // Past end of file -- trigger completion
             onPlaybackComplete?()
             return
         }
+
+        // Bump generation so any in-flight completion from the previous schedule is ignored
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
 
         seekFrameOffset = startFrame
         let frameCount = AVAudioFrameCount(totalFrames - startFrame)
@@ -121,9 +148,8 @@ public final class InstrumentalAudioEngine {
             frameCount: frameCount,
             at: nil
         ) { [weak self] in
-            // Called when the segment finishes playing
             DispatchQueue.main.async {
-                self?.handleSegmentComplete()
+                self?.handleSegmentComplete(generation: myGeneration)
             }
         }
 
@@ -166,6 +192,8 @@ public final class InstrumentalAudioEngine {
 
     /// Stop playback and clean up
     func stop() {
+        // Bump generation so any in-flight completion callbacks are ignored
+        scheduleGeneration &+= 1
         stopTimeUpdates()
         playerNode.stop()
         if engine.isRunning {
@@ -185,6 +213,13 @@ public final class InstrumentalAudioEngine {
         guard let file = audioFile else { return }
 
         let wasPlayingBeforeSeek = wasPlaying || playerNode.isPlaying
+
+        // Bump generation so the old segment's completion callback is ignored.
+        // playerNode.stop() triggers all pending completion handlers immediately --
+        // without this guard, every seek would cause a spurious track advance.
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
+
         playerNode.stop()
 
         let startFrame = AVAudioFramePosition(time * sampleRate)
@@ -205,7 +240,7 @@ public final class InstrumentalAudioEngine {
             at: nil
         ) { [weak self] in
             DispatchQueue.main.async {
-                self?.handleSegmentComplete()
+                self?.handleSegmentComplete(generation: myGeneration)
             }
         }
 
@@ -260,13 +295,22 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Completion Handling
 
-    private func handleSegmentComplete() {
+    /// Only trigger track advance if this completion matches the current generation.
+    /// playerNode.stop() fires all pending completion handlers immediately, so without
+    /// this guard, every seek() and stop() would trigger a spurious track advance.
+    private func handleSegmentComplete(generation: UInt64) {
+        guard generation == scheduleGeneration else {
+            #if DEBUG
+            EnsembleLogger.debug("[InstrumentalEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
+            #endif
+            return
+        }
         guard wasPlaying else { return }
         wasPlaying = false
         stopTimeUpdates()
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Segment complete — triggering track advance")
+        EnsembleLogger.debug("[InstrumentalEngine] Segment complete -- triggering track advance")
         #endif
 
         onPlaybackComplete?()
