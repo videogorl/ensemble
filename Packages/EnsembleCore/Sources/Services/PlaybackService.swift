@@ -2784,8 +2784,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         EnsembleLogger.playback("INSTRUMENTAL: switching to engine at \(String(format: "%.1f", capturedTime))s, wasPlaying=\(wasPlaying)")
 
-        // Pause AVQueuePlayer but keep items loaded for quick switch-back
+        // Stop AVQueuePlayer audio output. pause() alone sometimes isn't enough
+        // if the player is mid-buffer — also set rate to 0 explicitly.
         player?.pause()
+        player?.rate = 0
+
+        #if DEBUG
+        EnsembleLogger.debug("[InstrumentalEngine] AVQueuePlayer stopped — rate=\(player?.rate ?? -1), timeControlStatus=\(player?.timeControlStatus.rawValue ?? -1)")
+        #endif
 
         // Suspend the periodic time observer to stop AVQueuePlayer time updates
         if let observer = timeObserver {

@@ -115,8 +115,30 @@ public final class InstrumentalAudioEngine {
             engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
         }
 
+        // Re-apply parameters after reconnecting nodes (reconnection can reset AU state)
+        applyIsolationParameters()
+
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Loaded file: \(fileURL.lastPathComponent), sampleRate=\(sampleRate), frames=\(file.length)")
+        #endif
+    }
+
+    /// Apply the AUSoundIsolation parameters. Called after setup and after any reconnection
+    /// that might reset the AU's internal state.
+    private func applyIsolationParameters() {
+        guard let effect = isolationEffect else { return }
+        let paramTree = effect.auAudioUnit.parameterTree
+
+        // "Sound to Isolate": 0.0 = instruments, 1.0 = vocals
+        paramTree?.parameter(withAddress: 1)?.value = 0.0
+        // "Wet/Dry Mix": 100 = fully processed output
+        paramTree?.parameter(withAddress: 0)?.value = 100.0
+
+        #if DEBUG
+        // Verify values actually stuck
+        let wetDry = paramTree?.parameter(withAddress: 0)?.value ?? -999
+        let isolate = paramTree?.parameter(withAddress: 1)?.value ?? -999
+        EnsembleLogger.debug("[InstrumentalEngine] Parameters applied — wetDry=\(wetDry), soundToIsolate=\(isolate)")
         #endif
     }
 
@@ -159,6 +181,10 @@ public final class InstrumentalAudioEngine {
         if !engine.isRunning {
             try engine.start()
         }
+
+        // Re-apply parameters after engine start in case starting resets AU state
+        applyIsolationParameters()
+
         playerNode.play()
         wasPlaying = true
         startTimeUpdates()
