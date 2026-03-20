@@ -236,27 +236,42 @@ public final class LibraryViewModel: ObservableObject {
             .sink { [weak self] in self?.filteredGenres = $0 }
             .store(in: &cancellables)
 
-        // Available genres for chip bar filtering (derived from raw collections)
-        $albums
+        // Available genres for chip bar filtering.
+        // Derived from items that pass all NON-genre filters, so only genres
+        // that will produce results are shown (e.g. singles excluded by hideSingles
+        // won't contribute their genres to the chip bar).
+        Publishers.CombineLatest($albums, $albumsFilterOptions)
             .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
-            .map { Self.extractUniqueGenres(from: $0.flatMap(\.genres)) }
+            .map { albums, filterOptions -> [String] in
+                var nonGenreOptions = filterOptions
+                nonGenreOptions.selectedGenres.removeAll()
+                nonGenreOptions.excludedGenres.removeAll()
+                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions)
+                return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
+            }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.availableAlbumGenres = $0 }
             .store(in: &cancellables)
 
-        $tracks
+        Publishers.CombineLatest($tracks, $tracksFilterOptions)
             .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
-            .map { Self.extractUniqueGenres(from: $0.flatMap(\.genres)) }
+            .map { tracks, filterOptions -> [String] in
+                var nonGenreOptions = filterOptions
+                nonGenreOptions.selectedGenres.removeAll()
+                nonGenreOptions.excludedGenres.removeAll()
+                let preFiltered = Self.filterTracks(tracks, with: nonGenreOptions)
+                return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
+            }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.availableTrackGenres = $0 }
             .store(in: &cancellables)
 
-        // Artist genres: derived from albums via artistRatingKey lookup
-        $albums
+        // Artist genres: derived from albums that pass non-genre filters
+        Publishers.CombineLatest($albums, $artistsFilterOptions)
             .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
-            .map { albums -> [String] in
+            .map { albums, _ -> [String] in
                 var allGenres = Set<String>()
                 for album in albums where !album.genres.isEmpty {
                     album.genres.forEach { allGenres.insert($0) }
@@ -675,6 +690,10 @@ public final class LibraryViewModel: ObservableObject {
             filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
         }
 
+        if !options.excludedGenres.isEmpty {
+            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+        }
+
         if options.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
@@ -703,6 +722,18 @@ public final class LibraryViewModel: ObservableObject {
             }
         }
 
+        if !options.excludedGenres.isEmpty {
+            var artistGenres: [String: Set<String>] = [:]
+            for album in albums {
+                guard let artistKey = album.artistRatingKey, !album.genres.isEmpty else { continue }
+                artistGenres[artistKey, default: []].formUnion(album.genres)
+            }
+            filtered = filtered.filter { artist in
+                guard let genres = artistGenres[artist.id] else { return true }
+                return options.excludedGenres.isDisjoint(with: genres)
+            }
+        }
+
         return filtered
     }
 
@@ -720,6 +751,10 @@ public final class LibraryViewModel: ObservableObject {
 
         if !options.selectedGenres.isEmpty {
             filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
+        }
+
+        if !options.excludedGenres.isEmpty {
+            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
         }
 
         if let yearRange = options.yearRange {

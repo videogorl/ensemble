@@ -235,7 +235,8 @@ public struct ArtistsView: View {
                 ScrollView {
                     GenreChipBar(
                         availableGenres: libraryVM.availableArtistGenres,
-                        selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres
+                        selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
                     )
 
                     if libraryVM.artistSortOption == .name {

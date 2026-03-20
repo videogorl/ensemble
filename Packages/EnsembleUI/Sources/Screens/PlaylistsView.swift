@@ -821,7 +821,8 @@ public struct PlaylistDetailView: View {
                 VStack(spacing: 0) {
                     GenreChipBar(
                         availableGenres: viewModel.availableGenres,
-                        selectedGenres: $viewModel.filterOptions.selectedGenres
+                        selectedGenres: $viewModel.filterOptions.selectedGenres,
+                        excludedGenres: $viewModel.filterOptions.excludedGenres
                     )
 
                     MediaDetailView(

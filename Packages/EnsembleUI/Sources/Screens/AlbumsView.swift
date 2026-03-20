@@ -309,7 +309,8 @@ public struct AlbumsView: View {
                 ScrollView {
                     GenreChipBar(
                         availableGenres: libraryVM.availableAlbumGenres,
-                        selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres
+                        selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
                     )
 
                     if isSortIndexed {

@@ -296,7 +296,8 @@ public struct SongsView: View {
                         ScrollView {
                             GenreChipBar(
                                 availableGenres: libraryVM.availableTrackGenres,
-                                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres
+                                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+                                excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
                             )
                             indexedTrackListContent
                         }
@@ -322,7 +323,8 @@ public struct SongsView: View {
                 VStack(spacing: 0) {
                     GenreChipBar(
                         availableGenres: libraryVM.availableTrackGenres,
-                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres
+                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
                     )
                     unsortedTrackListContent
                 }
