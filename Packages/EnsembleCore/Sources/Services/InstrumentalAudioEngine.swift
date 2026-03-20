@@ -24,6 +24,9 @@ public final class InstrumentalAudioEngine {
     private var isolationEffect: AVAudioUnitEffect?
     /// Mixer node for the phase-inverted vocal path (volume = -1)
     private let vocalsMixer = AVAudioMixerNode()
+    /// Delay node on the original path to compensate for AUSoundIsolation's neural network latency.
+    /// Without this, the vocal path arrives late and you get an echo instead of cancellation.
+    private let latencyDelay = AVAudioUnitDelay()
     /// Mixer node for the original (unprocessed) audio path
     private let originalMixer = AVAudioMixerNode()
     private var audioFile: AVAudioFile?
@@ -78,7 +81,16 @@ public final class InstrumentalAudioEngine {
         engine.attach(playerNode)
         engine.attach(effect)
         engine.attach(vocalsMixer)
+        engine.attach(latencyDelay)
         engine.attach(originalMixer)
+
+        // Configure the delay node: zero feedback, zero wet, just pure delay.
+        // The actual delay time is set in connectGraph() after we can read the
+        // AU's latency property.
+        latencyDelay.delayTime = 0  // Will be set from AU latency
+        latencyDelay.feedback = 0   // No echo/repeat
+        latencyDelay.wetDryMix = 100 // 100% wet = fully delayed signal
+        latencyDelay.lowPassCutoff = 20000 // Pass everything through
 
         // Build the dual-path graph using the default engine format initially.
         // load() will reconnect with the file's actual format.
@@ -106,21 +118,33 @@ public final class InstrumentalAudioEngine {
         engine.disconnectNodeOutput(playerNode)
         engine.disconnectNodeOutput(effect)
         engine.disconnectNodeOutput(vocalsMixer)
+        engine.disconnectNodeOutput(latencyDelay)
         engine.disconnectNodeOutput(originalMixer)
 
         // Split playerNode output to two paths:
-        //   Bus 0 -> effect (vocal isolation) -> vocalsMixer (inverted) -> mainMixer bus 0
-        //   Bus 0 -> originalMixer (original audio) -> mainMixer bus 1
+        //   Path A: effect (vocal isolation) -> vocalsMixer (inverted) -> mainMixer bus 0
+        //   Path B: latencyDelay -> originalMixer (original audio) -> mainMixer bus 1
         let toEffect = AVAudioConnectionPoint(node: effect, bus: 0)
-        let toOriginal = AVAudioConnectionPoint(node: originalMixer, bus: 0)
-        engine.connect(playerNode, to: [toEffect, toOriginal], fromBus: 0, format: format)
+        let toDelay = AVAudioConnectionPoint(node: latencyDelay, bus: 0)
+        engine.connect(playerNode, to: [toEffect, toDelay], fromBus: 0, format: format)
 
         // Vocal path: effect -> vocalsMixer -> mainMixer bus 0
         engine.connect(effect, to: vocalsMixer, format: format)
         engine.connect(vocalsMixer, to: mainMixer, fromBus: 0, toBus: 0, format: format)
 
-        // Original path: originalMixer -> mainMixer bus 1
+        // Original path: latencyDelay -> originalMixer -> mainMixer bus 1
+        engine.connect(latencyDelay, to: originalMixer, format: format)
         engine.connect(originalMixer, to: mainMixer, fromBus: 0, toBus: 1, format: format)
+
+        // Read the AU's processing latency and compensate on the original path.
+        // AUSoundIsolation's neural network introduces latency; without compensation
+        // you get an echo instead of cancellation.
+        let auLatency = effect.auAudioUnit.latency  // in seconds
+        latencyDelay.delayTime = auLatency
+
+        #if DEBUG
+        EnsembleLogger.debug("[InstrumentalEngine] AU latency=\(String(format: "%.4f", auLatency))s, delay compensation applied")
+        #endif
 
         // Ensure isolation parameters are set after reconnection
         applyIsolationParameters()
