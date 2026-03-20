@@ -512,6 +512,28 @@ Two sync modes to balance freshness and speed:
 - **Pull-to-refresh:** library views call incremental sync; `HomeView` refreshes hubs only
 - **Key filtered fetch methods** in `PlexAPIClient`: `getArtists(sectionKey:addedAfter:)`, `getAlbums(sectionKey:addedAfter:)`, `getTracks(sectionKey:addedAfter:)`
 
+## Subsystem: Instrumental Mode (Vocal Attenuation)
+
+On-device vocal removal using Apple's AUSoundIsolation AudioUnit (same technology as Apple Music Sing). Uses hybrid engine switching:
+
+1. **InstrumentalModeCapability** (`EnsembleCore`) -- Static probe for AUSoundIsolation AudioComponent availability. Returns true on iOS 16+ / A13+ devices.
+2. **InstrumentalAudioEngine** (`EnsembleCore`) -- Isolated AVAudioEngine wrapper. Audio graph: `AVAudioPlayerNode -> AVAudioUnitEffect(AUSoundIsolation) -> mainMixerNode -> outputNode`. WetDryMix set to 100% for full vocal removal. Handles play/pause/seek/stop with frame-accurate time tracking via `playerNode.playerTime(forNodeTime:)`.
+3. **PlaybackService Integration** -- Hybrid engine switching:
+   - Toggle ON: captures AVQueuePlayer position, pauses it, creates InstrumentalAudioEngine, loads local file, plays from captured position
+   - Toggle OFF: captures engine position, stops engine, seeks AVQueuePlayer to position, resumes
+   - Track skip while active: stops engine, lets AVQueuePlayer load new track, re-engages engine
+   - Queue injection: auto-disables instrumental mode (`play(tracks:)`, `shufflePlay(tracks:)`)
+   - File resolution: uses `track.localFilePath` (downloaded), `streamLoader.localFileURL` (completed transcode), or defers until download completes
+4. **NowPlayingViewModel** -- Published `isInstrumentalModeActive` and static `isInstrumentalModeSupported` for UI binding. `toggleInstrumentalMode()` action.
+5. **LyricsCard** -- Toggle button in header (mic.circle / mic.slash.circle). Hidden on unsupported devices. Active color matches shuffle/repeat toggle pattern.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/InstrumentalModeCapability.swift`
+- `Packages/EnsembleCore/Sources/Services/InstrumentalAudioEngine.swift`
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` (engine switching logic)
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift`
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift`
+
 ## Subsystem: Live Lyrics
 
 Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics Card:

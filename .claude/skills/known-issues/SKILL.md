@@ -109,6 +109,13 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Store only filenames in CoreData (not absolute paths). Resolve filename → absolute path at the model mapping boundary (`Track(from: CDTrack)`, `Download(from: CDDownload)`). Legacy absolute paths are migrated to filenames on first `fetchDownloads()`.
 - **Key files:** `DownloadManager.swift` (filename storage, `absolutePath(forFilename:)`, `extractFilename(from:)`), `ModelMappers.swift` (resolution at mapping boundary), `OfflineDownloadService.swift` (stores `.lastPathComponent`)
 
+### Instrumental Mode Known Limitations
+- **Toggle gap:** ~100-300ms audio gap when switching between AVQueuePlayer and AVAudioEngine (acceptable tradeoff)
+- **Progressive transcode deferral:** If the transcode is still downloading when instrumental mode is toggled ON, playback continues via AVQueuePlayer until the download completes, then switches
+- **Direct remote streams:** If no local file or stream loader exists (rare edge case), instrumental mode defers until a file becomes available
+- **No slider:** Vocal attenuation is binary (full removal). No partial slider/mix control.
+- **iOS 16+ only:** AUSoundIsolation requires iOS 16.0+ / macOS 13.0+ and A13+ chip. Button is hidden on unsupported devices.
+
 ### Infrastructure
 - **Legacy CocoaPods Cleanup** -- Removed unused `ios/Pods/` directory
 
