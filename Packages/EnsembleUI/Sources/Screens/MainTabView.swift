@@ -132,10 +132,10 @@ public struct MainTabView: View {
                 )
                 .zIndex(0)
 
-                // MiniPlayer + PlaybackProgressBar extracted into sub-view so
-                // MainTabView body has no NVM-dependent branching. Body still
-                // re-evaluates (because of @StateObject) but produces a stable
-                // view tree — SwiftUI can efficiently skip diffing the content.
+                // MiniPlayer extracted into sub-view so MainTabView body has
+                // no NVM-dependent branching. Body still re-evaluates (because
+                // of @StateObject) but produces a stable view tree — SwiftUI
+                // can efficiently skip diffing the content.
                 MainTabNowPlayingOverlay(
                     nowPlayingVM: nowPlayingVM,
                     showingNowPlaying: $showingNowPlaying,
@@ -407,10 +407,9 @@ public struct MainTabView: View {
 
 // MARK: - Now Playing Overlay
 
-/// Extracted sub-view that owns the NVM observation for MiniPlayer and
-/// PlaybackProgressBar. MainTabView's body no longer branches on NVM
-/// properties, so SwiftUI can skip diffing the full TabView tree when
-/// NVM publishes.
+/// Extracted sub-view that owns the NVM observation for MiniPlayer.
+/// MainTabView's body no longer branches on NVM properties, so SwiftUI
+/// can skip diffing the full TabView tree when NVM publishes.
 private struct MainTabNowPlayingOverlay: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     @Binding var showingNowPlaying: Bool
@@ -454,14 +453,6 @@ private struct MainTabNowPlayingOverlay: View {
             ))
         }
 
-        // Full-width playback progress bar pinned to the very bottom of the screen.
-        // Sits above the aurora, below the mini player and tab bar.
-        if nowPlayingVM.currentTrack != nil && !showingNowPlaying && !isImmersiveMode {
-            PlaybackProgressBar(viewModel: nowPlayingVM)
-                .ignoresSafeArea(.all, edges: .bottom)
-                .zIndex(1)
-                .transition(.opacity)
-        }
     }
 }
 
