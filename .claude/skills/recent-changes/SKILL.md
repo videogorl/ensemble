@@ -6,6 +6,18 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Bug Fix Batch: Hubs, Wikipedia, Progress Bar (Mar 20, 2026)
+
+Four fixes from beta feedback:
+
+1. **Miniplayer progress bar removed:** Deleted `PlaybackProgressBar` struct from `MiniPlayer.swift` and its rendering from `MainTabView.swift`. Key files: `MiniPlayer.swift`, `MainTabView.swift`
+
+2. **Wikipedia album URL fixed:** Now uses `{Album}_({Artist}_album)` format per Wikipedia convention instead of just `{Album}_(album)`, avoiding disambiguation pages. Falls back to `_(album)` for "Various Artists" or unknown artist. Key file: `DomainModels.swift`
+
+3. **Hub cross-library merging fixed:** Added normalized title to grouping key and merged hub IDs. Contextual hubs ("More by X") no longer incorrectly merge across libraries, while generic hubs ("Recently Added") still do. Key file: `HomeViewModel.swift`
+
+4. **Hub ordering persistence fixed:** Added order migration that remaps stale saved hub IDs when ID format changes (single <-> merged) after libraries are added/removed. Matches by raw hub type + normalized title with type-only fallback. Key files: `HomeViewModel.swift`, `HubOrderManager.swift`
+
 ### UI Cleanup Batch (Mar 20, 2026)
 
 Six UI improvements across the app:
