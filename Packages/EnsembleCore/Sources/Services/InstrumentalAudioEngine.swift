@@ -70,16 +70,19 @@ public final class InstrumentalAudioEngine {
         }
         #endif
 
-        // Configure AUSoundIsolation parameters:
-        // - WetDryMixPercent (address 0): 0=original, 100=max vocal removal (instrumental)
-        // - UseTuningMode (address 0x17626 / 95782): enables tuning mode
-        // - TuningMode (address 0x17627 / 95783): tuning mode setting
-        // These values are based on reverse-engineering of Apple Music Sing behavior.
-        // Reference: https://github.com/spotlightishere/QuietNow
+        // Configure AUSoundIsolation parameters (discovered via runtime parameter enumeration):
+        //
+        // Address 0: "Wet/Dry Mix" (range -100.0 to 100.0)
+        //   100 = fully processed (isolated) output, 0 = original, -100 = inverted
+        //
+        // Address 1: "Sound to Isolate" (range 0.0 to 1.0)
+        //   1.0 = isolate vocals (output = vocals only)
+        //   0.0 = isolate instruments (output = instruments only)
+        //
+        // For instrumental mode we want: full isolation (wetDry=100) of instruments (isolate=0)
         let paramTree = effect.auAudioUnit.parameterTree
-        paramTree?.parameter(withAddress: 0)?.value = 100.0
-        paramTree?.parameter(withAddress: 95782)?.value = 1.0
-        paramTree?.parameter(withAddress: 95783)?.value = 1.0
+        paramTree?.parameter(withAddress: 0)?.value = 100.0   // Full wet (isolated output)
+        paramTree?.parameter(withAddress: 1)?.value = 0.0     // Isolate instruments, not vocals
 
         // Attach nodes
         engine.attach(playerNode)
