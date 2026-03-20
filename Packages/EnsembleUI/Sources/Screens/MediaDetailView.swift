@@ -514,11 +514,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
+                        headerView
+                        actionButtons
                         if let genreChipContent {
                             genreChipContent
                         }
-                        headerView
-                        actionButtons
                         ProgressView()
                             .padding(.top, 40)
                     }
@@ -527,11 +527,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             } else if viewModel.filteredTracks.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
+                        headerView
+                        actionButtons
                         if let genreChipContent {
                             genreChipContent
                         }
-                        headerView
-                        actionButtons
                         Text("No tracks")
                             .foregroundColor(.secondary)
                             .padding(.top, 40)
@@ -545,11 +545,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             #else
             ScrollView {
                 VStack(spacing: 0) {
+                    headerView
+                    actionButtons
                     if let genreChipContent {
                         genreChipContent
                     }
-                    headerView
-                    actionButtons
 
                     if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                         ProgressView()
