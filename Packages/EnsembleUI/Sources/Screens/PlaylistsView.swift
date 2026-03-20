@@ -818,22 +818,22 @@ public struct PlaylistDetailView: View {
             if isEditingPlaylist {
                 inlinePlaylistEditor
             } else {
-                VStack(spacing: 0) {
-                    GenreChipBar(
-                        availableGenres: viewModel.availableGenres,
-                        selectedGenres: $viewModel.filterOptions.selectedGenres,
-                        excludedGenres: $viewModel.filterOptions.excludedGenres
-                    )
-
-                    MediaDetailView(
-                        viewModel: viewModel,
-                        nowPlayingVM: nowPlayingVM,
-                        headerData: headerData,
-                        navigationTitle: viewModel.playlist.title,
-                        showArtwork: true,
-                        showTrackNumbers: false,
-                        groupByDisc: false,
-                        mediaType: .playlist,
+                MediaDetailView(
+                    viewModel: viewModel,
+                    nowPlayingVM: nowPlayingVM,
+                    headerData: headerData,
+                    navigationTitle: viewModel.playlist.title,
+                    showArtwork: true,
+                    showTrackNumbers: false,
+                    groupByDisc: false,
+                    mediaType: .playlist,
+                    genreChipContent: AnyView(
+                        GenreChipBar(
+                            availableGenres: viewModel.availableGenres,
+                            selectedGenres: $viewModel.filterOptions.selectedGenres,
+                            excludedGenres: $viewModel.filterOptions.excludedGenres
+                        )
+                    ),
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
@@ -857,7 +857,6 @@ public struct PlaylistDetailView: View {
                         }
                     )
                 )
-                }
             }
         }
         .toolbar {

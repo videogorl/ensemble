@@ -67,6 +67,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
 
@@ -97,6 +98,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         groupByDisc: Bool = false,
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
+        genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil
     ) {
@@ -109,6 +111,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
     }
@@ -904,6 +907,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         VStack(spacing: 0) {
             headerView
             actionButtons
+            if let genreChipContent {
+                genreChipContent
+            }
         }
     }
 }
