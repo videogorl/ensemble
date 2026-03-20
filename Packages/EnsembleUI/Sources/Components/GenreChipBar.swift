@@ -12,6 +12,8 @@ public struct GenreChipBar: View {
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
 
+    private static let leadingAnchorID = "genre-chip-bar-leading"
+
     public init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
@@ -30,31 +32,44 @@ public struct GenreChipBar: View {
 
     public var body: some View {
         if availableGenres.count >= 2 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    // Clear button — always present to prevent layout shift,
-                    // hidden when no chips are active
-                    Button {
-                        selectedGenres.removeAll()
-                        excludedGenres.removeAll()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(hasActiveChips ? 1 : 0)
-                    .disabled(!hasActiveChips)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // Clear button — only present when chips are active.
+                        // Scroll snaps to leading edge on tap, so the insertion
+                        // of this button doesn't cause a jarring layout shift.
+                        if hasActiveChips {
+                            Button {
+                                withAnimation {
+                                    selectedGenres.removeAll()
+                                    excludedGenres.removeAll()
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .id(Self.leadingAnchorID)
+                        }
 
-                    ForEach(availableGenres, id: \.self) { genre in
-                        GenreChip(
-                            title: genre,
-                            state: chipState(for: genre),
-                            onTap: { cycleState(for: genre) }
-                        )
+                        ForEach(availableGenres, id: \.self) { genre in
+                            GenreChip(
+                                title: genre,
+                                state: chipState(for: genre),
+                                onTap: {
+                                    cycleState(for: genre)
+                                    // Snap to leading edge so the clear button
+                                    // appearing doesn't shift visible chips
+                                    withAnimation {
+                                        proxy.scrollTo(availableGenres.first, anchor: .leading)
+                                    }
+                                }
+                            )
+                        }
                     }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
             }
             .frame(height: 36)
         }
