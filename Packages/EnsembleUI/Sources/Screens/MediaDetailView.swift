@@ -905,11 +905,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// process rootView updates, so dynamic content gets stuck.
     private var tableHeaderForTrackList: some View {
         VStack(spacing: 0) {
-            headerView
-            actionButtons
             if let genreChipContent {
                 genreChipContent
             }
+            headerView
+            actionButtons
         }
     }
 }
