@@ -60,6 +60,17 @@ library://{libraryUUID}/directory//library/metadata/{ratingKey}/allLeaves
 ```
 
 
+## Library Section Keys
+
+Plex assigns section keys as **per-server sequential integers** (e.g., "3", "5", "7"). The same key can refer to completely different libraries on different servers. A single Plex account can have multiple servers, so when resolving a library key to a title, **always match on server ID + library key together**.
+
+Example from a real setup (one account, two servers):
+- Hiigel-Server: key=5 → "Music"
+- Minibar: key=5 → "Christian Music", key=3 → "Music"
+
+Hub IDs encode this as `plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}`. Extract `serverId` (component 2) and `libraryKey` (component 3) together when looking up library metadata.
+
+
 ## CRITICAL: Test Endpoints with curl FIRST
 
 **Before making ANY code changes to streaming or playback, test the Plex endpoints with curl.** This is non-negotiable. A `.env` file at the project root contains `PLEX_ACCESS_TOKEN` for testing.
