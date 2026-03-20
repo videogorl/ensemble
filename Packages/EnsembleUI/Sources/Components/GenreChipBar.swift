@@ -12,8 +12,6 @@ public struct GenreChipBar: View {
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
 
-    private static let leadingAnchorID = "genre-chip-bar-leading"
-
     public init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
@@ -32,44 +30,36 @@ public struct GenreChipBar: View {
 
     public var body: some View {
         if availableGenres.count >= 2 {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        // Clear button — only present when chips are active.
-                        // Scroll snaps to leading edge on tap, so the insertion
-                        // of this button doesn't cause a jarring layout shift.
-                        if hasActiveChips {
-                            Button {
-                                withAnimation {
-                                    selectedGenres.removeAll()
-                                    excludedGenres.removeAll()
-                                }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .id(Self.leadingAnchorID)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    // Clear button — animates width to/from zero so it doesn't
+                    // cause a jarring shift when chips are toggled mid-scroll
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedGenres.removeAll()
+                            excludedGenres.removeAll()
                         }
-
-                        ForEach(availableGenres, id: \.self) { genre in
-                            GenreChip(
-                                title: genre,
-                                state: chipState(for: genre),
-                                onTap: {
-                                    cycleState(for: genre)
-                                    // Snap to leading edge so the clear button
-                                    // appearing doesn't shift visible chips
-                                    withAnimation {
-                                        proxy.scrollTo(availableGenres.first, anchor: .leading)
-                                    }
-                                }
-                            )
-                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.horizontal)
+                    .buttonStyle(.plain)
+                    .frame(width: hasActiveChips ? nil : 0)
+                    .clipped()
+                    .opacity(hasActiveChips ? 1 : 0)
+                    .disabled(!hasActiveChips)
+                    .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
+
+                    ForEach(availableGenres, id: \.self) { genre in
+                        GenreChip(
+                            title: genre,
+                            state: chipState(for: genre),
+                            onTap: { cycleState(for: genre) }
+                        )
+                    }
                 }
+                .padding(.horizontal)
             }
             .frame(height: 36)
         }
