@@ -2,19 +2,20 @@ import AudioToolbox
 import AVFoundation
 import Combine
 
-/// Isolated AVAudioEngine wrapper that removes vocals via vocal subtraction.
+/// Isolated AVAudioEngine wrapper that removes vocals using AUSoundIsolation.
 /// Completely separate from the AVQueuePlayer path -- used only when instrumental mode is active.
 ///
-/// Vocal subtraction technique:
-///   AUSoundIsolation extracts vocals (soundToIsolate=1, wetDry=100).
-///   We mix the original audio with the phase-inverted vocal extraction.
-///   original + (-vocals) = instrumentals.
+/// AUSoundIsolation parameters (discovered via runtime enumeration):
+///   Address 0: "Wet/Dry Mix" (range -100.0 to 100.0)
+///   Address 1: "Sound to Isolate" (range 0.0 to 1.0)
+///
+/// Strategy: isolate vocals (soundToIsolate=1) then use negative wetDryMix (-100)
+/// to phase-invert the vocal extraction and mix it with the original signal internally.
+/// This cancels the vocals, leaving only instrumentals -- all within the AU itself.
 ///
 /// Audio graph:
 /// ```
-///                    ┌──> AUSoundIsolation ──> vocalsMixer (volume = -1) ──┐
-/// playerNode ──split─┤                                                     ├──> mainMixer ──> output
-///                    └──> originalMixer (volume = 1) ─────────────────────┘
+/// AVAudioPlayerNode -> AVAudioUnitEffect(AUSoundIsolation) -> mainMixerNode -> outputNode
 /// ```
 public final class InstrumentalAudioEngine {
     // MARK: - Properties
@@ -22,13 +23,6 @@ public final class InstrumentalAudioEngine {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private var isolationEffect: AVAudioUnitEffect?
-    /// Mixer node for the phase-inverted vocal path (volume = -1)
-    private let vocalsMixer = AVAudioMixerNode()
-    /// Delay node on the original path to compensate for AUSoundIsolation's neural network latency.
-    /// Without this, the vocal path arrives late and you get an echo instead of cancellation.
-    private let latencyDelay = AVAudioUnitDelay()
-    /// Mixer node for the original (unprocessed) audio path
-    private let originalMixer = AVAudioMixerNode()
     private var audioFile: AVAudioFile?
 
     /// Frame offset from which the current segment was scheduled
@@ -51,7 +45,7 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Setup
 
-    /// Build the dual-path vocal subtraction audio graph
+    /// Build the audio graph: playerNode -> AUSoundIsolation -> mixer -> output
     func setup() throws {
         guard !isSetUp else { return }
 
@@ -70,100 +64,51 @@ public final class InstrumentalAudioEngine {
         let effect = AVAudioUnitEffect(audioComponentDescription: desc)
         isolationEffect = effect
 
-        // Configure AUSoundIsolation to output isolated vocals:
-        //   Address 0 "Wet/Dry Mix": 100 = fully processed (vocals only)
-        //   Address 1 "Sound to Isolate": 1.0 = isolate vocals
-        let paramTree = effect.auAudioUnit.parameterTree
-        paramTree?.parameter(withAddress: 0)?.value = 100.0
-        paramTree?.parameter(withAddress: 1)?.value = 1.0
+        #if DEBUG
+        if let tree = effect.auAudioUnit.parameterTree {
+            for param in tree.allParameters {
+                EnsembleLogger.debug("[InstrumentalEngine] Parameter: address=\(param.address), identifier='\(param.identifier)', name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
+            }
+        }
+        #endif
 
-        // Attach all nodes
+        // Configure AUSoundIsolation:
+        //   soundToIsolate = 1.0 (isolate vocals)
+        //   wetDryMix = -100.0 (phase-invert the isolated vocals and mix with original)
+        //   Result: original + (-vocals) = instrumentals, all within the AU
+        applyIsolationParameters(to: effect)
+
+        // Attach nodes
         engine.attach(playerNode)
         engine.attach(effect)
-        engine.attach(vocalsMixer)
-        engine.attach(latencyDelay)
-        engine.attach(originalMixer)
 
-        // Configure the delay node: zero feedback, zero wet, just pure delay.
-        // The actual delay time is set in connectGraph() after we can read the
-        // AU's latency property.
-        latencyDelay.delayTime = 0  // Will be set from AU latency
-        latencyDelay.feedback = 0   // No echo/repeat
-        latencyDelay.wetDryMix = 100 // 100% wet = fully delayed signal
-        latencyDelay.lowPassCutoff = 20000 // Pass everything through
-
-        // Build the dual-path graph using the default engine format initially.
-        // load() will reconnect with the file's actual format.
+        // Simple linear graph: playerNode -> effect -> mainMixer -> output
         let mainMixer = engine.mainMixerNode
         let format = mainMixer.outputFormat(forBus: 0)
-        connectGraph(format: format)
-
-        // Phase-invert the vocals path: original + (-vocals) = instrumentals
-        vocalsMixer.outputVolume = -1.0
-        originalMixer.outputVolume = 1.0
+        engine.connect(playerNode, to: effect, format: format)
+        engine.connect(effect, to: mainMixer, format: format)
 
         isSetUp = true
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Vocal subtraction graph built (original - vocals = instrumentals)")
+        EnsembleLogger.debug("[InstrumentalEngine] Graph: playerNode -> AUSoundIsolation(wetDry=-100, isolate=vocals) -> mixer")
         #endif
     }
 
-    /// Connect (or reconnect) the dual-path graph with the given audio format
-    private func connectGraph(format: AVAudioFormat) {
-        guard let effect = isolationEffect else { return }
-        let mainMixer = engine.mainMixerNode
+    /// Apply vocal removal parameters to the AUSoundIsolation effect
+    private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
+        let target = effect ?? isolationEffect
+        guard let target else { return }
+        let paramTree = target.auAudioUnit.parameterTree
 
-        // Disconnect everything first to avoid duplicate connections
-        engine.disconnectNodeOutput(playerNode)
-        engine.disconnectNodeOutput(effect)
-        engine.disconnectNodeOutput(vocalsMixer)
-        engine.disconnectNodeOutput(latencyDelay)
-        engine.disconnectNodeOutput(originalMixer)
-
-        // Split playerNode output to two paths:
-        //   Path A: effect (vocal isolation) -> vocalsMixer (inverted) -> mainMixer bus 0
-        //   Path B: latencyDelay -> originalMixer (original audio) -> mainMixer bus 1
-        let toEffect = AVAudioConnectionPoint(node: effect, bus: 0)
-        let toDelay = AVAudioConnectionPoint(node: latencyDelay, bus: 0)
-        engine.connect(playerNode, to: [toEffect, toDelay], fromBus: 0, format: format)
-
-        // Vocal path: effect -> vocalsMixer -> mainMixer bus 0
-        engine.connect(effect, to: vocalsMixer, format: format)
-        engine.connect(vocalsMixer, to: mainMixer, fromBus: 0, toBus: 0, format: format)
-
-        // Original path: latencyDelay -> originalMixer -> mainMixer bus 1
-        engine.connect(latencyDelay, to: originalMixer, format: format)
-        engine.connect(originalMixer, to: mainMixer, fromBus: 0, toBus: 1, format: format)
-
-        // Read the AU's processing latency and compensate on the original path.
-        // AUSoundIsolation's neural network introduces latency; without compensation
-        // you get an echo instead of cancellation.
-        let auLatency = effect.auAudioUnit.latency  // in seconds
-        latencyDelay.delayTime = auLatency
-
-        #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] AU latency=\(String(format: "%.4f", auLatency))s, delay compensation applied")
-        #endif
-
-        // Ensure isolation parameters are set after reconnection
-        applyIsolationParameters()
-    }
-
-    /// Apply the AUSoundIsolation parameters. Called after any reconnection
-    /// that might reset the AU's internal state.
-    private func applyIsolationParameters() {
-        guard let effect = isolationEffect else { return }
-        let paramTree = effect.auAudioUnit.parameterTree
-
-        // Isolate vocals (we'll phase-invert and subtract them)
-        paramTree?.parameter(withAddress: 1)?.value = 1.0   // Sound to Isolate = vocals
-        paramTree?.parameter(withAddress: 0)?.value = 100.0  // Wet/Dry = fully processed
+        // Isolate vocals, then phase-invert via negative wet/dry mix
+        paramTree?.parameter(withAddress: 1)?.value = 1.0     // Sound to Isolate = vocals
+        paramTree?.parameter(withAddress: 0)?.value = -100.0   // Negative = invert isolated + mix with dry
 
         #if DEBUG
         let wetDry = paramTree?.parameter(withAddress: 0)?.value ?? -999
         let isolate = paramTree?.parameter(withAddress: 1)?.value ?? -999
-        EnsembleLogger.debug("[InstrumentalEngine] Parameters applied -- wetDry=\(wetDry), soundToIsolate=\(isolate)")
+        EnsembleLogger.debug("[InstrumentalEngine] Parameters: wetDry=\(wetDry), soundToIsolate=\(isolate)")
         #endif
     }
 
@@ -175,11 +120,17 @@ public final class InstrumentalAudioEngine {
         audioFile = file
         sampleRate = file.processingFormat.sampleRate
 
-        // Reconnect the graph with the file's actual format
-        connectGraph(format: file.processingFormat)
+        // Reconnect with the file's format
+        if let effect = isolationEffect {
+            engine.connect(playerNode, to: effect, format: file.processingFormat)
+            engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
+        }
+
+        // Re-apply parameters after reconnection
+        applyIsolationParameters()
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Loaded file: \(fileURL.lastPathComponent), sampleRate=\(sampleRate), frames=\(file.length)")
+        EnsembleLogger.debug("[InstrumentalEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length)")
         #endif
     }
 
@@ -198,7 +149,6 @@ public final class InstrumentalAudioEngine {
             return
         }
 
-        // Bump generation so any in-flight completion from the previous schedule is ignored
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
 
@@ -222,7 +172,7 @@ public final class InstrumentalAudioEngine {
             try engine.start()
         }
 
-        // Re-apply parameters after engine start in case it resets AU state
+        // Re-apply after engine start
         applyIsolationParameters()
 
         playerNode.play()
@@ -261,7 +211,6 @@ public final class InstrumentalAudioEngine {
 
     /// Stop playback and clean up
     func stop() {
-        // Bump generation so any in-flight completion callbacks are ignored
         scheduleGeneration &+= 1
         stopTimeUpdates()
         playerNode.stop()
@@ -283,7 +232,6 @@ public final class InstrumentalAudioEngine {
 
         let wasPlayingBeforeSeek = wasPlaying || playerNode.isPlaying
 
-        // Bump generation so the old segment's completion callback is ignored
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
 
@@ -298,6 +246,110 @@ public final class InstrumentalAudioEngine {
 
         seekFrameOffset = startFrame
         let frameCount = AVAudioFrameCount(totalFrames - startFrame)
+
+        file.framePosition = startFrame
+        playerNode.scheduleSegment(
+            file,
+            startingFrame: startFrame,
+            frameCount: frameCount,
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSegmentComplete(generation: myGeneration)
+            }
+        }
+
+        if wasPlayingBeforeSeek {
+            if !engine.isRunning {
+                try engine.start()
+            }
+            playerNode.play()
+            wasPlaying = true
+            startTimeUpdates()
+        }
+
+        currentTimeSubject.send(time)
+
+        #if DEBUG
+        EnsembleLogger.debug("[InstrumentalEngine] Seeked to \(String(format: "%.1f", time))s")
+        #endif
+    }
+
+    // MARK: - Time Tracking
+
+    /// Compute current playback time from player node render position
+    func currentTime() -> TimeInterval {
+        guard let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+            return TimeInterval(seekFrameOffset) / sampleRate
+        }
+        let framePosition = playerTime.sampleTime + seekFrameOffset
+        return TimeInterval(framePosition) / sampleRate
+    }
+
+    private func startTimeUpdates() {
+        stopTimeUpdates()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let time = self.currentTime()
+            self.currentTimeSubject.send(time)
+        }
+        timer.resume()
+        timeUpdateTimer = timer
+    }
+
+    private func stopTimeUpdates() {
+        timeUpdateTimer?.cancel()
+        timeUpdateTimer = nil
+    }
+
+    // MARK: - Completion Handling
+
+    private func handleSegmentComplete(generation: UInt64) {
+        guard generation == scheduleGeneration else {
+            #if DEBUG
+            EnsembleLogger.debug("[InstrumentalEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
+            #endif
+            return
+        }
+        guard wasPlaying else { return }
+        wasPlaying = false
+        stopTimeUpdates()
+
+        #if DEBUG
+        EnsembleLogger.debug("[InstrumentalEngine] Segment complete -- triggering track advance")
+        #endif
+
+        onPlaybackComplete?()
+    }
+
+    // MARK: - Cleanup
+
+    deinit {
+        stopTimeUpdates()
+        playerNode.stop()
+        engine.stop()
+    }
+}
+
+// MARK: - Errors
+
+public enum InstrumentalEngineError: Error, LocalizedError {
+    case soundIsolationUnavailable
+    case noFileLoaded
+
+    public var errorDescription: String? {
+        switch self {
+        case .soundIsolationUnavailable:
+            return "AUSoundIsolation audio unit is not available on this device"
+        case .noFileLoaded:
+            return "No audio file has been loaded"
+        }
+    }
+}
+es - startFrame)
 
         file.framePosition = startFrame
         playerNode.scheduleSegment(
