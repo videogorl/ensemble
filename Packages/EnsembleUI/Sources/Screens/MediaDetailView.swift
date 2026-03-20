@@ -70,6 +70,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
+    let additionalFooterContent: AnyView?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
@@ -100,7 +101,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         mediaType: PinnedItemType? = nil,
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
-        albumMenuActions: AlbumDetailMenuActions? = nil
+        albumMenuActions: AlbumDetailMenuActions? = nil,
+        additionalFooterContent: AnyView? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -114,6 +116,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
+        self.additionalFooterContent = additionalFooterContent
     }
 
     public var body: some View {
@@ -787,7 +790,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             managesOwnScrolling: true,
             bottomContentInset: 140,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
-            tableFooterContent: AnyView(emptyStateFooter),
+            tableFooterContent: AnyView(VStack(spacing: 0) {
+                emptyStateFooter
+                if let additionalFooterContent { additionalFooterContent }
+            }),
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)

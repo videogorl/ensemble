@@ -385,7 +385,9 @@ public struct AlbumsView: View {
 public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
-    
+    @State private var isBioExpanded = false
+    @Environment(\.openURL) private var openURL
+
     private let album: Album
 
     public init(album: Album, nowPlayingVM: NowPlayingViewModel) {
@@ -412,21 +414,26 @@ public struct AlbumDetailView: View {
                 onPlayLast: {
                     nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
-            )
+            ),
+            additionalFooterContent: AnyView(albumMetadataFooter)
         )
+        .task {
+            await viewModel.loadAlbumDetail()
+            await viewModel.loadRelatedAlbums()
+        }
     }
-    
+
     private var headerData: MediaHeaderData {
         var metadataParts: [String] = []
-        
+
         if let year = album.year {
             metadataParts.append(String(year))
         }
-        
+
         if !viewModel.tracks.isEmpty {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
         }
-        
+
         return MediaHeaderData(
             title: album.title,
             subtitle: album.artistName,
@@ -436,5 +443,171 @@ public struct AlbumDetailView: View {
             ratingKey: album.id,
             artistRatingKey: album.artistRatingKey
         )
+    }
+
+    // MARK: - Album Metadata Footer
+
+    @ViewBuilder
+    private var albumMetadataFooter: some View {
+        let hasDetail = viewModel.albumDetail != nil
+        let hasRelated = !viewModel.relatedAlbums.isEmpty
+
+        if hasDetail || hasRelated {
+            VStack(alignment: .leading, spacing: 24) {
+                // Album facts (genre, style, label, year)
+                if let detail = viewModel.albumDetail, hasAlbumFacts(detail) {
+                    albumFactsSection(detail)
+                }
+
+                // Description (collapsible)
+                if let summary = viewModel.albumDetail?.summary, !summary.isEmpty {
+                    albumDescriptionSection(summary: summary)
+                }
+
+                // Wikipedia link
+                if let url = viewModel.albumDetail?.wikipediaURL {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.forward.app")
+                            Text("Wikipedia")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.accentColor)
+                    }
+                }
+
+                // Related albums by same artist
+                if hasRelated {
+                    relatedAlbumsSection
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private func hasAlbumFacts(_ detail: AlbumDetail) -> Bool {
+        !detail.genres.isEmpty || !detail.styles.isEmpty || detail.studio != nil
+    }
+
+    private func albumFactsSection(_ detail: AlbumDetail) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("About This Album")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            VStack(alignment: .leading, spacing: 10) {
+                if !detail.genres.isEmpty {
+                    albumFactRow(label: "Genre", value: detail.genres.joined(separator: ", "))
+                }
+                if !detail.styles.isEmpty {
+                    albumFactRow(label: "Style", value: detail.styles.joined(separator: ", "))
+                }
+                if let studio = detail.studio {
+                    albumFactRow(label: "Label", value: studio)
+                }
+                if let year = album.year {
+                    albumFactRow(label: "Year", value: String(year))
+                }
+            }
+        }
+    }
+
+    private func albumFactRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .frame(width: 50, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+        }
+    }
+
+    private func albumDescriptionSection(summary: String) -> some View {
+        // Plex sends paragraphs separated by \r\n; split on any newline variant
+        let paragraphs = summary
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Description")
+                .font(.headline)
+                .foregroundColor(.secondary)
+
+            // Tappable description text
+            VStack(alignment: .leading, spacing: 0) {
+                if isBioExpanded {
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                        Text(paragraph)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, index > 0 ? 12 : 0)
+                    }
+                } else {
+                    Text(paragraphs.first ?? summary)
+                        .font(.body)
+                        .foregroundColor(.primary)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isBioExpanded.toggle()
+                }
+            }
+
+            // Expand/collapse link
+            if paragraphs.count > 1 || summary.count > 200 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isBioExpanded.toggle()
+                    }
+                } label: {
+                    Text(isBioExpanded ? "Show less" : "Read more")
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.accentColor)
+                }
+            }
+        }
+    }
+
+    // MARK: - Related Albums
+
+    private var relatedAlbumsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("More by \(album.artistName ?? "Artist")")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(viewModel.relatedAlbums) { relatedAlbum in
+                        if #available(iOS 16.0, macOS 13.0, *) {
+                            NavigationLink(value: NavigationCoordinator.Destination.album(id: relatedAlbum.id)) {
+                                AlbumCard(album: relatedAlbum)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink {
+                                AlbumDetailView(album: relatedAlbum, nowPlayingVM: nowPlayingVM)
+                            } label: {
+                                AlbumCard(album: relatedAlbum)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

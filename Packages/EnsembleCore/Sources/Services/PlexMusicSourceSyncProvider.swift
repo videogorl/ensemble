@@ -801,4 +801,11 @@ public func getStreamURL(
         }
         return ArtistDetail(from: plexDetail)
     }
+
+    public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? {
+        guard let plexDetail = try await apiClient.getAlbumDetail(albumKey: albumKey) else {
+            return nil
+        }
+        return AlbumDetail(from: plexDetail)
+    }
 }

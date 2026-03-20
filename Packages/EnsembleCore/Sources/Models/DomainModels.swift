@@ -359,6 +359,45 @@ public struct ArtistDetail: Sendable {
     }
 }
 
+// MARK: - Album Detail (enriched metadata)
+
+/// Rich album metadata fetched on-demand from the single-item metadata endpoint.
+/// Contains tag-based fields (genres, styles, studio/label) not available in
+/// the lightweight section listing.
+public struct AlbumDetail: Sendable {
+    public let genres: [String]
+    public let styles: [String]
+    public let studio: String?       // Record label
+    public let summary: String?
+    public let albumTitle: String
+    public let artistName: String?
+
+    /// Wikipedia URL derived from the album title
+    public var wikipediaURL: URL? {
+        let encoded = albumTitle
+            .replacingOccurrences(of: " ", with: "_")
+            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        guard let encoded else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)_(album)")
+    }
+
+    public init(
+        genres: [String] = [],
+        styles: [String] = [],
+        studio: String? = nil,
+        summary: String? = nil,
+        albumTitle: String = "",
+        artistName: String? = nil
+    ) {
+        self.genres = genres
+        self.styles = styles
+        self.studio = studio
+        self.summary = summary
+        self.albumTitle = albumTitle
+        self.artistName = artistName
+    }
+}
+
 // MARK: - Genre
 
 public struct Genre: Identifiable, Hashable, Sendable, Codable {

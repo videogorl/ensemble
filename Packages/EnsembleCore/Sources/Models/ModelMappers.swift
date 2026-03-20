@@ -238,6 +238,20 @@ public extension ArtistDetail {
     }
 }
 
+public extension AlbumDetail {
+    /// Maps the rich PlexAlbumDetail response into a lightweight domain model
+    init(from plex: PlexAlbumDetail) {
+        self.init(
+            genres: plex.genre?.map(\.tag) ?? [],
+            styles: plex.style?.map(\.tag) ?? [],
+            studio: plex.studio,
+            summary: plex.summary,
+            albumTitle: plex.title,
+            artistName: plex.parentTitle
+        )
+    }
+}
+
 public extension Genre {
     init(from plex: PlexGenre) {
         self.init(

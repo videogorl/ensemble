@@ -288,6 +288,33 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Album Detail (full metadata from /library/metadata/{id})
+
+/// Rich album metadata returned by the single-item metadata endpoint.
+/// Includes tag-based fields (Genre, Style) and external GUIDs
+/// that are not present in the lightweight section listing response.
+public struct PlexAlbumDetail: Codable, Sendable {
+    public let ratingKey: String
+    public let key: String
+    public let title: String
+    public let parentTitle: String?  // Artist name
+    public let summary: String?
+    public let year: Int?
+    public let originallyAvailableAt: String?
+    public let studio: String?       // Record label
+    public let genre: [PlexTag]?
+    public let style: [PlexTag]?
+    public let guid: [PlexGuid]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey, key, title, parentTitle, summary, year
+        case originallyAvailableAt, studio
+        case genre = "Genre"
+        case style = "Style"
+        case guid = "Guid"
+    }
+}
+
 // MARK: - Track
 
 public struct PlexTrack: Codable, Sendable, Identifiable {

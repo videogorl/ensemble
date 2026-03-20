@@ -458,6 +458,17 @@ public actor PlexAPIClient {
         return container.mediaContainer.items.first
     }
 
+    /// Get detailed album metadata (genres, styles, studio, GUIDs).
+    /// Uses the single-item metadata endpoint which returns richer data than the section listing.
+    public func getAlbumDetail(albumKey: String) async throws -> PlexAlbumDetail? {
+        let data = try await serverRequest(path: "/library/metadata/\(albumKey)")
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexAlbumDetail>.self,
+            from: data
+        )
+        return container.mediaContainer.items.first
+    }
+
     /// Get albums by an artist
     public func getArtistAlbums(artistKey: String) async throws -> [PlexAlbum] {
         let data = try await serverRequest(path: "/library/metadata/\(artistKey)/children")

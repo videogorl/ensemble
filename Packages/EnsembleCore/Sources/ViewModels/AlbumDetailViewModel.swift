@@ -26,6 +26,13 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
+    /// Rich metadata loaded on-demand from the single-item metadata endpoint
+    @Published public private(set) var albumDetail: AlbumDetail?
+    /// Albums by the same artist, excluding the current album
+    @Published public private(set) var relatedAlbums: [Album] = []
+    /// Whether detail metadata is still loading
+    @Published public private(set) var isLoadingDetail = false
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
@@ -82,6 +89,39 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoading = false
     }
     
+    /// Loads rich album metadata (genres, styles, studio/label) from the API
+    public func loadAlbumDetail() async {
+        guard let sourceKey = album.sourceCompositeKey else { return }
+        isLoadingDetail = true
+
+        do {
+            let detail = try await syncCoordinator.getAlbumDetail(albumId: album.id, sourceKey: sourceKey)
+            albumDetail = detail
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadAlbumDetail error: \(error.localizedDescription)")
+            #endif
+        }
+
+        isLoadingDetail = false
+    }
+
+    /// Loads albums by the same artist, excluding the current album
+    public func loadRelatedAlbums() async {
+        guard let artistId = album.artistRatingKey else { return }
+
+        do {
+            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            relatedAlbums = cachedAlbums
+                .map { Album(from: $0) }
+                .filter { $0.id != album.id }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadRelatedAlbums error: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
