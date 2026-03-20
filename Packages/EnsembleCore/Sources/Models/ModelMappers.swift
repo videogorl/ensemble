@@ -112,6 +112,10 @@ public extension Track {
             return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
         }
 
+        // Parse genre names: stored as comma-separated string, fall back to album's genres
+        let genreString = cd.genreNames ?? cd.album?.genreNames
+        let trackGenres: [String] = genreString?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? []
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -136,6 +140,7 @@ public extension Track {
             lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
             playCount: Int(cd.playCount),
+            genres: trackGenres,
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
@@ -156,7 +161,8 @@ public extension Album {
             artPath: plex.art,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0
+            rating: 0,
+            genres: plex.genreNames
         )
     }
 
@@ -180,6 +186,7 @@ public extension Album {
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             rating: Int(cd.rating),
+            genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }

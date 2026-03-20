@@ -131,7 +131,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumMap.count) from server, \(albumsToSync.count) actually changed")
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
+        // Build album genre lookup for incremental track upserts
+        var incrementalAlbumGenres: [String: String] = [:]
         for album in albumsToSync {
+            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+            if let genreString = genreString {
+                incrementalAlbumGenres[album.ratingKey] = genreString
+            }
             _ = try await repository.upsertAlbum(
                 ratingKey: album.ratingKey,
                 key: album.key,
@@ -147,6 +153,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: 0,
+                genreNames: genreString,
                 sourceCompositeKey: sourceKey
             )
         }
@@ -210,6 +217,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         #endif
         phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
+            // Copy genre from parent album (Plex doesn't return genres on tracks)
+            let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
             _ = try await repository.upsertTrack(
                 ratingKey: track.ratingKey,
                 key: track.key,
@@ -228,6 +237,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
+                genreNames: trackGenreNames,
                 sourceCompositeKey: sourceKey
             )
         }
@@ -329,8 +339,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
+        // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
+        var albumGenresByKey: [String: String] = [:]
         let albumInputs = albums.map { album in
-            AlbumUpsertInput(
+            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+            if let genreString = genreString {
+                albumGenresByKey[album.ratingKey] = genreString
+            }
+            return AlbumUpsertInput(
                 ratingKey: album.ratingKey,
                 key: album.key,
                 title: album.title,
@@ -344,7 +360,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 trackCount: album.leafCount,
                 dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: 0
+                rating: 0,
+                genreNames: genreString
             )
         }
         try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
@@ -359,7 +376,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         let trackInputs = tracks.map { track in
-            TrackUpsertInput(
+            // Copy genre from parent album (Plex doesn't return genres on tracks)
+            let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }
+            return TrackUpsertInput(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
@@ -376,7 +395,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: track.userRating.map { Int($0) } ?? 0,
-                playCount: track.viewCount ?? 0
+                playCount: track.viewCount ?? 0,
+                genreNames: trackGenreNames
             )
         }
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)

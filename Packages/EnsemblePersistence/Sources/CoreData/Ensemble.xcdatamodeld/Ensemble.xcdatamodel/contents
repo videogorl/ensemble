@@ -6,6 +6,7 @@
         <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="genreNames" optional="YES" attributeType="String"/>
         <attribute name="key" attributeType="String"/>
         <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="ratingKey" attributeType="String"/>
@@ -199,6 +200,7 @@
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="discNumber" optional="YES" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
         <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="genreNames" optional="YES" attributeType="String"/>
         <attribute name="key" attributeType="String"/>
         <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="lastRatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>

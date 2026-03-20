@@ -70,6 +70,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let lastRatedAt: Date?
     public let rating: Int
     public let playCount: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -96,6 +97,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         lastRatedAt: Date? = nil,
         rating: Int = 0,
         playCount: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -125,6 +127,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -188,6 +191,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let rating: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -204,6 +208,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         rating: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -219,6 +224,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.rating = rating
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -243,7 +249,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         lhs.year == rhs.year &&
         lhs.trackCount == rhs.trackCount &&
         lhs.thumbPath == rhs.thumbPath &&
-        lhs.rating == rhs.rating
+        lhs.rating == rhs.rating &&
+        lhs.genres == rhs.genres
     }
 
     // Hashable must be consistent with custom Equatable — hash only id.
