@@ -420,6 +420,7 @@ public struct AlbumDetailView: View {
         .task {
             await viewModel.loadAlbumDetail()
             await viewModel.loadRelatedAlbums()
+            await viewModel.loadSimilarAlbums()
         }
     }
 
@@ -451,8 +452,9 @@ public struct AlbumDetailView: View {
     private var albumMetadataFooter: some View {
         let hasDetail = viewModel.albumDetail != nil
         let hasRelated = !viewModel.relatedAlbums.isEmpty
+        let hasSimilar = !viewModel.similarAlbums.isEmpty
 
-        if hasDetail || hasRelated {
+        if hasDetail || hasRelated || hasSimilar {
             VStack(alignment: .leading, spacing: 24) {
                 // Album facts (genre, style, label, year)
                 if let detail = viewModel.albumDetail, hasAlbumFacts(detail) {
@@ -478,9 +480,14 @@ public struct AlbumDetailView: View {
                     }
                 }
 
-                // Related albums by same artist
+                // More albums by the same artist
                 if hasRelated {
-                    relatedAlbumsSection
+                    moreByArtistSection
+                }
+
+                // Similar/related albums from Plex recommendations
+                if hasSimilar {
+                    similarAlbumsSection
                 }
             }
             .padding(.horizontal, 16)
@@ -495,7 +502,7 @@ public struct AlbumDetailView: View {
 
     private func albumFactsSection(_ detail: AlbumDetail) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("About This Album")
+            Text("About \(album.title)")
                 .font(.title2)
                 .fontWeight(.bold)
 
@@ -581,9 +588,9 @@ public struct AlbumDetailView: View {
         }
     }
 
-    // MARK: - Related Albums
+    // MARK: - More by Artist / Similar Albums
 
-    private var relatedAlbumsSection: some View {
+    private var moreByArtistSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("More by \(album.artistName ?? "Artist")")
                 .font(.title2)
@@ -602,6 +609,34 @@ public struct AlbumDetailView: View {
                                 AlbumDetailView(album: relatedAlbum, nowPlayingVM: nowPlayingVM)
                             } label: {
                                 AlbumCard(album: relatedAlbum)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var similarAlbumsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Related Albums")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(viewModel.similarAlbums) { similarAlbum in
+                        if #available(iOS 16.0, macOS 13.0, *) {
+                            NavigationLink(value: NavigationCoordinator.Destination.album(id: similarAlbum.id)) {
+                                AlbumCard(album: similarAlbum)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink {
+                                AlbumDetailView(album: similarAlbum, nowPlayingVM: nowPlayingVM)
+                            } label: {
+                                AlbumCard(album: similarAlbum)
                             }
                             .buttonStyle(.plain)
                         }

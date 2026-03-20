@@ -144,11 +144,15 @@ public struct MusicSourceAccountDetailView: View {
                     }
                 }
 
-                // Feature legend
+                // Feature legend (plain text, no cell styling)
                 Section {
-                    featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
-                    featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
-                    featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
+                    VStack(alignment: .leading, spacing: 6) {
+                        featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
+                        featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
+                        featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
 
                 // Remove source

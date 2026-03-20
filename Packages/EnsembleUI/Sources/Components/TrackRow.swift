@@ -107,14 +107,6 @@ public struct TrackRow: View {
     @ViewBuilder
     private var rowContentView: some View {
         HStack(spacing: 12) {
-            // Favorite heart indicator
-            if effectiveIsFavorited {
-                Image(systemName: "heart.fill")
-                    .font(.caption2)
-                    .foregroundColor(.pink)
-                    .frame(width: 14)
-            }
-
             if showTrackNumber {
                 trackNumberView
                     .frame(width: 30)
@@ -165,6 +157,15 @@ public struct TrackRow: View {
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Favorite heart in the leading margin (doesn't shift content)
+        .overlay(alignment: .leading) {
+            if effectiveIsFavorited {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 8))
+                    .foregroundColor(.pink)
+                    .offset(x: -12)
+            }
+        }
     }
 
     // MARK: - Context Menu Items

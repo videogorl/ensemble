@@ -45,8 +45,6 @@ public class TrackTableViewCell: UITableViewCell {
 
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
-    private var artworkLeadingConstraint: NSLayoutConstraint?
-    private var trackNumberLeadingConstraint: NSLayoutConstraint?
     private var downloadIconWidthConstraint: NSLayoutConstraint?
     private var downloadIconTrailingConstraint: NSLayoutConstraint?
     private var currentTrackID: String?
@@ -119,7 +117,7 @@ public class TrackTableViewCell: UITableViewCell {
         playingIndicator.isHidden = true
         contentView.addSubview(playingIndicator)
 
-        // Favorite heart indicator (shown to the left of track number / artwork)
+        // Favorite heart indicator (positioned in existing leading margin)
         favoriteHeartView.image = UIImage(systemName: "heart.fill")
         favoriteHeartView.tintColor = .systemPink
         favoriteHeartView.contentMode = .scaleAspectFit
@@ -127,25 +125,19 @@ public class TrackTableViewCell: UITableViewCell {
         favoriteHeartView.isHidden = true
         contentView.addSubview(favoriteHeartView)
 
-        // Heart sits at leading edge; artwork/trackNumber shift right when it's visible
-        let heartLeading = favoriteHeartView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
-        let artworkLeading = artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-        let trackNumLeading = trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-        artworkLeadingConstraint = artworkLeading
-        trackNumberLeadingConstraint = trackNumLeading
-
         NSLayoutConstraint.activate([
-            heartLeading,
+            // Heart sits in the existing 16pt leading margin — no content shift
+            favoriteHeartView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
             favoriteHeartView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            favoriteHeartView.widthAnchor.constraint(equalToConstant: 12),
-            favoriteHeartView.heightAnchor.constraint(equalToConstant: 12),
+            favoriteHeartView.widthAnchor.constraint(equalToConstant: 8),
+            favoriteHeartView.heightAnchor.constraint(equalToConstant: 8),
 
-            artworkLeading,
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
 
-            trackNumLeading,
+            trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
             
@@ -192,11 +184,8 @@ public class TrackTableViewCell: UITableViewCell {
     ) {
         titleLabel.text = track.title
 
-        // Show/hide favorite heart and shift content right when visible
+        // Show/hide favorite heart (positioned in existing margin, no content shift)
         favoriteHeartView.isHidden = !isFavorited
-        let heartOffset: CGFloat = isFavorited ? 14 : 0
-        artworkLeadingConstraint?.constant = 16 + heartOffset
-        trackNumberLeadingConstraint?.constant = 16 + heartOffset
 
         // Remove old constraints
         titleLeadingConstraint?.isActive = false

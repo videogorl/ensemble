@@ -808,4 +808,9 @@ public func getStreamURL(
         }
         return AlbumDetail(from: plexDetail)
     }
+
+    public func getSimilarAlbums(albumKey: String) async throws -> [Album] {
+        let plexAlbums = try await apiClient.getSimilarAlbums(albumKey: albumKey)
+        return plexAlbums.map { Album(from: $0) }
+    }
 }

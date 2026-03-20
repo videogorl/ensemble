@@ -1547,6 +1547,15 @@ public final class SyncCoordinator: ObservableObject {
         return try await provider.getAlbumDetail(albumKey: albumId)
     }
 
+    /// Get similar/related albums from Plex's recommendation engine
+    public func getSimilarAlbums(albumId: String, sourceKey: String) async throws -> [Album] {
+        guard let provider = syncProviders[sourceKey] else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        return try await provider.getSimilarAlbums(albumKey: albumId)
+    }
+
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
         do {

@@ -30,6 +30,8 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public private(set) var albumDetail: AlbumDetail?
     /// Albums by the same artist, excluding the current album
     @Published public private(set) var relatedAlbums: [Album] = []
+    /// Similar/related albums from Plex's recommendation engine
+    @Published public private(set) var similarAlbums: [Album] = []
     /// Whether detail metadata is still loading
     @Published public private(set) var isLoadingDetail = false
 
@@ -106,18 +108,42 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoadingDetail = false
     }
 
-    /// Loads albums by the same artist, excluding the current album
+    /// Loads albums by the same artist, excluding the current album.
+    /// First tries CoreData, falls back to API if empty (same pattern as ArtistDetailViewModel.loadAlbums).
     public func loadRelatedAlbums() async {
         guard let artistId = album.artistRatingKey else { return }
 
         do {
             let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
-            relatedAlbums = cachedAlbums
-                .map { Album(from: $0) }
-                .filter { $0.id != album.id }
+            if !cachedAlbums.isEmpty {
+                relatedAlbums = cachedAlbums
+                    .map { Album(from: $0) }
+                    .filter { $0.id != album.id }
+            } else if let sourceKey = album.sourceCompositeKey {
+                // Fallback to API if not found locally
+                #if DEBUG
+                EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
+                #endif
+                let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artistId, sourceKey: sourceKey)
+                relatedAlbums = apiAlbums.filter { $0.id != album.id }
+            }
         } catch {
             #if DEBUG
             EnsembleLogger.debug("AlbumDetailViewModel.loadRelatedAlbums error: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Loads similar/related albums from Plex's recommendation engine
+    public func loadSimilarAlbums() async {
+        guard let sourceKey = album.sourceCompositeKey else { return }
+
+        do {
+            let albums = try await syncCoordinator.getSimilarAlbums(albumId: album.id, sourceKey: sourceKey)
+            similarAlbums = albums.filter { $0.id != album.id }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadSimilarAlbums error: \(error.localizedDescription)")
             #endif
         }
     }

@@ -469,6 +469,20 @@ public actor PlexAPIClient {
         return container.mediaContainer.items.first
     }
 
+    /// Get similar/related albums from Plex's recommendation engine.
+    /// Uses the /library/metadata/{id}/similar endpoint.
+    public func getSimilarAlbums(albumKey: String, limit: Int = 10) async throws -> [PlexAlbum] {
+        let data = try await serverRequest(
+            path: "/library/metadata/\(albumKey)/similar",
+            query: ["limit": String(limit)]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexAlbum>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
     /// Get albums by an artist
     public func getArtistAlbums(artistKey: String) async throws -> [PlexAlbum] {
         let data = try await serverRequest(path: "/library/metadata/\(artistKey)/children")
