@@ -182,22 +182,18 @@ public struct HubOrderingSheet: View {
         case let id where id.hasPrefix("music.popular"):
             return HubDisplayInfo(title: "Most Played", subtitle: currentValue(from: hub.title, prefix: "Most Played"), badge: nil)
 
-        // Dynamic hubs — show generic category with current value as subtitle
+        // Dynamic/contextual hubs — show generic category with current value as subtitle.
+        // These stay separate per library, so show library badge to distinguish them.
         case let id where id.hasPrefix("music.recent.artist"):
-            // Artist hubs stay separate per library; show library badge to distinguish them
-            return HubDisplayInfo(
-                title: "More by ... (artist)",
-                subtitle: hub.title,
-                badge: libraryName
-            )
+            return HubDisplayInfo(title: "More by ... (artist)", subtitle: hub.title, badge: libraryName)
         case let id where id.hasPrefix("music.top.period"):
-            return HubDisplayInfo(title: "Top Albums from ... (period)", subtitle: hub.title, badge: nil)
+            return HubDisplayInfo(title: "Top Albums from ... (period)", subtitle: hub.title, badge: libraryName)
         case let id where id.hasPrefix("music.recent.genre"):
-            return HubDisplayInfo(title: "More in ... (genre)", subtitle: hub.title, badge: nil)
+            return HubDisplayInfo(title: "More in ... (genre)", subtitle: hub.title, badge: libraryName)
         case let id where id.hasPrefix("music.recent.label"):
-            return HubDisplayInfo(title: "More from ... (record label)", subtitle: hub.title, badge: nil)
+            return HubDisplayInfo(title: "More from ... (record label)", subtitle: hub.title, badge: libraryName)
         case let id where id.hasPrefix("music.vault"):
-            return HubDisplayInfo(title: "Haven't played in ... (period)", subtitle: hub.title, badge: nil)
+            return HubDisplayInfo(title: "Haven't played in ... (period)", subtitle: hub.title, badge: libraryName)
 
         // Other hubs — show as-is
         case let id where id.hasPrefix("music.touring"):
@@ -215,11 +211,11 @@ public struct HubOrderingSheet: View {
     }
 
     /// Extract the hubIdentifier portion from a full hub ID.
-    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubIdentifier}" or "plex:{acct}:{srv}:merged:{typeId}"
+    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubIdentifier}" or "plex:{acct}:{srv}:merged:{typeId}:{title}"
     private static func extractHubIdentifier(from hubId: String) -> String {
         let components = hubId.split(separator: ":")
 
-        // Merged hub: "plex:acct:srv:merged:music.recent.added"
+        // Merged hub: "plex:acct:srv:merged:music.recent.added:Recently Added"
         if components.count >= 5, components[3] == "merged" {
             return String(components[4])
         }

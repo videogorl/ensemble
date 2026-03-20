@@ -803,8 +803,9 @@ public final class HomeViewModel: ObservableObject {
     }
 
     /// Migrate saved hub order when IDs change format (single <-> merged) after
-    /// libraries are added/removed. Matches stale IDs to current hubs by raw hub type.
-    /// Uses type-only matching with a uniqueness guard to avoid ambiguous remaps.
+    /// libraries are added/removed. Matches stale IDs to current hubs by:
+    /// 1. Raw type + title from merged ID (for contextual hubs with title in the ID)
+    /// 2. Raw type only when unambiguous (exactly one current hub with that type)
     private func migrateHubOrderIfNeeded(for sourceKey: String, currentHubs: [Hub]) {
         guard let savedOrder = hubOrderManager.loadOrder(for: sourceKey) else { return }
 
@@ -812,18 +813,35 @@ public final class HomeViewModel: ObservableObject {
         let hasStaleIds = savedOrder.contains { !currentIdSet.contains($0) }
         guard hasStaleIds else { return }
 
-        // Build lookup from rawType -> [current hub IDs]
-        var typeToCurrent: [String: [String]] = [:]
+        // Build lookups: (rawType, title) -> hubId for exact matching,
+        // rawType -> [hubId] for type-only fallback
+        var typeAndTitleLookup: [String: String] = [:]
+        var typeOnlyLookup: [String: [String]] = [:]
         for hub in currentHubs {
             let rawType = HomeViewModel.rawHubType(from: hub.id)
-            typeToCurrent[rawType, default: []].append(hub.id)
+            let title = HomeViewModel.normalizeHubTitle(hub.title)
+            typeAndTitleLookup["\(rawType)|\(title)"] = hub.id
+            typeOnlyLookup[rawType, default: []].append(hub.id)
         }
 
-        // Build remapping for stale IDs (only remap when the type maps to exactly one hub)
+        // Build remapping for stale IDs
         var remapping: [String: String] = [:]
         for savedId in savedOrder where !currentIdSet.contains(savedId) {
             let rawType = HomeViewModel.rawHubType(from: savedId)
-            if let candidates = typeToCurrent[rawType], candidates.count == 1 {
+
+            // Try type+title match using title embedded in merged IDs
+            let components = savedId.split(separator: ":")
+            if components.count >= 6, components[3] == "merged" {
+                let titleFromId = components[5...].joined(separator: ":")
+                let key = "\(rawType)|\(titleFromId)"
+                if let currentId = typeAndTitleLookup[key] {
+                    remapping[savedId] = currentId
+                    continue
+                }
+            }
+
+            // Fall back to type-only match (only when unambiguous)
+            if let candidates = typeOnlyLookup[rawType], candidates.count == 1 {
                 remapping[savedId] = candidates[0]
             }
         }
@@ -853,17 +871,12 @@ public final class HomeViewModel: ObservableObject {
         for hub in hubs {
             let serverKey = getServerKey(hub.id)
             let typeId = HomeViewModel.hubTypeIdentifier(from: hub.id)
-            // Only "More by [Artist]" hubs need to stay separate across libraries,
-            // because each library may have a different artist. Genre, label, and
-            // generic hubs should still merge their items.
-            let isArtistHub = typeId.hasPrefix("music.recent.artist")
-            let groupingKey: String
-            if isArtistHub {
-                let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
-                groupingKey = "\(serverKey)|\(typeId)|\(normalizedTitle)"
-            } else {
-                groupingKey = "\(serverKey)|\(typeId)"
-            }
+            // Include normalized title in the grouping key so contextual hubs from
+            // different libraries stay separate ("More by Gorillaz" vs "More by Tricia Brock",
+            // "More in Pop/Rock" vs "More in Religious"). Generic hubs still merge because
+            // normalizeHubTitle strips " in {Library}" suffix.
+            let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
+            let groupingKey = "\(serverKey)|\(typeId)|\(normalizedTitle)"
 
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
@@ -908,7 +921,7 @@ public final class HomeViewModel: ObservableObject {
 
                 let typeId = HomeViewModel.hubTypeIdentifier(from: firstHub.id)
                 let mergedHub = Hub(
-                    id: "\(serverKey):merged:\(typeId)",
+                    id: "\(serverKey):merged:\(typeId):\(normalizedTitle)",
                     title: normalizedTitle,
                     type: firstHub.type,
                     items: Array(allItems.prefix(40)),
@@ -1043,10 +1056,16 @@ public final class HomeViewModel: ObservableObject {
         for account in accountManager.plexAccounts {
             for server in account.servers {
                 if let library = server.libraries.first(where: { $0.key == libraryKey }) {
+                    #if DEBUG
+                    EnsembleLogger.debug("[HubOrder] libraryName lookup: hubId=\(hubId) libKey=\(libraryKey) -> \(library.title)")
+                    #endif
                     return library.title
                 }
             }
         }
+        #if DEBUG
+        EnsembleLogger.debug("[HubOrder] libraryName lookup MISS: hubId=\(hubId) libKey=\(libraryKey) available=\(accountManager.plexAccounts.flatMap { $0.servers.flatMap { $0.libraries.map { "\($0.key)=\($0.title)" } } })")
+        #endif
         return nil
     }
 
