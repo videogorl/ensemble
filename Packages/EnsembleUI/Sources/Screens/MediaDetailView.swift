@@ -509,39 +509,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .ignoresSafeArea()
 
             #if os(iOS)
-            // Loading/empty states use pure SwiftUI (not the UIKit table) to
-            // avoid UIHostingController tableHeaderView refresh issues.
-            if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        headerView
-                        actionButtons
-                        if let genreChipContent {
-                            genreChipContent
-                        }
-                        ProgressView()
-                            .padding(.top, 40)
-                    }
-                }
+            // Always use MediaTrackList (UITableView), even with 0 tracks.
+            // Loading/empty indicators are shown via tableFooterContent.
+            // This keeps the header (genre chips + artwork + buttons) in a single
+            // code path with consistent safe area handling.
+            tracksSection
                 .ignoresSafeArea(.container, edges: .top)
-            } else if viewModel.filteredTracks.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        headerView
-                        actionButtons
-                        if let genreChipContent {
-                            genreChipContent
-                        }
-                        Text("No tracks")
-                            .foregroundColor(.secondary)
-                            .padding(.top, 40)
-                    }
-                }
-                .ignoresSafeArea(.container, edges: .top)
-            } else {
-                tracksSection
-                    .ignoresSafeArea(.container, edges: .top)
-            }
             #else
             ScrollView {
                 VStack(spacing: 0) {
@@ -779,6 +752,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    /// Footer content shown when the track list is loading or empty.
+    /// Displayed as the UITableView's tableFooterView so the header stays
+    /// in the same position regardless of track count.
+    @ViewBuilder
+    private var emptyStateFooter: some View {
+        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+            ProgressView()
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity)
+        } else if viewModel.filteredTracks.isEmpty {
+            Text("No tracks")
+                .foregroundColor(.secondary)
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
@@ -797,6 +787,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             managesOwnScrolling: true,
             bottomContentInset: 140,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableFooterContent: AnyView(emptyStateFooter),
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
@@ -909,9 +900,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
     /// Scrolls with the track list while preserving cell recycling.
-    /// IMPORTANT: Keep this static (no conditionals that change after load).
-    /// UIHostingController embedded as tableHeaderView doesn't reliably
-    /// process rootView updates, so dynamic content gets stuck.
+    /// The header is structurally identical across all states (loading, empty, populated)
+    /// so the genre chips and artwork maintain consistent positioning.
     private var tableHeaderForTrackList: some View {
         VStack(spacing: 0) {
             if let genreChipContent {

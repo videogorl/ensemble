@@ -336,6 +336,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
+    /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
+    /// Used to show loading/empty indicators below the track list while keeping
+    /// the header (chips + artwork + buttons) structurally identical across all states.
+    let tableFooterContent: AnyView?
     /// When provided, a UISearchController is attached to the navigation bar —
     /// hidden by default, revealed on pull-down like Apple Music / Settings.
     /// The binding syncs the search text back to the parent view model.
@@ -355,6 +359,7 @@ public struct MediaTrackList: UIViewRepresentable {
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
         tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
@@ -381,6 +386,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
         self.tableHeaderContent = tableHeaderContent
+        self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
@@ -459,6 +465,21 @@ public struct MediaTrackList: UIViewRepresentable {
             hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
             tableView.tableHeaderView = hostingController.view
             context.coordinator.headerHostingController = hostingController
+        }
+
+        // Install optional SwiftUI table footer (loading/empty indicators).
+        if let tableFooterContent {
+            let footerHost = UIHostingController(rootView: tableFooterContent)
+            footerHost.view.backgroundColor = .clear
+            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+            let fittingSize = footerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            footerHost.view.frame = CGRect(origin: .zero, size: fittingSize)
+            tableView.tableFooterView = footerHost.view
+            context.coordinator.footerHostingController = footerHost
         }
 
         // When a search binding is provided, set up a UISearchController once the
@@ -542,6 +563,25 @@ public struct MediaTrackList: UIViewRepresentable {
             if abs(headerView.frame.height - fittingSize.height) > 1 {
                 headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
                 tableView.tableHeaderView = headerView
+            }
+        }
+
+        // Update table footer view size (mirrors header resize logic above).
+        if let footerHost = context.coordinator.footerHostingController,
+           let footerView = tableView.tableFooterView,
+           tableView.bounds.width > 0 {
+            if let tableFooterContent {
+                footerHost.rootView = tableFooterContent
+            }
+            let targetWidth = tableView.bounds.width
+            let fittingSize = footerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            if abs(footerView.frame.height - fittingSize.height) > 1 {
+                footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                tableView.tableFooterView = footerView
             }
         }
 
@@ -650,6 +690,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
+        /// Retains the UIHostingController used for the table footer view
+        var footerHostingController: UIHostingController<AnyView>?
         /// Pending search binding — set before the table is in a window, consumed
         /// once the UISearchController is attached to the navigation item.
         var pendingSearchBinding: Binding<String>?
