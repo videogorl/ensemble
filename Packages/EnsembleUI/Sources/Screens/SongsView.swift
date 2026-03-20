@@ -183,7 +183,9 @@ public struct SongsView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.tracksFilterOptions
+                filterOptions: $libraryVM.tracksFilterOptions,
+                availableGenres: libraryVM.availableTrackGenres,
+                showGenreFilter: true
             )
         }
         .sheet(isPresented: $showingManageSources) {
@@ -292,6 +294,10 @@ public struct SongsView: View {
                 ScrollViewReader { proxy in
                     ZStack(alignment: .trailing) {
                         ScrollView {
+                            GenreChipBar(
+                                availableGenres: libraryVM.availableTrackGenres,
+                                selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres
+                            )
                             indexedTrackListContent
                         }
                         .miniPlayerBottomSpacing(140)
@@ -313,7 +319,13 @@ public struct SongsView: View {
                 // Non-indexed mode: UITableView manages its own scrolling directly.
                 // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
                 // that was forcing all 1500+ rows to be laid out simultaneously.
-                unsortedTrackListContent
+                VStack(spacing: 0) {
+                    GenreChipBar(
+                        availableGenres: libraryVM.availableTrackGenres,
+                        selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres
+                    )
+                    unsortedTrackListContent
+                }
             }
         }
         .sheet(item: $playlistPickerPayload) { payload in

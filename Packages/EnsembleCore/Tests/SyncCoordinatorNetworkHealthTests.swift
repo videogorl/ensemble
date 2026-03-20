@@ -29,7 +29,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func fetchAlbums() async throws -> [CDAlbum] { [] }
         func fetchAlbum(ratingKey: String) async throws -> CDAlbum? { nil }
         func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
-        func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
+        func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
         func fetchTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
@@ -40,7 +40,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
         func fetchTrack(ratingKey: String) async throws -> CDTrack? { nil }
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? { nil }
-        func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date?, rating: Int?, playCount: Int?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
+        func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date?, rating: Int?, playCount: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
         func fetchGenres() async throws -> [CDGenre] { [] }
         func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre { throw MockError.unimplemented }
         func searchTracks(query: String) async throws -> [CDTrack] { [] }

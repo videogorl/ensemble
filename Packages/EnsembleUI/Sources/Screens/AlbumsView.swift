@@ -155,8 +155,10 @@ public struct AlbumsView: View {
                 FilterSheet(
                     filterOptions: $libraryVM.albumsFilterOptions,
                     availableArtists: availableArtists,
+                    availableGenres: libraryVM.availableAlbumGenres,
                     showYearFilter: true,
                     showArtistFilter: true,
+                    showGenreFilter: true,
                     showHideSingles: true
                 )
             }
@@ -305,6 +307,11 @@ public struct AlbumsView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
+                    GenreChipBar(
+                        availableGenres: libraryVM.availableAlbumGenres,
+                        selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres
+                    )
+
                     if isSortIndexed {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(cachedAlbumSections) { section in

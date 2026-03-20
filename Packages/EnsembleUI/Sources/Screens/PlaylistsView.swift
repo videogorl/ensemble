@@ -818,15 +818,21 @@ public struct PlaylistDetailView: View {
             if isEditingPlaylist {
                 inlinePlaylistEditor
             } else {
-                MediaDetailView(
-                    viewModel: viewModel,
-                    nowPlayingVM: nowPlayingVM,
-                    headerData: headerData,
-                    navigationTitle: viewModel.playlist.title,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    mediaType: .playlist,
+                VStack(spacing: 0) {
+                    GenreChipBar(
+                        availableGenres: viewModel.availableGenres,
+                        selectedGenres: $viewModel.filterOptions.selectedGenres
+                    )
+
+                    MediaDetailView(
+                        viewModel: viewModel,
+                        nowPlayingVM: nowPlayingVM,
+                        headerData: headerData,
+                        navigationTitle: viewModel.playlist.title,
+                        showArtwork: true,
+                        showTrackNumbers: false,
+                        groupByDisc: false,
+                        mediaType: .playlist,
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
@@ -850,6 +856,7 @@ public struct PlaylistDetailView: View {
                         }
                     )
                 )
+                }
             }
         }
         .toolbar {
