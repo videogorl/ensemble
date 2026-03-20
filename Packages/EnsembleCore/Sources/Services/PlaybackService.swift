@@ -2123,11 +2123,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func pause() {
         guard playbackState == .playing else { return }
 
-        // Route to instrumental engine if active
-        if isInstrumentalModeActive {
+        // Route to instrumental engine if active and engaged (not just pending)
+        if isInstrumentalModeActive, let engine = instrumentalEngine {
             if #available(iOS 16.0, macOS 13.0, *),
-               let engine = instrumentalEngine as? InstrumentalAudioEngine {
-                engine.pause()
+               let typedEngine = engine as? InstrumentalAudioEngine {
+                typedEngine.pause()
             }
         } else {
             player?.pause()
@@ -2156,10 +2156,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
 
-        // Route to instrumental engine if active
-        if isInstrumentalModeActive {
+        // Route to instrumental engine if active and engaged (not just pending)
+        if isInstrumentalModeActive, let engAny = instrumentalEngine {
             if #available(iOS 16.0, macOS 13.0, *),
-               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+               let engine = engAny as? InstrumentalAudioEngine {
                 do {
                     try engine.resume()
                     playbackState = .playing
@@ -2169,7 +2169,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         Task { await syncCoordinator.reportTimeline(track: track, state: "playing", time: currentTime) }
                     }
                 } catch {
-                    EnsembleLogger.playback("INSTRUMENTAL: resume failed — \(error.localizedDescription)")
+                    EnsembleLogger.playback("INSTRUMENTAL: resume failed -- \(error.localizedDescription)")
                 }
             }
             return
@@ -2519,14 +2519,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
         savePlaybackState()
 
-        // Route to instrumental engine if active
-        if isInstrumentalModeActive {
+        // Route to instrumental engine if active and engaged (not just pending)
+        if isInstrumentalModeActive, let engAny = instrumentalEngine {
             if #available(iOS 16.0, macOS 13.0, *),
-               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+               let engine = engAny as? InstrumentalAudioEngine {
                 do {
                     try engine.seek(to: clampedTime)
                 } catch {
-                    EnsembleLogger.playback("INSTRUMENTAL: seek failed — \(error.localizedDescription)")
+                    EnsembleLogger.playback("INSTRUMENTAL: seek failed -- \(error.localizedDescription)")
                 }
             }
             return
@@ -2739,21 +2739,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func engageInstrumentalMode() {
         guard #available(iOS 16.0, macOS 13.0, *) else { return }
 
-        isInstrumentalModeActive = true
-        EnsembleLogger.playback("INSTRUMENTAL: engaging — resolving file URL")
+        EnsembleLogger.playback("INSTRUMENTAL: engaging -- resolving file URL")
 
         // Resolve a local file URL for the current track
         guard let track = currentTrack else { return }
 
         if let localPath = track.localFilePath {
-            // Downloaded track — switch immediately
+            // Downloaded track -- switch immediately
+            isInstrumentalModeActive = true
             let fileURL = URL(fileURLWithPath: localPath)
             performInstrumentalSwitch(fileURL: fileURL)
         } else if let loader = streamLoaders[track.id], loader.isDownloadComplete {
-            // Completed progressive transcode — use the temp file
+            // Completed progressive transcode -- use the temp file
+            isInstrumentalModeActive = true
             performInstrumentalSwitch(fileURL: loader.localFileURL)
         } else if let loader = streamLoaders[track.id] {
-            // Still downloading — register callback and wait
+            // Still downloading -- register callback, keep AVQueuePlayer active until done
+            isInstrumentalModeActive = true
             instrumentalPendingSwitch = true
             EnsembleLogger.playback("INSTRUMENTAL: waiting for transcode download to complete")
             let previousCallback = loader.onDownloadComplete
@@ -2767,10 +2769,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         } else {
-            // No stream loader and no local file — can't switch.
-            // This happens for direct remote streams. Keep playing via AVQueuePlayer.
-            EnsembleLogger.playback("INSTRUMENTAL: no local file available, deferring until available")
-            instrumentalPendingSwitch = true
+            // No stream loader and no local file -- can't engage.
+            // Direct remote streams don't have a local file for AVAudioEngine.
+            EnsembleLogger.playback("INSTRUMENTAL: no local file available -- cannot engage for direct streams")
+            // Don't set isInstrumentalModeActive -- the feature requires a local file
         }
     }
 
