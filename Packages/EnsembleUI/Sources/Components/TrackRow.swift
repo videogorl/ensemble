@@ -107,6 +107,14 @@ public struct TrackRow: View {
     @ViewBuilder
     private var rowContentView: some View {
         HStack(spacing: 12) {
+            // Favorite heart indicator
+            if effectiveIsFavorited {
+                Image(systemName: "heart.fill")
+                    .font(.caption2)
+                    .foregroundColor(.pink)
+                    .frame(width: 14)
+            }
+
             if showTrackNumber {
                 trackNumberView
                     .frame(width: 30)
