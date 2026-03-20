@@ -111,7 +111,9 @@ public struct ArtistsView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.artistsFilterOptions
+                filterOptions: $libraryVM.artistsFilterOptions,
+                availableGenres: libraryVM.availableArtistGenres,
+                showGenreFilter: true
             )
         }
         .sheet(isPresented: $showingManageSources) {
@@ -231,6 +233,12 @@ public struct ArtistsView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
+                    GenreChipBar(
+                        availableGenres: libraryVM.availableArtistGenres,
+                        selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
+                        excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
+                    )
+
                     if libraryVM.artistSortOption == .name {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(cachedArtistSections) { section in

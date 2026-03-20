@@ -825,6 +825,24 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
+## GenreChipBar
+
+- **View name:** `GenreChipBar`
+- **Canonical name:** GenreChipBar
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Chip bar | region | Horizontal scrollable row of genre filter chips | `ScrollView(.horizontal)` |
+| Genre chip | control | Capsule-shaped toggle for a genre; accent border (off), accent fill + white text (on) | `Capsule`, `selectedGenres` |
+| Clear button | control | xmark chip that clears all selected genres; only visible when selection is non-empty | `xmark` |
+
+---
+
 ## CoverFlowView
 
 - **View name:** `CoverFlowView`

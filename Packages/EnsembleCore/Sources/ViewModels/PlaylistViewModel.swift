@@ -446,8 +446,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
-        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
-        
+        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
+
         // Save filter options when they change
         setupFilterPersistence()
 
@@ -459,9 +459,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     private func setupFilterPersistence() {
+        let playlistId = playlist.id
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "PlaylistDetail") }
+            .sink { FilterPersistence.save($0, for: "PlaylistDetail-\(playlistId)") }
             .store(in: &cancellables)
     }
 
@@ -557,7 +558,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     // MARK: - Filtered Collections
-    
+
+    /// Available genres for chip bar filtering (derived from playlist tracks)
+    public var availableGenres: [String] {
+        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+    }
+
     /// Filtered tracks based on current filter options
     public var filteredTracks: [Track] {
         applyFilters(to: tracks, with: filterOptions)
@@ -578,7 +584,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         var filtered = tracks
-        
+
         // Search text filter
         if !options.searchText.isEmpty {
             let searchLower = options.searchText.lowercased()
@@ -588,12 +594,20 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 ($0.albumName?.lowercased().contains(searchLower) ?? false)
             }
         }
-        
+
+        // Genre filter (include and exclude)
+        if !options.selectedGenres.isEmpty {
+            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
+        }
+        if !options.excludedGenres.isEmpty {
+            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+        }
+
         // Downloaded only filter
         if options.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
-        
+
         return filtered
     }
 

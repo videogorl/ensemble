@@ -237,6 +237,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
     public let media: [PlexMedia]?
+    public let genre: [PlexTag]?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -254,9 +255,13 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         case leafCount
         case viewedLeafCount
         case media = "Media"
+        case genre = "Genre"
     }
 
     public var id: String { ratingKey }
+
+    /// Genre names extracted from the Genre tag array
+    public var genreNames: [String] { genre?.map(\.tag) ?? [] }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -265,6 +270,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         key = try container.decode(String.self, forKey: .key)
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        genre = try container.decodeIfPresent([PlexTag].self, forKey: .genre)
 
         let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
         title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
@@ -279,6 +285,33 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
         leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
         viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
+    }
+}
+
+// MARK: - Album Detail (full metadata from /library/metadata/{id})
+
+/// Rich album metadata returned by the single-item metadata endpoint.
+/// Includes tag-based fields (Genre, Style) and external GUIDs
+/// that are not present in the lightweight section listing response.
+public struct PlexAlbumDetail: Codable, Sendable {
+    public let ratingKey: String
+    public let key: String
+    public let title: String
+    public let parentTitle: String?  // Artist name
+    public let summary: String?
+    public let year: Int?
+    public let originallyAvailableAt: String?
+    public let studio: String?       // Record label
+    public let genre: [PlexTag]?
+    public let style: [PlexTag]?
+    public let guid: [PlexGuid]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey, key, title, parentTitle, summary, year
+        case originallyAvailableAt, studio
+        case genre = "Genre"
+        case style = "Style"
+        case guid = "Guid"
     }
 }
 

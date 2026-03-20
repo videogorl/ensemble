@@ -37,7 +37,7 @@ public final class HubOrderManager {
     }
     
     /// Load the saved order for a specific source
-    private func loadOrder(for sourceKey: String) -> [String]? {
+    public func loadOrder(for sourceKey: String) -> [String]? {
         let key = orderKey(for: sourceKey)
         let order = userDefaults.array(forKey: key) as? [String]
         #if DEBUG
@@ -124,6 +124,31 @@ public final class HubOrderManager {
         return reorderedHubs
     }
     
+    /// Remap saved hub IDs using a pre-built mapping, then re-save.
+    /// Used when hub IDs change format (single <-> merged) after library changes.
+    public func migrateOrder(remapping: [String: String], for sourceKey: String) {
+        guard let savedOrder = loadOrder(for: sourceKey) else { return }
+
+        let hasStaleIds = savedOrder.contains { remapping[$0] != nil }
+        guard hasStaleIds else { return }
+
+        var remapped: [String] = []
+        var seen = Set<String>()
+
+        for savedId in savedOrder {
+            let currentId = remapping[savedId] ?? savedId
+            if seen.insert(currentId).inserted {
+                remapped.append(currentId)
+            }
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("[HubOrder] Migrated order for \(sourceKey): \(savedOrder.count) saved -> \(remapped.count) remapped")
+        #endif
+
+        saveOrder(remapped, for: sourceKey)
+    }
+
     /// Reset the saved order for a specific source
     public func resetOrder(for sourceKey: String) {
         let key = orderKey(for: sourceKey)

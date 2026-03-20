@@ -218,6 +218,17 @@ This prevents the entire parent tree from re-evaluating on every publish.
 
 Tab-level views are already inside `NavigationStack` on iOS 16+ and are not affected. The crash was specific to `NavigationView` in sheet contexts.
 
+## Genre Chip Bar
+
+### GenreChipBar Pattern
+- **Component:** `GenreChipBar` — horizontal scrollable chip bar for inline genre filtering
+- **Behavior:** OR multi-select (selecting multiple genres shows items matching any selected genre)
+- **Visibility:** Only renders when 2+ genres are available; hidden otherwise
+- **Chip style:** Capsule shape — accent border when unselected, accent fill + white text when selected
+- **Layout:** Fixed 36pt height, placed above content inside ScrollView
+- **Clear button:** An xmark chip appears when any genres are selected, clearing the selection on tap
+- **Usage:** Integrated into AlbumsView, SongsView, ArtistsView, PlaylistDetailView, and wired into FilterSheet
+
 ## Informational Badges
 
 ### Feature / Capability Badges

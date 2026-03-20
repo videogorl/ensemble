@@ -25,9 +25,10 @@ public struct FilterOptions: Codable, Equatable {
     public var sortBy: String = "default"  // View-specific sort key
     public var sortDirection: SortDirection = .ascending
     
-    // Genre filtering
+    // Genre filtering (include/exclude)
     public var selectedGenres: Set<String> = []
-    
+    public var excludedGenres: Set<String> = []
+
     // Artist filtering (for albums/songs)
     public var selectedArtists: Set<String> = []
     
@@ -45,6 +46,7 @@ public struct FilterOptions: Codable, Equatable {
     /// Check if any filters are active (excluding search text)
     public var hasActiveFilters: Bool {
         !selectedGenres.isEmpty ||
+        !excludedGenres.isEmpty ||
         !selectedArtists.isEmpty ||
         yearRange != nil ||
         showDownloadedOnly ||
@@ -54,6 +56,7 @@ public struct FilterOptions: Codable, Equatable {
     /// Clear all filters but keep search text
     public mutating func clearFilters() {
         selectedGenres.removeAll()
+        excludedGenres.removeAll()
         selectedArtists.removeAll()
         yearRange = nil
         showDownloadedOnly = false
@@ -99,9 +102,15 @@ public final class FilterPersistence {
         UserDefaults.standard.removeObject(forKey: key)
     }
     
-    /// Clear all saved filters
+    /// Clear all saved filters (including per-playlist keys)
     public static func clearAll() {
-        let viewTypes = ["Albums", "Artists", "Songs", "Playlists", "Genres", "AlbumDetail", "ArtistDetail", "Favorites"]
+        let viewTypes = ["Albums", "Artists", "Songs", "Playlists", "Genres", "AlbumDetail", "ArtistDetail", "PlaylistDetail", "Favorites"]
         viewTypes.forEach { clear(for: $0) }
+
+        // Also clear any per-playlist filter keys (PlaylistDetail-<id>)
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix + "PlaylistDetail-") {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

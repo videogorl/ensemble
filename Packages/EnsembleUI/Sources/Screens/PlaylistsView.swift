@@ -827,6 +827,13 @@ public struct PlaylistDetailView: View {
                     showTrackNumbers: false,
                     groupByDisc: false,
                     mediaType: .playlist,
+                    genreChipContent: AnyView(
+                        GenreChipBar(
+                            availableGenres: viewModel.availableGenres,
+                            selectedGenres: $viewModel.filterOptions.selectedGenres,
+                            excludedGenres: $viewModel.filterOptions.excludedGenres
+                        )
+                    ),
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,

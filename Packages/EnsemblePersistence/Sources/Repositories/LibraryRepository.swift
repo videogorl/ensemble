@@ -42,8 +42,9 @@ public struct AlbumUpsertInput: Sendable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let rating: Int?
+    public let genreNames: String?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -58,6 +59,7 @@ public struct AlbumUpsertInput: Sendable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.rating = rating
+        self.genreNames = genreNames
     }
 }
 
@@ -80,8 +82,9 @@ public struct TrackUpsertInput: Sendable {
     public let lastRatedAt: Date?
     public let rating: Int?
     public let playCount: Int?
+    public let genreNames: String?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?, genreNames: String? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -99,6 +102,7 @@ public struct TrackUpsertInput: Sendable {
         self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
+        self.genreNames = genreNames
     }
 }
 
@@ -140,6 +144,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
         dateAdded: Date?,
         dateModified: Date?,
         rating: Int?,
+        genreNames: String?,
         sourceCompositeKey: String?
     ) async throws -> CDAlbum
 
@@ -172,6 +177,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
         lastRatedAt: Date?,
         rating: Int?,
         playCount: Int?,
+        genreNames: String?,
         sourceCompositeKey: String?
     ) async throws -> CDTrack
 
@@ -417,6 +423,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         dateAdded: Date?,
         dateModified: Date?,
         rating: Int?,
+        genreNames: String? = nil,
         sourceCompositeKey: String? = nil
     ) async throws -> CDAlbum {
         try await withCheckedThrowingContinuation { continuation in
@@ -442,12 +449,13 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     album.artPath = artPath
                     album.year = Int32(year ?? 0)
                     album.trackCount = Int32(trackCount ?? 0)
-                    
+                    album.genreNames = genreNames
+
                     // Only set dateAdded for new records
                     if existing == nil, let added = dateAdded {
                         album.dateAdded = added
                     }
-                    
+
                     album.dateModified = dateModified
                     album.rating = Int16(rating ?? 0)
                     album.updatedAt = Date()
@@ -717,6 +725,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         lastRatedAt: Date? = nil,
         rating: Int?,
         playCount: Int?,
+        genreNames: String? = nil,
         sourceCompositeKey: String? = nil
     ) async throws -> CDTrack {
         try await withCheckedThrowingContinuation { continuation in
@@ -742,12 +751,13 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                     track.duration = Int64(duration ?? 0)
                     track.thumbPath = thumbPath
                     track.streamKey = streamKey
-                    
+                    track.genreNames = genreNames
+
                     // Only set dateAdded for new records
                     if existing == nil, let added = dateAdded {
                         track.dateAdded = added
                     }
-                    
+
                     track.dateModified = dateModified
                     track.lastPlayed = lastPlayed
                     track.lastRatedAt = lastRatedAt
@@ -1470,6 +1480,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         album.artPath = input.artPath
                         album.year = Int32(input.year ?? 0)
                         album.trackCount = Int32(input.trackCount ?? 0)
+                        album.genreNames = input.genreNames
                         if existing == nil, let added = input.dateAdded {
                             album.dateAdded = added
                         }
@@ -1540,6 +1551,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
                         track.duration = Int64(input.duration ?? 0)
                         track.thumbPath = input.thumbPath
                         track.streamKey = input.streamKey
+                        track.genreNames = input.genreNames
                         if existing == nil, let added = input.dateAdded {
                             track.dateAdded = added
                         }

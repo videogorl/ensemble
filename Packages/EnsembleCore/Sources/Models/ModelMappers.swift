@@ -112,6 +112,10 @@ public extension Track {
             return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
         }
 
+        // Parse genre names: stored as comma-separated string, fall back to album's genres
+        let genreString = cd.genreNames ?? cd.album?.genreNames
+        let trackGenres: [String] = genreString?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? []
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -136,12 +140,32 @@ public extension Track {
             lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
             playCount: Int(cd.playCount),
+            genres: trackGenres,
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
 
 public extension Album {
+    /// Maps a hub metadata item (from /related endpoint) to an Album
+    init(from hub: PlexHubMetadata) {
+        self.init(
+            id: hub.ratingKey,
+            key: hub.key,
+            title: hub.title,
+            artistName: hub.parentTitle,
+            albumArtist: hub.parentTitle,
+            artistRatingKey: hub.parentRatingKey,
+            year: hub.year,
+            trackCount: hub.leafCount ?? 0,
+            thumbPath: hub.thumb,
+            artPath: hub.art,
+            dateAdded: hub.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: hub.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0
+        )
+    }
+
     init(from plex: PlexAlbum) {
         self.init(
             id: plex.ratingKey,
@@ -156,7 +180,8 @@ public extension Album {
             artPath: plex.art,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0
+            rating: 0,
+            genres: plex.genreNames
         )
     }
 
@@ -180,6 +205,7 @@ public extension Album {
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             rating: Int(cd.rating),
+            genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
@@ -227,6 +253,20 @@ public extension ArtistDetail {
             similarArtists: plex.similar?.map(\.tag) ?? [],
             styles: plex.style?.map(\.tag) ?? [],
             artistName: plex.title
+        )
+    }
+}
+
+public extension AlbumDetail {
+    /// Maps the rich PlexAlbumDetail response into a lightweight domain model
+    init(from plex: PlexAlbumDetail) {
+        self.init(
+            genres: plex.genre?.map(\.tag) ?? [],
+            styles: plex.style?.map(\.tag) ?? [],
+            studio: plex.studio,
+            summary: plex.summary,
+            albumTitle: plex.title,
+            artistName: plex.parentTitle
         )
     }
 }

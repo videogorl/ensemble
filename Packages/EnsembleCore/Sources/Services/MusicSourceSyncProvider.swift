@@ -73,6 +73,12 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get detailed artist metadata (genres, country, similar artists, styles)
     func getArtistDetail(artistKey: String) async throws -> ArtistDetail?
+
+    /// Get detailed album metadata (genres, styles, studio/label)
+    func getAlbumDetail(albumKey: String) async throws -> AlbumDetail?
+
+    /// Get similar/related albums from Plex's recommendation engine
+    func getSimilarAlbums(albumKey: String) async throws -> [Album]
 }
 
 // Default no-op for providers that don't have fallback state
@@ -80,4 +86,6 @@ extension MusicSourceSyncProvider {
     public func resetStreamFallbackState() {}
     public func disableUniversalEndpoint() {}
     public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? { nil }
+    public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? { nil }
+    public func getSimilarAlbums(albumKey: String) async throws -> [Album] { [] }
 }

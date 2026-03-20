@@ -157,6 +157,15 @@ public struct TrackRow: View {
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Favorite heart centered between screen edge and first content element
+        .overlay(alignment: .leading) {
+            if effectiveIsFavorited {
+                Image(systemName: "heart.fill")
+                    .font(.caption)
+                    .foregroundColor(.pink)
+                    .offset(x: -8)
+            }
+        }
     }
 
     // MARK: - Context Menu Items

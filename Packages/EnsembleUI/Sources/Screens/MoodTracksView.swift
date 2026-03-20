@@ -22,14 +22,11 @@ public struct MoodTracksView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    
-    private var screenBackgroundColor: Color {
-        #if os(macOS)
-        return Color(nsColor: .windowBackgroundColor)
-        #else
-        return Color(UIColor.systemBackground)
-        #endif
-    }
+
+    // Targeted observation state (pattern from MediaDetailView)
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @State private var currentTrackId: String?
 
     public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
         self.mood = mood
@@ -38,115 +35,100 @@ public struct MoodTracksView: View {
     }
 
     public var body: some View {
-        ZStack {
-            if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = error {
-                VStack(spacing: 12) {
-                    Text("Failed to load tracks")
-                        .font(.headline)
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Button("Retry") {
-                        Task {
-                            await loadTracks()
-                        }
+        ZStack(alignment: .top) {
+            // Full-bleed background gradient
+            backgroundGradient
+                .ignoresSafeArea()
+
+            #if os(iOS)
+            // UIKit table with header/footer, matching MediaDetailView pattern
+            MediaTrackList(
+                tracks: moodTracks,
+                showArtwork: true,
+                showTrackNumbers: false,
+                showAlbumName: true,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
+                managesOwnScrolling: true,
+                bottomContentInset: 140,
+                tableHeaderContent: AnyView(moodHeader),
+                tableFooterContent: AnyView(moodFooter),
+                onPlayNext: { track in
+                    nowPlayingVM.playNext(track)
+                },
+                onPlayLast: { track in
+                    nowPlayingVM.playLast(track)
+                },
+                onAddToPlaylist: { track in
+                    presentPlaylistPicker(with: [track])
+                },
+                onAddToRecentPlaylist: { track in
+                    addToRecentPlaylist(track)
+                },
+                onToggleFavorite: { track in
+                    Task {
+                        await nowPlayingVM.toggleTrackFavorite(track)
                     }
-                    .buttonStyle(.bordered)
+                },
+                onGoToAlbum: { track in
+                    if let albumId = track.albumRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onGoToArtist: { track in
+                    if let artistId = track.artistRatingKey {
+                        DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                    }
+                },
+                onShareLink: { track in
+                    ShareActions.shareTrackLink(track, deps: deps)
+                },
+                onShareFile: { track in
+                    ShareActions.shareTrackFile(track, deps: deps)
+                },
+                isTrackFavorited: { track in
+                    nowPlayingVM.isTrackFavorited(track)
+                },
+                canAddToRecentPlaylist: { track in
+                    recentPlaylistTitle(for: track) != nil
+                },
+                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            ) { track, index in
+                if !nowPlayingVM.isAutoplayEnabled {
+                    nowPlayingVM.toggleAutoplay()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(screenBackgroundColor)
-            } else if moodTracks.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("No tracks found")
-                        .font(.headline)
-                    Text("for \"\(mood.title)\"")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(screenBackgroundColor)
-            } else {
-                ZStack(alignment: .top) {
-                    // Full-bleed background gradient
-                    backgroundGradient
-                        .ignoresSafeArea()
-
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            // Header with mood icon and title
-                            headerView
-
-                            // Play and Shuffle buttons
-                            actionButtons
-
-                            // Tracks
-                            VStack(spacing: 0) {
-                                ForEach(Array(moodTracks.enumerated()), id: \.element.id) { index, track in
-                                    TrackSwipeContainer(
-                                        track: track,
-                                        nowPlayingVM: nowPlayingVM,
-                                        onPlayNext: { nowPlayingVM.playNext(track) },
-                                        onPlayLast: { nowPlayingVM.playLast(track) },
-                                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) }
-                                    ) {
-                                        TrackRow(
-                                            track: track,
-                                            isAutoGenerated: nowPlayingVM.isTrackAutoGenerated(track.id),
-                                            onPlayNext: { nowPlayingVM.playNext(track) },
-                                            onPlayLast: { nowPlayingVM.playLast(track) },
-                                            onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                                            onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                                            onToggleFavorite: {
-                                                Task {
-                                                    await nowPlayingVM.toggleTrackFavorite(track)
-                                                }
-                                            },
-                                            onGoToAlbum: {
-                                                if let albumId = track.albumRatingKey {
-                                                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                                }
-                                            },
-                                            onGoToArtist: {
-                                                if let artistId = track.artistRatingKey {
-                                                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
-                                                }
-                                            },
-                                            onShareLink: {
-                                                ShareActions.shareTrackLink(track, deps: deps)
-                                            },
-                                            onShareFile: {
-                                                ShareActions.shareTrackFile(track, deps: deps)
-                                            },
-                                            isFavorited: nowPlayingVM.isTrackFavorited(track),
-                                            recentPlaylistTitle: recentPlaylistTitle(for: track),
-                                            onTap: {
-                                                if !nowPlayingVM.isAutoplayEnabled {
-                                                    nowPlayingVM.toggleAutoplay()
-                                                }
-                                                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
-                                            }
-                                        )
-                                    }
-                                    .padding(.horizontal)
-                                    .padding(.vertical, 8)
-
-                                    if index < moodTracks.count - 1 {
-                                        Divider().padding(.leading, 16)
-                                    }
-                                }
+                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
+            }
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
+            #else
+            ScrollView {
+                VStack(spacing: 0) {
+                    moodHeader
+                    if isLoading {
+                        ProgressView()
+                            .padding(.top, 40)
+                    } else if let error = error {
+                        errorView(error)
+                    } else if moodTracks.isEmpty {
+                        emptyView
+                    } else {
+                        TrackListView(
+                            tracks: moodTracks,
+                            showArtwork: true,
+                            showTrackNumbers: false,
+                            nowPlayingVM: nowPlayingVM
+                        ) { track, index in
+                            if !nowPlayingVM.isAutoplayEnabled {
+                                nowPlayingVM.toggleAutoplay()
                             }
+                            nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                         }
                     }
                 }
             }
+            #endif
         }
-        .miniPlayerBottomSpacing(140)
         .navigationTitle(mood.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -154,11 +136,103 @@ public struct MoodTracksView: View {
         .task {
             await loadTracks()
         }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
-    
+
+    // MARK: - Table Header (scrolls with tracks)
+
+    private var moodHeader: some View {
+        VStack(spacing: 0) {
+            headerView
+            actionButtons
+        }
+    }
+
+    // MARK: - Table Footer (loading/error/empty states)
+
+    @ViewBuilder
+    private var moodFooter: some View {
+        if isLoading {
+            ProgressView()
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity)
+        } else if let error = error {
+            VStack(spacing: 12) {
+                Text("Failed to load tracks")
+                    .font(.headline)
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Button("Retry") {
+                    Task {
+                        await loadTracks()
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 40)
+            .frame(maxWidth: .infinity)
+        } else if moodTracks.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 40))
+                    .foregroundColor(.secondary)
+                Text("No tracks found")
+                    .font(.headline)
+                Text("for \"\(mood.title)\"")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 40)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    #if !os(iOS)
+    private func errorView(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Text("Failed to load tracks")
+                .font(.headline)
+            Text(message)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button("Retry") {
+                Task { await loadTracks() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.top, 40)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var emptyView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "music.note")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text("No tracks found")
+                .font(.headline)
+            Text("for \"\(mood.title)\"")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.top, 40)
+        .frame(maxWidth: .infinity)
+    }
+    #endif
+
     // MARK: - Header Views
 
     private var backgroundGradient: some View {
@@ -282,15 +356,15 @@ public struct MoodTracksView: View {
         .padding(.horizontal)
         .padding(.bottom)
     }
-    
+
     // MARK: - Helpers
-    
+
     /// Generate a deterministic color based on mood name
     private var moodColor: Color {
         let colors: [Color] = [
             .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .indigo
         ]
-        
+
         let hash = mood.title.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
         return colors[abs(hash) % colors.count]
     }
@@ -301,28 +375,28 @@ public struct MoodTracksView: View {
 
         var allTracks: [Track] = []
         var trackMap: [String: Track] = [:]  // For deduplication by ratingKey
-        
+
         // Fetch mood tracks from all enabled libraries
         let accountManager = DependencyContainer.shared.accountManager
-        
+
         for account in accountManager.plexAccounts {
             for server in account.servers {
                 guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
                     continue
                 }
-                
+
                 let enabledLibraries = server.libraries.filter { $0.isEnabled }
                 for library in enabledLibraries {
                     do {
                         let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: mood.key)
-                        
+
                         // Create composite key for this track from this library
                         let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
-                        
+
                         for plexTrack in plexTracks {
                             // Create track with explicit sourceKey including plex: prefix
                             let track = Track(from: plexTrack, sourceKey: sourceKey)
-                            
+
                             // Dedup by ratingKey - keep first occurrence
                             if trackMap[track.id] == nil {
                                 trackMap[track.id] = track
@@ -336,9 +410,9 @@ public struct MoodTracksView: View {
                 }
             }
         }
-        
+
         moodTracks = allTracks
-        
+
         if moodTracks.isEmpty {
             error = "No tracks found for '\(mood.title)'"
         }

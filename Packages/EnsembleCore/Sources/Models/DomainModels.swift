@@ -70,6 +70,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let lastRatedAt: Date?
     public let rating: Int
     public let playCount: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -96,6 +97,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         lastRatedAt: Date? = nil,
         rating: Int = 0,
         playCount: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -125,6 +127,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -188,6 +191,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let rating: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -204,6 +208,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         rating: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -219,6 +224,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.rating = rating
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -243,7 +249,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         lhs.year == rhs.year &&
         lhs.trackCount == rhs.trackCount &&
         lhs.thumbPath == rhs.thumbPath &&
-        lhs.rating == rhs.rating
+        lhs.rating == rhs.rating &&
+        lhs.genres == rhs.genres
     }
 
     // Hashable must be consistent with custom Equatable — hash only id.
@@ -348,6 +355,57 @@ public struct ArtistDetail: Sendable {
         self.country = country
         self.similarArtists = similarArtists
         self.styles = styles
+        self.artistName = artistName
+    }
+}
+
+// MARK: - Album Detail (enriched metadata)
+
+/// Rich album metadata fetched on-demand from the single-item metadata endpoint.
+/// Contains tag-based fields (genres, styles, studio/label) not available in
+/// the lightweight section listing.
+public struct AlbumDetail: Sendable {
+    public let genres: [String]
+    public let styles: [String]
+    public let studio: String?       // Record label
+    public let summary: String?
+    public let albumTitle: String
+    public let artistName: String?
+
+    /// Wikipedia URL derived from the album title and artist name.
+    /// Uses "{Album}_({Artist}_album)" format per Wikipedia convention to avoid disambiguation pages.
+    /// Falls back to "{Album}_(album)" for compilations or when artist is unknown.
+    public var wikipediaURL: URL? {
+        let titlePart = albumTitle
+            .replacingOccurrences(of: " ", with: "_")
+
+        // Include artist name in the suffix unless it's a compilation or unknown
+        let suffix: String
+        if let artist = artistName, artist != "Various Artists" {
+            let artistPart = artist.replacingOccurrences(of: " ", with: "_")
+            suffix = "_(\(artistPart)_album)"
+        } else {
+            suffix = "_(album)"
+        }
+
+        let combined = "\(titlePart)\(suffix)"
+        guard let encoded = combined.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)")
+    }
+
+    public init(
+        genres: [String] = [],
+        styles: [String] = [],
+        studio: String? = nil,
+        summary: String? = nil,
+        albumTitle: String = "",
+        artistName: String? = nil
+    ) {
+        self.genres = genres
+        self.styles = styles
+        self.studio = studio
+        self.summary = summary
+        self.albumTitle = albumTitle
         self.artistName = artistName
     }
 }

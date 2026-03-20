@@ -6,6 +6,40 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Bug Fix Batch: Hubs, Wikipedia, Progress Bar (Mar 20, 2026)
+
+Four fixes from beta feedback:
+
+1. **Miniplayer progress bar removed:** Deleted `PlaybackProgressBar` struct from `MiniPlayer.swift` and its rendering from `MainTabView.swift`. Key files: `MiniPlayer.swift`, `MainTabView.swift`
+
+2. **Wikipedia album URL fixed:** Now uses `{Album}_({Artist}_album)` format per Wikipedia convention instead of just `{Album}_(album)`, avoiding disambiguation pages. Falls back to `_(album)` for "Various Artists" or unknown artist. Key file: `DomainModels.swift`
+
+3. **Hub cross-library merging fixed:** Added normalized title to grouping key and merged hub IDs. Contextual hubs ("More by X") no longer incorrectly merge across libraries, while generic hubs ("Recently Added") still do. Key file: `HomeViewModel.swift`
+
+4. **Hub ordering persistence fixed:** Added order migration that remaps stale saved hub IDs when ID format changes (single <-> merged) after libraries are added/removed. Matches by raw hub type + normalized title with type-only fallback. Key files: `HomeViewModel.swift`, `HubOrderManager.swift`
+
+### UI Cleanup Batch (Mar 20, 2026)
+
+Six UI improvements across the app:
+
+1. **Info card reorder:** Playing and Original (combined codec + file size) rows now appear at top of File section, followed by Source, Quality, Lyrics, then Bitrate/Sample Rate/Bit Depth. Key file: `InfoCard.swift`
+
+2. **Source view reorganization:** Sync buttons moved below server/library sections. New feature legend section explains badge icons (Plex Pass, Lyrics, Radio). Key file: `MusicSourceAccountDetailView.swift`
+
+3. **Favorite heart icon:** Pink `heart.fill` indicator shown for favorited tracks in both SwiftUI `TrackRow` and UIKit `TrackTableViewCell`. Heart appears at leading edge, shifting content right by 14pt. Key files: `TrackRow.swift`, `MediaTrackList.swift`
+
+4. **Offline indicator simplification:** Replaced ~300 lines of private API code (DynamicIslandIndicator, NotchIndicator, NotchOutlinePath, ClassicStatusBarIndicator, DeviceStyle enum, UIScreen extensions) with a single `LinearGradient` using only the public `topInset` API. Future-proof across all device types. Key file: `OfflineIndicatorOverlay.swift`
+
+5. **Mood tracks UIKit migration:** Replaced SwiftUI `TrackRow`/`TrackSwipeContainer` with `MediaTrackList` (UITableView). Header scrolls as `tableHeaderContent`, loading/error/empty states via `tableFooterContent`. Added targeted observation state for downloads/availability/current track. Key file: `MoodTracksView.swift`
+
+6. **Album detail rich metadata:** Full-stack feature across all 4 packages. `PlexAlbumDetail` API model + `getAlbumDetail` method. `AlbumDetail` domain model with genres, styles, studio/label, summary, Wikipedia URL. `AlbumDetailViewModel` loads detail + related albums. `MediaDetailView` accepts `additionalFooterContent`. Album detail UI shows facts section, collapsible description, Wikipedia link, and horizontal related albums section below the track list. Key files: `PlexModels.swift`, `PlexAPIClient.swift`, `DomainModels.swift`, `ModelMappers.swift`, `MusicSourceSyncProvider.swift`, `PlexMusicSourceSyncProvider.swift`, `SyncCoordinator.swift`, `AlbumDetailViewModel.swift`, `MediaDetailView.swift`, `AlbumsView.swift`
+
+### Genre Filtering Chips (Mar 19, 2026)
+
+Added inline genre filtering across library views (Albums, Songs, Artists) and PlaylistDetailView. Genre data parsed from Plex API on albums (`PlexAlbum.genre`), copied to tracks during sync. Reusable `GenreChipBar` component with OR multi-select, capsule-styled chips. Also wired into FilterSheet for full filter sheet support.
+
+Key files: `GenreChipBar.swift`, `PlexModels.swift` (PlexAlbum.genre), `DomainModels.swift` (genres on Album/Track), `LibraryRepository.swift` (genreNames upsert), `PlexMusicSourceSyncProvider.swift` (genre wiring), `LibraryViewModel.swift` (filter logic + available genres), `PlaylistViewModel.swift`, `AlbumsView.swift`, `SongsView.swift`, `ArtistsView.swift`, `PlaylistsView.swift`
+
 ### Now Playing Info Card Restructure + Track Artist Fix (Mar 19, 2026)
 
 **Track artist fix:** Now Playing and all track displays now show the track artist (`originalTitle`) instead of the album artist (`grandparentTitle`). Fixed in sync provider (both incremental and full sync paths) and hub/search mapper — the previous commit only fixed `ModelMappers` but missed the CoreData write paths.

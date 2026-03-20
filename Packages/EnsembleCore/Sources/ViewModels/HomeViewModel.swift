@@ -474,6 +474,12 @@ public final class HomeViewModel: ObservableObject {
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
 
+            // Migrate saved order if hub IDs changed format (e.g. single <-> merged)
+            if let sourceKey = currentSourceKey {
+                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
+                migrateHubOrderIfNeeded(for: sourceKey, currentHubs: serverHubs)
+            }
+
             // Apply saved or default order to the fetched hubs
             let orderedHubs: [Hub]
             if let sourceKey = currentSourceKey {
@@ -780,6 +786,70 @@ public final class HomeViewModel: ObservableObject {
         return hubId
     }
 
+    /// Extract the raw Plex hub type from any hub ID format.
+    /// - Single: "plex:acct:srv:lib:music.recent.added.3" -> "music.recent.added"
+    /// - Merged: "plex:acct:srv:merged:music.recent.added" -> "music.recent.added"
+    private static nonisolated func rawHubType(from hubId: String) -> String {
+        let components = hubId.split(separator: ":")
+        guard components.count >= 5 else { return hubId }
+
+        if components[3] == "merged" {
+            // Merged format: typeId is the 5th component (already clean, no section number)
+            return String(components[4])
+        }
+
+        // Single-hub format: use hubTypeIdentifier which strips the trailing section number
+        return hubTypeIdentifier(from: hubId)
+    }
+
+    /// Migrate saved hub order when IDs change format (single <-> merged) after
+    /// libraries are added/removed. Matches stale IDs to current hubs by:
+    /// 1. Raw type + title from merged ID (for contextual hubs with title in the ID)
+    /// 2. Raw type only when unambiguous (exactly one current hub with that type)
+    private func migrateHubOrderIfNeeded(for sourceKey: String, currentHubs: [Hub]) {
+        guard let savedOrder = hubOrderManager.loadOrder(for: sourceKey) else { return }
+
+        let currentIdSet = Set(currentHubs.map { $0.id })
+        let hasStaleIds = savedOrder.contains { !currentIdSet.contains($0) }
+        guard hasStaleIds else { return }
+
+        // Build lookups: (rawType, title) -> hubId for exact matching,
+        // rawType -> [hubId] for type-only fallback
+        var typeAndTitleLookup: [String: String] = [:]
+        var typeOnlyLookup: [String: [String]] = [:]
+        for hub in currentHubs {
+            let rawType = HomeViewModel.rawHubType(from: hub.id)
+            let title = HomeViewModel.normalizeHubTitle(hub.title)
+            typeAndTitleLookup["\(rawType)|\(title)"] = hub.id
+            typeOnlyLookup[rawType, default: []].append(hub.id)
+        }
+
+        // Build remapping for stale IDs
+        var remapping: [String: String] = [:]
+        for savedId in savedOrder where !currentIdSet.contains(savedId) {
+            let rawType = HomeViewModel.rawHubType(from: savedId)
+
+            // Try type+title match using title embedded in merged IDs
+            let components = savedId.split(separator: ":")
+            if components.count >= 6, components[3] == "merged" {
+                let titleFromId = components[5...].joined(separator: ":")
+                let key = "\(rawType)|\(titleFromId)"
+                if let currentId = typeAndTitleLookup[key] {
+                    remapping[savedId] = currentId
+                    continue
+                }
+            }
+
+            // Fall back to type-only match (only when unambiguous)
+            if let candidates = typeOnlyLookup[rawType], candidates.count == 1 {
+                remapping[savedId] = candidates[0]
+            }
+        }
+
+        guard !remapping.isEmpty else { return }
+        hubOrderManager.migrateOrder(remapping: remapping, for: sourceKey)
+    }
+
     /// Merge and group hubs by server and hub type identifier.
     /// Uses the stable hubIdentifier (e.g. "music.recent.added") for grouping
     /// rather than title normalization, so dynamic hubs like "More in Pop/Rock"
@@ -801,7 +871,12 @@ public final class HomeViewModel: ObservableObject {
         for hub in hubs {
             let serverKey = getServerKey(hub.id)
             let typeId = HomeViewModel.hubTypeIdentifier(from: hub.id)
-            let groupingKey = "\(serverKey)|\(typeId)"
+            // Include normalized title in the grouping key so contextual hubs from
+            // different libraries stay separate ("More by Gorillaz" vs "More by Tricia Brock",
+            // "More in Pop/Rock" vs "More in Religious"). Generic hubs still merge because
+            // normalizeHubTitle strips " in {Library}" suffix.
+            let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
+            let groupingKey = "\(serverKey)|\(typeId)|\(normalizedTitle)"
 
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
@@ -846,7 +921,7 @@ public final class HomeViewModel: ObservableObject {
 
                 let typeId = HomeViewModel.hubTypeIdentifier(from: firstHub.id)
                 let mergedHub = Hub(
-                    id: "\(serverKey):merged:\(typeId)",
+                    id: "\(serverKey):merged:\(typeId):\(normalizedTitle)",
                     title: normalizedTitle,
                     type: firstHub.type,
                     items: Array(allItems.prefix(40)),
@@ -858,7 +933,7 @@ public final class HomeViewModel: ObservableObject {
 
         return mergedResults
     }
-    
+
     // MARK: - Edit Mode
 
     /// Extract the server key from a hub ID.
@@ -969,6 +1044,28 @@ public final class HomeViewModel: ObservableObject {
         deferredAutoRefreshTask = nil
     }
     
+    /// Look up the library title for a hub based on its ID.
+    /// Hub IDs contain the account, server, and library key: "plex:{acct}:{srv}:{lib}:{hubType}".
+    /// Matches on both server ID and library key to avoid cross-server collisions
+    /// (different servers can have the same library key for different libraries).
+    /// Returns nil for merged hubs or if the library isn't found.
+    public func libraryName(forHubId hubId: String) -> String? {
+        let components = hubId.split(separator: ":")
+        // Merged hubs don't have a library key
+        guard components.count >= 5, components[3] != "merged" else { return nil }
+        let serverId = String(components[2])
+        let libraryKey = String(components[3])
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers where server.id == serverId {
+                if let library = server.libraries.first(where: { $0.key == libraryKey }) {
+                    return library.title
+                }
+            }
+        }
+        return nil
+    }
+
     /// Enter edit mode - prepare the hub list for reordering
     public func enterEditMode() {
         updateCurrentSource()

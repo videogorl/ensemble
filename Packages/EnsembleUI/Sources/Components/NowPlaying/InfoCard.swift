@@ -192,6 +192,12 @@ public struct InfoCard: View {
             }
             .padding(.bottom, 4)
 
+            // Playback codec and file size (what AVPlayer is actually decoding)
+            playbackFileInfoRows
+
+            // Source codec + file size combined (original file on server)
+            sourceFileInfoRow
+
             // Source (streaming vs downloaded)
             if viewModel.currentTrack != nil {
                 infoRow(label: "Source", value: resolvePlaybackSource())
@@ -203,15 +209,7 @@ public struct InfoCard: View {
             // Lyrics source/status
             lyricsInfoRow
 
-            // Playback codec and file size (what AVPlayer is actually decoding)
-            playbackFileInfoRows
-
             if let info = audioFileInfo {
-                // Source file codec
-                if let codec = info.codec {
-                    infoRow(label: "Source Codec", value: formatCodecName(codec))
-                }
-
                 // Bitrate
                 if let bitrate = info.bitrate {
                     infoRow(label: "Bitrate", value: "\(bitrate) kbps")
@@ -225,11 +223,6 @@ public struct InfoCard: View {
                 // Bit depth (nil for lossy codecs like MP3)
                 if let bitDepth = info.bitDepth {
                     infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
-                }
-
-                // Source file size
-                if let fileSize = info.fileSize {
-                    infoRow(label: "Source Size", value: ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file))
                 }
             } else {
                 // Loading placeholder
@@ -316,6 +309,15 @@ public struct InfoCard: View {
         if let codec = info.codec {
             let sizeText = info.fileSize.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? ""
             infoRow(label: "Playing", value: "\(formatCodecName(codec))\(sizeText)")
+        }
+    }
+
+    /// Combined source codec and file size row (original file on server)
+    @ViewBuilder
+    private var sourceFileInfoRow: some View {
+        if let info = audioFileInfo, let codec = info.codec {
+            let sizeText = info.fileSize.map { " · \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" } ?? ""
+            infoRow(label: "Original", value: "\(formatCodecName(codec))\(sizeText)")
         }
     }
 

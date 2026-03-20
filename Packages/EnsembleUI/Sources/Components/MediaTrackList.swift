@@ -41,7 +41,8 @@ public class TrackTableViewCell: UITableViewCell {
     private let durationLabel = UILabel()
     private let playingIndicator = UIImageView()
     private let trackNumberLabel = UILabel()
-    
+    private let favoriteHeartView = UIImageView()
+
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
     private var downloadIconWidthConstraint: NSLayoutConstraint?
@@ -115,13 +116,27 @@ public class TrackTableViewCell: UITableViewCell {
         playingIndicator.translatesAutoresizingMaskIntoConstraints = false
         playingIndicator.isHidden = true
         contentView.addSubview(playingIndicator)
-        
+
+        // Favorite heart indicator (positioned in existing leading margin)
+        favoriteHeartView.image = UIImage(systemName: "heart.fill")
+        favoriteHeartView.tintColor = .systemPink
+        favoriteHeartView.contentMode = .scaleAspectFit
+        favoriteHeartView.translatesAutoresizingMaskIntoConstraints = false
+        favoriteHeartView.isHidden = true
+        contentView.addSubview(favoriteHeartView)
+
         NSLayoutConstraint.activate([
+            // Heart centered in the 16pt leading margin, same size as download icon (14pt)
+            favoriteHeartView.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            favoriteHeartView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            favoriteHeartView.widthAnchor.constraint(equalToConstant: 14),
+            favoriteHeartView.heightAnchor.constraint(equalToConstant: 14),
+
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
-            
+
             trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
@@ -164,9 +179,13 @@ public class TrackTableViewCell: UITableViewCell {
         isPlaying: Bool,
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool = false,
+        isFavorited: Bool = false,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         titleLabel.text = track.title
+
+        // Show/hide favorite heart (positioned in existing margin, no content shift)
+        favoriteHeartView.isHidden = !isFavorited
 
         // Remove old constraints
         titleLeadingConstraint?.isActive = false
@@ -336,6 +355,10 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
+    /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
+    /// Used to show loading/empty indicators below the track list while keeping
+    /// the header (chips + artwork + buttons) structurally identical across all states.
+    let tableFooterContent: AnyView?
     /// When provided, a UISearchController is attached to the navigation bar —
     /// hidden by default, revealed on pull-down like Apple Music / Settings.
     /// The binding syncs the search text back to the parent view model.
@@ -355,6 +378,7 @@ public struct MediaTrackList: UIViewRepresentable {
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
         tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
@@ -381,6 +405,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
         self.tableHeaderContent = tableHeaderContent
+        self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
@@ -461,6 +486,25 @@ public struct MediaTrackList: UIViewRepresentable {
             context.coordinator.headerHostingController = hostingController
         }
 
+        // Install optional SwiftUI table footer (loading/empty indicators).
+        // Only set tableFooterView when the content has real height — an empty
+        // hosting controller can interfere with bottomContentInset scroll-behind.
+        if let tableFooterContent {
+            let footerHost = UIHostingController(rootView: tableFooterContent)
+            footerHost.view.backgroundColor = .clear
+            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+            let fittingSize = footerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            footerHost.view.frame = CGRect(origin: .zero, size: fittingSize)
+            if fittingSize.height >= 1 {
+                tableView.tableFooterView = footerHost.view
+            }
+            context.coordinator.footerHostingController = footerHost
+        }
+
         // When a search binding is provided, set up a UISearchController once the
         // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
         // UIViewController and attach the search controller to its navigation item.
@@ -478,6 +522,16 @@ public struct MediaTrackList: UIViewRepresentable {
         // hosting UIViewController and its navigation controller.
         if context.coordinator.pendingSearchBinding != nil && tableView.window != nil {
             context.coordinator.attachSearchController()
+        }
+
+        // Re-apply bottom content inset if it was cleared. This can happen when
+        // .automatic contentInsetAdjustmentBehavior recalculates insets as the table
+        // enters the view hierarchy (e.g. a navigation controller or tab bar controller).
+        if managesOwnScrolling && bottomContentInset > 0 && tableView.contentInset.bottom != bottomContentInset {
+            #if DEBUG
+            EnsembleLogger.debug("🐛 MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
+            #endif
+            tableView.contentInset.bottom = bottomContentInset
         }
 
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
@@ -542,6 +596,38 @@ public struct MediaTrackList: UIViewRepresentable {
             if abs(headerView.frame.height - fittingSize.height) > 1 {
                 headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
                 tableView.tableHeaderView = headerView
+            }
+        }
+
+        // Update table footer view — dynamically add/remove based on content height.
+        // An empty footer (EmptyView) must be removed entirely so it doesn't interfere
+        // with bottomContentInset scroll-behind behavior (mini player / tab bar).
+        if let footerHost = context.coordinator.footerHostingController,
+           tableView.bounds.width > 0 {
+            if let tableFooterContent {
+                footerHost.rootView = tableFooterContent
+            }
+            let targetWidth = tableView.bounds.width
+            let fittingSize = footerHost.view.systemLayoutSizeFitting(
+                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            if fittingSize.height < 1 {
+                // Footer content is empty — remove to preserve scroll-behind inset
+                if tableView.tableFooterView != nil {
+                    tableView.tableFooterView = nil
+                }
+            } else if let footerView = tableView.tableFooterView {
+                // Footer exists — resize if height changed
+                if abs(footerView.frame.height - fittingSize.height) > 1 {
+                    footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                    tableView.tableFooterView = footerView
+                }
+            } else {
+                // Footer became non-empty — install it
+                footerHost.view.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
+                tableView.tableFooterView = footerHost.view
             }
         }
 
@@ -650,6 +736,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
+        /// Retains the UIHostingController used for the table footer view
+        var footerHostingController: UIHostingController<AnyView>?
         /// Pending search binding — set before the table is in a window, consumed
         /// once the UISearchController is attached to the navigation item.
         var pendingSearchBinding: Binding<String>?
@@ -733,6 +821,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
+                isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
                 artworkLoader: artworkLoader
             )
             return cell

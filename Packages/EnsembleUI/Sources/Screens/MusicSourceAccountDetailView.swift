@@ -16,57 +16,6 @@ public struct MusicSourceAccountDetailView: View {
 
     public var body: some View {
         List {
-            Section {
-                Button {
-                    Task {
-                        await viewModel.syncEnabledLibraries()
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .foregroundColor(.accentColor)
-                        Text("Sync Enabled Libraries")
-                        Spacer()
-                        if viewModel.isSyncingEnabledLibraries {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
-
-                Button {
-                    Task {
-                        await viewModel.refreshAvailableLibraries()
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundColor(.accentColor)
-                        Text("Refresh Available Libraries")
-                        Spacer()
-                        if viewModel.isRefreshingInventory {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
-
-                if viewModel.isRefreshingInventory {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Checking for library updates…")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            }
-
             // Pending offline mutations — navigate to detail
             if viewModel.pendingMutationCount > 0 {
                 Section {
@@ -90,6 +39,7 @@ public struct MusicSourceAccountDetailView: View {
                             .foregroundColor(.secondary)
                     }
                 } else {
+                    // Server/library sections
                     ForEach(viewModel.sections) { server in
                         Section {
                             // Show scan progress bar when server is scanning
@@ -142,6 +92,73 @@ public struct MusicSourceAccountDetailView: View {
                     }
                 }
 
+                // Sync buttons
+                Section {
+                    Button {
+                        Task {
+                            await viewModel.syncEnabledLibraries()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .foregroundColor(.accentColor)
+                            Text("Sync Enabled Libraries")
+                            Spacer()
+                            if viewModel.isSyncingEnabledLibraries {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
+
+                    Button {
+                        Task {
+                            await viewModel.refreshAvailableLibraries()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundColor(.accentColor)
+                            Text("Refresh Available Libraries")
+                            Spacer()
+                            if viewModel.isRefreshingInventory {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
+
+                    if viewModel.isRefreshingInventory {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Checking for library updates…")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if let error = viewModel.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                // Feature legend (plain text, no cell styling)
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
+                        featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
+                        featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
+                    }
+                    .padding(.vertical, -4)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                } header: {
+                    Text("Legend")
+                }
+
+                // Remove source
                 Section {
                     Button(role: .destructive) {
                         showingRemoveSourceAlert = true
@@ -178,6 +195,18 @@ public struct MusicSourceAccountDetailView: View {
         }
         .task {
             await viewModel.performInitialRefreshIfNeeded()
+        }
+    }
+
+    private func featureLegendRow(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundColor(.accentColor)
+                .frame(width: 14)
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 }
