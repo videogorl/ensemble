@@ -147,6 +147,25 @@ public extension Track {
 }
 
 public extension Album {
+    /// Maps a hub metadata item (from /related endpoint) to an Album
+    init(from hub: PlexHubMetadata) {
+        self.init(
+            id: hub.ratingKey,
+            key: hub.key,
+            title: hub.title,
+            artistName: hub.parentTitle,
+            albumArtist: hub.parentTitle,
+            artistRatingKey: hub.parentRatingKey,
+            year: hub.year,
+            trackCount: hub.leafCount ?? 0,
+            thumbPath: hub.thumb,
+            artPath: hub.art,
+            dateAdded: hub.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: hub.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0
+        )
+    }
+
     init(from plex: PlexAlbum) {
         self.init(
             id: plex.ratingKey,

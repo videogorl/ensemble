@@ -151,6 +151,7 @@ public struct MusicSourceAccountDetailView: View {
                         featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
                         featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
                     }
+                    .padding(.vertical, -4)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 } header: {

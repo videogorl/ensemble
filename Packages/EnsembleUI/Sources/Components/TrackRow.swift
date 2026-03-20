@@ -157,13 +157,13 @@ public struct TrackRow: View {
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Favorite heart in the leading margin (doesn't shift content)
+        // Favorite heart centered between screen edge and first content element
         .overlay(alignment: .leading) {
             if effectiveIsFavorited {
                 Image(systemName: "heart.fill")
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundColor(.pink)
-                    .offset(x: -12)
+                    .offset(x: -8)
             }
         }
     }

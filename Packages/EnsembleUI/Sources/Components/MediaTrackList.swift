@@ -126,11 +126,11 @@ public class TrackTableViewCell: UITableViewCell {
         contentView.addSubview(favoriteHeartView)
 
         NSLayoutConstraint.activate([
-            // Heart sits in the existing 16pt leading margin — no content shift
-            favoriteHeartView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 3),
+            // Heart centered in the 16pt leading margin, same size as download icon (14pt)
+            favoriteHeartView.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
             favoriteHeartView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            favoriteHeartView.widthAnchor.constraint(equalToConstant: 10),
-            favoriteHeartView.heightAnchor.constraint(equalToConstant: 10),
+            favoriteHeartView.widthAnchor.constraint(equalToConstant: 14),
+            favoriteHeartView.heightAnchor.constraint(equalToConstant: 14),
 
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),

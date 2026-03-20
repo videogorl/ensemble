@@ -469,18 +469,21 @@ public actor PlexAPIClient {
         return container.mediaContainer.items.first
     }
 
-    /// Get similar/related albums from Plex's recommendation engine.
-    /// Uses the /library/metadata/{id}/similar endpoint.
-    public func getSimilarAlbums(albumKey: String, limit: Int = 10) async throws -> [PlexAlbum] {
+    /// Get sonically similar albums from Plex's recommendation engine.
+    /// Uses the /library/metadata/{id}/related endpoint which returns hub-based results.
+    /// The "Sonically Similar Albums" hub contains album metadata items.
+    public func getSimilarAlbums(albumKey: String) async throws -> [PlexHubMetadata] {
         let data = try await serverRequest(
-            path: "/library/metadata/\(albumKey)/similar",
-            query: ["limit": String(limit)]
+            path: "/library/metadata/\(albumKey)/related"
         )
         let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbum>.self,
+            PlexMediaContainer<PlexHub>.self,
             from: data
         )
-        return container.mediaContainer.items
+        // Extract album items from the "Sonically Similar Albums" hub (type=album)
+        let hubs = container.mediaContainer.items
+        let albumHub = hubs.first { $0.type == "album" }
+        return albumHub?.metadata ?? []
     }
 
     /// Get albums by an artist
