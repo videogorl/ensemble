@@ -505,6 +505,16 @@ public struct MediaTrackList: UIViewRepresentable {
             context.coordinator.attachSearchController()
         }
 
+        // Re-apply bottom content inset if it was cleared. This can happen when
+        // .automatic contentInsetAdjustmentBehavior recalculates insets as the table
+        // enters the view hierarchy (e.g. a navigation controller or tab bar controller).
+        if managesOwnScrolling && bottomContentInset > 0 && tableView.contentInset.bottom != bottomContentInset {
+            #if DEBUG
+            EnsembleLogger.debug("🐛 MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
+            #endif
+            tableView.contentInset.bottom = bottomContentInset
+        }
+
         let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
         
         // Check if track list structure changed (additions/removals/reordering)

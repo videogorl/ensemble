@@ -514,7 +514,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             // This keeps the header (genre chips + artwork + buttons) in a single
             // code path with consistent safe area handling.
             tracksSection
-                .ignoresSafeArea(.container, edges: .top)
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
             #else
             ScrollView {
                 VStack(spacing: 0) {
