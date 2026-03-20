@@ -655,7 +655,8 @@ public final class LibraryViewModel: ObservableObject {
 
     /// Extract unique sorted genre names from a flat list
     static func extractUniqueGenres(from names: [String]) -> [String] {
-        Array(Set(names)).sorted()
+        let filtered = names.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Array(Set(filtered)).sorted()
     }
 
     private static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {

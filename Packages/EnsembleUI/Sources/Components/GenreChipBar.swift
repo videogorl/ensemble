@@ -10,7 +10,8 @@ public struct GenreChipBar: View {
     @Binding var selectedGenres: Set<String>
 
     public init(availableGenres: [String], selectedGenres: Binding<Set<String>>) {
-        self.availableGenres = availableGenres
+        // Filter out any empty/whitespace-only genre names
+        self.availableGenres = availableGenres.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         self._selectedGenres = selectedGenres
     }
 
