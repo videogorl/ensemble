@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Genre Filtering Chips (Mar 19, 2026)
+
+Added inline genre filtering across library views (Albums, Songs, Artists) and PlaylistDetailView. Genre data parsed from Plex API on albums (`PlexAlbum.genre`), copied to tracks during sync. Reusable `GenreChipBar` component with OR multi-select, capsule-styled chips. Also wired into FilterSheet for full filter sheet support.
+
+Key files: `GenreChipBar.swift`, `PlexModels.swift` (PlexAlbum.genre), `DomainModels.swift` (genres on Album/Track), `LibraryRepository.swift` (genreNames upsert), `PlexMusicSourceSyncProvider.swift` (genre wiring), `LibraryViewModel.swift` (filter logic + available genres), `PlaylistViewModel.swift`, `AlbumsView.swift`, `SongsView.swift`, `ArtistsView.swift`, `PlaylistsView.swift`
+
 ### Now Playing Info Card Restructure + Track Artist Fix (Mar 19, 2026)
 
 **Track artist fix:** Now Playing and all track displays now show the track artist (`originalTitle`) instead of the album artist (`grandparentTitle`). Fixed in sync provider (both incremental and full sync paths) and hub/search mapper — the previous commit only fixed `ModelMappers` but missed the CoreData write paths.

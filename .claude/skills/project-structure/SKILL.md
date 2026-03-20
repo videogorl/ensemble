@@ -226,6 +226,7 @@ Sources/
 |   +-- FilterSheet.swift             # Advanced filtering UI with persistence
 |   +-- FlipOpacity.swift             # View modifier for flip animations
 |   +-- GenreCard.swift               # Grid card for genres
+|   +-- GenreChipBar.swift            # Horizontal scrollable genre filter chips (OR multi-select)
 |   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 |   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
