@@ -372,13 +372,25 @@ public struct AlbumDetail: Sendable {
     public let albumTitle: String
     public let artistName: String?
 
-    /// Wikipedia URL derived from the album title
+    /// Wikipedia URL derived from the album title and artist name.
+    /// Uses "{Album}_({Artist}_album)" format per Wikipedia convention to avoid disambiguation pages.
+    /// Falls back to "{Album}_(album)" for compilations or when artist is unknown.
     public var wikipediaURL: URL? {
-        let encoded = albumTitle
+        let titlePart = albumTitle
             .replacingOccurrences(of: " ", with: "_")
-            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
-        guard let encoded else { return nil }
-        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)_(album)")
+
+        // Include artist name in the suffix unless it's a compilation or unknown
+        let suffix: String
+        if let artist = artistName, artist != "Various Artists" {
+            let artistPart = artist.replacingOccurrences(of: " ", with: "_")
+            suffix = "_(\(artistPart)_album)"
+        } else {
+            suffix = "_(album)"
+        }
+
+        let combined = "\(titlePart)\(suffix)"
+        guard let encoded = combined.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)")
     }
 
     public init(
