@@ -80,6 +80,10 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { recommendationsSubject.eraseToAnyPublisher() }
         var historyPublisher: AnyPublisher<[QueueItem], Never> { historySubject.eraseToAnyPublisher() }
 
+        var isInstrumentalModeActive: Bool { false }
+        var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
+        func setInstrumentalMode(_ enabled: Bool) {}
+
         func play(track: Track) async {
             lastPlayedTrack = track
             lastQueuedTracks = [track]

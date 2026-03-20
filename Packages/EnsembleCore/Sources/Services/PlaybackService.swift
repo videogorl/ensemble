@@ -189,6 +189,15 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     /// Returns codec and file size of the file currently being decoded by AVPlayer
     func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?)
+
+    // MARK: - Instrumental Mode
+
+    /// Whether instrumental mode (vocal attenuation) is currently active
+    var isInstrumentalModeActive: Bool { get }
+    var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { get }
+
+    /// Toggle instrumental mode on or off. Requires iOS 16+ / A13+ device.
+    func setInstrumentalMode(_ enabled: Bool)
 }
 
 // MARK: - Playback Service Implementation
@@ -669,6 +678,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var isAutoplayActive: Bool = false
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted: Bool = false
+    @Published public private(set) var isInstrumentalModeActive: Bool = false
 
     public var currentTrackPublisher: AnyPublisher<Track?, Never> { $currentTrack.eraseToAnyPublisher() }
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
@@ -687,6 +697,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var autoplayActivePublisher: AnyPublisher<Bool, Never> { $isAutoplayActive.eraseToAnyPublisher() }
     public var radioModePublisher: AnyPublisher<RadioMode, Never> { $radioMode.eraseToAnyPublisher() }
     public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { $recommendationsExhausted.eraseToAnyPublisher() }
+    public var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { $isInstrumentalModeActive.eraseToAnyPublisher() }
 
     /// Returns the catalog/metadata duration for the current track.
     /// Use the effective duration (max of Plex metadata and AVPlayerItem.duration)
@@ -837,6 +848,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private let maxHistorySize = 100  // Cap for 2GB RAM devices
     private var isNavigatingBackward = false  // Flag to prevent duplicate history entries
+
+    // Instrumental mode (AUSoundIsolation engine)
+    private var instrumentalEngine: Any?  // Type-erased; actual type is InstrumentalAudioEngine (iOS 16+)
+    private var instrumentalTimeSubscription: AnyCancellable?
+    /// Completion callback registered on ProgressiveStreamLoader when waiting for download to finish
+    private var instrumentalPendingSwitch = false
     private var isSkipTransitionInProgress = false  // Suppresses "unexpected pause" handler during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0  // Debounce for remote command center skip events
     private var isReplacingPlayerItem = false  // Suppresses KVO during loadAndPlay remove/insert transition
@@ -1779,6 +1796,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
+
+        // Queue injection resets instrumental mode
+        if isInstrumentalModeActive {
+            stopInstrumentalMode()
+        }
+
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
             // Stop any currently playing audio before showing error state
             stop()
@@ -1832,6 +1855,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
+
+        // Queue injection resets instrumental mode
+        if isInstrumentalModeActive {
+            stopInstrumentalMode()
+        }
+
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
             stop()
             let isDeviceOffline = await MainActor.run {
@@ -1993,6 +2022,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         if isUnavailable { return }
 
+        // Remember if instrumental mode should be re-engaged
+        let shouldReengageInstrumental = isInstrumentalModeActive
+
+        // Stop instrumental engine for track change
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                engine.stop()
+            }
+            instrumentalEngine = nil
+            instrumentalTimeSubscription?.cancel()
+            instrumentalTimeSubscription = nil
+            instrumentalPendingSwitch = false
+            restoreAVQueuePlayerTimeObserver()
+        }
+
         consecutivePlaybackFailures = 0
 
         // Record current track to history before jumping
@@ -2018,6 +2063,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Check queue after jumping
         await checkAndRefreshAutoplayQueue()
+
+        // Re-engage instrumental mode for the new track
+        if shouldReengageInstrumental && isInstrumentalModeActive {
+            reengageInstrumentalModeForCurrentTrack()
+        }
     }
 
     public func playFromHistory(at historyIndex: Int) async {
@@ -2072,7 +2122,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func pause() {
         guard playbackState == .playing else { return }
-        player?.pause()
+
+        // Route to instrumental engine if active
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                engine.pause()
+            }
+        } else {
+            player?.pause()
+        }
         playbackState = .paused
         updateNowPlayingInfo()
         
@@ -2096,6 +2155,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func resume() {
         guard playbackState == .paused || playbackState == .buffering else { return }
+
+        // Route to instrumental engine if active
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                do {
+                    try engine.resume()
+                    playbackState = .playing
+                    updateNowPlayingInfo()
+                    Task { @MainActor in audioAnalyzer.resumeUpdates() }
+                    if let track = currentTrack {
+                        Task { await syncCoordinator.reportTimeline(track: track, state: "playing", time: currentTime) }
+                    }
+                } catch {
+                    EnsembleLogger.playback("INSTRUMENTAL: resume failed — \(error.localizedDescription)")
+                }
+            }
+            return
+        }
 
         // Clear pre-buffer flag — user is taking action now
         pendingPreBufferTime = nil
@@ -2209,6 +2287,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        // Stop instrumental engine if active
+        stopInstrumentalMode()
+
         // Cancel any in-flight progressive stream downloads
         for loader in streamLoaders.values { loader.cancel() }
         streamLoaders.removeAll()
@@ -2244,6 +2325,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func next() {
         guard !queue.isEmpty else { return }
+
+        // Remember if instrumental mode should be re-engaged after track loads
+        let shouldReengageInstrumental = isInstrumentalModeActive
+
+        // Stop instrumental engine audio immediately
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                engine.stop()
+            }
+            instrumentalEngine = nil
+            instrumentalTimeSubscription?.cancel()
+            instrumentalTimeSubscription = nil
+            instrumentalPendingSwitch = false
+            // Restore AVQueuePlayer time observer for the transition
+            restoreAVQueuePlayerTimeObserver()
+        }
 
         #if DEBUG
         let currentTrackTitle = currentTrack?.title ?? "nil"
@@ -2294,6 +2392,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard !Task.isCancelled else { return }
                 self.savePlaybackState()
                 await self.checkAndRefreshAutoplayQueue()
+                // Re-engage instrumental mode for the new track
+                if shouldReengageInstrumental && self.isInstrumentalModeActive {
+                    self.reengageInstrumentalModeForCurrentTrack()
+                }
             } else {
                 // No playable tracks remaining in queue
                 if self.repeatMode == .all {
@@ -2309,6 +2411,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         await self.playCurrentQueueItem(caller: "next()-repeatAll")
                         guard !Task.isCancelled else { return }
                         self.savePlaybackState()
+                        // Re-engage instrumental mode for the wrapped track
+                        if shouldReengageInstrumental && self.isInstrumentalModeActive {
+                            self.reengageInstrumentalModeForCurrentTrack()
+                        }
                     } else {
                         self.stop()
                     }
@@ -2335,6 +2441,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard currentQueueIndex > 0 else {
             seek(to: 0)
             return
+        }
+
+        // Remember if instrumental mode should be re-engaged after track loads
+        let shouldReengageInstrumental = isInstrumentalModeActive
+
+        // Stop instrumental engine audio immediately
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                engine.stop()
+            }
+            instrumentalEngine = nil
+            instrumentalTimeSubscription?.cancel()
+            instrumentalTimeSubscription = nil
+            instrumentalPendingSwitch = false
+            restoreAVQueuePlayerTimeObserver()
         }
 
         // Stop old audio immediately so it doesn't continue playing while the
@@ -2378,6 +2500,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard !Task.isCancelled else { return }
             self.savePlaybackState()
             await self.checkAndRefreshAutoplayQueue()
+            // Re-engage instrumental mode for the new track
+            if shouldReengageInstrumental && self.isInstrumentalModeActive {
+                self.reengageInstrumentalModeForCurrentTrack()
+            }
         }
     }
 
@@ -2392,6 +2518,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime = clampedTime
         updateNowPlayingInfo()
         savePlaybackState()
+
+        // Route to instrumental engine if active
+        if isInstrumentalModeActive {
+            if #available(iOS 16.0, macOS 13.0, *),
+               let engine = instrumentalEngine as? InstrumentalAudioEngine {
+                do {
+                    try engine.seek(to: clampedTime)
+                } catch {
+                    EnsembleLogger.playback("INSTRUMENTAL: seek failed — \(error.localizedDescription)")
+                }
+            }
+            return
+        }
 
         guard let player else {
             clearActiveSeek()
@@ -2505,6 +2644,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Forward uses player.rate = 4.0; backward tries negative rate and
     /// falls back to timer-based seeking if the format doesn't support it.
     public func startFastSeeking(forward: Bool) {
+        // In instrumental mode, use timer-based seeking (AVAudioPlayerNode doesn't support rate changes)
+        if isInstrumentalModeActive {
+            isFastSeeking = true
+            fastSeekForward = forward
+            startFallbackReverseSeeking()  // Works for both directions in instrumental mode
+            return
+        }
+
         guard let player, player.currentItem?.status == .readyToPlay else { return }
         isFastSeeking = true
         fastSeekForward = forward
@@ -2535,6 +2682,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         fallbackReverseTimer = nil
         isFastSeeking = false
 
+        // In instrumental mode, timer-based seeking stops automatically; just update NowPlaying
+        if isInstrumentalModeActive {
+            updateNowPlayingInfo()
+            return
+        }
+
         guard let player else { return }
         if playbackState == .playing || playbackState == .buffering {
             player.rate = 1.0
@@ -2545,9 +2698,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
     }
 
-    /// Timer-based backward seek fallback when the format doesn't support negative rate.
+    /// Timer-based seek fallback when rate-based scrubbing isn't supported.
+    /// In instrumental mode, this is used for both forward and backward directions.
     private func startFallbackReverseSeeking() {
-        player?.pause()
+        if !isInstrumentalModeActive {
+            player?.pause()
+        }
 
         fallbackReverseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
@@ -2556,10 +2712,216 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self?.fallbackReverseTimer = nil
                     return
                 }
-                let newTime = max(0, self.currentTime - 2.0)
+                let step: TimeInterval = self.fastSeekForward ? 2.0 : -2.0
+                let newTime = max(0, self.currentTime + step)
                 self.seek(to: newTime)
             }
         }
+    }
+
+    // MARK: - Instrumental Mode (Vocal Attenuation)
+
+    /// Toggle instrumental mode. When enabled, switches from AVQueuePlayer to an
+    /// AVAudioEngine pipeline with AUSoundIsolation for vocal removal.
+    /// When disabled, switches back to AVQueuePlayer.
+    public func setInstrumentalMode(_ enabled: Bool) {
+        guard InstrumentalModeCapability.isSupported else { return }
+        guard enabled != isInstrumentalModeActive else { return }
+
+        if enabled {
+            engageInstrumentalMode()
+        } else {
+            disengageInstrumentalMode()
+        }
+    }
+
+    /// Switch from AVQueuePlayer to InstrumentalAudioEngine
+    private func engageInstrumentalMode() {
+        guard #available(iOS 16.0, macOS 13.0, *) else { return }
+
+        isInstrumentalModeActive = true
+        EnsembleLogger.playback("INSTRUMENTAL: engaging — resolving file URL")
+
+        // Resolve a local file URL for the current track
+        guard let track = currentTrack else { return }
+
+        if let localPath = track.localFilePath {
+            // Downloaded track — switch immediately
+            let fileURL = URL(fileURLWithPath: localPath)
+            performInstrumentalSwitch(fileURL: fileURL)
+        } else if let loader = streamLoaders[track.id], loader.isDownloadComplete {
+            // Completed progressive transcode — use the temp file
+            performInstrumentalSwitch(fileURL: loader.localFileURL)
+        } else if let loader = streamLoaders[track.id] {
+            // Still downloading — register callback and wait
+            instrumentalPendingSwitch = true
+            EnsembleLogger.playback("INSTRUMENTAL: waiting for transcode download to complete")
+            let previousCallback = loader.onDownloadComplete
+            loader.onDownloadComplete = { [weak self] fileURL, duration in
+                // Call the original callback first (XING injection, etc.)
+                previousCallback?(fileURL, duration)
+                DispatchQueue.main.async {
+                    guard let self, self.isInstrumentalModeActive, self.instrumentalPendingSwitch else { return }
+                    self.instrumentalPendingSwitch = false
+                    self.performInstrumentalSwitch(fileURL: fileURL)
+                }
+            }
+        } else {
+            // No stream loader and no local file — can't switch.
+            // This happens for direct remote streams. Keep playing via AVQueuePlayer.
+            EnsembleLogger.playback("INSTRUMENTAL: no local file available, deferring until available")
+            instrumentalPendingSwitch = true
+        }
+    }
+
+    /// Perform the actual switch from AVQueuePlayer to InstrumentalAudioEngine
+    @available(iOS 16.0, macOS 13.0, *)
+    private func performInstrumentalSwitch(fileURL: URL) {
+        let capturedTime = currentTime
+        let wasPlaying = playbackState == .playing || playbackState == .buffering
+
+        EnsembleLogger.playback("INSTRUMENTAL: switching to engine at \(String(format: "%.1f", capturedTime))s, wasPlaying=\(wasPlaying)")
+
+        // Pause AVQueuePlayer but keep items loaded for quick switch-back
+        player?.pause()
+
+        // Suspend the periodic time observer to stop AVQueuePlayer time updates
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+
+        do {
+            let engine = InstrumentalAudioEngine()
+            try engine.setup()
+            try engine.load(fileURL: fileURL)
+
+            // Wire completion handler for auto-advance
+            engine.onPlaybackComplete = { [weak self] in
+                self?.handleInstrumentalTrackComplete()
+            }
+
+            // Bridge engine time updates to @Published currentTime
+            instrumentalTimeSubscription = engine.currentTimeSubject
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] time in
+                    self?.currentTime = time
+                }
+
+            if wasPlaying {
+                try engine.play(from: capturedTime)
+                playbackState = .playing
+            } else {
+                try engine.play(from: capturedTime)
+                engine.pause()
+                playbackState = .paused
+            }
+
+            instrumentalEngine = engine
+
+            EnsembleLogger.playback("INSTRUMENTAL: engine engaged successfully")
+        } catch {
+            EnsembleLogger.playback("INSTRUMENTAL: engine setup failed — \(error.localizedDescription)")
+            // Revert — resume AVQueuePlayer
+            isInstrumentalModeActive = false
+            instrumentalPendingSwitch = false
+            restoreAVQueuePlayerTimeObserver()
+            if wasPlaying {
+                player?.play()
+            }
+        }
+    }
+
+    /// Switch from InstrumentalAudioEngine back to AVQueuePlayer
+    private func disengageInstrumentalMode() {
+        EnsembleLogger.playback("INSTRUMENTAL: disengaging")
+
+        var capturedTime: TimeInterval = currentTime
+
+        // Stop the instrumental engine
+        if #available(iOS 16.0, macOS 13.0, *),
+           let engine = instrumentalEngine as? InstrumentalAudioEngine {
+            capturedTime = engine.currentTime()
+            engine.stop()
+        }
+        instrumentalEngine = nil
+        instrumentalTimeSubscription?.cancel()
+        instrumentalTimeSubscription = nil
+        instrumentalPendingSwitch = false
+
+        // Seek AVQueuePlayer to the captured position and resume
+        let wasPlaying = playbackState == .playing
+
+        // Restore the periodic time observer before seeking
+        restoreAVQueuePlayerTimeObserver()
+
+        // Seek AVQueuePlayer to the captured position
+        if let player {
+            let cmTime = CMTime(seconds: capturedTime, preferredTimescale: 1000)
+            player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if wasPlaying {
+                        self.player?.play()
+                        self.playbackState = .playing
+                    }
+                }
+            }
+        }
+
+        isInstrumentalModeActive = false
+        EnsembleLogger.playback("INSTRUMENTAL: disengaged, AVQueuePlayer at \(String(format: "%.1f", capturedTime))s")
+    }
+
+    /// Handle track completion while in instrumental mode — advance to next track
+    private func handleInstrumentalTrackComplete() {
+        EnsembleLogger.playback("INSTRUMENTAL: track complete — advancing")
+        next()
+    }
+
+    /// Re-engage instrumental mode for a new track after a skip
+    private func reengageInstrumentalModeForCurrentTrack() {
+        guard isInstrumentalModeActive else { return }
+        guard #available(iOS 16.0, macOS 13.0, *) else { return }
+
+        // Stop the old engine
+        if let engine = instrumentalEngine as? InstrumentalAudioEngine {
+            engine.stop()
+        }
+        instrumentalEngine = nil
+        instrumentalTimeSubscription?.cancel()
+        instrumentalTimeSubscription = nil
+
+        // Re-engage with the new track's file
+        engageInstrumentalMode()
+    }
+
+    /// Restore the AVQueuePlayer periodic time observer (after disengaging instrumental mode)
+    private func restoreAVQueuePlayerTimeObserver() {
+        guard timeObserver == nil, let player else { return }
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self else { return }
+            // Don't update time while instrumental engine is active
+            guard !self.isInstrumentalModeActive else { return }
+            let seconds = time.seconds
+            if seconds.isFinite && seconds >= 0 {
+                self.currentTime = seconds
+            }
+        }
+    }
+
+    /// Stop instrumental engine and reset state (for queue injection)
+    private func stopInstrumentalMode() {
+        if #available(iOS 16.0, macOS 13.0, *),
+           let engine = instrumentalEngine as? InstrumentalAudioEngine {
+            engine.stop()
+        }
+        instrumentalEngine = nil
+        instrumentalTimeSubscription?.cancel()
+        instrumentalTimeSubscription = nil
+        instrumentalPendingSwitch = false
+        isInstrumentalModeActive = false
     }
 
     // MARK: - Queue Management
