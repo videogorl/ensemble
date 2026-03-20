@@ -4,7 +4,7 @@ import SwiftUI
 struct PlaylistDetailLoader: View {
     let playlistId: String
     let playlistSourceKey: String?
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
     @State private var isLoading = true
     @State private var error: Error?

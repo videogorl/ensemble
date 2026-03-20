@@ -198,6 +198,34 @@ struct AlbumDetailLoader: View {
 - **Home screen loading:** 2s to prevent rapid reloads
 - **App launch:** Network monitor starts with 500ms delay
 
+### GeometryReader: Background, Not Wrapper
+Never wrap large view trees in `GeometryReader`. Use `.background(GeometryReader { ... })` to capture geometry into `@State`, then branch on the state value in body. Wrapping causes the entire subtree to re-layout on every geometry change.
+
+### Context Menu Extraction
+If a grid/list holds `@ObservedObject` only for context menu content (e.g., pinManager), extract the context menu into a separate View struct that owns the observation. This prevents the entire grid from re-evaluating when pin state changes.
+
+### Scoped Sub-View Observation (MiniPlayer Pattern)
+When a view needs multiple fields from a frequently-publishing ViewModel, extract observation into small sub-views:
+- **Parent:** `let viewModel` (no observation) — handles layout, gestures, context menu
+- **Sub-views:** `@ObservedObject var viewModel` — each reads only its relevant fields (track info, controls, background)
+
+This prevents the entire parent tree from re-evaluating on every publish.
+
+### `.searchable()` in Nested Sheets
+`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input.
+
+**iOS 26 crash:** `NavigationView` + `.searchable()` triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app. **Fix:** Use `NavigationStack` on iOS 16+ (which is already the default in `MainTabView.tabRootView`). For sheets that create their own navigation container (like `PlaylistPickerSheet`), use `if #available(iOS 16.0, ...) { NavigationStack } else { NavigationView }`.
+
+Tab-level views are already inside `NavigationStack` on iOS 16+ and are not affected. The crash was specific to `NavigationView` in sheet contexts.
+
+## Informational Badges
+
+### Feature / Capability Badges
+- **Pattern:** `ServerFeatureBadges` (private view in `MusicSourceAccountDetailView.swift`) displays small icon+label badges for server-level capabilities (e.g., Plex Pass, hardware transcoding).
+- **Style:** Compact horizontal badges with SF Symbol + short label, secondary foreground color.
+- **Per-library indicators:** Download permission badge (arrow.down.circle.fill) shown inline on library rows when `allowSync` is true.
+- **Data source:** Badges are driven by `PlexServerCapabilities` and `PlexSubscription` populated during discovery -- no additional API calls at display time.
+
 ## Feature Philosophy
 
 ### Preserve Existing Functionality

@@ -21,6 +21,7 @@ Detailed reference material lives in `.claude/skills/`. **Always load the releva
 | `testing` | Writing tests, implementing a major feature, or verifying nothing is broken after a refactor |
 | `plex-api` | Implementing or debugging Plex API calls — library sync, playback tracking, playlists, hubs, search, transcoding |
 | `recent-changes` | Debugging, investigating prior work, understanding how a feature was implemented, or before touching a recently modified area |
+| `simulator-test` | Verifying runtime behavior, measuring timing, or diagnosing issues by building and launching on the iOS simulator with debug log capture |
 
 **When in doubt, load all of them.** They are small and the cost of reading them is far lower than making a wrong decision.
 
@@ -156,6 +157,11 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 ```
 
 For detailed architecture, invoke the `architecture` skill.
+
+
+## Performance
+
+This app targets iOS 15 on A9 devices (2GB RAM). SwiftUI observation cascades are the primary performance risk. Load `code-style` and `ui-conventions` skills before writing any view code — they contain mandatory iOS 15 performance patterns (observation extraction, Combine caching, GeometryReader rules, etc.). Do not apply observation extraction to short-lived modals (see the PlaylistPickerSheet revert lesson in memory).
 
 
 ## External Dependencies

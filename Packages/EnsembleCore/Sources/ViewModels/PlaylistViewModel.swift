@@ -15,6 +15,8 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
     @Published public var filterOptions: FilterOptions
+    /// Cached sorted + filtered playlists, updated via Combine pipeline instead of re-computed on every body access
+    @Published public private(set) var filteredPlaylists: [Playlist] = []
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -44,6 +46,9 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
+        setupFilteredPlaylistsPipeline()
 
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
@@ -197,14 +202,13 @@ public final class PlaylistViewModel: ObservableObject {
         Self.isOptimisticCreatingPlaylistID(playlist.id)
     }
     
-    public var sortedPlaylists: [Playlist] {
-        let asc = filterOptions.sortDirection == .ascending
-        switch playlistSortOption {
+    // MARK: - Sort & Filter (static, used by Combine pipeline)
+
+    private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
+        switch option {
         case .title:
-            return playlists.sorted { asc
-                ? $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending
-                : $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedDescending
-            }
+            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
+            return sortByCachedKey(playlists, keyExtractor: { $0.title.sortingKey }, ascending: asc)
         case .trackCount:
             return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
         case .duration:
@@ -226,28 +230,41 @@ public final class PlaylistViewModel: ObservableObject {
             }
         }
     }
-    
-    // MARK: - Filtered Collections
-    
-    /// Filtered playlists based on current filter options
-    public var filteredPlaylists: [Playlist] {
-        applyFilters(to: sortedPlaylists, with: filterOptions)
-    }
-    
-    // MARK: - Filter Application
-    
-    private func applyFilters(to playlists: [Playlist], with options: FilterOptions) -> [Playlist] {
-        var filtered = playlists
-        
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
+
+    /// Sort by pre-computed string keys — computes sortingKey once per element.
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
+        let keyed = items.map { ($0, keyExtractor($0)) }
+        return keyed.sorted {
+            let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
             }
-        }
-        
-        return filtered
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map { $0.0 }
+    }
+
+    private static func filterPlaylists(_ playlists: [Playlist], searchText: String) -> [Playlist] {
+        guard !searchText.isEmpty else { return playlists }
+        let searchLower = searchText.lowercased()
+        return playlists.filter { $0.title.lowercased().contains(searchLower) }
+    }
+
+    /// Background queue for sort/filter computation so the main thread stays responsive
+    private static let computeQueue = DispatchQueue(label: "com.ensemble.playlist-compute", qos: .userInitiated)
+
+    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change.
+    /// Debounced on a background queue to avoid main-thread stutter (e.g. when .searchable reveals).
+    private func setupFilteredPlaylistsPipeline() {
+        Publishers.CombineLatest3($playlists, $playlistSortOption, $filterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .map { playlists, sortOption, options -> [Playlist] in
+                let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
+                return Self.filterPlaylists(sorted, searchText: options.searchText)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.filteredPlaylists = $0 }
+            .store(in: &cancellables)
     }
 
     private func reloadPlaylists(showLoading: Bool) async {

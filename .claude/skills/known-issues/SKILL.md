@@ -18,14 +18,27 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
   2. Refactor watchOS to use existing `AddPlexAccountViewModel`
   3. Create watchOS-specific auth flow that matches iOS patterns
 
+## Resolved Issues
+
+### Queue Skipping Cascade (Mar 18, 2026)
+- **Location:** `PlaybackService.swift`
+- **Issue:** Rapid previous()/next() taps caused a cascade: AVPlayer XPC errors (`err=-17221`) → old AVPlayerItem fails asynchronously → `handleQueueExhausted()` fires phantom auto-advance → queue never recovers, even starting a new queue fails.
+- **Root causes:** (1) `handleQueueExhausted()` didn't guard for `isSkipTransitionInProgress` or `.loading` state. (2) `previous()` didn't cancel `skipTransitionTask`, piling up concurrent loads. (3) `consecutivePlaybackFailures` was reset on skip entry, disabling the circuit breaker.
+- **Fix:** Guards in `handleQueueExhausted()`, `previous()` now manages `skipTransitionTask` like `next()`, failure counter only resets on confirmed audio. Added `recreatePlayer()` for corrupted AVPlayer recovery and a 15s stuck-loading watchdog.
+
+### iOS 26 `.searchable()` Crash in Sheets (Mar 18, 2026)
+- **Location:** `PlaylistActionSheets.swift`
+- **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
+- **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
+
 ## Feature Completeness Gaps
 
 ### Intermittent 404 on /library/streams/ for Lyrics
 - **Location:** `LyricsService.swift`, `PlexAPIClient.getLyricsContent(streamKey:)`
-- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored.
+- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored. More frequent on iOS 15.
 - **Impact:** Lyrics show "No Lyrics" for affected tracks despite the track appearing to have a lyrics attachment.
-- **Current behavior:** `LyricsService` treats the 404 as `.notAvailable` and does not retry. The result is cached to avoid repeated 404 traffic for the same track.
-- **Workaround:** None; the issue is server-side. Pulling to refresh or clearing cache may resolve it if the server regenerates the stream.
+- **Current behavior (Mar 18, 2026):** `PlexAPIClient.getLyricsContent` retries 3 times with increasing delays (2s, 3s). If all fail, `LyricsService` schedules a background retry after 10s. If the background retry succeeds and the same track is still playing (lyrics still showing `.notAvailable`), the UI updates automatically. `.notAvailable` results are NOT cached so subsequent playback can retry.
+- **Workaround:** None needed for most cases; the retry logic handles transient PMS cache misses. Persistent 404s are server-side.
 
 ### BG Continued Processing Is Best-Effort (iOS 26+)
 - `OfflineBackgroundExecutionCoordinator` submits `BGContinuedProcessingTaskRequest` for user-initiated bulk offline work.
@@ -160,6 +173,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet. Still ran at 30fps during breathing mode (playback paused), causing 25.6% GPU drain.
 - **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
 - **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Downloads Stuck in "Downloading" After App Kill
+- **Resolved (March 18, 2026)**
+- **Previous:** When the app was killed mid-download, CoreData status stayed `.downloading`. On next launch, `fetchPendingDownloads()` counted them (includes `.downloading`) so workers spawned, but `fetchNextPendingDownload()` found 0 (only `.pending`) so workers immediately exited — endlessly.
+- **Fix:** `OfflineDownloadService.init()` resets stale `.downloading` → `.pending` before starting the queue. At init time, no download can be actively in-progress.
+- **Key files:** `OfflineDownloadService.swift`
 
 ### Download Queue Workers Spawned With No Pending Downloads
 - **Resolved (March 11, 2026)**

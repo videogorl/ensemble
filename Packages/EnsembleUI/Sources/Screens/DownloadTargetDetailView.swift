@@ -7,7 +7,7 @@ import SwiftUI
 /// Styled after MediaDetailView with blurred artwork background, Play/Shuffle buttons.
 public struct DownloadTargetDetailView: View {
     @StateObject private var viewModel: DownloadTargetDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @State private var artworkImage: UIImage?
     @State private var currentArtworkPath: String?

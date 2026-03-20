@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ArtistDetailLoader: View {
     let artistId: String
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var artist: Artist?
     @State private var isLoading = true
     @State private var error: Error?

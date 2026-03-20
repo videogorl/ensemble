@@ -160,32 +160,33 @@ public class TrackTableViewCell: UITableViewCell {
         with track: Track,
         showArtwork: Bool,
         showTrackNumber: Bool,
+        showAlbumName: Bool = true,
         isPlaying: Bool,
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool = false,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         titleLabel.text = track.title
-        
+
         // Remove old constraints
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
-        
+
         // Configure leading constraint based on what's showing
         let leadingAnchor = showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor)
         let constant: CGFloat = showArtwork || showTrackNumber ? 12 : 16
-        
+
         titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
         subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
-        
+
         titleLeadingConstraint?.isActive = true
         subtitleLeadingConstraint?.isActive = true
-        
+
         var subtitleParts: [String] = []
         if let artist = track.artistName {
             subtitleParts.append(artist)
         }
-        if let album = track.albumName {
+        if showAlbumName, let album = track.albumName {
             subtitleParts.append(album)
         }
         subtitleLabel.text = subtitleParts.joined(separator: " · ")
@@ -300,6 +301,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let tracks: [Track]
     let showArtwork: Bool
     let showTrackNumbers: Bool
+    let showAlbumName: Bool
     let groupByDisc: Bool
     let currentTrackId: String?
     let onTrackTap: (Track, Int) -> Void
@@ -345,6 +347,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tracks: [Track],
         showArtwork: Bool = true,
         showTrackNumbers: Bool = false,
+        showAlbumName: Bool = true,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
@@ -370,6 +373,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tracks = tracks
         self.showArtwork = showArtwork
         self.showTrackNumbers = showTrackNumbers
+        self.showAlbumName = showAlbumName
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
         self.availabilityGeneration = availabilityGeneration
@@ -498,6 +502,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
+        context.coordinator.showAlbumName = showAlbumName
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.onTrackTap = onTrackTap
         context.coordinator.onPlayNext = onPlayNext
@@ -564,6 +569,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         with: track,
                         showArtwork: showArtwork,
                         showTrackNumber: showTrackNumbers,
+                        showAlbumName: showAlbumName,
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
@@ -580,6 +586,7 @@ public struct MediaTrackList: UIViewRepresentable {
             groupedTracks: groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)],
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
+            showAlbumName: showAlbumName,
             currentTrackId: currentTrackId,
             onTrackTap: onTrackTap,
             onPlayNext: onPlayNext,
@@ -620,6 +627,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var groupedTracks: [(disc: Int?, tracks: [Track])]
         var showArtwork: Bool
         var showTrackNumbers: Bool
+        var showAlbumName: Bool
         var currentTrackId: String?
         var onTrackTap: (Track, Int) -> Void
         var onPlayNext: ((Track) -> Void)?
@@ -657,6 +665,7 @@ public struct MediaTrackList: UIViewRepresentable {
             groupedTracks: [(disc: Int?, tracks: [Track])],
             showArtwork: Bool,
             showTrackNumbers: Bool,
+            showAlbumName: Bool,
             currentTrackId: String?,
             onTrackTap: @escaping (Track, Int) -> Void,
             onPlayNext: ((Track) -> Void)?,
@@ -681,6 +690,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.groupedTracks = groupedTracks
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
+            self.showAlbumName = showAlbumName
             self.currentTrackId = currentTrackId
             self.onTrackTap = onTrackTap
             self.onPlayNext = onPlayNext
@@ -719,6 +729,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 with: track,
                 showArtwork: showArtwork,
                 showTrackNumber: showTrackNumbers,
+                showAlbumName: showAlbumName,
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),

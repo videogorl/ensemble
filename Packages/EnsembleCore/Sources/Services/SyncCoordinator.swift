@@ -979,8 +979,11 @@ public final class SyncCoordinator: ObservableObject {
         // Run health checks first so serverStates is populated before sync begins.
         // This ensures TrackAvailabilityResolver has accurate data from the start,
         // and tracks from offline servers are correctly dimmed in the UI.
+        // Skip if performStartupHealthChecks() already ran (e.g. from AppDelegate's
+        // earlyHealthCheckTask) — avoids redundant ~4s of probing.
         let eligibleServers = enabledServerKeysForHealthChecks()
-        if !eligibleServers.isEmpty {
+        let healthChecksAlreadyDone = startupHealthChecksInitiated && lastHealthRefreshAt != nil
+        if !eligibleServers.isEmpty && !healthChecksAlreadyDone {
             // Mark initiated before awaiting so performStartupHealthChecks()
             // (which may fire concurrently from AppDelegate) skips immediately.
             startupHealthChecksInitiated = true
@@ -1006,6 +1009,12 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("🏥 Startup health checks complete: checked=\(summary.checkedCount), skipped=\(summary.skippedCount)")
             #endif
+        } else if healthChecksAlreadyDone {
+            #if DEBUG
+            EnsembleLogger.debug("🏥 Skipping startup sync health checks — already done by earlyHealthCheckTask")
+            #endif
+            // Still update source states in case they weren't synced
+            updateSourceConnectionStates()
         }
         
         // Determine sync strategy: full if >24h or never synced, incremental otherwise.
@@ -1197,7 +1206,7 @@ public final class SyncCoordinator: ObservableObject {
     /// - Parameters:
     ///   - track: The track to stream
     ///   - quality: Streaming quality preference (default: original)
-    public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
+    public func getStreamURL(for track: Track, quality: StreamingQuality = .original) async throws -> StreamResolution {
         #if DEBUG
         EnsembleLogger.debug("🔍 Getting stream URL for track: \(track.title) [quality: \(quality.rawValue)]")
         EnsembleLogger.debug("🔍 Track sourceKey: \(track.sourceCompositeKey ?? "nil")")
@@ -1213,7 +1222,7 @@ public final class SyncCoordinator: ObservableObject {
                 let accountId = String(components[1])
                 let serverId = String(components[2])
                 let libraryId = String(components[3])
-                
+
                 // Find the server name
                 if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
                    let server = account.servers.first(where: { $0.id == serverId }) {
@@ -1535,17 +1544,39 @@ public final class SyncCoordinator: ObservableObject {
             #if DEBUG
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
             #endif
+
+            // Collect artwork ratingKeys BEFORE deleting CoreData records
+            var artworkKeysToDelete = Set<String>()
+            if let albums = try? await libraryRepository.fetchAlbums() {
+                for album in albums where album.sourceCompositeKey == sourceId.compositeKey {
+                    artworkKeysToDelete.insert(album.ratingKey)
+                }
+            }
+            if let artists = try? await libraryRepository.fetchArtists() {
+                for artist in artists where artist.sourceCompositeKey == sourceId.compositeKey {
+                    artworkKeysToDelete.insert(artist.ratingKey)
+                }
+            }
+
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
+
+            // Delete cached artwork files for the removed source
+            if !artworkKeysToDelete.isEmpty {
+                artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
+                #if DEBUG
+                EnsembleLogger.debug("🗑️ Deleted \(artworkKeysToDelete.count) artwork files for source: \(sourceId.compositeKey)")
+                #endif
+            }
 
             // Clean up source-specific caches (lyrics, etc.)
             onSourceCleanup?(sourceId.compositeKey)
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)
-            
+
             // Clear API client cache for this source
             accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
-            
+
             #if DEBUG
             EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
             #endif
@@ -1560,10 +1591,26 @@ public final class SyncCoordinator: ObservableObject {
     public func cleanupServerPlaylists(accountId: String, serverId: String) async {
         let serverSourceKey = "plex:\(accountId):\(serverId)"
         do {
+            // Collect playlist ratingKeys before deletion for artwork cleanup
+            var playlistKeys = Set<String>()
+            if let playlists = try? await playlistRepository.fetchPlaylists(sourceCompositeKey: serverSourceKey) {
+                for playlist in playlists {
+                    playlistKeys.insert(playlist.ratingKey)
+                }
+            }
+
             try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
             UserDefaults.standard.removeObject(forKey: timestampKey)
+
+            // Delete cached playlist artwork files
+            if !playlistKeys.isEmpty {
+                artworkDownloadManager.deleteArtwork(forRatingKeys: playlistKeys)
+                #if DEBUG
+                EnsembleLogger.debug("🗑️ Deleted \(playlistKeys.count) playlist artwork files for server: \(serverSourceKey)")
+                #endif
+            }
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
@@ -2157,11 +2204,11 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        // Interface switches and user-initiated account refreshes bypass cooldown
-        // to ensure connections are refreshed immediately.
+        // Reconnects, interface switches, and user-initiated account refreshes bypass
+        // cooldown to ensure connections are refreshed immediately.
         let bypassCooldown: Bool
         switch reason {
-        case .interfaceSwitch, .accountInventoryRefresh:
+        case .networkReconnect, .interfaceSwitch, .accountInventoryRefresh:
             bypassCooldown = true
         default:
             bypassCooldown = false

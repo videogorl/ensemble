@@ -33,6 +33,7 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
     func deleteArtwork(ratingKey: String, type: ArtworkType)
+    func deleteArtwork(forRatingKeys ratingKeys: Set<String>)
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
 }
@@ -168,6 +169,21 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    /// Delete all cached artwork files whose ratingKey is in the given set.
+    /// Checks all type suffixes (album, artist, track, playlist) for each key.
+    public func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {
+        let fileManager = FileManager.default
+        let dir = Self.artworkDirectory
+        for key in ratingKeys {
+            for suffix in ["album", "artist", "track", "playlist"] {
+                let path = dir.appendingPathComponent("\(key)_\(suffix).jpg").path
+                if fileManager.fileExists(atPath: path) {
+                    try? fileManager.removeItem(atPath: path)
+                }
+            }
         }
     }
 

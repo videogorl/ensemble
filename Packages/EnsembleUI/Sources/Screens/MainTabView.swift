@@ -66,6 +66,8 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
+    // Targeted NVM observation: only re-evaluate when track presence changes
+    @State private var hasCurrentTrack = false
     
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
@@ -100,11 +102,6 @@ public struct MainTabView: View {
             let rootView = ZStack(alignment: .bottom) {
                 // Main content layer with TabView
                 VStack(spacing: 0) {
-                    // Connection status banner at top
-                    if !isImmersiveMode {
-                        ConnectionStatusBanner(networkState: networkMonitor.networkState)
-                    }
-                    
                     tabBarVisibility(
                         TabView(selection: tabBinding) {
                             ForEach(barTabs) { tab in
@@ -131,51 +128,24 @@ public struct MainTabView: View {
                 .miniPlayerContainerInset(
                     70,
                     isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
-                        && nowPlayingVM.currentTrack != nil
+                        && hasCurrentTrack
                 )
                 .zIndex(0)
 
-                // Persistent MiniPlayer (above tab bar)
-                if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
-                    let isFloating: Bool = {
-                        #if os(iOS)
-                        if #available(iOS 18.0, *) {
-                            return true
-                        }
-                        #endif
-                        return false
-                    }()
-
-                    MiniPlayer(
-                        viewModel: nowPlayingVM,
-                        isFloating: isFloating,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID
-                    ) {
-                        withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                            showingNowPlaying = true
-                        }
-                    }
-                    .accentColor(settingsManager.accentColor.color)
-                    .alignmentGuide(.bottom) { dimensions in
-                        dimensions[.bottom] + miniPlayerBottomLift
-                    }
-                    .zIndex(2)
-                    // Use a slight delay on appearance to let sheet clear, immediate disappearance
-                    .transition(.asymmetric(
-                        insertion: .opacity.animation(.easeInOut.delay(0.1)),
-                        removal: .identity
-                    ))
-                }
-
-                // Full-width playback progress bar pinned to the very bottom of the screen.
-                // Sits above the aurora, below the mini player and tab bar.
-                if nowPlayingVM.currentTrack != nil && !showingNowPlaying && !isImmersiveMode {
-                    PlaybackProgressBar(viewModel: nowPlayingVM)
-                        .ignoresSafeArea(.all, edges: .bottom)
-                        .zIndex(1)
-                        .transition(.opacity)
-                }
+                // MiniPlayer + PlaybackProgressBar extracted into sub-view so
+                // MainTabView body has no NVM-dependent branching. Body still
+                // re-evaluates (because of @StateObject) but produces a stable
+                // view tree — SwiftUI can efficiently skip diffing the content.
+                MainTabNowPlayingOverlay(
+                    nowPlayingVM: nowPlayingVM,
+                    showingNowPlaying: $showingNowPlaying,
+                    isImmersiveMode: isImmersiveMode,
+                    isKeyboardVisible: isKeyboardVisible,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    accentColor: settingsManager.accentColor.color,
+                    miniPlayerBottomLift: miniPlayerBottomLift
+                )
             }
             .task {
                 // Sync selectedTab with the actual first visible tab on launch.
@@ -190,6 +160,12 @@ public struct MainTabView: View {
                     }
                 }
                 await libraryVM.refresh()
+            }
+            // Track presence observation — only fires on track start/stop,
+            // not on every NVM @Published change (lyrics, progress, queue, etc.)
+            .onReceive(nowPlayingVM.$currentTrack) { track in
+                let has = track != nil
+                if has != hasCurrentTrack { hasCurrentTrack = has }
             }
             .onChange(of: showingNowPlaying) { isShowing in
                 // Execute pending navigation after the sheet fully dismisses.
@@ -223,7 +199,17 @@ public struct MainTabView: View {
                 #endif
             }
 
-            applyChromeVisibilityObservation(to: rootView)
+            applyChromeVisibilityObservation(
+                to: rootView
+                    .overlay(alignment: .top) {
+                        if !isImmersiveMode {
+                            OfflineIndicatorOverlay(
+                                networkState: networkMonitor.networkState,
+                                topInset: geometry.safeAreaInsets.top
+                            )
+                        }
+                    }
+            )
         }
     }
 
@@ -415,6 +401,66 @@ public struct MainTabView: View {
                 nowPlayingVM: nowPlayingVM,
                 searchVM: searchVM,
             )
+        }
+    }
+}
+
+// MARK: - Now Playing Overlay
+
+/// Extracted sub-view that owns the NVM observation for MiniPlayer and
+/// PlaybackProgressBar. MainTabView's body no longer branches on NVM
+/// properties, so SwiftUI can skip diffing the full TabView tree when
+/// NVM publishes.
+private struct MainTabNowPlayingOverlay: View {
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Binding var showingNowPlaying: Bool
+    let isImmersiveMode: Bool
+    let isKeyboardVisible: Bool
+    var namespace: Namespace.ID
+    let animationID: String
+    let accentColor: Color
+    let miniPlayerBottomLift: CGFloat
+
+    var body: some View {
+        // Persistent MiniPlayer (above tab bar)
+        if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
+            let isFloating: Bool = {
+                #if os(iOS)
+                if #available(iOS 18.0, *) {
+                    return true
+                }
+                #endif
+                return false
+            }()
+
+            MiniPlayer(
+                viewModel: nowPlayingVM,
+                isFloating: isFloating,
+                namespace: namespace,
+                animationID: animationID
+            ) {
+                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                    showingNowPlaying = true
+                }
+            }
+            .accentColor(accentColor)
+            .alignmentGuide(.bottom) { dimensions in
+                dimensions[.bottom] + miniPlayerBottomLift
+            }
+            .zIndex(2)
+            .transition(.asymmetric(
+                insertion: .opacity.animation(.easeInOut.delay(0.1)),
+                removal: .identity
+            ))
+        }
+
+        // Full-width playback progress bar pinned to the very bottom of the screen.
+        // Sits above the aurora, below the mini player and tab bar.
+        if nowPlayingVM.currentTrack != nil && !showingNowPlaying && !isImmersiveMode {
+            PlaybackProgressBar(viewModel: nowPlayingVM)
+                .ignoresSafeArea(.all, edges: .bottom)
+                .zIndex(1)
+                .transition(.opacity)
         }
     }
 }

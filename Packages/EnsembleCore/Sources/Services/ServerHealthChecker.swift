@@ -42,8 +42,9 @@ public final class ServerHealthChecker: ObservableObject {
         connectionRegistry: ServerConnectionRegistry? = nil
     ) {
         self.accountManager = accountManager
-        // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
-        self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
+        // 4s timeout balances reliability with cold-launch speed. Remote/relay endpoints
+        // that take longer than 4s are likely too slow for real-time streaming anyway.
+        self.failoverManager = ConnectionFailoverManager(timeout: 4.0)
         self.connectionRegistry = connectionRegistry
         self.cacheTTL = 120
         self.unavailableCacheTTL = 10
@@ -534,6 +535,7 @@ public final class ServerHealthChecker: ObservableObject {
                 connections: refreshedConnections,
                 token: existingServer.token,
                 platform: existingServer.platform,
+                capabilities: existingServer.capabilities,
                 libraries: existingServer.libraries
             )
 
@@ -547,6 +549,7 @@ public final class ServerHealthChecker: ObservableObject {
                 displayTitle: account.displayTitle,
                 authToken: account.authToken,
                 authTokenMetadata: account.authTokenMetadata,
+                subscription: account.subscription,
                 servers: updatedServers
             )
             accountManager.updatePlexAccount(updatedAccount)

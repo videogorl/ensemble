@@ -3,12 +3,14 @@ import SwiftUI
 
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var showingManageSources = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-
+    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
+    @State private var cachedAlbumSections: [AlbumSection] = []
+    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
+    @State private var isCoverFlowActive = false
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -32,21 +34,32 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if libraryVM.isLoading && libraryVM.albums.isEmpty {
-                    loadingView
-                } else if libraryVM.albums.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeCoverFlowView
-                } else {
-                    albumGridView
-                }
+        Group {
+            if libraryVM.isLoading && libraryVM.albums.isEmpty {
+                loadingView
+            } else if libraryVM.albums.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeCoverFlowView
+            } else {
+                albumGridView
             }
+        }
+        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // instead of re-evaluating the entire body on every geometry change
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        let active = supportsCoverFlow && newSize.width > newSize.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+            }
+        )
             .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
             .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
             #if os(iOS)
@@ -126,6 +139,18 @@ public struct AlbumsView: View {
                 }
                 #endif
             }
+            .onReceive(libraryVM.$filteredAlbums) { albums in
+                let newSections = Self.computeAlbumSections(albums: albums, sortOption: libraryVM.albumSortOption)
+                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
+                    cachedAlbumSections = newSections
+                }
+            }
+            .onReceive(libraryVM.$albumSortOption) { sortOption in
+                let newSections = Self.computeAlbumSections(albums: libraryVM.filteredAlbums, sortOption: sortOption)
+                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
+                    cachedAlbumSections = newSections
+                }
+            }
             .sheet(isPresented: $showFilterSheet) {
                 FilterSheet(
                     filterOptions: $libraryVM.albumsFilterOptions,
@@ -153,7 +178,6 @@ public struct AlbumsView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
-        }
     }
 
     private var landscapeCoverFlowView: some View {
@@ -190,7 +214,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -241,19 +265,31 @@ public struct AlbumsView: View {
         var id: String { letter }
     }
 
-    private var albumSections: [AlbumSection] {
+    private static func computeAlbumSections(albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
         let groupingKey: (Album) -> String = { album in
-            switch libraryVM.albumSortOption {
+            switch sortOption {
             case .title: return album.title.indexingLetter
             case .artist: return (album.artistName ?? "").indexingLetter
             case .albumArtist: return (album.albumArtist ?? "").indexingLetter
             default: return ""
             }
         }
-        
-        let grouped = Dictionary(grouping: libraryVM.filteredAlbums, by: groupingKey)
+
+        let grouped = Dictionary(grouping: albums, by: groupingKey)
         return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted { $0.letter < $1.letter }
+    }
+
+    /// Fast equality check by letter + album IDs (avoids full Album equality)
+    private static func sectionsEqual(_ a: [AlbumSection], _ b: [AlbumSection]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (sa, sb) in zip(a, b) {
+            guard sa.letter == sb.letter, sa.albums.count == sb.albums.count else { return false }
+            for (aa, ab) in zip(sa.albums, sb.albums) {
+                guard aa.id == ab.id else { return false }
+            }
+        }
+        return true
     }
 
     private var isSortIndexed: Bool {
@@ -271,7 +307,7 @@ public struct AlbumsView: View {
                 ScrollView {
                     if isSortIndexed {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(albumSections) { section in
+                            ForEach(cachedAlbumSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
                                         .id(section.letter)
@@ -288,7 +324,7 @@ public struct AlbumsView: View {
                 
                 if isSortIndexed && !libraryVM.filteredAlbums.isEmpty {
                     ScrollIndex(
-                        letters: albumSections.map { $0.letter },
+                        letters: cachedAlbumSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
                             proxy.scrollTo(letter, anchor: .top)
@@ -340,7 +376,7 @@ public struct AlbumsView: View {
 
 public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     
     private let album: Album
 

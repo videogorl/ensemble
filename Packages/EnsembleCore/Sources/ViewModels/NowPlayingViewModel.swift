@@ -555,7 +555,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 // Load asynchronously if not cached
                 if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
                     guard !Task.isCancelled else { return }
-                    
+
                     // Only update if this is still the current track
                     if self.currentLoadTrackID == trackID {
                         // Using a smooth cross-fade transition.
@@ -565,6 +565,10 @@ public final class NowPlayingViewModel: ObservableObject {
                         }
                     }
                 }
+                // If Nuke fails (transient network error, pipeline cancellation),
+                // keep the previous artwork rather than flashing to a placeholder.
+                // Tracks with truly no artwork are handled by the artworkURLAsync == nil
+                // path below, which clears artworkImage correctly.
             } else {
                 // No artwork URL available - clear previous artwork
                 guard !Task.isCancelled else { return }
@@ -653,6 +657,26 @@ public final class NowPlayingViewModel: ObservableObject {
             #endif
         }
         return nil
+    }
+
+    /// Returns codec and file size of what AVPlayer is actually decoding right now
+    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+        playbackService.currentPlaybackFileInfo()
+    }
+
+    /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
+    public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
+        guard let track = currentTrack,
+              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
+        do {
+            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
+            return AudioFileInfo(from: plexTrack)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
+            #endif
+            return nil
+        }
     }
 
     // MARK: - Playback Controls

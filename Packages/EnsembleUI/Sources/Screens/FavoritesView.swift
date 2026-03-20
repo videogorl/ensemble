@@ -17,15 +17,20 @@ public struct FavoritesView: View {
     }
 
     @StateObject private var viewModel: FavoritesViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    let nowPlayingVM: NowPlayingViewModel
+    // Targeted singleton observation for empty state only
+    @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
+    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
+    @State private var hasEnabledLibrariesState = false
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted NVM observation: only re-evaluate when track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @Environment(\.dependencies) private var deps
 
     private var backgroundColor: Color {
@@ -107,6 +112,29 @@ public struct FavoritesView: View {
             }
             #endif
         }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+        }
+        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
+            let has = !accounts.isEmpty
+            if has != hasAnySources { hasAnySources = has }
+            let enabledLibs = Self.computeHasEnabledLibraries()
+            if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
+        }
+        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+            if syncing != isSyncing { isSyncing = syncing }
+        }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $viewModel.filterOptions
@@ -139,11 +167,11 @@ public struct FavoritesView: View {
         Menu {
             Button {
                 Task {
-                    let isEnabled = offlineDownloadService.isFavoritesDownloadEnabled()
-                    await offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
+                    let isEnabled = deps.offlineDownloadService.isFavoritesDownloadEnabled()
+                    await deps.offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
                 }
             } label: {
-                if offlineDownloadService.isFavoritesDownloadEnabled() {
+                if deps.offlineDownloadService.isFavoritesDownloadEnabled() {
                     Label("Remove Download", systemImage: "xmark.circle")
                 } else {
                     Label("Download", systemImage: "arrow.down.circle")
@@ -191,14 +219,14 @@ public struct FavoritesView: View {
             Text("No Favorites Yet")
                 .font(.title2)
             
-            if !accountManager.hasAnySources {
+            if !hasAnySources {
                 Text("No music sources connected")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -208,14 +236,14 @@ public struct FavoritesView: View {
                         .cornerRadius(20)
                 }
                 .buttonStyle(.plain)
-            } else if syncCoordinator.isSyncing {
+            } else if isSyncing {
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Sync in progress…")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-            } else if !hasEnabledLibraries {
+            } else if !hasEnabledLibrariesState {
                 Text("No libraries enabled")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -250,8 +278,8 @@ public struct FavoritesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var hasEnabledLibraries: Bool {
-        accountManager.plexAccounts.contains { account in
+    private static func computeHasEnabledLibraries() -> Bool {
+        DependencyContainer.shared.accountManager.plexAccounts.contains { account in
             account.servers.contains { server in
                 server.libraries.contains(where: \.isEnabled)
             }
@@ -330,9 +358,9 @@ public struct FavoritesView: View {
                     showArtwork: true,
                     showTrackNumbers: false,
                     groupByDisc: false,
-                    currentTrackId: nowPlayingVM.currentTrack?.id,
-                    availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                    activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
@@ -372,7 +400,7 @@ public struct FavoritesView: View {
                     canAddToRecentPlaylist: { track in
                         recentPlaylistTitle(for: track) != nil
                     },
-                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                    recentPlaylistTitle: nvmRecentPlaylistTitle
                 ) { _, index in
                     nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
                 }
@@ -384,7 +412,7 @@ public struct FavoritesView: View {
                         TrackRow(
                             track: track,
                             showArtwork: true,
-                            isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                            isPlaying: track.id == currentTrackId,
                             onPlayNext: { nowPlayingVM.playNext(track) },
                             onPlayLast: { nowPlayingVM.playLast(track) },
                             onAddToPlaylist: { presentPlaylistPicker(with: [track]) },

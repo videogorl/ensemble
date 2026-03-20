@@ -369,10 +369,44 @@ public final class LyricsService: ObservableObject {
             }
 
             // 3. Fetch lyrics content from PMS
-            guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else {
+            let content: String
+            if let fetched = try await apiClient.getLyricsContent(streamKey: streamKey) {
+                content = fetched
+            } else {
                 #if DEBUG
-                EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey)")
+                EnsembleLogger.debug("Lyrics: content fetch returned nil for \(streamKey) — scheduling background retry in 10s")
                 #endif
+                // Schedule a lazy background retry after 10s (don't block UI).
+                // PMS may need time to re-fetch from LyricFind, especially on iOS 15.
+                let codec = lyricsStream.codec
+                let cacheKey = Self.cacheKey(for: track)
+                Task.detached { [weak self] in
+                    try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                    guard !Task.isCancelled else { return }
+                    guard let retryContent = try? await apiClient.getLyricsContent(streamKey: streamKey) else {
+                        #if DEBUG
+                        EnsembleLogger.debug("Lyrics: background retry also failed for \(streamKey)")
+                        #endif
+                        return
+                    }
+                    #if DEBUG
+                    EnsembleLogger.debug("Lyrics: background retry succeeded for \(streamKey) (\(retryContent.count) chars)")
+                    #endif
+                    let parsed = Self.parseContent(retryContent, codec: codec)
+                    guard let parsed, !parsed.lines.isEmpty else { return }
+                    // Save to persistent cache and update state on main actor
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.saveToPersistentCache(retryContent, for: track)
+                        self.setCached(.available(parsed), forKey: cacheKey)
+                        // Update current state if lyrics are still showing as unavailable
+                        // (i.e. the user hasn't switched tracks)
+                        if case .notAvailable = self.currentLyrics {
+                            self.currentLyrics = .available(parsed)
+                            self.currentLyricsSource = .server
+                        }
+                    }
+                }
                 return (.notAvailable, .contentFetchFailed)
             }
 

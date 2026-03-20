@@ -72,6 +72,11 @@ extension CDArtist {
         let set = albums as? Set<CDAlbum> ?? []
         return set.sorted { ($0.year) > ($1.year) }
     }
+
+    /// O(n) lookup for the newest album by year (avoids sorting the full set)
+    public var newestAlbum: CDAlbum? {
+        (albums as? Set<CDAlbum>)?.max(by: { $0.year < $1.year })
+    }
 }
 
 // MARK: - CDAlbum

@@ -16,6 +16,10 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
     @Published public private(set) var isLoading: Bool = false
     @Published public private(set) var error: String?
+    // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
+    @Published public private(set) var filteredTracks: [Track] = []
+    // Pre-computed total duration derived from filteredTracks
+    @Published public private(set) var totalDuration: String = "0 min"
 
     private let libraryRepository: LibraryRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -32,6 +36,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
 
         setupFilterPersistence()
+        setupFilteredTracksPipeline()
         observeDownloadChanges()
 
         // Initial load
@@ -44,6 +49,23 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "Favorites") }
+            .store(in: &cancellables)
+    }
+
+    /// Reactive pipeline: recompute filteredTracks whenever inputs change.
+    /// Runs filter+sort on a background queue with debouncing.
+    private func setupFilteredTracksPipeline() {
+        Publishers.CombineLatest3($tracks, $favoritesSortOption, $filterOptions)
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.global(qos: .userInitiated))
+            .map { [weak self] tracks, sortOption, filterOptions -> [Track] in
+                guard self != nil else { return tracks }
+                return FavoritesViewModel.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] filtered in
+                self?.filteredTracks = filtered
+                self?.totalDuration = Self.computeTotalDuration(filtered)
+            }
             .store(in: &cancellables)
     }
 
@@ -64,7 +86,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
         isLoading = false
     }
-    
+
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
@@ -78,7 +100,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             .store(in: &cancellables)
     }
 
-    public var filteredTracks: [Track] {
+    // MARK: - Filter + Sort (static for background pipeline)
+
+    private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
         var filtered = tracks
 
         if !filterOptions.searchText.isEmpty {
@@ -94,52 +118,51 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             filtered = filtered.filter { $0.isDownloaded }
         }
 
-        return sortTracks(filtered)
+        return sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
     }
 
-    // MARK: - Sorting
-
-    private func sortTracks(_ tracks: [Track]) -> [Track] {
-        let ascending = filterOptions.sortDirection == .ascending
-        return tracks.sorted { a, b in
-            switch favoritesSortOption {
-            case .title:
-                let result = a.title.sortingKey.localizedStandardCompare(b.title.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .artist:
-                let aName = a.artistName ?? ""
-                let bName = b.artistName ?? ""
-                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .album:
-                let aName = a.albumName ?? ""
-                let bName = b.albumName ?? ""
-                let result = aName.sortingKey.localizedStandardCompare(bName.sortingKey)
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-
-            case .dateFavorited:
-                // Use lastRatedAt (when the track was favorited), fall back to dateAdded
-                return compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
-
-            case .duration:
-                return ascending ? a.duration < b.duration : a.duration > b.duration
-
-            case .lastPlayed:
-                return compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
-
-            case .rating:
-                return ascending ? a.rating < b.rating : a.rating > b.rating
-
-            case .playCount:
-                return ascending ? a.playCount < b.playCount : a.playCount > b.playCount
+    private static func sortTracks(_ tracks: [Track], by sortOption: FavoritesSortOption, direction: SortDirection) -> [Track] {
+        let ascending = direction == .ascending
+        switch sortOption {
+        case .title:
+            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
+            return sortByCachedKey(tracks, keyExtractor: { $0.title.sortingKey }, ascending: ascending)
+        case .artist:
+            return sortByCachedKey(tracks, keyExtractor: { ($0.artistName ?? "").sortingKey }, ascending: ascending)
+        case .album:
+            return sortByCachedKey(tracks, keyExtractor: { ($0.albumName ?? "").sortingKey }, ascending: ascending)
+        case .dateFavorited:
+            return tracks.sorted { a, b in
+                compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
             }
+        case .duration:
+            return tracks.sorted { ascending ? $0.duration < $1.duration : $0.duration > $1.duration }
+        case .lastPlayed:
+            return tracks.sorted { a, b in
+                compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
+            }
+        case .rating:
+            return tracks.sorted { ascending ? $0.rating < $1.rating : $0.rating > $1.rating }
+        case .playCount:
+            return tracks.sorted { ascending ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
         }
     }
 
+    /// Sort by pre-computed string keys — computes sortingKey once per element.
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
+        let keyed = items.map { ($0, keyExtractor($0)) }
+        return keyed.sorted {
+            let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
+            }
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map { $0.0 }
+    }
+
     /// Compares optional dates with nils sorting last regardless of direction
-    private func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
+    private static func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
         switch (a, b) {
         case (.some(let aDate), .some(let bDate)):
             return ascending ? aDate < bDate : aDate > bDate
@@ -152,8 +175,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
     }
 
-    public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
+    private static func computeTotalDuration(_ tracks: [Track]) -> String {
+        let total = tracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
         if minutes >= 60 {
             let hours = minutes / 60

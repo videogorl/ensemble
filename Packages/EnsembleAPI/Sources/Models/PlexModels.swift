@@ -185,6 +185,7 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public let agent: String?
     public let scanner: String?
     public let language: String?
+    public let allowSync: Bool?
 
     public var id: String { key }
 
@@ -291,7 +292,8 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let grandparentRatingKey: String?  // Artist
     public let title: String
     public let parentTitle: String?  // Album name
-    public let grandparentTitle: String?  // Artist name
+    public let grandparentTitle: String?  // Album artist name
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let index: Int?  // Track number
     public let parentIndex: Int?  // Disc number
@@ -318,6 +320,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case title
         case parentTitle
         case grandparentTitle
+        case originalTitle
         case summary
         case index
         case parentIndex
@@ -369,6 +372,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         let decodedParentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
         parentTitle = PlexTitleFallback.albumTitle(from: decodedParentTitle, media: media)
         grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        originalTitle = try container.decodeIfPresent(String.self, forKey: .originalTitle)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
         index = try container.decodeIfPresent(Int.self, forKey: .index)
         parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)
@@ -493,6 +497,10 @@ public struct PlexStream: Codable, Sendable {
     public let loudness: Double?  // Loudness value if analyzed
     public let lra: Double?  // Loudness range if analyzed
     public let peak: Double?  // Peak loudness if analyzed
+    public let bitrate: Int?  // kbps
+    public let bitDepth: Int?  // e.g. 16, 24 (nil for lossy codecs like MP3)
+    public let samplingRate: Int?  // Hz, e.g. 44100, 96000
+    public let channels: Int?  // e.g. 2 for stereo
     public let key: String?  // Fetch path for lyrics streams (e.g. /library/streams/12345)
     public let format: String?  // "lrc" or "txt" for lyrics streams
     public let timed: Int?  // 1 for time-synced lyrics (LRC)
@@ -506,6 +514,10 @@ public struct PlexStream: Codable, Sendable {
         case loudness
         case lra
         case peak
+        case bitrate
+        case bitDepth
+        case samplingRate
+        case channels
         case key
         case format
         case timed
@@ -523,7 +535,11 @@ public struct PlexStream: Codable, Sendable {
         format = try container.decodeIfPresent(String.self, forKey: .format)
         provider = try container.decodeIfPresent(String.self, forKey: .provider)
 
-        // Plex returns timed/minLines as strings ("1", "3") despite being numeric
+        // Plex returns many integer fields as strings — use decodeIntOrString for safety
+        bitrate = PlexStream.decodeIntOrString(container: container, forKey: .bitrate)
+        bitDepth = PlexStream.decodeIntOrString(container: container, forKey: .bitDepth)
+        samplingRate = PlexStream.decodeIntOrString(container: container, forKey: .samplingRate)
+        channels = PlexStream.decodeIntOrString(container: container, forKey: .channels)
         timed = PlexStream.decodeIntOrString(container: container, forKey: .timed)
         minLines = PlexStream.decodeIntOrString(container: container, forKey: .minLines)
 
@@ -647,6 +663,59 @@ public struct PlexUser: Codable, Sendable {
     public let email: String?
     public let thumb: String?
     public let authToken: String?
+    public let subscription: PlexSubscription?
+}
+
+// MARK: - Plex Pass Subscription
+
+public struct PlexSubscription: Codable, Sendable, Equatable {
+    public let active: Bool?
+    public let status: String?    // "Active", "Inactive", etc.
+    public let features: [String]?
+
+    public init(active: Bool? = nil, status: String? = nil, features: [String]? = nil) {
+        self.active = active
+        self.status = status
+        self.features = features
+    }
+}
+
+// MARK: - Server Capabilities (from GET / root endpoint)
+
+/// Decoded from the `MediaContainer` attributes of a Plex server's root endpoint (`GET /`).
+/// Contains server-level feature flags like Plex Pass status, lyrics, radio, and transcoding support.
+public struct PlexServerCapabilities: Codable, Sendable, Equatable {
+    public let myPlexSubscription: Bool?
+    public let ownerFeatures: String?
+    public let allowSync: Bool?
+    public let musicAnalysis: Int?       // 0 or 1
+    public let transcoderAudio: Bool?
+    public let transcoderLyrics: Bool?
+
+    public init(
+        myPlexSubscription: Bool? = nil,
+        ownerFeatures: String? = nil,
+        allowSync: Bool? = nil,
+        musicAnalysis: Int? = nil,
+        transcoderAudio: Bool? = nil,
+        transcoderLyrics: Bool? = nil
+    ) {
+        self.myPlexSubscription = myPlexSubscription
+        self.ownerFeatures = ownerFeatures
+        self.allowSync = allowSync
+        self.musicAnalysis = musicAnalysis
+        self.transcoderAudio = transcoderAudio
+        self.transcoderLyrics = transcoderLyrics
+    }
+
+    /// Parsed set of owner features from the comma-separated string.
+    public var ownerFeatureSet: Set<String> {
+        Set((ownerFeatures ?? "").split(separator: ",").map(String.init))
+    }
+
+    public var hasLyrics: Bool { ownerFeatureSet.contains("lyrics") }
+    public var hasRadio: Bool { ownerFeatureSet.contains("radio") || ownerFeatureSet.contains("shared-radio") }
+    public var hasPlexPass: Bool { myPlexSubscription == true || ownerFeatureSet.contains("pass") }
 }
 
 // MARK: - Hubs (Home Screen Content)
@@ -692,6 +761,7 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let parentTitle: String?  // Artist name for albums/tracks
     public let grandparentRatingKey: String?  // Artist ratingKey for tracks
     public let grandparentTitle: String?  // Artist name for tracks
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let thumb: String?
     public let art: String?

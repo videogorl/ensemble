@@ -1,3 +1,4 @@
+import EnsembleAPI
 import Foundation
 import os
 
@@ -95,7 +96,15 @@ public final class ShareService: ObservableObject {
 
         // Download to temp directory for non-downloaded tracks
         do {
-            let streamURL = try await syncCoordinator.getStreamURL(for: track)
+            // Sharing uses original quality (default) which always resolves to a direct URL
+            let resolution = try await syncCoordinator.getStreamURL(for: track)
+            let streamURL: URL
+            switch resolution {
+            case .directStream(let url), .downloadedFile(let url):
+                streamURL = url
+            case .progressiveTranscode:
+                throw PlexAPIError.invalidURL
+            }
             let tempFileURL = Self.tempShareDirectory
                 .appendingPathComponent(sanitizeFilename(title))
                 .appendingPathExtension("mp3")

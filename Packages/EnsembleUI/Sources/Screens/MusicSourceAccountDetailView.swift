@@ -135,6 +135,8 @@ public struct MusicSourceAccountDetailView: View {
                                     Text("(\(platform))")
                                         .foregroundColor(.secondary)
                                 }
+                                Spacer()
+                                ServerFeatureBadges(section: server)
                             }
                         }
                     }
@@ -196,6 +198,12 @@ private struct LibrarySyncStatusRow: View {
                         .foregroundColor(.primary)
 
                     Spacer()
+
+                    if row.allowSync == true {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.accentColor)
+                    }
                 }
                 .contentShape(Rectangle())
             }
@@ -338,6 +346,31 @@ private struct EnabledLibraryStatusView: View {
         } else {
             let days = Int(interval / 86400)
             return "\(days)d ago"
+        }
+    }
+}
+
+/// Compact inline badges for server-level feature availability (Plex Pass, Lyrics, Radio).
+private struct ServerFeatureBadges: View {
+    let section: MusicSourceAccountDetailViewModel.ServerSection
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if section.hasPlexPass {
+                Image(systemName: "ticket.fill")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
+            if section.capabilities?.hasLyrics == true {
+                Image(systemName: "quote.bubble.fill")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
+            if section.capabilities?.hasRadio == true {
+                Image(systemName: "infinity")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
         }
     }
 }

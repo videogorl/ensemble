@@ -20,13 +20,38 @@ import Foundation
 ///
 /// All models conform to Sendable for safe async/concurrent usage
 
+// MARK: - Audio File Info
+
+/// Audio format metadata fetched on demand from the Plex API.
+/// Not persisted in CoreData — only displayed on the Now Playing Info card.
+public struct AudioFileInfo: Sendable, Equatable {
+    public let codec: String?       // e.g. "flac", "mp3", "aac"
+    public let bitrate: Int?        // kbps
+    public let sampleRate: Int?     // Hz, e.g. 44100, 96000
+    public let bitDepth: Int?       // e.g. 16, 24 (nil for lossy codecs)
+    public let fileSize: Int?       // bytes
+    public let channels: Int?       // e.g. 2 for stereo
+    public let container: String?   // e.g. "flac", "mp3"
+
+    public init(codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
+        self.codec = codec
+        self.bitrate = bitrate
+        self.sampleRate = sampleRate
+        self.bitDepth = bitDepth
+        self.fileSize = fileSize
+        self.channels = channels
+        self.container = container
+    }
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
-    public let artistName: String?
+    public let artistName: String?  // Track artist (originalTitle, falls back to album artist)
+    public let albumArtistName: String?  // Album artist (grandparentTitle)
     public let albumName: String?
     public let albumRatingKey: String?
     public let artistRatingKey: String?
@@ -52,6 +77,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         key: String,
         title: String,
         artistName: String? = nil,
+        albumArtistName: String? = nil,
         albumName: String? = nil,
         albumRatingKey: String? = nil,
         artistRatingKey: String? = nil,
@@ -80,6 +106,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             streamKey: streamKey
         )
         self.artistName = artistName
+        self.albumArtistName = albumArtistName
         self.albumName = albumName
         self.albumRatingKey = albumRatingKey
         self.artistRatingKey = artistRatingKey
@@ -204,6 +231,24 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             title: title,
             artistName: artistName
         )
+    }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
+    public static func == (lhs: Album, rhs: Album) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.artistName == rhs.artistName &&
+        lhs.albumArtist == rhs.albumArtist &&
+        lhs.year == rhs.year &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.thumbPath == rhs.thumbPath &&
+        lhs.rating == rhs.rating
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -390,6 +435,22 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             return "\(hours) hr \(minutes) min"
         }
         return "\(minutes) min"
+    }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
+    public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.duration == rhs.duration &&
+        lhs.compositePath == rhs.compositePath &&
+        lhs.isSmart == rhs.isSmart
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 

@@ -33,9 +33,10 @@ public final class CoreDataStack: @unchecked Sendable {
 
         viewContext.automaticallyMergesChangesFromParent = true
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        // Ensure objects are always refetched from store (not cached)
-        // This fixes stale data after background sync operations
-        viewContext.stalenessInterval = 0
+        // Allow objects to remain cached for a short window before refetching.
+        // automaticallyMergesChangesFromParent handles background sync freshness,
+        // and refreshContext() forces a full refetch before library loads.
+        viewContext.stalenessInterval = 5.0
     }
 
     /// Create an in-memory stack for testing/previews

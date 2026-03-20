@@ -4,10 +4,11 @@ import Nuke
 
 public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var showingManageSources = false
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
+    @State private var cachedArtistSections: [ArtistSection] = []
 
     public init(
         libraryVM: LibraryViewModel,
@@ -101,6 +102,13 @@ public struct ArtistsView: View {
             }
             #endif
         }
+        .onReceive(libraryVM.$filteredArtists) { artists in
+            let newSections = Self.computeArtistSections(artists: artists)
+            // Only update if content actually changed (avoids LazyVGrid re-layout flicker)
+            if !Self.sectionsEqual(cachedArtistSections, newSections) {
+                cachedArtistSections = newSections
+            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions
@@ -150,7 +158,7 @@ public struct ArtistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -201,10 +209,22 @@ public struct ArtistsView: View {
         var id: String { letter }
     }
 
-    private var artistSections: [ArtistSection] {
-        let grouped = Dictionary(grouping: libraryVM.filteredArtists) { $0.name.indexingLetter }
+    private static func computeArtistSections(artists: [Artist]) -> [ArtistSection] {
+        let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { $0.letter < $1.letter }
+    }
+
+    /// Fast equality check by letter + artist IDs (avoids full Artist equality)
+    private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (sa, sb) in zip(a, b) {
+            guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
+            for (aa, ab) in zip(sa.artists, sb.artists) {
+                guard aa.id == ab.id else { return false }
+            }
+        }
+        return true
     }
 
     private var artistListView: some View {
@@ -213,7 +233,7 @@ public struct ArtistsView: View {
                 ScrollView {
                     if libraryVM.artistSortOption == .name {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(artistSections) { section in
+                            ForEach(cachedArtistSections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     ArtistGrid(
                                         artists: section.artists,
@@ -236,7 +256,7 @@ public struct ArtistsView: View {
                 
                 if libraryVM.artistSortOption == .name && !libraryVM.filteredArtists.isEmpty {
                     ScrollIndex(
-                        letters: artistSections.map { $0.letter },
+                        letters: cachedArtistSections.map { $0.letter },
                         currentLetter: .constant(nil),
                         onLetterTap: { letter in
                             proxy.scrollTo(letter, anchor: .top)
@@ -269,12 +289,16 @@ public struct ArtistDetailView: View {
     }
 
     @StateObject private var viewModel: ArtistDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    // Targeted NVM observation: only re-evaluate for track changes and playlist target
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     @State private var isBioExpanded = false
     @State private var artworkImage: UIImage?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
@@ -356,6 +380,20 @@ public struct ArtistDetailView: View {
             #endif
         }
         .miniPlayerBottomSpacing(140)
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+        }
         .task {
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
@@ -827,9 +865,9 @@ public struct ArtistDetailView: View {
                 showArtwork: true,
                 showTrackNumbers: false,
                 groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.id,
-                availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-                activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadRatingKeys: activeDownloadRatingKeys,
                 onPlayNext: { track in
                     nowPlayingVM.playNext(track)
                 },
@@ -865,7 +903,7 @@ public struct ArtistDetailView: View {
                 canAddToRecentPlaylist: { track in
                     recentPlaylistTitle(for: track) != nil
                 },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                recentPlaylistTitle: nvmRecentPlaylistTitle
             ) { track, index in
                 nowPlayingVM.play(tracks: viewModel.favoritedTracks, startingAt: index)
             }
@@ -877,7 +915,7 @@ public struct ArtistDetailView: View {
                     TrackRow(
                         track: track,
                         showArtwork: true,
-                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        isPlaying: track.id == currentTrackId,
                         onPlayNext: { nowPlayingVM.playNext(track) },
                         onPlayLast: { nowPlayingVM.playLast(track) },
                         onAddToPlaylist: { presentPlaylistPicker(with: [track]) },

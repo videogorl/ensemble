@@ -10,6 +10,7 @@ public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
     public let displayTitle: String?
     public let authToken: String
     public let authTokenMetadata: PlexAuthTokenMetadata?
+    public let subscription: PlexSubscription?
     public let servers: [PlexServerConfig]
 
     /// Preferred account label for UI presentation.
@@ -33,6 +34,7 @@ public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
         displayTitle: String? = nil,
         authToken: String,
         authTokenMetadata: PlexAuthTokenMetadata? = nil,
+        subscription: PlexSubscription? = nil,
         servers: [PlexServerConfig]
     ) {
         self.id = id
@@ -41,6 +43,7 @@ public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
         self.displayTitle = displayTitle
         self.authToken = authToken
         self.authTokenMetadata = authTokenMetadata ?? PlexAuthService.tokenMetadata(from: authToken)
+        self.subscription = subscription
         self.servers = servers
     }
 }
@@ -52,6 +55,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
     public let connections: [PlexConnectionConfig]  // All available connections
     public let token: String
     public let platform: String?
+    public let capabilities: PlexServerCapabilities?
     public let libraries: [PlexLibraryConfig]
 
     public init(
@@ -61,6 +65,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         connections: [PlexConnectionConfig] = [],
         token: String,
         platform: String? = nil,
+        capabilities: PlexServerCapabilities? = nil,
         libraries: [PlexLibraryConfig]
     ) {
         self.id = id
@@ -69,14 +74,15 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         self.connections = connections.isEmpty ? [PlexConnectionConfig(uri: url, local: false)] : connections
         self.token = token
         self.platform = platform
+        self.capabilities = capabilities
         self.libraries = libraries
     }
-    
+
     // Custom Codable implementation to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case id, name, url, connections, token, platform, libraries
+        case id, name, url, connections, token, platform, capabilities, libraries
     }
-    
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -84,8 +90,9 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         url = try container.decode(String.self, forKey: .url)
         token = try container.decode(String.self, forKey: .token)
         platform = try container.decodeIfPresent(String.self, forKey: .platform)
+        capabilities = try container.decodeIfPresent(PlexServerCapabilities.self, forKey: .capabilities)
         libraries = try container.decode([PlexLibraryConfig].self, forKey: .libraries)
-        
+
         // Decode connections if present, otherwise create default from URL
         if let decodedConnections = try container.decodeIfPresent([PlexConnectionConfig].self, forKey: .connections),
            !decodedConnections.isEmpty {
@@ -95,7 +102,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
             connections = [PlexConnectionConfig(uri: url, local: false)]
         }
     }
-    
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -104,6 +111,7 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         try container.encode(connections, forKey: .connections)
         try container.encode(token, forKey: .token)
         try container.encodeIfPresent(platform, forKey: .platform)
+        try container.encodeIfPresent(capabilities, forKey: .capabilities)
         try container.encode(libraries, forKey: .libraries)
     }
     
@@ -181,11 +189,13 @@ public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {
     public let key: String
     public let title: String
     public var isEnabled: Bool
+    public let allowSync: Bool?
 
-    public init(id: String, key: String, title: String, isEnabled: Bool = true) {
+    public init(id: String, key: String, title: String, isEnabled: Bool = true, allowSync: Bool? = nil) {
         self.id = id
         self.key = key
         self.title = title
         self.isEnabled = isEnabled
+        self.allowSync = allowSync
     }
 }

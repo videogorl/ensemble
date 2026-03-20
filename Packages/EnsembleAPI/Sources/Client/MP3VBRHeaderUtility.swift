@@ -11,7 +11,7 @@ import Foundation
 /// The XING header is a standard mechanism for storing VBR metadata in a silent
 /// MPEG frame at the start of the file. It contains the total frame count and
 /// audio byte count, which AVPlayer uses for accurate duration and seeking.
-enum MP3VBRHeaderUtility {
+public enum MP3VBRHeaderUtility {
 
     // MARK: - Public
 
@@ -23,7 +23,7 @@ enum MP3VBRHeaderUtility {
     ///   - metadataDurationSeconds: Optional source duration from Plex metadata. When provided,
     ///     LAME gapless info (encoder delay + padding) is embedded so AVPlayer can trim
     ///     silence at track boundaries for seamless gapless playback.
-    static func injectXingHeaderIfNeeded(
+    public static func injectXingHeaderIfNeeded(
         at fileURL: URL,
         metadataDurationSeconds: Double? = nil
     ) throws {

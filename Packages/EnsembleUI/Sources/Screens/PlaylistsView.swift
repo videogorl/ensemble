@@ -12,7 +12,7 @@ private extension Notification.Name {
 
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
@@ -27,10 +27,12 @@ public struct PlaylistsView: View {
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
     @State private var showingManageSources = false
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
+    @State private var cachedDisplayedPlaylists: [Playlist] = []
+    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
+    @State private var isCoverFlowActive = false
+    private let accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     private var supportsCoverFlow: Bool {
@@ -47,21 +49,32 @@ public struct PlaylistsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if viewModel.isLoading && effectivePlaylists.isEmpty {
-                    loadingView
-                } else if effectivePlaylists.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeCoverFlowView
-                } else {
-                    playlistListView
-                }
+        Group {
+            if viewModel.isLoading && effectivePlaylists.isEmpty {
+                loadingView
+            } else if effectivePlaylists.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeCoverFlowView
+            } else {
+                playlistListView
             }
+        }
+        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // instead of re-evaluating the entire body on every geometry change
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        let active = supportsCoverFlow && newSize.width > newSize.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+            }
+        )
             .alert("New Playlist", isPresented: $showCreatePlaylistPrompt) {
                 TextField("Playlist name", text: $newPlaylistName)
                 Button("Cancel", role: .cancel) {
@@ -165,13 +178,19 @@ public struct PlaylistsView: View {
             .task {
                 await viewModel.loadPlaylists()
             }
+            // Keep cached displayed playlists in sync (avoids recomputing .filter() on every body eval)
+            .onReceive(viewModel.$filteredPlaylists) { playlists in
+                cachedDisplayedPlaylists = playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.insert(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.remove(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
                     deps.toastCenter.dismiss(id: toastID)
                 }
@@ -184,6 +203,7 @@ public struct PlaylistsView: View {
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
+                    cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
@@ -220,12 +240,10 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        // Extracted to scope syncCoordinator observation to just the button
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
-                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -257,12 +275,9 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .automatic) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
-                        .disabled(syncCoordinator.isOffline)
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -292,7 +307,6 @@ public struct PlaylistsView: View {
             }
             #endif
             }
-        }
     }
 
     private var landscapeCoverFlowView: some View {
@@ -329,7 +343,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    navigationCoordinator.showingAddAccount = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -376,7 +390,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(displayedFilteredPlaylists) { playlist in
+            ForEach(cachedDisplayedPlaylists) { playlist in
                 let isPendingCreation = viewModel.isPlaylistPendingCreation(playlist)
                 PlaylistRow(
                     playlist: playlist,
@@ -386,7 +400,16 @@ public struct PlaylistsView: View {
                 )
                     .contextMenu {
                         if !isPendingCreation {
-                            playlistContextMenu(playlist)
+                            PlaylistViewContextMenu(
+                                playlist: playlist,
+                                nowPlayingVM: nowPlayingVM,
+                                onRename: {
+                                    playlistPendingRename = playlist
+                                    renamePlaylistTitle = playlist.title
+                                },
+                                onEdit: { playlistForEditSheet = playlist },
+                                onDelete: { playlistPendingSwipeDelete = playlist }
+                            )
                         }
                     }
                     .if(!playlist.isSmart && !isPendingCreation) { row in
@@ -402,7 +425,7 @@ public struct PlaylistsView: View {
     
     private var coverFlowView: some View {
         CoverFlowView(
-            items: displayedFilteredPlaylists,
+            items: cachedDisplayedPlaylists,
             itemView: { playlist in
                 CoverFlowItemView(playlist: playlist)
             },
@@ -427,10 +450,6 @@ public struct PlaylistsView: View {
 
     private var effectivePlaylists: [Playlist] {
         viewModel.playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
-    }
-
-    private var displayedFilteredPlaylists: [Playlist] {
-        viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
     }
 
     private var hasEnabledLibraries: Bool {
@@ -567,127 +586,6 @@ public struct PlaylistsView: View {
         }
     }
 
-    @ViewBuilder
-    private func playlistContextMenu(_ playlist: Playlist) -> some View {
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.play(tracks: tracks)
-            }
-        } label: {
-            Label("Play", systemImage: "play.fill")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
-        } label: {
-            Label("Shuffle", systemImage: "shuffle")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playNext(tracks)
-            }
-        } label: {
-            Label("Play Next", systemImage: "text.insert")
-        }
-
-        Button {
-            withPlaylistTracks(playlist) { tracks in
-                nowPlayingVM.playLast(tracks)
-            }
-        } label: {
-            Label("Play Last", systemImage: "text.append")
-        }
-
-        Button {
-            Task {
-                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-            }
-        } label: {
-            Label(
-                isDownloaded ? "Remove Download" : "Download",
-                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
-            )
-        }
-
-        let isPinned = pinManager.isPinned(id: playlist.id)
-        Button {
-            if isPinned {
-                pinManager.unpin(id: playlist.id)
-            } else {
-                pinManager.pin(
-                    id: playlist.id,
-                    sourceKey: playlist.sourceCompositeKey ?? "",
-                    type: .playlist,
-                    title: playlist.title
-                )
-            }
-        } label: {
-            if isPinned {
-                Label("Unpin", systemImage: "pin.slash")
-            } else {
-                Label("Pin", systemImage: "pin.fill")
-            }
-        }
-
-        if !playlist.isSmart {
-            Button {
-                playlistPendingRename = playlist
-                renamePlaylistTitle = playlist.title
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-
-            Button {
-                playlistForEditSheet = playlist
-            } label: {
-                Label("Edit Playlist", systemImage: "slider.horizontal.3")
-            }
-
-            Button(role: .destructive) {
-                playlistPendingSwipeDelete = playlist
-            } label: {
-                Label("Delete Playlist", systemImage: "trash")
-            }
-        }
-    }
-
-    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
-        Task {
-            let tracks = await resolveTracks(for: playlist)
-            guard !tracks.isEmpty else {
-                await MainActor.run {
-                    deps.toastCenter.show(
-                        ToastPayload(
-                            style: .warning,
-                            iconSystemName: "exclamationmark.triangle.fill",
-                            title: "No tracks available",
-                            message: "Try again after this playlist finishes syncing.",
-                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
-                        )
-                    )
-                }
-                return
-            }
-            await MainActor.run {
-                action(tracks)
-            }
-        }
-    }
-
-    private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
-    }
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -740,11 +638,163 @@ public struct PlaylistsView: View {
     }
 }
 
+// MARK: - "New Playlist" Toolbar Button
+
+/// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
+/// not the entire PlaylistsView list.
+private struct PlaylistsNewButton: View {
+    let action: () -> Void
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            Label("New Playlist", systemImage: "plus")
+        }
+        .disabled(syncCoordinator.isOffline)
+    }
+}
+
+// MARK: - Playlist Context Menu
+
+/// Dedicated View struct for playlist context menus. Scopes @ObservedObject pinManager
+/// to each menu instance rather than the entire PlaylistsView list.
+private struct PlaylistViewContextMenu: View {
+    let playlist: Playlist
+    let nowPlayingVM: NowPlayingViewModel
+    var onRename: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
+    var body: some View {
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.play(tracks: tracks)
+            }
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.shufflePlay(tracks: tracks)
+            }
+        } label: {
+            Label("Shuffle", systemImage: "shuffle")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playNext(tracks)
+            }
+        } label: {
+            Label("Play Next", systemImage: "text.insert")
+        }
+
+        Button {
+            withPlaylistTracks(playlist) { tracks in
+                nowPlayingVM.playLast(tracks)
+            }
+        } label: {
+            Label("Play Last", systemImage: "text.append")
+        }
+
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+            )
+        }
+
+        let isPinned = pinManager.isPinned(id: playlist.id)
+        Button {
+            if isPinned {
+                pinManager.unpin(id: playlist.id)
+            } else {
+                pinManager.pin(
+                    id: playlist.id,
+                    sourceKey: playlist.sourceCompositeKey ?? "",
+                    type: .playlist,
+                    title: playlist.title
+                )
+            }
+        } label: {
+            if isPinned {
+                Label("Unpin", systemImage: "pin.slash")
+            } else {
+                Label("Pin", systemImage: "pin.fill")
+            }
+        }
+
+        if !playlist.isSmart {
+            Button {
+                onRename?()
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+
+            Button {
+                onEdit?()
+            } label: {
+                Label("Edit Playlist", systemImage: "slider.horizontal.3")
+            }
+
+            Button(role: .destructive) {
+                onDelete?()
+            } label: {
+                Label("Delete Playlist", systemImage: "trash")
+            }
+        }
+    }
+
+    private func withPlaylistTracks(_ playlist: Playlist, perform action: @escaping ([Track]) -> Void) {
+        Task {
+            let tracks = await resolveTracks(for: playlist)
+            guard !tracks.isEmpty else {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "No tracks available",
+                            message: "Try again after this playlist finishes syncing.",
+                            dedupeKey: "playlist-menu-empty-\(playlist.id)"
+                        )
+                    )
+                }
+                return
+            }
+            await MainActor.run {
+                action(tracks)
+            }
+        }
+    }
+
+    private func resolveTracks(for playlist: Playlist) async -> [Track] {
+        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        ) {
+            return cachedPlaylist.tracksArray.map { Track(from: $0) }
+        }
+        return []
+    }
+}
+
 // MARK: - Playlist Detail View
 
 public struct PlaylistDetailView: View {
     @StateObject private var viewModel: PlaylistDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false

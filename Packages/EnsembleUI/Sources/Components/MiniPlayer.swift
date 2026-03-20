@@ -2,20 +2,24 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+// MARK: - MiniPlayer
+
+/// Layout shell for the mini player pill. Does NOT observe NowPlayingViewModel —
+/// sub-views (MiniPlayerTrackInfo, MiniPlayerControls, MiniPlayerBackground) each
+/// own a scoped @ObservedObject so only the relevant slice of UI re-renders on
+/// NVM publishes. This prevents the full body (gestures, context menu, background)
+/// from re-evaluating on every 0.5s playback tick.
 public struct MiniPlayer: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
     let onTap: () -> Void
-    
+
     @Environment(\.dependencies) private var deps
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var dragOffset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
-    @State private var opacity: Double = 1.0
     @State private var showingPlaylistPicker = false
-    
+
     private let isFloating: Bool
     private let pillCornerRadius: CGFloat = 28
-    
+
     private let namespace: Namespace.ID?
     private let animationID: String?
 
@@ -44,7 +48,7 @@ public struct MiniPlayer: View {
             } else {
                 // iOS 15–25 fallback: handcrafted material stack approximating glass.
                 pillContent
-                    .background(legacyBackground)
+                    .background(MiniPlayerBackground(viewModel: viewModel, pillCornerRadius: pillCornerRadius))
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius))
                     .shadow(color: .black.opacity(0.15), radius: 20, y: 5)
             }
@@ -72,6 +76,8 @@ public struct MiniPlayer: View {
         .padding(.bottom, isFloating ? 6 : 4)
         .offset(y: verticalOffset)
         .contextMenu {
+            // Context menu closures are evaluated lazily on long press,
+            // so they read the live viewModel values without needing observation.
             if let track = viewModel.currentTrack {
                 Section {
                     Button {
@@ -136,11 +142,30 @@ public struct MiniPlayer: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Pill Content
 
-    /// The pill's inner content: error banner, track info or empty state, and progress bar.
-    /// Shared across both the iOS 26 glass and legacy material paths.
+    /// Composed of scoped sub-views so observation stays local.
+    /// The parent body (above) doesn't re-evaluate when NVM publishes.
     private var pillContent: some View {
+        MiniPlayerTrackInfo(viewModel: viewModel, namespace: namespace, animationID: animationID)
+    }
+}
+
+// MARK: - Track Info Sub-View
+
+/// Handles track display (artwork + text + swipe gesture), error banner, and
+/// the "Nothing Playing" empty state. Owns @ObservedObject so only this slice
+/// re-renders on NVM changes — the parent MiniPlayer body (gestures, background,
+/// context menu) stays untouched.
+private struct MiniPlayerTrackInfo: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    let namespace: Namespace.ID?
+    let animationID: String?
+
+    @State private var dragOffset: CGFloat = 0
+    @State private var opacity: Double = 1.0
+
+    var body: some View {
         VStack(spacing: 0) {
             // Error banner (if playback failed)
             if case .failed(let errorMessage) = viewModel.playbackState {
@@ -253,31 +278,8 @@ public struct MiniPlayer: View {
 
                     Spacer()
 
-                    // Controls
-                    HStack(spacing: 20) {
-                        Button(action: viewModel.togglePlayPause) {
-                            ZStack {
-                                // Show spinner when loading or buffering
-                                if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .primary))
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                                        .font(.title2)
-                                }
-                            }
-                        }
-                        // Disable play when track not yet confirmed playable (e.g. pending health check)
-                        .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
-                        .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
-
-                        Button(action: viewModel.next) {
-                            Image(systemName: "forward.fill")
-                                .font(.title3)
-                        }
-                    }
-                    .foregroundColor(.primary)
+                    // Playback controls (scoped sub-view for play state changes)
+                    MiniPlayerControls(viewModel: viewModel)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -306,10 +308,55 @@ public struct MiniPlayer: View {
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
     }
+}
 
-    /// Handcrafted material background used on iOS 15–25.
-    /// Combines a blurred artwork tint with ultraThinMaterial + subtle glass sheen overlays.
-    private var legacyBackground: some View {
+// MARK: - Controls Sub-View
+
+/// Play/pause button and next-track button. Owns @ObservedObject scoped to
+/// playbackState/isPlaying/isCurrentTrackPlayable — only these small controls
+/// re-render on state changes, not the entire MiniPlayer body.
+private struct MiniPlayerControls: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+
+    var body: some View {
+        HStack(spacing: 20) {
+            Button(action: viewModel.togglePlayPause) {
+                ZStack {
+                    // Show spinner when loading or buffering
+                    if viewModel.playbackState == .loading || viewModel.playbackState == .buffering {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .primary))
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title2)
+                    }
+                }
+            }
+            // Disable play when track not yet confirmed playable (e.g. pending health check)
+            .disabled(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable)
+            .opacity(!viewModel.isPlaying && !viewModel.isCurrentTrackPlayable ? 0.4 : 1.0)
+
+            Button(action: viewModel.next) {
+                Image(systemName: "forward.fill")
+                    .font(.title3)
+            }
+        }
+        .foregroundColor(.primary)
+    }
+}
+
+// MARK: - Background Sub-View
+
+/// Handcrafted material background used on iOS 15–25. Owns @ObservedObject so
+/// the blur + material stack only re-renders here, not as part of MiniPlayer's body.
+private struct MiniPlayerBackground: View {
+    @ObservedObject var viewModel: NowPlayingViewModel
+    let pillCornerRadius: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
         ZStack {
             if viewModel.currentTrack != nil {
                 // Animation ensures smooth cross-fade between artwork backgrounds.
@@ -376,7 +423,7 @@ public struct MiniPlayer: View {
 // MARK: - Mini Player Container
 
 public struct MiniPlayerContainer<Content: View>: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
     let onMiniPlayerTap: () -> Void
     let content: () -> Content
 
@@ -417,8 +464,10 @@ public struct MiniPlayerContainer<Content: View>: View {
 
 /// Full-width 5pt progress bar shown at the very bottom of the screen.
 /// Sits above the aurora visualization, below the mini player and tab bar.
+/// Uses `let` instead of @ObservedObject because TimelineView already drives
+/// updates at 0.5s intervals — observation would only cause redundant re-renders.
 public struct PlaybackProgressBar: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
 
     @Environment(\.colorScheme) private var colorScheme
 

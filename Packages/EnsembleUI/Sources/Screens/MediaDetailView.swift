@@ -58,7 +58,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     @ObservedObject var viewModel: ViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     let headerData: MediaHeaderData
     let navigationTitle: String
@@ -77,11 +77,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    // Targeted NVM observation: only re-evaluate on track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    @ObservedObject private var trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     public init(
         viewModel: ViewModel,
@@ -210,6 +214,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #if !os(iOS)
         .miniPlayerBottomSpacing(140)
         #endif
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -225,6 +235,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if let path = headerData.artworkPath {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let id = target?.id
+            if id != nvmLastPlaylistTargetId { nvmLastPlaylistTargetId = id }
         }
     }
 
@@ -251,7 +269,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var quickTargetRefreshKey: String {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
-        let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
+        let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
@@ -759,10 +777,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
+            showAlbumName: !(viewModel is AlbumDetailViewModel),
             groupByDisc: groupByDisc,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
-            availabilityGeneration: trackAvailabilityResolver.availabilityGeneration,
-            activeDownloadRatingKeys: offlineDownloadService.activeDownloadRatingKeys,
+            currentTrackId: currentTrackId,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
             managesOwnScrolling: true,
             bottomContentInset: 140,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
@@ -822,7 +841,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 TrackRow(
                     track: track,
                     showArtwork: showArtwork,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    isPlaying: track.id == currentTrackId,
                     onPlayNext: { nowPlayingVM.playNext(track) },
                     onPlayLast: { nowPlayingVM.playLast(track) },
                     onAddToPlaylist: {

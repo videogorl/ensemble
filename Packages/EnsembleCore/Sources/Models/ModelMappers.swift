@@ -2,6 +2,27 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+// MARK: - Audio File Info Mapper
+
+public extension AudioFileInfo {
+    /// Extract audio format metadata from a PlexTrack's media/stream objects
+    init?(from plexTrack: PlexTrack) {
+        guard let media = plexTrack.media?.first else { return nil }
+        let part = media.part?.first
+        let audioStream = part?.stream?.first(where: { $0.streamType == 2 })
+
+        self.init(
+            codec: audioStream?.codec ?? media.audioCodec,
+            bitrate: audioStream?.bitrate ?? media.bitrate,
+            sampleRate: audioStream?.samplingRate,
+            bitDepth: audioStream?.bitDepth,
+            fileSize: part?.size,
+            channels: audioStream?.channels ?? media.audioChannels,
+            container: media.container
+        )
+    }
+}
+
 // MARK: - Plex API to Domain Model Mappers
 
 public extension Track {
@@ -14,7 +35,8 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -46,7 +68,8 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -70,6 +93,12 @@ public extension Track {
     }
 
     init(from cd: CDTrack) {
+        self.init(from: cd, downloadedFilenames: nil)
+    }
+
+    /// Batch-optimized initializer that checks a pre-computed set of downloaded filenames
+    /// instead of calling FileManager.fileExists() per track.
+    init(from cd: CDTrack, downloadedFilenames: Set<String>?) {
         // Resolve stored filename to absolute path in the current sandbox.
         // CoreData stores just the filename; we reconstruct the full path here
         // so all downstream code gets a valid, current absolute path.
@@ -77,6 +106,9 @@ public extension Track {
             guard !stored.isEmpty else { return nil }
             let filename = DownloadManager.extractFilename(from: stored)
             let absolute = DownloadManager.absolutePath(forFilename: filename)
+            if let knownFiles = downloadedFilenames {
+                return knownFiles.contains(filename) ? absolute : nil
+            }
             return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
         }
 
@@ -85,6 +117,7 @@ public extension Track {
             key: cd.key,
             title: cd.title,
             artistName: cd.artistName,
+            albumArtistName: cd.album?.artist?.name,  // Album artist from artist entity
             albumName: cd.albumName,
             albumRatingKey: cd.album?.ratingKey,
             artistRatingKey: cd.album?.artist?.ratingKey,
@@ -167,7 +200,7 @@ public extension Artist {
     }
 
     init(from cd: CDArtist) {
-        let firstAlbum = cd.albumsArray.first
+        let firstAlbum = cd.newestAlbum
         
         self.init(
             id: cd.ratingKey,
@@ -373,7 +406,7 @@ public extension HubItem {
         // Determine subtitle based on type
         let subtitle: String?
         if type == "track" {
-            subtitle = plex.grandparentTitle ?? plex.parentTitle
+            subtitle = plex.originalTitle ?? plex.grandparentTitle ?? plex.parentTitle
         } else {
             subtitle = plex.parentTitle
         }
@@ -411,7 +444,8 @@ public extension HubItem {
                 id: plex.ratingKey,
                 key: plex.key,
                 title: plex.title,
-                artistName: plex.grandparentTitle,
+                artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+                albumArtistName: plex.grandparentTitle,
                 albumName: plex.parentTitle,
                 albumRatingKey: plex.parentRatingKey,
                 artistRatingKey: plex.grandparentRatingKey,

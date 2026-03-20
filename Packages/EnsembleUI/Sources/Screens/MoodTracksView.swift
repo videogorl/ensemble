@@ -15,7 +15,7 @@ public struct MoodTracksView: View {
     }
 
     let mood: Mood
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @StateObject private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []

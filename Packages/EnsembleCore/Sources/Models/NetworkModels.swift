@@ -14,7 +14,7 @@ import Foundation
 ///
 /// 3. UI Feedback
 ///    - `StatusColor`: Color coding for connection states
-///    - Used in ConnectionStatusBanner and throughout UI
+///    - Used in OfflineIndicatorOverlay and throughout UI
 ///
 /// Architecture:
 /// - NetworkMonitor uses NWPathMonitor for OS-level connectivity detection

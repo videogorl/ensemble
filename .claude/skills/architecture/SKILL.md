@@ -28,7 +28,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAuthService` (actor) -- PIN-based OAuth authentication
 - `PlexAuthTokenMetadata` -- Parsed auth token metadata (`iat`/`exp`) used for lifecycle enforcement
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
+  - Server capabilities: `getServerCapabilities()` (fetches root endpoint for subscription & feature info)
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
+  - Stream routing: `resolveStreamURL()` → `StreamResolution` (.directStream / .downloadedFile)
+  - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
@@ -36,7 +39,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
 - `PlexWebSocketManager` (actor) -- Per-server WebSocket connections with exponential backoff reconnect
 - `KeychainService` -- Token persistence using KeychainAccess library
-- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
+- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, `PlexSubscription`, `PlexServerCapabilities`, etc.)
 
 ### EnsemblePersistence (Data Layer)
 - **Location:** `Packages/EnsemblePersistence/`
@@ -66,7 +69,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed after sheet dismissal
-- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz
+- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callback for XING injection + frequency analysis
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -98,7 +102,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
-- `PlexAccountConfig` -- Account/server/library hierarchy for configuration
+- `PlexAccountConfig` -- Account/server/library hierarchy for configuration (includes `PlexSubscription` on account, `PlexServerCapabilities` on server, `allowSync` on library)
 - `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
@@ -174,6 +178,7 @@ Persistent artwork caching that survives app restarts:
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
    - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+   - Artwork cleanup on de-sync: `SyncCoordinator.cleanupRemovedSource()` and `cleanupServerPlaylists()` collect ratingKeys before CoreData deletion, then call `ArtworkDownloadManager.deleteArtwork(forRatingKeys:)` to remove cached files
 
 5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction
    - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
@@ -282,6 +287,8 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Account-Centric Source Management
 
 - Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
+- Discovery flow also fetches per-server capabilities (`getServerCapabilities`) and populates `PlexSubscription` (account), `PlexServerCapabilities` (server), and `allowSync` (library) for feature gating.
+- `MusicSourceAccountDetailView` displays `ServerFeatureBadges` (Plex Pass, hardware transcoding) and per-library download badges based on discovered capabilities.
 - `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
 - `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.

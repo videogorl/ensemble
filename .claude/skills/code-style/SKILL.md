@@ -89,3 +89,91 @@ Rules:
 - Inject dependencies via initializer
 - Add factory method to `DependencyContainer`
 - Use Combine publishers for reactive updates
+
+## Performance Patterns (iOS 15)
+
+These patterns are mandatory for views and ViewModels targeting A9 devices (2GB RAM). SwiftUI observation cascades are the #1 performance risk.
+
+### Observation Extraction (`@ObservedObject` -> `let` + `@State` + `.onReceive`)
+
+In large, persistent views (tabs, lists with 100+ items), never use `@ObservedObject` for singletons that publish frequently (NowPlayingViewModel, SyncCoordinator, OfflineDownloadService). Instead:
+
+```swift
+let viewModel: SomeViewModel  // not @ObservedObject
+@State private var specificValue: ValueType = initialValue
+
+.onReceive(viewModel.$specificPublishedProperty) { newValue in
+    if newValue != specificValue { specificValue = newValue }
+}
+```
+
+**When NOT to apply:** Short-lived modals with small view trees (<20 rows, <5s lifetime). The PlaylistPickerSheet revert (5 workaround commits -> full revert) proved the complexity cost exceeds performance benefit for these cases.
+
+### Combine Pipeline Caching
+
+Any property that is (a) accessed in body, (b) requires O(n) or O(n log n) work, and (c) recomputes on every body eval must be `@Published` with a Combine pipeline:
+
+```swift
+@Published var filteredItems: [Item] = []
+
+Publishers.CombineLatest($items, $filterOption)
+    .debounce(for: .milliseconds(100), scheduler: backgroundQueue)
+    .map { items, option in Self.filterAndSort(items, option: option) }
+    .removeDuplicates { Self.idsEqual($0, $1) }
+    .receive(on: DispatchQueue.main)
+    .assign(to: &$filteredItems)
+```
+
+Key details: debounce 100-150ms, compute on background queue, `.removeDuplicates` to avoid no-op publishes.
+
+### Guard `@Published` Assignments
+
+Before assigning to a `@Published` property, check if the value actually changed. Every assignment fires `objectWillChange` regardless:
+
+```swift
+private static func idsEqual<T: Identifiable>(_ a: [T], _ b: [T]) -> Bool where T.ID == String {
+    guard a.count == b.count else { return false }
+    return zip(a, b).allSatisfy { $0.id == $1.id }
+}
+
+// Guard the assignment
+if !Self.idsEqual(artists, newArtists) { artists = newArtists }
+```
+
+### Pre-Compute Sort Keys
+
+For string-based sorts on collections, cache the sort key once per element:
+
+```swift
+private static func sortByCachedKey<T: Identifiable>(
+    _ items: [T], keyExtractor: (T) -> String, ascending: Bool
+) -> [T] where T.ID == String {
+    let keyed = items.map { ($0, keyExtractor($0)) }
+    return keyed.sorted {
+        let result = $0.1.localizedStandardCompare($1.1)
+        if result == .orderedSame { return $0.0.id < $1.0.id }  // stable tiebreaker
+        return ascending ? result == .orderedAscending : result == .orderedDescending
+    }.map { $0.0 }
+}
+```
+
+### Custom Equatable for Domain Models
+
+Models with internal-only fields (cache keys, dates, source composite keys) should implement custom `==` comparing only UI-visible fields. This dramatically reduces SwiftUI diffing cost:
+
+- Album: compare id, title, artistName, albumArtist, year, trackCount, thumbPath, rating — skip internal fields
+- Playlist: compare id, title, trackCount, duration, compositePath, isSmart — skip internal fields
+
+Always keep `hash(into:)` consistent — hash only `id`.
+
+### Task Priority for Background Work
+
+Downloads and FFT analysis should use `.utility` priority. Guard CPU-heavy optional features (visualizer) behind their enable flag to prevent starvation on dual-core devices.
+
+### CoreData Prefetching
+
+When fetching entities that will have relationships accessed during mapping, set `relationshipKeyPathsForPrefetching` to avoid fault-firing cascades.
+
+### Batch I/O Over Per-Item Calls
+
+For operations like checking file existence across 1000+ items, pre-compute results in bulk (`FileManager.contentsOfDirectory` -> `Set<String>`) and pass the set to per-item initializers. Never call `FileManager.fileExists` in a loop.
