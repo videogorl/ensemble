@@ -88,11 +88,18 @@ public final class InstrumentalAudioEngine {
         engine.attach(playerNode)
         engine.attach(effect)
 
-        // Simple linear chain
+        // Connect graph. When the v0 model is loaded, the AU expects 24kHz mono input
+        // (per its plist). Passing nil for format lets AVAudioEngine negotiate and insert
+        // format converters automatically between nodes.
         let mainMixer = engine.mainMixerNode
-        let format = mainMixer.outputFormat(forBus: 0)
-        engine.connect(playerNode, to: effect, format: format)
-        engine.connect(effect, to: mainMixer, format: format)
+        if musicModelLoaded {
+            engine.connect(playerNode, to: effect, format: nil)
+            engine.connect(effect, to: mainMixer, format: nil)
+        } else {
+            let format = mainMixer.outputFormat(forBus: 0)
+            engine.connect(playerNode, to: effect, format: format)
+            engine.connect(effect, to: mainMixer, format: format)
+        }
 
         isSetUp = true
 
@@ -194,10 +201,16 @@ public final class InstrumentalAudioEngine {
         audioFile = file
         sampleRate = file.processingFormat.sampleRate
 
-        // Reconnect with the file's native format
+        // Reconnect -- use nil format when music model is loaded to let
+        // AVAudioEngine handle the 44.1kHz→24kHz conversion automatically
         if let effect = isolationEffect {
-            engine.connect(playerNode, to: effect, format: file.processingFormat)
-            engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
+            if musicModelLoaded {
+                engine.connect(playerNode, to: effect, format: nil)
+                engine.connect(effect, to: engine.mainMixerNode, format: nil)
+            } else {
+                engine.connect(playerNode, to: effect, format: file.processingFormat)
+                engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
+            }
         }
         applyIsolationParameters()
 
