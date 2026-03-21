@@ -48,12 +48,7 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Undocumented AU Constants
 
-    // Neural net model override properties (discovered via QuietNow project)
-    private let kNeuralNetPlistPathOverride: AudioUnitPropertyID = 30000
-    private let kNeuralNetModelNetPathBaseOverride: AudioUnitPropertyID = 40000
-    private let kDeverbPresetPathOverride: AudioUnitPropertyID = 50000
-
-    // Tuning mode parameters
+    // Tuning mode parameters (discovered via QuietNow project)
     private let kUseTuningMode: AudioUnitParameterID = 0x17626   // 95782
     private let kTuningMode: AudioUnitParameterID = 0x17627      // 95783
 
@@ -90,7 +85,7 @@ public final class InstrumentalAudioEngine {
         engine.connect(playerNode, to: effect, format: outputFormat)
         engine.connect(effect, to: mainMixer, format: outputFormat)
 
-        // NOW load the music model (after formats are established)
+        // Try to activate music tuning mode (may improve vocal separation)
         loadMusicModel(for: effect)
 
         // Configure parameters
@@ -107,62 +102,28 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Music Model Loading
 
-    /// Load the Apple Music Sing neural network model (v0) for music-quality vocal separation.
-    /// Without this, the AU uses its default voice isolation model (FaceTime quality).
+    /// Try to activate music-quality vocal separation via tuning mode.
+    /// The v0 model override requires C-level AU control (MTAudioProcessingTap) which
+    /// is incompatible with AVAudioEngine. Instead, we enable tuning mode parameters
+    /// which may activate the built-in music tuning without explicit model path overrides.
     private func loadMusicModel(for effect: AVAudioUnitEffect) {
         let au = effect.audioUnit
 
-        // The v0 music model plist and weights live in the system audio tunings directory.
-        // The AU framework can access system paths that our app sandbox cannot,
-        // so we skip FileManager.exists checks and just set the properties.
-        let tuningsBase = "/System/Library/Audio/Tunings"
-        let v0PlistPath = "\(tuningsBase)/Generic/AU/SoundIsolation/aufx-vois-appl-nnet-vi-v0.plist"
-
-        // Enable tuning mode so the AU accepts model overrides
+        // Enable tuning mode -- may activate the v0 music model from the AU's
+        // built-in tuning directory without requiring explicit path overrides
         AudioUnitSetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
         AudioUnitSetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
 
-        // Override neural net model to the v0 music model
-        let plistOK = setAUStringProperty(au, propertyID: kNeuralNetPlistPathOverride, value: v0PlistPath)
-        let baseOK = setAUStringProperty(au, propertyID: kNeuralNetModelNetPathBaseOverride, value: tuningsBase)
-
-        // Leave dereverb enabled (default) -- helps clean up vocal reverb tails
-
-        musicModelLoaded = plistOK && baseOK
-
-        #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Music model load: plist=\(plistOK), base=\(baseOK), loaded=\(musicModelLoaded)")
-
-        // Log all parameters after model load
-        if let tree = effect.auAudioUnit.parameterTree {
-            for param in tree.allParameters {
-                EnsembleLogger.debug("[InstrumentalEngine] Param: addr=\(param.address), name='\(param.displayName)', range=\(param.minValue)..\(param.maxValue), value=\(param.value)")
-            }
-        }
-
-        // Check tuning mode params via C API
+        // Check if tuning mode was accepted
         var useTuning: AudioUnitParameterValue = 0
         var tuning: AudioUnitParameterValue = 0
         AudioUnitGetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, &useTuning)
         AudioUnitGetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, &tuning)
-        EnsembleLogger.debug("[InstrumentalEngine] TuningMode params: useTuning=\(useTuning), tuning=\(tuning)")
-        #endif
-    }
+        musicModelLoaded = useTuning == 1.0 && tuning == 1.0
 
-    /// Set a CFString property on a raw AudioUnit. Returns true on success.
-    @discardableResult
-    private func setAUStringProperty(_ au: AudioUnit, propertyID: AudioUnitPropertyID, value: String) -> Bool {
-        var cfString = value as CFString
-        let status = AudioUnitSetProperty(
-            au, propertyID, kAudioUnitScope_Global, 0,
-            &cfString, UInt32(MemoryLayout<CFString>.size)
-        )
         #if DEBUG
-        if status != noErr {
-            EnsembleLogger.debug("[InstrumentalEngine] Failed to set property \(propertyID): OSStatus \(status)")
-        }
+        EnsembleLogger.debug("[InstrumentalEngine] Tuning mode: useTuning=\(useTuning), tuning=\(tuning), accepted=\(musicModelLoaded)")
         #endif
-        return status == noErr
     }
 
     /// Apply the AUSoundIsolation parameters
