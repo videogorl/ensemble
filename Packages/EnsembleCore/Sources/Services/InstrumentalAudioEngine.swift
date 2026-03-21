@@ -2,20 +2,22 @@ import AudioToolbox
 import AVFoundation
 import Combine
 
-/// Isolated AVAudioEngine wrapper that removes vocals using AUSoundIsolation.
+/// Isolated AVAudioEngine wrapper that removes vocals using AUSoundIsolation with
+/// the Apple Music Sing neural network model for music-quality vocal separation.
 /// Completely separate from the AVQueuePlayer path -- used only when instrumental mode is active.
 ///
-/// AUSoundIsolation parameters (discovered via runtime enumeration):
-///   Address 0: "Wet/Dry Mix" (range -100.0 to 100.0)
-///   Address 1: "Sound to Isolate" (range 0.0 to 1.0)
+/// Key insight: AUSoundIsolation ships with three models:
+///   - vi-voice: Standard voice isolation (FaceTime quality) -- default for soundToIsolate=1
+///   - vi-high-quality-voice: Better voice isolation (iOS 18+) -- default for soundToIsolate=0
+///   - vi-v0: Music vocal separation model (Espresso, 2.3MB) -- must be loaded explicitly
 ///
-/// Strategy: isolate vocals (soundToIsolate=1) then use negative wetDryMix (-100)
-/// to phase-invert the vocal extraction and mix it with the original signal internally.
-/// This cancels the vocals, leaving only instrumentals -- all within the AU itself.
+/// Without the v0 model, the AU only does FaceTime-grade voice isolation.
+/// With the v0 model loaded via NeuralNetPlistPathOverride, wetDryMix becomes
+/// a vocal attenuation control: 0 = no effect, 100 = full vocal removal (instrumentals).
 ///
 /// Audio graph:
 /// ```
-/// AVAudioPlayerNode -> AVAudioUnitEffect(AUSoundIsolation) -> mainMixerNode -> outputNode
+/// playerNode -> AUSoundIsolation(v0 model, wetDry=100) -> mainMixer -> output
 /// ```
 public final class InstrumentalAudioEngine {
     // MARK: - Properties
@@ -30,7 +32,6 @@ public final class InstrumentalAudioEngine {
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
     /// Generation counter incremented on each schedule -- suppresses stale completions
-    /// from playerNode.stop() during seek/stop (which fires all pending completion handlers)
     private var scheduleGeneration: UInt64 = 0
 
     /// Current playback time, updated at ~10Hz
@@ -42,10 +43,23 @@ public final class InstrumentalAudioEngine {
 
     private var isSetUp = false
     private var sampleRate: Double = 44100
+    /// Whether the music-quality v0 model was successfully loaded
+    private var musicModelLoaded = false
+
+    // MARK: - Undocumented AU Constants
+
+    // Neural net model override properties (discovered via QuietNow project)
+    private let kNeuralNetPlistPathOverride: AudioUnitPropertyID = 30000
+    private let kNeuralNetModelNetPathBaseOverride: AudioUnitPropertyID = 40000
+    private let kDeverbPresetPathOverride: AudioUnitPropertyID = 50000
+
+    // Tuning mode parameters
+    private let kUseTuningMode: AudioUnitParameterID = 0x17626   // 95782
+    private let kTuningMode: AudioUnitParameterID = 0x17627      // 95783
 
     // MARK: - Setup
 
-    /// Build the audio graph: playerNode -> AUSoundIsolation -> mixer -> output
+    /// Build the audio graph with music-quality vocal separation
     func setup() throws {
         guard !isSetUp else { return }
 
@@ -64,25 +78,17 @@ public final class InstrumentalAudioEngine {
         let effect = AVAudioUnitEffect(audioComponentDescription: desc)
         isolationEffect = effect
 
-        #if DEBUG
-        if let tree = effect.auAudioUnit.parameterTree {
-            for param in tree.allParameters {
-                EnsembleLogger.debug("[InstrumentalEngine] Parameter: address=\(param.address), identifier='\(param.identifier)', name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
-            }
-        }
-        #endif
+        // Try to load the music-quality v0 neural network model
+        loadMusicModel(for: effect)
 
-        // Configure AUSoundIsolation:
-        //   soundToIsolate = 1.0 (isolate vocals)
-        //   wetDryMix = -100.0 (phase-invert the isolated vocals and mix with original)
-        //   Result: original + (-vocals) = instrumentals, all within the AU
+        // Configure parameters
         applyIsolationParameters(to: effect)
 
         // Attach nodes
         engine.attach(playerNode)
         engine.attach(effect)
 
-        // Simple linear graph: playerNode -> effect -> mainMixer -> output
+        // Simple linear chain
         let mainMixer = engine.mainMixerNode
         let format = mainMixer.outputFormat(forBus: 0)
         engine.connect(playerNode, to: effect, format: format)
@@ -91,42 +97,115 @@ public final class InstrumentalAudioEngine {
         isSetUp = true
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Graph: playerNode -> AUSoundIsolation(wetDry=-100, isolate=vocals) -> mixer")
+        EnsembleLogger.debug("[InstrumentalEngine] Graph built (musicModel=\(musicModelLoaded))")
         #endif
     }
 
-    /// Apply vocal removal parameters to the AUSoundIsolation effect
+    // MARK: - Music Model Loading
+
+    /// Load the Apple Music Sing neural network model (v0) for music-quality vocal separation.
+    /// Without this, the AU uses its default voice isolation model (FaceTime quality).
+    private func loadMusicModel(for effect: AVAudioUnitEffect) {
+        let au = effect.audioUnit
+
+        // The v0 music model plist and weights live in the system audio tunings directory
+        let tuningsBase = "/System/Library/Audio/Tunings"
+        let modelDir = "\(tuningsBase)/Generic/AU/SoundIsolation"
+        let v0PlistPath = "\(modelDir)/aufx-vois-appl-nnet-vi-v0.plist"
+
+        guard FileManager.default.fileExists(atPath: v0PlistPath) else {
+            #if DEBUG
+            EnsembleLogger.debug("[InstrumentalEngine] Music model not found at: \(v0PlistPath)")
+            #endif
+            return
+        }
+
+        // Enable tuning mode so the AU accepts model overrides
+        AudioUnitSetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
+        AudioUnitSetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
+
+        // Override neural net model to the v0 music model
+        let plistOK = setAUStringProperty(au, propertyID: kNeuralNetPlistPathOverride, value: v0PlistPath)
+        let baseOK = setAUStringProperty(au, propertyID: kNeuralNetModelNetPathBaseOverride, value: tuningsBase)
+
+        // Disable dereverb (not needed for instrumental mode, reduces processing)
+        _ = setAUStringProperty(au, propertyID: kDeverbPresetPathOverride, value: "")
+
+        musicModelLoaded = plistOK && baseOK
+
+        #if DEBUG
+        EnsembleLogger.debug("[InstrumentalEngine] Music model load: plist=\(plistOK), base=\(baseOK), loaded=\(musicModelLoaded)")
+
+        // Log all parameters after model load
+        if let tree = effect.auAudioUnit.parameterTree {
+            for param in tree.allParameters {
+                EnsembleLogger.debug("[InstrumentalEngine] Param: addr=\(param.address), name='\(param.displayName)', range=\(param.minValue)..\(param.maxValue), value=\(param.value)")
+            }
+        }
+
+        // Check tuning mode params via C API
+        var useTuning: AudioUnitParameterValue = 0
+        var tuning: AudioUnitParameterValue = 0
+        AudioUnitGetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, &useTuning)
+        AudioUnitGetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, &tuning)
+        EnsembleLogger.debug("[InstrumentalEngine] TuningMode params: useTuning=\(useTuning), tuning=\(tuning)")
+        #endif
+    }
+
+    /// Set a CFString property on a raw AudioUnit. Returns true on success.
+    @discardableResult
+    private func setAUStringProperty(_ au: AudioUnit, propertyID: AudioUnitPropertyID, value: String) -> Bool {
+        var cfString = value as CFString
+        let status = AudioUnitSetProperty(
+            au, propertyID, kAudioUnitScope_Global, 0,
+            &cfString, UInt32(MemoryLayout<CFString>.size)
+        )
+        #if DEBUG
+        if status != noErr {
+            EnsembleLogger.debug("[InstrumentalEngine] Failed to set property \(propertyID): OSStatus \(status)")
+        }
+        #endif
+        return status == noErr
+    }
+
+    /// Apply the AUSoundIsolation parameters
     private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
         let target = effect ?? isolationEffect
         guard let target else { return }
         let paramTree = target.auAudioUnit.parameterTree
 
-        // Isolate vocals, then phase-invert via negative wet/dry mix
-        paramTree?.parameter(withAddress: 1)?.value = 1.0     // Sound to Isolate = vocals
-        paramTree?.parameter(withAddress: 0)?.value = -100.0   // Negative = invert isolated + mix with dry
+        if musicModelLoaded {
+            // With the v0 music model, wetDryMix is a vocal attenuation control:
+            //   0 = no effect (original audio)
+            //   100 = full vocal removal (instrumentals)
+            paramTree?.parameter(withAddress: 1)?.value = 1.0    // Voice isolation mode
+            paramTree?.parameter(withAddress: 0)?.value = 100.0  // Full vocal removal
+        } else {
+            // Fallback without music model: use negative wetDryMix for internal subtraction
+            //   output = dry + (-wet) = original + (-vocals) = instrumentals
+            paramTree?.parameter(withAddress: 1)?.value = 0.0     // Voice isolation (clean)
+            paramTree?.parameter(withAddress: 0)?.value = -100.0  // Phase-invert and mix
+        }
 
         #if DEBUG
         let wetDry = paramTree?.parameter(withAddress: 0)?.value ?? -999
         let isolate = paramTree?.parameter(withAddress: 1)?.value ?? -999
-        EnsembleLogger.debug("[InstrumentalEngine] Parameters: wetDry=\(wetDry), soundToIsolate=\(isolate)")
+        EnsembleLogger.debug("[InstrumentalEngine] Parameters: wetDry=\(wetDry), soundToIsolate=\(isolate), musicModel=\(musicModelLoaded)")
         #endif
     }
 
     // MARK: - File Loading
 
-    /// Load an audio file for playback
     func load(fileURL: URL) throws {
         let file = try AVAudioFile(forReading: fileURL)
         audioFile = file
         sampleRate = file.processingFormat.sampleRate
 
-        // Reconnect with the file's format
+        // Reconnect with the file's native format
         if let effect = isolationEffect {
             engine.connect(playerNode, to: effect, format: file.processingFormat)
             engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
         }
-
-        // Re-apply parameters after reconnection
         applyIsolationParameters()
 
         #if DEBUG
@@ -136,7 +215,6 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Playback Control
 
-    /// Schedule and start playback from the given time offset
     func play(from time: TimeInterval = 0) throws {
         guard let file = audioFile else {
             throw InstrumentalEngineError.noFileLoaded
@@ -172,7 +250,7 @@ public final class InstrumentalAudioEngine {
             try engine.start()
         }
 
-        // Re-apply after engine start
+        // Re-apply after engine start (engine start can reset AU state)
         applyIsolationParameters()
 
         playerNode.play()
@@ -184,18 +262,15 @@ public final class InstrumentalAudioEngine {
         #endif
     }
 
-    /// Pause playback (engine stays running to avoid restart latency)
     func pause() {
         playerNode.pause()
         wasPlaying = false
         stopTimeUpdates()
-
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Paused")
         #endif
     }
 
-    /// Resume playback after pause
     func resume() throws {
         if !engine.isRunning {
             try engine.start()
@@ -203,13 +278,11 @@ public final class InstrumentalAudioEngine {
         playerNode.play()
         wasPlaying = true
         startTimeUpdates()
-
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Resumed")
         #endif
     }
 
-    /// Stop playback and clean up
     func stop() {
         scheduleGeneration &+= 1
         stopTimeUpdates()
@@ -220,13 +293,11 @@ public final class InstrumentalAudioEngine {
         wasPlaying = false
         seekFrameOffset = 0
         currentTimeSubject.send(0)
-
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Stopped")
         #endif
     }
 
-    /// Seek to a new position
     func seek(to time: TimeInterval) throws {
         guard let file = audioFile else { return }
 
@@ -269,7 +340,6 @@ public final class InstrumentalAudioEngine {
         }
 
         currentTimeSubject.send(time)
-
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Seeked to \(String(format: "%.1f", time))s")
         #endif
@@ -277,7 +347,6 @@ public final class InstrumentalAudioEngine {
 
     // MARK: - Time Tracking
 
-    /// Compute current playback time from player node render position
     func currentTime() -> TimeInterval {
         guard let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
@@ -293,8 +362,7 @@ public final class InstrumentalAudioEngine {
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            let time = self.currentTime()
-            self.currentTimeSubject.send(time)
+            self.currentTimeSubject.send(self.currentTime())
         }
         timer.resume()
         timeUpdateTimer = timer
@@ -317,123 +385,11 @@ public final class InstrumentalAudioEngine {
         guard wasPlaying else { return }
         wasPlaying = false
         stopTimeUpdates()
-
         #if DEBUG
         EnsembleLogger.debug("[InstrumentalEngine] Segment complete -- triggering track advance")
         #endif
-
         onPlaybackComplete?()
     }
-
-    // MARK: - Cleanup
-
-    deinit {
-        stopTimeUpdates()
-        playerNode.stop()
-        engine.stop()
-    }
-}
-
-// MARK: - Errors
-
-public enum InstrumentalEngineError: Error, LocalizedError {
-    case soundIsolationUnavailable
-    case noFileLoaded
-
-    public var errorDescription: String? {
-        switch self {
-        case .soundIsolationUnavailable:
-            return "AUSoundIsolation audio unit is not available on this device"
-        case .noFileLoaded:
-            return "No audio file has been loaded"
-        }
-    }
-}
-es - startFrame)
-
-        file.framePosition = startFrame
-        playerNode.scheduleSegment(
-            file,
-            startingFrame: startFrame,
-            frameCount: frameCount,
-            at: nil
-        ) { [weak self] in
-            DispatchQueue.main.async {
-                self?.handleSegmentComplete(generation: myGeneration)
-            }
-        }
-
-        if wasPlayingBeforeSeek {
-            if !engine.isRunning {
-                try engine.start()
-            }
-            playerNode.play()
-            wasPlaying = true
-            startTimeUpdates()
-        }
-
-        // Update time immediately for responsive UI
-        currentTimeSubject.send(time)
-
-        #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Seeked to \(String(format: "%.1f", time))s")
-        #endif
-    }
-
-    // MARK: - Time Tracking
-
-    /// Compute current playback time from player node render position
-    func currentTime() -> TimeInterval {
-        guard let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
-            return TimeInterval(seekFrameOffset) / sampleRate
-        }
-        let framePosition = playerTime.sampleTime + seekFrameOffset
-        return TimeInterval(framePosition) / sampleRate
-    }
-
-    /// Start periodic time updates at ~10Hz
-    private func startTimeUpdates() {
-        stopTimeUpdates()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            let time = self.currentTime()
-            self.currentTimeSubject.send(time)
-        }
-        timer.resume()
-        timeUpdateTimer = timer
-    }
-
-    /// Stop periodic time updates
-    private func stopTimeUpdates() {
-        timeUpdateTimer?.cancel()
-        timeUpdateTimer = nil
-    }
-
-    // MARK: - Completion Handling
-
-    /// Only trigger track advance if this completion matches the current generation
-    private func handleSegmentComplete(generation: UInt64) {
-        guard generation == scheduleGeneration else {
-            #if DEBUG
-            EnsembleLogger.debug("[InstrumentalEngine] Ignoring stale completion (gen \(generation) vs current \(scheduleGeneration))")
-            #endif
-            return
-        }
-        guard wasPlaying else { return }
-        wasPlaying = false
-        stopTimeUpdates()
-
-        #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Segment complete -- triggering track advance")
-        #endif
-
-        onPlaybackComplete?()
-    }
-
-    // MARK: - Cleanup
 
     deinit {
         stopTimeUpdates()
