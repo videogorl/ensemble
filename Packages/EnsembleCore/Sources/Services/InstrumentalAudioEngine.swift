@@ -78,33 +78,30 @@ public final class InstrumentalAudioEngine {
         let effect = AVAudioUnitEffect(audioComponentDescription: desc)
         isolationEffect = effect
 
-        // Try to load the music-quality v0 neural network model
+        // Attach nodes and connect graph FIRST -- this sets the AU's stream formats.
+        // The music model must be loaded AFTER formats are established (QuietNow pattern:
+        // set stream format → load model → initialize). Loading the model first changes
+        // the AU's format requirements and causes FormatNotSupported errors.
+        engine.attach(playerNode)
+        engine.attach(effect)
+
+        let mainMixer = engine.mainMixerNode
+        let outputFormat = mainMixer.outputFormat(forBus: 0)
+        engine.connect(playerNode, to: effect, format: outputFormat)
+        engine.connect(effect, to: mainMixer, format: outputFormat)
+
+        // NOW load the music model (after formats are established)
         loadMusicModel(for: effect)
 
         // Configure parameters
         applyIsolationParameters(to: effect)
 
-        // Attach nodes
-        engine.attach(playerNode)
-        engine.attach(effect)
-
-        // Connect graph. When the v0 model is loaded, the AU expects 24kHz mono input
-        // (per its plist). Passing nil for format lets AVAudioEngine negotiate and insert
-        // format converters automatically between nodes.
-        let mainMixer = engine.mainMixerNode
-        if musicModelLoaded {
-            engine.connect(playerNode, to: effect, format: nil)
-            engine.connect(effect, to: mainMixer, format: nil)
-        } else {
-            let format = mainMixer.outputFormat(forBus: 0)
-            engine.connect(playerNode, to: effect, format: format)
-            engine.connect(effect, to: mainMixer, format: format)
-        }
-
         isSetUp = true
 
         #if DEBUG
-        EnsembleLogger.debug("[InstrumentalEngine] Graph built (musicModel=\(musicModelLoaded))")
+        let effectIn = effect.inputFormat(forBus: 0)
+        let effectOut = effect.outputFormat(forBus: 0)
+        EnsembleLogger.debug("[InstrumentalEngine] Graph built (musicModel=\(musicModelLoaded)), effectIn=\(effectIn), effectOut=\(effectOut), output=\(outputFormat)")
         #endif
     }
 
@@ -201,16 +198,10 @@ public final class InstrumentalAudioEngine {
         audioFile = file
         sampleRate = file.processingFormat.sampleRate
 
-        // Reconnect -- use nil format when music model is loaded to let
-        // AVAudioEngine handle the 44.1kHz→24kHz conversion automatically
+        // Reconnect with the file's native format
         if let effect = isolationEffect {
-            if musicModelLoaded {
-                engine.connect(playerNode, to: effect, format: nil)
-                engine.connect(effect, to: engine.mainMixerNode, format: nil)
-            } else {
-                engine.connect(playerNode, to: effect, format: file.processingFormat)
-                engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
-            }
+            engine.connect(playerNode, to: effect, format: file.processingFormat)
+            engine.connect(effect, to: engine.mainMixerNode, format: file.processingFormat)
         }
         applyIsolationParameters()
 
