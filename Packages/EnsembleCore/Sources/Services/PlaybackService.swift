@@ -6021,6 +6021,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Preserves playback position and play/pause state so the transition is seamless.
     private func reloadCurrentTrackForQualityChange() async {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
+
+        // Instrumental mode uses its own AVAudioEngine with a local file --
+        // quality changes don't affect it and reloading AVQueuePlayer would
+        // cause both streams to play simultaneously
+        if isInstrumentalModeActive { return }
+
         let track = queue[currentQueueIndex].track
 
         // Only reload streaming tracks (not downloaded)

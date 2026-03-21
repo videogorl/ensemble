@@ -108,17 +108,11 @@ public final class InstrumentalAudioEngine {
     private func loadMusicModel(for effect: AVAudioUnitEffect) {
         let au = effect.audioUnit
 
-        // The v0 music model plist and weights live in the system audio tunings directory
+        // The v0 music model plist and weights live in the system audio tunings directory.
+        // The AU framework can access system paths that our app sandbox cannot,
+        // so we skip FileManager.exists checks and just set the properties.
         let tuningsBase = "/System/Library/Audio/Tunings"
-        let modelDir = "\(tuningsBase)/Generic/AU/SoundIsolation"
-        let v0PlistPath = "\(modelDir)/aufx-vois-appl-nnet-vi-v0.plist"
-
-        guard FileManager.default.fileExists(atPath: v0PlistPath) else {
-            #if DEBUG
-            EnsembleLogger.debug("[InstrumentalEngine] Music model not found at: \(v0PlistPath)")
-            #endif
-            return
-        }
+        let v0PlistPath = "\(tuningsBase)/Generic/AU/SoundIsolation/aufx-vois-appl-nnet-vi-v0.plist"
 
         // Enable tuning mode so the AU accepts model overrides
         AudioUnitSetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
@@ -128,8 +122,7 @@ public final class InstrumentalAudioEngine {
         let plistOK = setAUStringProperty(au, propertyID: kNeuralNetPlistPathOverride, value: v0PlistPath)
         let baseOK = setAUStringProperty(au, propertyID: kNeuralNetModelNetPathBaseOverride, value: tuningsBase)
 
-        // Disable dereverb (not needed for instrumental mode, reduces processing)
-        _ = setAUStringProperty(au, propertyID: kDeverbPresetPathOverride, value: "")
+        // Leave dereverb enabled (default) -- helps clean up vocal reverb tails
 
         musicModelLoaded = plistOK && baseOK
 
@@ -178,7 +171,7 @@ public final class InstrumentalAudioEngine {
             // With the v0 music model, wetDryMix is a vocal attenuation control:
             //   0 = no effect (original audio)
             //   100 = full vocal removal (instrumentals)
-            paramTree?.parameter(withAddress: 1)?.value = 1.0    // Voice isolation mode
+            paramTree?.parameter(withAddress: 1)?.value = 0.0    // HighQualityVoice (iOS 18+)
             paramTree?.parameter(withAddress: 0)?.value = 100.0  // Full vocal removal
         } else {
             // Fallback without music model: use negative wetDryMix for internal subtraction
