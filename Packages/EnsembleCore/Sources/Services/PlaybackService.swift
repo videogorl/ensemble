@@ -3604,14 +3604,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let previousCallback = loader.onDownloadComplete
             loader.onDownloadComplete = { fileURL, duration in
                 previousCallback?(fileURL, duration)
-
-                // Inject XING header for non-original quality
-                if quality != .original {
-                    try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
-                        at: fileURL, metadataDurationSeconds: duration
-                    )
-                }
-
+                // XING injection removed -- AVAudioFile handles encoder delay natively
                 continuation.resume(returning: fileURL)
             }
         }

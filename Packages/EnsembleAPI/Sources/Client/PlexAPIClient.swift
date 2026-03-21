@@ -1456,20 +1456,12 @@ public actor PlexAPIClient {
         // gapless metadata (encoder delay/padding). This fixes AVPlayer duration
         // overestimation and provides gapless metadata at track boundaries.
         //
-        // Note: CAF conversion (uncompressed PCM) was previously used here for
-        // zero-gap gapless but created ~60MB files per track and took ~13 seconds,
-        // causing memory leaks and blocking playback startup on low-RAM devices.
-        // XING header injection is ~1ms and keeps the ~6MB MP3 file as-is.
-        if quality != .original {
-            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
-                at: destURL,
-                metadataDurationSeconds: metadataDurationSeconds
-            )
-        }
+        // XING header injection removed -- AVAudioEngine's AVAudioFile handles
+        // MP3 encoder delay/padding natively at the PCM level.
 
         #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
-        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        EnsembleLogger.debug("Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
         #endif
 
         return destURL
@@ -1633,13 +1625,8 @@ public actor PlexAPIClient {
         }
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
-        // Inject XING VBR header for transcoded MP3s (fixes duration and enables gapless)
-        if quality != .original {
-            try? MP3VBRHeaderUtility.injectXingHeaderIfNeeded(
-                at: destURL,
-                metadataDurationSeconds: metadataDurationSeconds
-            )
-        }
+        // XING header injection removed -- AVAudioEngine's AVAudioFile handles
+        // MP3 encoder delay/padding natively at the PCM level.
 
         #if DEBUG
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
