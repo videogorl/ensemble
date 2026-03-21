@@ -1455,11 +1455,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("🔇 Audio session interruption BEGAN")
             #endif
             isInterrupted = true
-            // When interruption begins, the system will pause the player.
-            // We update internal state to prevent unexpected-pause recovery.
+            // When interruption begins, the system pauses audio.
+            // Update internal state so we know to resume when interruption ends.
             if playbackState == .playing || playbackState == .buffering {
                 playbackState = .buffering
-                setupStallRecovery(recordStallEvent: false)
             }
             
         case .ended:
