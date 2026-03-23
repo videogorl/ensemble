@@ -509,9 +509,9 @@ public final class AudioPlaybackEngine {
         AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
 
         // Wet/Dry Mix: 100 = fully isolated, 0 = original (passthrough).
-        // Use 85 instead of 100 to blend a small amount of original back in,
+        // Use 95 instead of 100 to blend a small amount of original back in,
         // which smooths out separation artifacts in the vocal removal.
-        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 85.0 : 0.0
+        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 95.0 : 0.0
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
         #if DEBUG
