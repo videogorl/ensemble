@@ -151,12 +151,13 @@ public final class AudioPlaybackEngine {
             engine.disconnectNodeOutput(effect)
         }
 
-        if isIsolationActive, let effect = isolationEffect {
+        if let effect = isolationEffect {
             // playerNode -> isolation -> mixer
+            // Effect stays in chain permanently; wetDryMix=0 acts as passthrough
             engine.connect(playerNode, to: effect, format: connectFormat)
             engine.connect(effect, to: mainMixer, format: connectFormat)
         } else {
-            // playerNode -> mixer (bypass isolation)
+            // No isolation effect created (or unavailable) — direct path
             engine.connect(playerNode, to: mainMixer, format: connectFormat)
         }
     }
@@ -176,10 +177,8 @@ public final class AudioPlaybackEngine {
         // Rebuild the graph with current file's format
         buildGraph(format: currentFile?.processingFormat)
 
-        // Re-apply isolation parameters if active (reconnection can reset AU state)
-        if isIsolationActive {
-            applyIsolationParameters()
-        }
+        // Re-apply isolation parameters (reconnection can reset AU state)
+        applyIsolationParameters()
 
         // Reschedule from the current position if we have a file
         guard let file = currentFile else { return }
@@ -264,6 +263,14 @@ public final class AudioPlaybackEngine {
         // using whichever model is configured. The v0 model must be loaded first.
         loadMusicModel(for: effect)
 
+        // Without the music model, the default AU does FaceTime voice isolation
+        // (keeps voice, removes background) — the opposite of instrumental mode.
+        // It also crashes on iOS 26+ with stereo format. Don't use it.
+        if !musicModelLoaded {
+            isolationEffect = nil
+            throw AudioPlaybackEngineError.soundIsolationUnavailable
+        }
+
         engine.attach(effect)
         isolationNodeCreated = true
 
@@ -273,15 +280,32 @@ public final class AudioPlaybackEngine {
     }
 
     /// Toggle vocal isolation on or off. Lazily creates the AU on first enable.
-    /// Rebuilds the graph inline -- no engine restart needed, minimal audio gap.
+    ///
+    /// First enable: wires the effect into the graph (requires stop/rebuild/reschedule).
+    /// Subsequent toggles: just changes wetDryMix parameter (0=passthrough, 100=isolated)
+    /// — no graph rebuild, no audio gap.
     func setIsolationEnabled(_ enabled: Bool) throws {
         guard enabled != isIsolationActive else { return }
 
-        if enabled && !isolationNodeCreated {
+        if !isolationNodeCreated {
+            // First time: create effect and wire it into the graph permanently.
+            // This requires a full graph rebuild.
             try createIsolationEffect()
+            try wireIsolationIntoGraph()
         }
 
-        // Capture state before rebuilding
+        // Toggle by changing the wetDryMix parameter — no graph rebuild needed
+        isIsolationActive = enabled
+        applyIsolationParameters()
+
+        #if DEBUG
+        EnsembleLogger.debug("[AudioEngine] Isolation \(enabled ? "enabled" : "disabled")")
+        #endif
+    }
+
+    /// Wire the isolation effect into the audio graph for the first time.
+    /// Requires stopping the player and rescheduling — only called once.
+    private func wireIsolationIntoGraph() throws {
         let position = currentTime()
         let wasActive = wasPlaying || playerNode.isPlaying
 
@@ -291,14 +315,9 @@ public final class AudioPlaybackEngine {
         playerNode.stop()
         playerTimeBaseOffset = 0
 
-        // Toggle and rebuild graph
-        isIsolationActive = enabled
+        // Rebuild graph with effect permanently in the chain
+        // (passthrough when disabled via wetDryMix=0)
         buildGraph(format: currentFile?.processingFormat)
-
-        // Apply isolation parameters when enabling
-        if enabled {
-            applyIsolationParameters()
-        }
 
         // Reschedule from captured position
         if let file = currentFile {
@@ -340,18 +359,12 @@ public final class AudioPlaybackEngine {
             if !engine.isRunning {
                 try engine.start()
             }
-            // Re-apply after engine start (can reset AU state)
-            if enabled { applyIsolationParameters() }
             playerNode.play()
             wasPlaying = true
             startTimeUpdates()
         }
 
         currentTimeSubject.send(position)
-
-        #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Isolation \(enabled ? "enabled" : "disabled") at \(String(format: "%.1f", position))s")
-        #endif
     }
 
     /// Load the music vocal separation neural network model into AUSoundIsolation.
@@ -367,21 +380,27 @@ public final class AudioPlaybackEngine {
     /// we probe candidate paths on a throwaway raw AudioUnit first, then only apply a verified
     /// path to the real effect.
     private func loadMusicModel(for effect: AVAudioUnitEffect) {
-        // Candidate model locations, ordered by likelihood:
-        // 1. MediaPlaybackCore.framework (what Apple Music uses, updated with each iOS)
-        // 2. MediaPlaybackCore subdirectory (iOS 17.4+ moved model into a hash-named subdir)
-        // 3. Tunings v0 model (older iOS versions)
+        // Candidate model locations, ordered by likelihood.
+        // Apple has moved the model between OS versions:
+        // - iOS 16-17.3: directly in MediaPlaybackCore.framework
+        // - iOS 17.4+: hash-named subdirectory within MediaPlaybackCore.framework
+        // - iOS 18+: possibly moved to Tunings directory or another framework
         let frameworkBase = "/System/Library/PrivateFrameworks/MediaPlaybackCore.framework"
-        let tuningsDir = "/System/Library/Audio/Tunings/Generic/AU/SoundIsolation"
+        let tuningsBase = "/System/Library/Audio/Tunings"
+        let tuningsDir = "\(tuningsBase)/Generic/AU/SoundIsolation"
 
         var candidates: [(plistPath: String, basePath: String)] = [
+            // MediaPlaybackCore root (iOS 16-17.3)
             ("\(frameworkBase)/aufx-nnet-appl.plist", frameworkBase),
         ]
 
-        // On iOS 17.4+, model moved to a subdirectory within the framework.
-        // Try to discover it — sandbox may allow reading system framework dirs.
+        // MediaPlaybackCore subdirectories (iOS 17.4+ hash-named subdirs).
+        // Filter out .lproj locale bundles which are directories but not model dirs.
         if let contents = try? FileManager.default.contentsOfDirectory(atPath: frameworkBase) {
-            for item in contents {
+            #if DEBUG
+            EnsembleLogger.debug("[AudioEngine] MediaPlaybackCore contents: \(contents)")
+            #endif
+            for item in contents where !item.hasSuffix(".lproj") {
                 let subdir = "\(frameworkBase)/\(item)"
                 var isDir: ObjCBool = false
                 if FileManager.default.fileExists(atPath: subdir, isDirectory: &isDir), isDir.boolValue {
@@ -390,16 +409,35 @@ public final class AudioPlaybackEngine {
             }
         }
 
-        // Tunings v0 model as last resort
-        candidates.append(("\(tuningsDir)/aufx-vois-appl-nnet-vi-v0.plist",
-                           "/System/Library/Audio/Tunings"))
+        // Tunings directory — multiple possible plist names and subdirectories
+        candidates.append(("\(tuningsDir)/aufx-vois-appl-nnet-vi-v0.plist", tuningsBase))
+        candidates.append(("\(tuningsDir)/aufx-nnet-appl.plist", tuningsDir))
+
+        // Scan Tunings subdirectories for model plists
+        if let tuningContents = try? FileManager.default.contentsOfDirectory(atPath: tuningsDir) {
+            #if DEBUG
+            EnsembleLogger.debug("[AudioEngine] Tunings SoundIsolation contents: \(tuningContents)")
+            #endif
+            for item in tuningContents where !item.hasSuffix(".lproj") {
+                let subdir = "\(tuningsDir)/\(item)"
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: subdir, isDirectory: &isDir), isDir.boolValue {
+                    candidates.append(("\(subdir)/aufx-nnet-appl.plist", subdir))
+                    candidates.append(("\(subdir)/aufx-vois-appl-nnet-vi-v0.plist", subdir))
+                }
+            }
+        }
+
+        #if DEBUG
+        EnsembleLogger.debug("[AudioEngine] Model candidates: \(candidates.map(\.basePath))")
+        #endif
 
         // Probe each candidate on a throwaway raw AudioUnit to avoid tainting the real effect.
         // Once a model path is set on an AU and fails to construct, that AU is permanently
         // broken and will crash AVAudioEngine.connect.
         guard let verifiedPath = probeModelPaths(candidates) else {
             #if DEBUG
-            EnsembleLogger.debug("[AudioEngine] No working vocal separation model found")
+            EnsembleLogger.debug("[AudioEngine] No working vocal separation model found — instrumental mode unavailable")
             #endif
             return
         }
@@ -475,34 +513,30 @@ public final class AudioPlaybackEngine {
         return status == noErr
     }
 
-    /// Apply AUSoundIsolation parameters for instrumental mode.
+    /// Apply AUSoundIsolation parameters based on current isIsolationActive state.
     ///
-    /// With v0 model: wetDryMix=100 directly outputs instrumentals (vocals removed).
-    /// Without v0 model: isolate vocals then phase-invert (wetDryMix=-100) so
-    /// output = original + (-vocals) = instrumentals.
+    /// Requires the music vocal separation model (loaded by loadMusicModel).
+    /// address 0 = "Wet/Dry Mix" (-100 to 100): 100 = fully isolated, 0 = passthrough
+    /// address 1 = "Sound to Isolate" (0.0 to 1.0): 0.0 = instruments, 1.0 = vocals
     /// Uses the C API because AUSoundIsolation hides parameters from tree enumeration.
     private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
         let target = effect ?? isolationEffect
         guard let target else { return }
         let au = target.audioUnit
 
-        if musicModelLoaded {
-            // v0 music model: wetDryMix controls vocal attenuation directly
-            AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)     // HighQualityVoice
-            AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, 100.0, 0)   // Full vocal removal
-        } else {
-            // Default model fallback: isolate vocals then phase-invert to get instrumentals
-            // output = dry + (-wet) = original + (-isolated_vocals) = instrumentals
-            AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)     // Voice isolation
-            AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, -100.0, 0)  // Phase-invert
-        }
+        // Sound to Isolate is always "instruments" (0.0)
+        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
+
+        // Wet/Dry Mix: 100 = full isolation (instrumental), 0 = passthrough (normal audio)
+        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 100.0 : 0.0
+        AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
         #if DEBUG
         var wetDry: AudioUnitParameterValue = -999
         var isolate: AudioUnitParameterValue = -999
         AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
         AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
-        EnsembleLogger.debug("[AudioEngine] Isolation params applied: wetDry=\(wetDry), soundToIsolate=\(isolate), v0Model=\(musicModelLoaded)")
+        EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive)")
         #endif
     }
 
@@ -524,9 +558,7 @@ public final class AudioPlaybackEngine {
         buildGraph(format: file.processingFormat)
 
         // Re-apply isolation parameters (reconnection can reset AU state)
-        if isIsolationActive {
-            applyIsolationParameters()
-        }
+        applyIsolationParameters()
 
         #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
@@ -624,9 +656,7 @@ public final class AudioPlaybackEngine {
         }
 
         // Re-apply isolation params after engine start (can reset AU state)
-        if isIsolationActive {
-            applyIsolationParameters()
-        }
+        applyIsolationParameters()
 
         playerNode.play()
         wasPlaying = true
