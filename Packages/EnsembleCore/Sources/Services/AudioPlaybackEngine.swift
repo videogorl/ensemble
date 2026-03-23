@@ -314,6 +314,21 @@ public final class AudioPlaybackEngine {
             }
         }
 
+        // Re-schedule any gapless files that were flushed by playerNode.stop()
+        for entry in scheduledFiles {
+            let entryGen = scheduleGeneration
+            playerNode.scheduleSegment(
+                entry.file,
+                startingFrame: 0,
+                frameCount: AVAudioFrameCount(entry.file.length),
+                at: nil
+            ) { [weak self] in
+                DispatchQueue.main.async {
+                    self?.handleScheduledFileComplete(trackId: entry.trackId, generation: entryGen)
+                }
+            }
+        }
+
         if wasActive {
             if !engine.isRunning {
                 try engine.start()
