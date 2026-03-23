@@ -17,19 +17,22 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
     public let entityID: String
     public let sourceCompositeKey: String?
     public let displayName: String?
+    public let artistHint: String?
 
     public init(
         schemaVersion: Int = SiriPlaybackRequestPayload.currentSchemaVersion,
         kind: SiriMediaKind,
         entityID: String,
         sourceCompositeKey: String? = nil,
-        displayName: String? = nil
+        displayName: String? = nil,
+        artistHint: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
+        self.artistHint = artistHint
     }
 }
 

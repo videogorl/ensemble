@@ -24,7 +24,8 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Pre-compute frequency data for a track (call during prefetch or item creation).
     /// Loads from sidecar file if available, otherwise runs FFT analysis on background thread.
     /// Use `.userInitiated` priority for the current track, `.utility` for prefetch.
-    @MainActor func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority) async
+    /// When `throttled`, analysis pauses between keyframes to reduce CPU cache contention.
+    @MainActor func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority, throttled: Bool) async
 
     /// Activate a loaded timeline as the current display source.
     /// Starts the 30Hz display timer.
@@ -231,7 +232,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     // MARK: - Timeline Loading
 
-    public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility) async {
+    public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility, throttled: Bool = false) async {
         #if DEBUG
         logger.debug("loadTimeline called for \(trackId), url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
         #endif
@@ -293,10 +294,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // while analysis continues in background.
         let capturedFileURL = fileURL
         let capturedPriority = priority
+        let capturedThrottled = throttled
         let analysisTask = Task { [weak self] in
             let timeline = await Self.analyzeInBackground(
                 fileURL: capturedFileURL,
-                priority: capturedPriority
+                priority: capturedPriority,
+                throttled: capturedThrottled
             ) { partialSnapshots, fps, analyzedDur, totalDur in
                 // Progressive update: publish partial timeline to main actor
                 Task { @MainActor [weak self] in
@@ -478,18 +481,22 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private nonisolated static func analyzeInBackground(
         fileURL: URL,
         priority: TaskPriority = .utility,
+        throttled: Bool = false,
         progressHandler: ProgressHandler? = nil
     ) async -> FrequencyTimeline? {
         return await Task.detached(priority: priority) {
-            return analyzeFile(at: fileURL, progressHandler: progressHandler)
+            return analyzeFile(at: fileURL, throttled: throttled, progressHandler: progressHandler)
         }.value
     }
 
     /// Core FFT analysis: opens file, seeks to analysis points, runs windowed FFT, maps to 24 bands.
     /// Progressive: publishes partial results every ~50 keyframes (~5s of audio) so the
     /// visualizer starts within ~0.7s. Full analysis for a 5-min song takes ~35s on A9.
+    /// When `throttled`, inserts pauses between keyframes to reduce CPU cache contention
+    /// with real-time audio processing (e.g. AUSoundIsolation neural network).
     private nonisolated static func analyzeFile(
         at fileURL: URL,
+        throttled: Bool = false,
         progressHandler: ProgressHandler? = nil
     ) -> FrequencyTimeline? {
         #if DEBUG
@@ -580,6 +587,14 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 // Check for cancellation frequently (every 2 keyframes ~0.2s of audio)
                 // to quickly abandon analysis when the user skips tracks rapidly
                 if k % 2 == 0 && Task.isCancelled { return nil }
+
+                // When throttled (e.g. AUSoundIsolation active), pause every 3 keyframes
+                // to reduce sustained CPU cache pressure on the real-time audio IO thread.
+                // 5ms pause per ~5ms of FFT work ≈ 50% CPU reduction, keeps the neural
+                // network's L2 cache warm across render cycles.
+                if throttled && k % 3 == 0 && k > 0 {
+                    usleep(5000)
+                }
 
                 let seekFrame = AVAudioFramePosition(k * hopFrames)
                 guard seekFrame + AVAudioFramePosition(fftSize) <= audioFile.length else {

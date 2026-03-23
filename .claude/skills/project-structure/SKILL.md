@@ -152,6 +152,8 @@ Sources/
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
 |   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
 |   +-- AudioAnalyzer.swift            # Pre-computed frequency analysis (FrequencyTimeline, FrequencyAnalysisService, FrequencyTimelinePersistence)
+|   +-- InstrumentalModeCapability.swift # Static AUSoundIsolation availability probe (iOS 16+ / A13+)
+|   +-- InstrumentalAudioEngine.swift  # AVAudioEngine wrapper with AUSoundIsolation for vocal attenuation
 |   +-- PowerStateMonitor.swift        # Low Power Mode observer; publishes isLowPowerMode for GPU/network throttling (@MainActor ObservableObject)
 |   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
 |   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support

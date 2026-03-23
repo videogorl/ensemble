@@ -183,6 +183,11 @@ public actor PlexWebSocketManager {
     }
 
     private func disconnect() {
+        // Cancel the receive loop BEFORE cancelling the WebSocket task.
+        // Without this, the old receiveLoop detects the stream ended and calls
+        // scheduleReconnect(), which kills any new connection that connect() creates.
+        receiveTask?.cancel()
+        receiveTask = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         session?.invalidateAndCancel()
@@ -220,8 +225,10 @@ public actor PlexWebSocketManager {
         }
 
         // Stream ended — either task was cancelled or an error occurred.
-        // Reconnect if not deliberately stopped.
-        if !isStopped {
+        // Only reconnect if not deliberately stopped AND not cancelled by disconnect().
+        // Without the cancellation check, a stale receiveLoop from a prior connection
+        // would trigger a spurious reconnect that kills the new connection.
+        if !isStopped && !Task.isCancelled {
             isConnected = false
             scheduleReconnect()
         }

@@ -117,6 +117,10 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var isUserScrollingLyrics: Bool = false
     private var userScrollResumeTask: Task<Void, Never>?
 
+    // Instrumental mode (vocal attenuation)
+    @Published public private(set) var isInstrumentalModeActive: Bool = false
+    public let isInstrumentalModeSupported: Bool = InstrumentalModeCapability.isSupported
+
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
@@ -211,6 +215,10 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.recommendationsExhaustedPublisher
             .receive(on: DispatchQueue.main)
             .assign(to: &$recommendationsExhausted)
+
+        playbackService.instrumentalModeActivePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isInstrumentalModeActive)
 
         syncCoordinator.$lastPlaylistTarget
             .receive(on: DispatchQueue.main)
@@ -1083,6 +1091,11 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func toggleAutoplay() {
         playbackService.toggleAutoplay()
+    }
+
+    /// Toggle instrumental mode (vocal attenuation via AUSoundIsolation)
+    public func toggleInstrumentalMode() {
+        playbackService.setInstrumentalMode(!isInstrumentalModeActive)
     }
 
     public func toggleHistory() {

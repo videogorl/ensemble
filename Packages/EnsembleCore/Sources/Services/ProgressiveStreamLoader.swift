@@ -79,6 +79,9 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
     /// Current downloaded file size in bytes (thread-safe)
     var currentFileSize: Int64 { bytesWritten }
 
+    /// Whether the download has completed successfully (thread-safe)
+    var isDownloadComplete: Bool { isComplete }
+
     /// The local temp file URL where the stream is being written
     var localFileURL: URL { fileURL }
 

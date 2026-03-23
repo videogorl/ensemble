@@ -287,7 +287,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 kind: kind,
                 entityID: extensionPayload.entityID,
                 sourceCompositeKey: extensionPayload.sourceCompositeKey,
-                displayName: extensionPayload.displayName
+                displayName: extensionPayload.displayName,
+                artistHint: extensionPayload.artistHint
             )
         } catch {
             os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
@@ -430,7 +431,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 kind: kind,
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
-                displayName: sanitizedQuery
+                displayName: sanitizedQuery,
+                artistHint: intent.mediaSearch?.artistName
             )
         }
 
@@ -443,7 +445,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 kind: kind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
-                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
+                artistHint: intent.mediaSearch?.artistName
             )
         }
 
@@ -501,10 +504,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         case .playlist:
             return .playlist
         default:
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty {
+            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
+            // Only infer .artist/.album when mediaName is absent.
+            // "Play [song] by [artist]" has both → default to .track.
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName {
                 return .artist
             }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty {
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName {
                 return .album
             }
             if intent.mediaContainer?.type == .playlist {
@@ -631,6 +637,7 @@ private struct ExtensionSiriPayloadIdentifier: Codable {
     let entityID: String
     let sourceCompositeKey: String?
     let displayName: String?
+    let artistHint: String?
 }
 
 func executeSiriPlaybackInBackground(
@@ -974,7 +981,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 kind: kind,
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
-                displayName: sanitizedQuery
+                displayName: sanitizedQuery,
+                artistHint: intent.mediaSearch?.artistName
             )
         }
 
@@ -985,7 +993,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 kind: kind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
-                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
+                artistHint: intent.mediaSearch?.artistName
             )
         }
 
@@ -1038,8 +1047,9 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         case .artist: return .artist
         case .playlist: return .playlist
         default:
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty { return .artist }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty { return .album }
+            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName { return .artist }
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName { return .album }
             if intent.mediaContainer?.type == .playlist { return .playlist }
             if let inferred = inferredSiriMediaKind(from: fallbackQuery) { return inferred }
             return .track

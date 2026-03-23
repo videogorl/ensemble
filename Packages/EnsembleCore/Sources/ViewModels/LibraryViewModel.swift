@@ -170,10 +170,11 @@ public final class LibraryViewModel: ObservableObject {
     /// Sort/filter work runs on a background queue; results are delivered on main.
     private func setupComputedPipelines() {
         // Tracks: recompute when the raw list, sort option, or filter options change.
-        // Debounce by 150ms to avoid filtering 1500+ tracks on every keystroke.
+        // Debounce by 300ms to reduce main-thread layout storms during search typing
+        // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
-            .debounce(for: .milliseconds(150), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
@@ -193,7 +194,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Artists — include albums for genre filtering (artist genres derived from album genres)
         Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
             .map { artists, sortOption, filterOptions, albums -> [Artist] in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
@@ -206,9 +207,11 @@ public final class LibraryViewModel: ObservableObject {
             .sink { [weak self] in self?.filteredArtists = $0 }
             .store(in: &cancellables)
 
-        // Albums — removeDuplicates prevents no-op publishes during sync
+        // Albums — debounce 300ms to reduce main-thread layout storms during search
+        // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
+        // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
             .map { albums, sortOption, filterOptions -> [Album] in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
@@ -223,7 +226,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest($genres, $genresFilterOptions)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
             .map { genres, filterOptions -> [Genre] in
                 let sorted = LibraryViewModel.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
                 return LibraryViewModel.filterGenres(sorted, with: filterOptions)

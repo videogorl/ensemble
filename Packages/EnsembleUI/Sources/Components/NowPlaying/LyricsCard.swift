@@ -55,6 +55,24 @@ public struct LyricsCard: View {
                 .foregroundColor(.primary)
 
             Spacer()
+
+            // Instrumental mode toggle (A13+ / iOS 16+ only)
+            if viewModel.isInstrumentalModeSupported {
+                Button {
+                    viewModel.toggleInstrumentalMode()
+                } label: {
+                    Image(systemName: viewModel.isInstrumentalModeActive
+                        ? "mic.slash.circle"
+                        : "mic.circle")
+                        .font(.title3)
+                        .foregroundColor(viewModel.isInstrumentalModeActive
+                            ? .accentColor
+                            : .primary.opacity(0.7))
+                }
+                .accessibilityLabel(viewModel.isInstrumentalModeActive
+                    ? "Disable instrumental mode"
+                    : "Enable instrumental mode")
+            }
         }
         .padding(.horizontal, 48)
     }

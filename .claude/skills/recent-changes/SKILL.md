@@ -6,6 +6,25 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Instrumental Mode / Vocal Attenuation (Mar 20, 2026)
+
+Apple Music Sing-style feature using AUSoundIsolation AudioUnit for on-device vocal removal. Hybrid engine switching: AVQueuePlayer stays active for normal playback; toggling instrumental mode switches to an AVAudioEngine pipeline with AUSoundIsolation, then switches back when toggled off.
+
+**Key behaviors:**
+- Binary toggle (on/off) on LyricsCard header
+- Persists across track skips within the same queue
+- Resets when a new queue is injected (play new album/playlist)
+- Only available on iOS 16+ / A13+ devices (button hidden on unsupported)
+- Brief ~100-300ms audio gap when toggling
+
+**Key files:**
+- `InstrumentalModeCapability.swift` -- Static AUSoundIsolation probe
+- `InstrumentalAudioEngine.swift` -- AVAudioEngine wrapper with sound isolation
+- `PlaybackService.swift` -- Engine switching, seek/play/pause routing, track-change re-engagement
+- `NowPlayingViewModel.swift` -- Published state, binding, toggle action
+- `LyricsCard.swift` -- Toggle button (mic.circle / mic.slash.circle)
+- `ProgressiveStreamLoader.swift` -- Added `isDownloadComplete` public accessor
+
 ### Bug Fix Batch: Hubs, Wikipedia, Progress Bar (Mar 20, 2026)
 
 Four fixes from beta feedback:

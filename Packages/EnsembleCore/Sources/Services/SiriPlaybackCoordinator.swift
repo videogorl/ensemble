@@ -6,11 +6,13 @@ public struct SiriPlaybackRequest: Sendable, Equatable {
     public let entityID: String
     public let sourceCompositeKey: String?
     public let displayName: String?
+    public let artistHint: String?
 
-    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil) {
+    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil, artistHint: String? = nil) {
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
+        self.artistHint = artistHint
     }
 }
 
@@ -111,7 +113,8 @@ public final class SiriPlaybackCoordinator {
         let request = SiriPlaybackRequest(
             entityID: payload.entityID,
             sourceCompositeKey: payload.sourceCompositeKey,
-            displayName: payload.displayName
+            displayName: payload.displayName,
+            artistHint: payload.artistHint
         )
 
         switch payload.kind {
@@ -247,8 +250,11 @@ public final class SiriPlaybackCoordinator {
             sourceCompositeKeys: enabledSourceKeys
         )
 
+        // When artistHint is available, prefer tracks by that artist
+        let prioritized = preferByArtist(candidates, hint: request.artistHint)
+
         if let resolved = choosePreferredCandidate(
-            from: candidates,
+            from: prioritized,
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -267,8 +273,9 @@ public final class SiriPlaybackCoordinator {
             name: { $0.title },
             source: { $0.sourceCompositeKey }
         )
+        let prioritizedFuzzy = preferByArtist(fuzzyCandidates, hint: request.artistHint)
         return choosePreferredCandidate(
-            from: fuzzyCandidates,
+            from: prioritizedFuzzy,
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -276,6 +283,20 @@ public final class SiriPlaybackCoordinator {
             lastPlayed: { $0.lastPlayed },
             playCount: { Int($0.playCount) }
         )
+    }
+
+    /// Reorders tracks so those matching the artist hint appear first.
+    private func preferByArtist(_ tracks: [CDTrack], hint: String?) -> [CDTrack] {
+        guard let hint, !hint.isEmpty else { return tracks }
+        let normalizedHint = hint.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let (matching, rest) = tracks.reduce(into: ([CDTrack](), [CDTrack]())) { result, track in
+            if let artist = track.artistName?.lowercased(), artist.contains(normalizedHint) || normalizedHint.contains(artist) {
+                result.0.append(track)
+            } else {
+                result.1.append(track)
+            }
+        }
+        return matching + rest
     }
 
     private func resolveAlbum(

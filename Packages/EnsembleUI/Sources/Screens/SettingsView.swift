@@ -124,6 +124,19 @@ public struct SettingsView: View {
                     playbackService.toggleAutoplay()
                 }
 
+                Toggle(isOn: $settingsManager.scrobblingEnabled) {
+                    HStack {
+                        Image(systemName: "checkmark.circle")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Scrobbling")
+                            Text("Report play counts to your Plex server")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 NavigationLink {
                     AudioQualitySettingsView()
                 } label: {

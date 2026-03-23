@@ -103,10 +103,14 @@ public struct ArtistsView: View {
             #endif
         }
         .onReceive(libraryVM.$filteredArtists) { artists in
-            let newSections = Self.computeArtistSections(artists: artists)
-            // Only update if content actually changed (avoids LazyVGrid re-layout flicker)
-            if !Self.sectionsEqual(cachedArtistSections, newSections) {
-                cachedArtistSections = newSections
+            // Compute sections off main thread to avoid blocking UI during search
+            let oldSections = cachedArtistSections
+            DispatchQueue.global(qos: .userInitiated).async {
+                let newSections = Self.computeArtistSections(artists: artists)
+                guard !Self.sectionsEqual(oldSections, newSections) else { return }
+                DispatchQueue.main.async {
+                    cachedArtistSections = newSections
+                }
             }
         }
         .sheet(isPresented: $showFilterSheet) {
