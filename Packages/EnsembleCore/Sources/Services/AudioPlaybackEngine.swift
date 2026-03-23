@@ -267,7 +267,8 @@ public final class AudioPlaybackEngine {
         isolationNodeCreated = true
 
         #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Isolation effect created (default model, no override)")
+        // Dump all parameters the AU exposes (helps understand what the default model supports)
+        dumpAUParameters(au: effect.audioUnit, label: "after attach")
         #endif
     }
 
@@ -392,20 +393,22 @@ public final class AudioPlaybackEngine {
 
     /// Apply AUSoundIsolation parameters based on current isIsolationActive state.
     ///
-    /// The default AU (no model override) isolates background/instrumental audio.
-    /// address 0 = "Wet/Dry Mix" (-100 to 100): 100 = fully isolated, 0 = passthrough
-    /// address 1 = "Sound to Isolate" (0.0 to 1.0): 0.0 = background/instruments
-    /// Uses the C API because AUSoundIsolation hides parameters from tree enumeration.
+    /// Strategy: tell the AU to isolate VOCALS (address 1 = 1.0), then INVERT the output
+    /// (address 0 = -100.0) to subtract vocals from the mix, leaving only instrumentals.
+    /// This is the phase-cancellation approach: Original - Vocals = Instrumentals.
+    ///
+    /// Uses the C API because AUSoundIsolation hides parameters from the AUParameterTree.
     private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
         let target = effect ?? isolationEffect
         guard let target else { return }
         let au = target.audioUnit
 
-        // Sound to Isolate is always "instruments" (0.0)
-        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
+        // Sound to Isolate: 1.0 = vocals (we isolate vocals so we can subtract them)
+        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 1.0, 0)
 
-        // Wet/Dry Mix: 100 = full isolation (instrumental), 0 = passthrough (normal audio)
-        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 100.0 : 0.0
+        // Wet/Dry Mix: -100 = inverted isolation (subtracts isolated signal from original = instrumentals)
+        //              0 = passthrough (normal audio, no effect)
+        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? -100.0 : 0.0
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
         #if DEBUG
@@ -416,6 +419,33 @@ public final class AudioPlaybackEngine {
         EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive)")
         #endif
     }
+
+    #if DEBUG
+    /// Dump all parameters exposed by the AU via both the C API and the AUParameterTree.
+    private func dumpAUParameters(au: AudioUnit, label: String) {
+        EnsembleLogger.debug("[AudioEngine] === Parameter dump (\(label)) ===")
+
+        // Try C API: probe known parameter addresses
+        let knownAddresses: [AudioUnitParameterID] = [0, 1, 2, 3, 0x17626, 0x17627]
+        for addr in knownAddresses {
+            var value: AudioUnitParameterValue = -999
+            let status = AudioUnitGetParameter(au, addr, kAudioUnitScope_Global, 0, &value)
+            if status == noErr {
+                EnsembleLogger.debug("[AudioEngine]   C-API param addr=\(addr) (0x\(String(addr, radix: 16))): value=\(value)")
+            }
+        }
+
+        // Try AUParameterTree (may be empty for this AU)
+        if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {
+            for param in tree.allParameters {
+                EnsembleLogger.debug("[AudioEngine]   Tree param: address=\(param.address), name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
+            }
+        } else {
+            EnsembleLogger.debug("[AudioEngine]   No AUParameterTree available")
+        }
+        EnsembleLogger.debug("[AudioEngine] === End parameter dump ===")
+    }
+    #endif
 
     // MARK: - File Loading
 
