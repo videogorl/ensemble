@@ -498,11 +498,21 @@ public final class AudioPlaybackEngine {
     /// - 0 = 50/50 blend of original and isolated
     /// - -100 = fully complementary signal (instrumentals only)
     ///
+    /// When disabled, the AU is bypassed via kAudioUnitProperty_BypassEffect so the neural
+    /// network doesn't run at all — just setting wetDryMix=0 still invokes the render callback.
+    ///
     /// Uses the C API because AUSoundIsolation hides parameters from the AUParameterTree.
     private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
         let target = effect ?? isolationEffect
         guard let target else { return }
         let au = target.audioUnit
+
+        // Bypass the AU entirely when isolation is off. This skips the neural network
+        // render callback, eliminating CPU overhead when the effect isn't needed.
+        // (wetDryMix=0 still runs inference — bypass is the only way to fully skip it)
+        var bypass: UInt32 = isIsolationActive ? 0 : 1
+        AudioUnitSetProperty(au, kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0,
+                             &bypass, UInt32(MemoryLayout<UInt32>.size))
 
         // Sound to Isolate: 0.0 = background/instruments, 1.0 = vocals
         // With the v0 model loaded, 0.0 isolates the instrumental track.
@@ -519,7 +529,7 @@ public final class AudioPlaybackEngine {
         var isolate: AudioUnitParameterValue = -999
         AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
         AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
-        EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive), modelLoaded=\(musicModelLoaded)")
+        EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), active=\(isIsolationActive), bypass=\(bypass), modelLoaded=\(musicModelLoaded)")
         #endif
     }
 
