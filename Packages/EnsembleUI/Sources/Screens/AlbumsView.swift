@@ -140,15 +140,26 @@ public struct AlbumsView: View {
                 #endif
             }
             .onReceive(libraryVM.$filteredAlbums) { albums in
-                let newSections = Self.computeAlbumSections(albums: albums, sortOption: libraryVM.albumSortOption)
-                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
-                    cachedAlbumSections = newSections
+                // Compute sections off main thread to avoid blocking UI during search
+                let sortOption = libraryVM.albumSortOption
+                let oldSections = cachedAlbumSections
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
+                    guard !Self.sectionsEqual(oldSections, newSections) else { return }
+                    DispatchQueue.main.async {
+                        cachedAlbumSections = newSections
+                    }
                 }
             }
             .onReceive(libraryVM.$albumSortOption) { sortOption in
-                let newSections = Self.computeAlbumSections(albums: libraryVM.filteredAlbums, sortOption: sortOption)
-                if !Self.sectionsEqual(cachedAlbumSections, newSections) {
-                    cachedAlbumSections = newSections
+                let albums = libraryVM.filteredAlbums
+                let oldSections = cachedAlbumSections
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let newSections = Self.computeAlbumSections(albums: albums, sortOption: sortOption)
+                    guard !Self.sectionsEqual(oldSections, newSections) else { return }
+                    DispatchQueue.main.async {
+                        cachedAlbumSections = newSections
+                    }
                 }
             }
             .sheet(isPresented: $showFilterSheet) {
