@@ -64,11 +64,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
         )
 
+        let artistHint = intent.mediaSearch?.artistName
+
         guard let index = loadIndex(), !index.items.isEmpty else {
             logger.debug("resolveMediaItems: index unavailable or empty; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType
+                mediaType: requestedMediaType,
+                artistHint: artistHint
             )
             completion([.success(with: fallback)])
             return
@@ -77,13 +80,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         let ranked = rankCandidates(
             for: normalizedQuery,
             mediaType: requestedMediaType,
-            index: index
+            index: index,
+            artistHint: artistHint
         )
         guard let top = ranked.first else {
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType
+                mediaType: requestedMediaType,
+                artistHint: artistHint
             )
             completion([.success(with: fallback)])
             return
@@ -94,14 +99,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
-                let options = Array(ranked.prefix(6)).map(makeMediaItem(from:))
+                let options = Array(ranked.prefix(6)).map { makeMediaItem(from: $0, artistHint: artistHint) }
                 completion([.disambiguation(with: options)])
                 return
             }
         }
 
         logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
-        completion([.success(with: makeMediaItem(from: top))])
+        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint))])
     }
 
     // confirm is intentionally NOT implemented. Apple recommends skipping
@@ -190,11 +195,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         if let query = queryText(from: intent), !query.isEmpty {
             let fallbackQuery = bestQueryVariant(from: query) ?? query
 
+            let artistHintForPayload = intent.mediaSearch?.artistName
             if let index = loadIndex(),
                let top = rankCandidates(
                     for: fallbackQuery,
                     mediaType: mediaType,
-                    index: index
+                    index: index,
+                    artistHint: artistHintForPayload
                ).first,
                top.score >= Self.payloadResolutionThreshold {
                 logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
@@ -203,7 +210,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     kind: top.item.kind,
                     entityID: top.item.id,
                     sourceCompositeKey: top.item.sourceCompositeKey,
-                    displayName: top.item.displayName
+                    displayName: top.item.displayName,
+                    artistHint: artistHintForPayload
                 )
             }
 
@@ -213,7 +221,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
                 entityID: fallbackQuery,
                 sourceCompositeKey: nil,
-                displayName: fallbackQuery
+                displayName: fallbackQuery,
+                artistHint: artistHintForPayload
             )
         }
 
@@ -228,7 +237,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 kind: fallbackKind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
-                displayName: fallbackDisplayName
+                displayName: fallbackDisplayName,
+                artistHint: intent.mediaSearch?.artistName
             )
         }
 
@@ -280,10 +290,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func rankCandidates(
         for query: String,
         mediaType: INMediaItemType,
-        index: SiriMediaIndexSnapshot
+        index: SiriMediaIndexSnapshot,
+        artistHint: String? = nil
     ) -> [RankedItem] {
         let queryVariants = normalizedQueryVariants(for: query)
         let kinds = kindsFor(mediaType: mediaType)
+        let normalizedArtistHint = artistHint.map { normalize($0) }
 
         return index.items
             .compactMap { item in
@@ -295,8 +307,20 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
                 let primaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.displayName))
                 let secondaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.secondaryText ?? "")) * 0.35
-                let score = max(primaryScore, secondaryScore)
+                var score = max(primaryScore, secondaryScore)
                 guard score > 0 else { return nil }
+
+                // Boost score when the item's artist (secondaryText) matches the hint.
+                // This helps disambiguate "Orange County" by Gorillaz vs other artists.
+                if let hint = normalizedArtistHint,
+                   let secondary = item.secondaryText,
+                   !hint.isEmpty {
+                    let artistMatch = scoreMatch(query: hint, candidate: normalize(secondary))
+                    if artistMatch >= 0.7 {
+                        score = min(score + 0.15, 1.0)
+                    }
+                }
+
                 return RankedItem(item: item, score: score)
             }
             .sorted { lhs, rhs in
@@ -371,13 +395,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
     }
 
-    private func makeMediaItem(from ranked: RankedItem) -> INMediaItem {
+    private func makeMediaItem(from ranked: RankedItem, artistHint: String? = nil) -> INMediaItem {
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: ranked.item.kind,
             entityID: ranked.item.id,
             sourceCompositeKey: ranked.item.sourceCompositeKey,
-            displayName: ranked.item.displayName
+            displayName: ranked.item.displayName,
+            artistHint: artistHint
         )
 
         let identifier: String
@@ -395,14 +420,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
     }
 
-    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType) -> INMediaItem {
+    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType, artistHint: String? = nil) -> INMediaItem {
         let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: fallbackKind,
             entityID: query,
             sourceCompositeKey: nil,
-            displayName: query
+            displayName: query,
+            artistHint: artistHint
         )
 
         let identifier: String
@@ -511,10 +537,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         if let mediaSearch = intent.mediaSearch {
-            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+            let hasMediaName = mediaSearch.mediaName.map { !$0.isEmpty } ?? false
+
+            // When both mediaName and artistName are present (e.g., "Play Orange County
+            // by Gorillaz"), the user wants a specific song/album — not the artist.
+            // Return .unknown so rankCandidates searches across all kinds.
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty, !hasMediaName {
                 return .artist
             }
-            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty, !hasMediaName {
                 return .album
             }
         }
@@ -679,6 +710,7 @@ private struct SiriPayloadIdentifier: Codable {
     let entityID: String
     let sourceCompositeKey: String?
     let displayName: String?
+    let artistHint: String?
 }
 
 private struct SiriMediaIndexSnapshot: Decodable {
