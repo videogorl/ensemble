@@ -3904,12 +3904,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.scheduleNext(fileURL: fileURL, trackId: track.id)
 
             // Pre-compute frequency timeline so the visualizer is ready on gapless advance.
-            // Throttle when instrumental mode is active to reduce CPU cache contention.
+            // When instrumental mode is active, defer by 10s to avoid CPU cache contention
+            // with AUSoundIsolation during the critical post-schedule period when the user
+            // is likely interacting with the UI.
             if isVisualizerEnabled {
                 let analyzer = self.audioAnalyzer
                 let throttle = isInstrumentalModeActive
                 let priority: TaskPriority = throttle ? .background : .utility
                 Task.detached {
+                    if throttle {
+                        try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s delay
+                        guard !Task.isCancelled else { return }
+                    }
                     await analyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                 }
             }

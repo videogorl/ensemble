@@ -588,12 +588,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 // to quickly abandon analysis when the user skips tracks rapidly
                 if k % 2 == 0 && Task.isCancelled { return nil }
 
-                // When throttled (e.g. AUSoundIsolation active), pause every 5 keyframes
+                // When throttled (e.g. AUSoundIsolation active), pause every 3 keyframes
                 // to reduce sustained CPU cache pressure on the real-time audio IO thread.
-                // 3ms pause per ~9ms of FFT work ≈ 25% CPU reduction, enough to keep
-                // the neural network's L2 cache warm across render cycles.
-                if throttled && k % 5 == 0 && k > 0 {
-                    usleep(3000)
+                // 5ms pause per ~5ms of FFT work ≈ 50% CPU reduction, keeps the neural
+                // network's L2 cache warm across render cycles.
+                if throttled && k % 3 == 0 && k > 0 {
+                    usleep(5000)
                 }
 
                 let seekFrame = AVAudioFramePosition(k * hopFrames)
