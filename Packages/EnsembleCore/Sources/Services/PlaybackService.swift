@@ -3610,11 +3610,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     /// Download a direct stream URL to a temp file for AudioPlaybackEngine.
+    /// Preserves the original file extension so AVAudioFile can detect the format.
     private func downloadStreamToTempFile(url: URL, trackId: String) async throws -> URL {
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).mp3")
+
+        // Use the extension from the source URL (e.g. .flac, .mp3, .m4a) so AVAudioFile
+        // can identify the format. Fall back to .mp3 for opaque URLs.
+        let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+        let destURL = cacheDir.appendingPathComponent("\(trackId)_\(UUID().uuidString.prefix(8)).\(ext)")
 
         let (data, _) = try await URLSession.shared.data(from: url)
         try data.write(to: destURL)

@@ -48,6 +48,11 @@ public final class AudioPlaybackEngine {
     private(set) var fileDuration: TimeInterval = 0
     /// Frame offset from which the current segment was scheduled
     private var seekFrameOffset: AVAudioFramePosition = 0
+    /// Cumulative playerTime.sampleTime at the start of the current segment.
+    /// During gapless transitions the playerNode keeps running, so sampleTime
+    /// accumulates across segments. We capture it at each transition so
+    /// currentTime() can subtract the prior segments' contribution.
+    private var playerTimeBaseOffset: AVAudioFramePosition = 0
     /// Sample rate of the currently loaded file
     private var sampleRate: Double = 44100
     /// Whether the engine was playing when last paused (for resume logic)
@@ -183,6 +188,7 @@ public final class AudioPlaybackEngine {
             guard startFrame < totalFrames else { return }
 
             seekFrameOffset = startFrame
+            playerTimeBaseOffset = 0
             let frameCount = AVAudioFrameCount(totalFrames - startFrame)
 
             scheduleGeneration &+= 1
@@ -276,6 +282,7 @@ public final class AudioPlaybackEngine {
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
         playerNode.stop()
+        playerTimeBaseOffset = 0
 
         // Toggle and rebuild graph
         isIsolationActive = enabled
@@ -457,6 +464,7 @@ public final class AudioPlaybackEngine {
         let myGeneration = scheduleGeneration
 
         seekFrameOffset = startFrame
+        playerTimeBaseOffset = 0
         let frameCount = AVAudioFrameCount(totalFrames - startFrame)
 
         playerNode.stop()
@@ -523,6 +531,7 @@ public final class AudioPlaybackEngine {
         }
         wasPlaying = false
         seekFrameOffset = 0
+        playerTimeBaseOffset = 0
         scheduledFiles.removeAll()
         currentTimeSubject.send(0)
         #if DEBUG
@@ -541,6 +550,7 @@ public final class AudioPlaybackEngine {
         let myGeneration = scheduleGeneration
 
         playerNode.stop()
+        playerTimeBaseOffset = 0
 
         let startFrame = AVAudioFramePosition(time * sampleRate)
         let totalFrames = file.length
@@ -603,8 +613,10 @@ public final class AudioPlaybackEngine {
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
             return TimeInterval(seekFrameOffset) / sampleRate
         }
-        let framePosition = playerTime.sampleTime + seekFrameOffset
-        return TimeInterval(framePosition) / sampleRate
+        // playerTime.sampleTime accumulates across gapless segments (playerNode never stops).
+        // Subtract playerTimeBaseOffset to get frames within the current segment only.
+        let framePosition = playerTime.sampleTime - playerTimeBaseOffset + seekFrameOffset
+        return max(0, TimeInterval(framePosition) / sampleRate)
     }
 
     /// Start periodic time updates at ~10Hz.
@@ -641,7 +653,14 @@ public final class AudioPlaybackEngine {
         guard wasPlaying else { return }
 
         if let next = scheduledFiles.first {
-            // Gapless advance: update state to the next scheduled track
+            // Gapless advance: capture the current playerTime as the new base.
+            // playerNode keeps running across gapless segments, so sampleTime
+            // includes frames from all previous segments since the last stop().
+            if let nodeTime = playerNode.lastRenderTime,
+               let pt = playerNode.playerTime(forNodeTime: nodeTime) {
+                playerTimeBaseOffset = pt.sampleTime
+            }
+
             scheduledFiles.removeFirst()
             currentFile = next.file
             currentTrackId = next.trackId
@@ -650,7 +669,7 @@ public final class AudioPlaybackEngine {
             seekFrameOffset = 0
 
             #if DEBUG
-            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId)")
+            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
             #endif
 
             onTrackAdvance?(next.trackId)
@@ -674,7 +693,12 @@ public final class AudioPlaybackEngine {
         guard wasPlaying else { return }
 
         if let next = scheduledFiles.first {
-            // Another gapless file is queued
+            // Capture playerTime base for the next segment
+            if let nodeTime = playerNode.lastRenderTime,
+               let pt = playerNode.playerTime(forNodeTime: nodeTime) {
+                playerTimeBaseOffset = pt.sampleTime
+            }
+
             scheduledFiles.removeFirst()
             currentFile = next.file
             currentTrackId = next.trackId
@@ -683,7 +707,7 @@ public final class AudioPlaybackEngine {
             seekFrameOffset = 0
 
             #if DEBUG
-            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId)")
+            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
             #endif
 
             onTrackAdvance?(next.trackId)
