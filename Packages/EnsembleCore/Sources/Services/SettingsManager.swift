@@ -181,8 +181,12 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
-    
+    @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
+
     public init() {
+        // Register defaults so UserDefaults.standard.bool(forKey:) returns true
+        // before the setting has ever been toggled (PlaybackService reads directly).
+        UserDefaults.standard.register(defaults: ["scrobblingEnabled": true])
         if enabledTabsData.isEmpty {
             // Default tabs
             let defaultTabs: [TabItem] = [.home, .artists, .playlists, .search]

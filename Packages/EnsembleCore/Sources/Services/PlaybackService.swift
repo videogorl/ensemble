@@ -819,6 +819,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var originalQueue: [QueueItem] = []  // For shuffle restore
     private var lastTimelineReportTime: TimeInterval = 0  // Track last timeline report
     private var hasScrobbled: Bool = false  // Track if current track has been scrobbled
+    private var isScrobblingEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "scrobblingEnabled")
+    }
     private var audioAnalyzerCancellable: AnyCancellable?
     
     // Queue limiting: keep small lookahead of auto-generated next suggestions (5 tracks)
@@ -1002,8 +1005,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     }
                 }
 
-                // Scrobble at 90% completion
+                // Scrobble at 90% completion (respects user setting)
                 if !self.hasScrobbled,
+                   self.isScrobblingEnabled,
                    let track = self.currentTrack,
                    self.duration > 0,
                    time / self.duration >= 0.9 {
