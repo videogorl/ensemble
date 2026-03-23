@@ -35,8 +35,17 @@ public final class AudioPlaybackEngine {
     private var isolationNodeCreated = false
     /// Whether the isolation effect is currently in the signal chain
     private(set) var isIsolationActive = false
-    /// Whether the music-quality v0 tuning model was accepted by the AU
+    /// Whether the v0 music model was successfully loaded
     private var musicModelLoaded = false
+
+    // MARK: - Undocumented AU Constants
+
+    /// Neural net model override properties (from QuietNow project)
+    private let kNeuralNetPlistPathOverride: AudioUnitPropertyID = 30000
+    private let kNeuralNetModelNetPathBaseOverride: AudioUnitPropertyID = 40000
+    /// Tuning mode parameters
+    private let kUseTuningMode: AudioUnitParameterID = 0x17626   // 95782
+    private let kTuningMode: AudioUnitParameterID = 0x17627      // 95783
 
     // MARK: - Playback State
 
@@ -95,11 +104,6 @@ public final class AudioPlaybackEngine {
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     var onError: ((Error) -> Void)?
 
-    // MARK: - Undocumented AU Constants
-
-    // Tuning mode parameters for AUSoundIsolation (discovered via QuietNow project)
-    private let kUseTuningMode: AudioUnitParameterID = 0x17626   // 95782
-    private let kTuningMode: AudioUnitParameterID = 0x17627      // 95783
 
     // MARK: - Setup
 
@@ -254,14 +258,17 @@ public final class AudioPlaybackEngine {
 
         let effect = AVAudioUnitEffect(audioComponentDescription: desc)
         isolationEffect = effect
+
+        // Load the v0 music model BEFORE attaching to the engine.
+        // Attaching triggers AU initialization, which creates the processing graph
+        // using whichever model is configured. The v0 model must be loaded first.
+        loadMusicModel(for: effect)
+
         engine.attach(effect)
         isolationNodeCreated = true
 
-        // Activate music tuning mode for better vocal separation
-        loadMusicModel(for: effect)
-
         #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Isolation effect created (musicModel=\(musicModelLoaded))")
+        EnsembleLogger.debug("[AudioEngine] Isolation effect created (v0Model=\(musicModelLoaded))")
         #endif
     }
 
@@ -347,46 +354,155 @@ public final class AudioPlaybackEngine {
         #endif
     }
 
-    // MARK: - Music Model Loading (from InstrumentalAudioEngine)
-
-    /// Activate music-quality vocal separation via tuning mode parameters.
+    /// Load the music vocal separation neural network model into AUSoundIsolation.
+    ///
+    /// The default AUSoundIsolation model does FaceTime voice isolation (keeps voice, removes
+    /// background). For music instrumental mode, we need the MediaPlaybackCore model that Apple
+    /// Music uses for vocal attenuation (removes vocals, keeps instruments).
+    ///
+    /// Must be called BEFORE engine.attach() — attachment triggers AU initialization which
+    /// creates the processing graph using whichever model is configured.
+    ///
+    /// Because a bad model path permanently taints the AU (and crashes AVAudioEngine.connect),
+    /// we probe candidate paths on a throwaway raw AudioUnit first, then only apply a verified
+    /// path to the real effect.
     private func loadMusicModel(for effect: AVAudioUnitEffect) {
-        let au = effect.audioUnit
+        // Candidate model locations, ordered by likelihood:
+        // 1. MediaPlaybackCore.framework (what Apple Music uses, updated with each iOS)
+        // 2. MediaPlaybackCore subdirectory (iOS 17.4+ moved model into a hash-named subdir)
+        // 3. Tunings v0 model (older iOS versions)
+        let frameworkBase = "/System/Library/PrivateFrameworks/MediaPlaybackCore.framework"
+        let tuningsDir = "/System/Library/Audio/Tunings/Generic/AU/SoundIsolation"
 
+        var candidates: [(plistPath: String, basePath: String)] = [
+            ("\(frameworkBase)/aufx-nnet-appl.plist", frameworkBase),
+        ]
+
+        // On iOS 17.4+, model moved to a subdirectory within the framework.
+        // Try to discover it — sandbox may allow reading system framework dirs.
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: frameworkBase) {
+            for item in contents {
+                let subdir = "\(frameworkBase)/\(item)"
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: subdir, isDirectory: &isDir), isDir.boolValue {
+                    candidates.append(("\(subdir)/aufx-nnet-appl.plist", subdir))
+                }
+            }
+        }
+
+        // Tunings v0 model as last resort
+        candidates.append(("\(tuningsDir)/aufx-vois-appl-nnet-vi-v0.plist",
+                           "/System/Library/Audio/Tunings"))
+
+        // Probe each candidate on a throwaway raw AudioUnit to avoid tainting the real effect.
+        // Once a model path is set on an AU and fails to construct, that AU is permanently
+        // broken and will crash AVAudioEngine.connect.
+        guard let verifiedPath = probeModelPaths(candidates) else {
+            #if DEBUG
+            EnsembleLogger.debug("[AudioEngine] No working vocal separation model found")
+            #endif
+            return
+        }
+
+        // Apply verified model to the real effect
+        let au = effect.audioUnit
         AudioUnitSetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
         AudioUnitSetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
 
-        var useTuning: AudioUnitParameterValue = 0
-        var tuning: AudioUnitParameterValue = 0
-        AudioUnitGetParameter(au, kUseTuningMode, kAudioUnitScope_Global, 0, &useTuning)
-        AudioUnitGetParameter(au, kTuningMode, kAudioUnitScope_Global, 0, &tuning)
-        musicModelLoaded = useTuning == 1.0 && tuning == 1.0
+        let plistOK = setAUStringProperty(au, propertyID: kNeuralNetPlistPathOverride, value: verifiedPath.plistPath)
+        let baseOK = setAUStringProperty(au, propertyID: kNeuralNetModelNetPathBaseOverride, value: verifiedPath.basePath)
+        musicModelLoaded = plistOK && baseOK
 
         #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Tuning mode: useTuning=\(useTuning), tuning=\(tuning), accepted=\(musicModelLoaded)")
+        EnsembleLogger.debug("[AudioEngine] Music model loaded: \(verifiedPath.basePath) (plist=\(plistOK), base=\(baseOK))")
         #endif
     }
 
-    /// Apply AUSoundIsolation parameters based on whether the music model is loaded.
+    /// Test candidate model paths on a throwaway raw AudioUnit.
+    /// Returns the first (plistPath, basePath) pair that successfully initializes.
+    private func probeModelPaths(_ candidates: [(plistPath: String, basePath: String)]) -> (plistPath: String, basePath: String)? {
+        var desc = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: 0x766F6973, // 'vois'
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        guard let component = AudioComponentFindNext(nil, &desc) else { return nil }
+
+        for candidate in candidates {
+            var probeUnit: AudioComponentInstance?
+            guard AudioComponentInstanceNew(component, &probeUnit) == noErr,
+                  let probe = probeUnit else { continue }
+
+            // Configure model on the throwaway AU
+            AudioUnitSetParameter(probe, kUseTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
+            AudioUnitSetParameter(probe, kTuningMode, kAudioUnitScope_Global, 0, 1.0, 0)
+
+            let plistOK = setAUStringProperty(probe, propertyID: kNeuralNetPlistPathOverride, value: candidate.plistPath)
+            let baseOK = setAUStringProperty(probe, propertyID: kNeuralNetModelNetPathBaseOverride, value: candidate.basePath)
+
+            var result: (plistPath: String, basePath: String)?
+            if plistOK && baseOK {
+                let initStatus = AudioUnitInitialize(probe)
+                if initStatus == noErr {
+                    result = candidate
+                    AudioUnitUninitialize(probe)
+                }
+                #if DEBUG
+                EnsembleLogger.debug("[AudioEngine] Probe \(candidate.basePath): init=\(initStatus == noErr ? "OK" : "FAIL(\(initStatus))")")
+                #endif
+            }
+
+            AudioComponentInstanceDispose(probe)
+            if result != nil { return result }
+        }
+
+        return nil
+    }
+
+    /// Set a CFString property on an AudioUnit (used for neural net path overrides).
+    private func setAUStringProperty(_ au: AudioUnit, propertyID: AudioUnitPropertyID, value: String) -> Bool {
+        var cfStr = value as CFString
+        let status = AudioUnitSetProperty(
+            au,
+            propertyID,
+            kAudioUnitScope_Global,
+            0,
+            &cfStr,
+            UInt32(MemoryLayout<CFString>.size)
+        )
+        return status == noErr
+    }
+
+    /// Apply AUSoundIsolation parameters for instrumental mode.
+    ///
+    /// With v0 model: wetDryMix=100 directly outputs instrumentals (vocals removed).
+    /// Without v0 model: isolate vocals then phase-invert (wetDryMix=-100) so
+    /// output = original + (-vocals) = instrumentals.
+    /// Uses the C API because AUSoundIsolation hides parameters from tree enumeration.
     private func applyIsolationParameters(to effect: AVAudioUnitEffect? = nil) {
         let target = effect ?? isolationEffect
         guard let target else { return }
-        let paramTree = target.auAudioUnit.parameterTree
+        let au = target.audioUnit
 
         if musicModelLoaded {
-            // With music model: wetDryMix is vocal attenuation (0=original, 100=instrumentals)
-            paramTree?.parameter(withAddress: 1)?.value = 0.0    // HighQualityVoice (iOS 18+)
-            paramTree?.parameter(withAddress: 0)?.value = 100.0  // Full vocal removal
+            // v0 music model: wetDryMix controls vocal attenuation directly
+            AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)     // HighQualityVoice
+            AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, 100.0, 0)   // Full vocal removal
         } else {
-            // Fallback: phase-invert mix (output = dry + (-vocals) = instrumentals)
-            paramTree?.parameter(withAddress: 1)?.value = 0.0
-            paramTree?.parameter(withAddress: 0)?.value = -100.0
+            // Default model fallback: isolate vocals then phase-invert to get instrumentals
+            // output = dry + (-wet) = original + (-isolated_vocals) = instrumentals
+            AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)     // Voice isolation
+            AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, -100.0, 0)  // Phase-invert
         }
 
         #if DEBUG
-        let wetDry = paramTree?.parameter(withAddress: 0)?.value ?? -999
-        let isolate = paramTree?.parameter(withAddress: 1)?.value ?? -999
-        EnsembleLogger.debug("[AudioEngine] Isolation params: wetDry=\(wetDry), soundToIsolate=\(isolate), musicModel=\(musicModelLoaded)")
+        var wetDry: AudioUnitParameterValue = -999
+        var isolate: AudioUnitParameterValue = -999
+        AudioUnitGetParameter(au, 0, kAudioUnitScope_Global, 0, &wetDry)
+        AudioUnitGetParameter(au, 1, kAudioUnitScope_Global, 0, &isolate)
+        EnsembleLogger.debug("[AudioEngine] Isolation params applied: wetDry=\(wetDry), soundToIsolate=\(isolate), v0Model=\(musicModelLoaded)")
         #endif
     }
 
