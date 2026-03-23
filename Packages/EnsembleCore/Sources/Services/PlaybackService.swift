@@ -3983,6 +3983,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.load(fileURL: fileURL, trackId: track.id)
             try engine.play()
             playbackState = .playing
+            updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()
 
             // Audio is confirmed flowing — safe to reset the circuit breaker
