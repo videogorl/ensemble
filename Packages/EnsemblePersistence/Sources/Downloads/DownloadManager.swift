@@ -53,6 +53,9 @@ public protocol DownloadManagerProtocol: Sendable {
 
     func getTotalDownloadSize() async throws -> Int64
 
+    /// Delete all download records for a given source, removing files on disk.
+    func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws
+
     /// Delete all download records and their associated files on disk.
     func deleteAllDownloads() async throws
 }
@@ -624,6 +627,40 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let downloads = try context.fetch(request)
                     let totalSize = downloads.reduce(0) { $0 + $1.fileSize }
                     continuation.resume(returning: totalSize)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDDownload.fetchRequest()
+                    request.predicate = NSPredicate(
+                        format: "track.sourceCompositeKey == %@",
+                        sourceCompositeKey
+                    )
+                    let downloads = try context.fetch(request)
+
+                    for download in downloads {
+                        // Remove file and frequency sidecar from disk
+                        if let storedPath = download.filePath, !storedPath.isEmpty {
+                            let filename = Self.extractFilename(from: storedPath)
+                            let absolutePath = Self.absolutePath(forFilename: filename)
+                            try? FileManager.default.removeItem(atPath: absolutePath)
+                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
+                        }
+                        download.track?.localFilePath = nil
+                        context.delete(download)
+                    }
+
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }

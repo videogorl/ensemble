@@ -477,8 +477,10 @@ public struct AlbumDetailView: View {
                     albumDescriptionSection(summary: summary)
                 }
 
-                // Wikipedia link
-                if let url = viewModel.albumDetail?.wikipediaURL {
+                // Wikipedia link — only show when album has a description
+                if let detail = viewModel.albumDetail,
+                   let url = detail.wikipediaURL,
+                   let summary = detail.summary, !summary.isEmpty {
                     Button {
                         openURL(url)
                     } label: {

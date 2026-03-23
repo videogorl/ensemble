@@ -137,8 +137,8 @@ public final class SyncCoordinator: ObservableObject {
     public var onFavoritesRatingChanged: (() async -> Void)?
 
     /// Called when a source is being removed, allowing dependents to clean up
-    /// source-specific caches (e.g. lyrics persistent cache).
-    public var onSourceCleanup: ((String) -> Void)?
+    /// source-specific caches (e.g. lyrics persistent cache, download stubs).
+    public var onSourceCleanup: ((String) async -> Void)?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
@@ -1586,8 +1586,8 @@ public final class SyncCoordinator: ObservableObject {
                 #endif
             }
 
-            // Clean up source-specific caches (lyrics, etc.)
-            onSourceCleanup?(sourceId.compositeKey)
+            // Clean up source-specific caches (lyrics, downloads, etc.)
+            await onSourceCleanup?(sourceId.compositeKey)
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)

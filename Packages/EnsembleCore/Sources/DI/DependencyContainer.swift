@@ -395,6 +395,9 @@ public final class DependencyContainer: @unchecked Sendable {
 
             syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
                 lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
+                // Remove download stubs and offline targets for the removed source
+                try? await offlineTargetRepoRef.deleteTargets(forSourceCompositeKey: sourceKey)
+                try? await downloadManagerRef.deleteDownloads(forSourceCompositeKey: sourceKey)
             }
         }
     }
