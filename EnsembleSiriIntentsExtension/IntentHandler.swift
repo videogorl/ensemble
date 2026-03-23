@@ -14,6 +14,14 @@ open class IntentHandler: INExtension {
     public override func handler(for intent: INIntent) -> Any {
         logger.info("handler(for:): intent=\(String(describing: type(of: intent)), privacy: .public)")
         os_log(.info, "SIRI_EXT: handler(for:) called with intent type: %{public}@", String(describing: type(of: intent)))
-        return PlayMediaIntentHandler()
+
+        switch intent {
+        case is INUpdateMediaAffinityIntent:
+            return UpdateMediaAffinityIntentHandler()
+        case is INAddMediaIntent:
+            return AddMediaIntentHandler()
+        default:
+            return PlayMediaIntentHandler()
+        }
     }
 }

@@ -584,16 +584,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func loadIndex() -> SiriMediaIndexSnapshot? {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
-        ) else {
-            return nil
-        }
-        let url = containerURL.appendingPathComponent(Self.indexFilename)
-        guard let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(SiriMediaIndexSnapshot.self, from: data)
+        SiriMatchingHelpers.loadIndex()
     }
 
     private func normalize(_ raw: String) -> String {
@@ -699,33 +690,5 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 }
 
-private struct RankedItem {
-    let item: SiriMediaIndexItemSnapshot
-    let score: Double
-}
-
-private struct SiriPayloadIdentifier: Codable {
-    let schemaVersion: Int
-    let kind: String
-    let entityID: String
-    let sourceCompositeKey: String?
-    let displayName: String?
-    let artistHint: String?
-}
-
-private struct SiriMediaIndexSnapshot: Decodable {
-    let schemaVersion: Int
-    let generatedAt: Date
-    let items: [SiriMediaIndexItemSnapshot]
-}
-
-private struct SiriMediaIndexItemSnapshot: Decodable {
-    let kind: String
-    let id: String
-    let displayName: String
-    let sourceCompositeKey: String?
-    let secondaryText: String?
-    let lastPlayed: Date?
-    let playCount: Int?
-    let trackCount: Int?
-}
+// Shared types: RankedItem, SiriPayloadIdentifier, SiriMediaIndexSnapshot,
+// SiriMediaIndexItemSnapshot are defined in SiriMatchingHelpers.swift

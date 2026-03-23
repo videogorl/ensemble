@@ -45,6 +45,12 @@ struct EnsembleApp: App {
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
                 }
+                .onContinueUserActivity(SiriAffinityActivityCodec.activityType) { userActivity in
+                    handleSiriAffinityActivity(userActivity)
+                }
+                .onContinueUserActivity(SiriAddToPlaylistActivityCodec.activityType) { userActivity in
+                    handleSiriAddToPlaylistActivity(userActivity)
+                }
                 .onContinueUserActivity("INPlayMediaIntent") { userActivity in
                     os_log(.info, "SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
@@ -244,6 +250,20 @@ struct EnsembleApp: App {
             try? await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
         }
         #endif
+    }
+
+    private func handleSiriAffinityActivity(_ userActivity: NSUserActivity) {
+        os_log(.info, "SIRI_APP: handleSiriAffinityActivity ENTRY - type=%{public}@", userActivity.activityType)
+        Task { @MainActor in
+            await DependencyContainer.shared.siriAffinityCoordinator.handle(userActivity: userActivity)
+        }
+    }
+
+    private func handleSiriAddToPlaylistActivity(_ userActivity: NSUserActivity) {
+        os_log(.info, "SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=%{public}@", userActivity.activityType)
+        Task { @MainActor in
+            await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
+        }
     }
 }
 
