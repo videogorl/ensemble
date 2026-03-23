@@ -563,6 +563,8 @@ public final class AudioPlaybackEngine {
     // MARK: - File Loading
 
     /// Load an audio file for playback. Reconnects the graph with the file's native format.
+    /// Schedules the full file so it's ready for `resume()` without a separate `play(from:)` call.
+    /// (`play(from:)` and `seek(to:)` call `playerNode.stop()` first, which clears this schedule.)
     func load(fileURL: URL, trackId: String) throws {
         let file = try AVAudioFile(forReading: fileURL)
         currentFile = file
@@ -570,8 +572,11 @@ public final class AudioPlaybackEngine {
         sampleRate = file.processingFormat.sampleRate
         fileDuration = Double(file.length) / sampleRate
         seekFrameOffset = 0
+        playerTimeBaseOffset = 0
 
         // Clear any previously scheduled gapless files
+        scheduleGeneration &+= 1
+        let myGeneration = scheduleGeneration
         scheduledFiles.removeAll()
 
         // Reconnect graph with the file's native format for optimal quality
@@ -579,6 +584,21 @@ public final class AudioPlaybackEngine {
 
         // Re-apply isolation parameters (reconnection can reset AU state)
         applyIsolationParameters()
+
+        // Schedule the full file so resume() works without a prior play(from:).
+        // This is critical for restore-to-paused: load() is called but play(from:)
+        // is not, so without this the playerNode has nothing queued and resume()
+        // would produce silence (or play prefetched gapless tracks instead).
+        playerNode.scheduleSegment(
+            file,
+            startingFrame: 0,
+            frameCount: AVAudioFrameCount(file.length),
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleSegmentComplete(generation: myGeneration)
+            }
+        }
 
         #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(file.length), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
