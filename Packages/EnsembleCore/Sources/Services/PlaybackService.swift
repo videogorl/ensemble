@@ -1742,9 +1742,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
-        // Queue injection resets instrumental mode
+        // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
-            isInstrumentalModeActive = false
+            setInstrumentalMode(false)
         }
 
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
@@ -1801,9 +1801,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func shufflePlay(tracks: [Track]) async {
         guard !tracks.isEmpty else { return }
 
-        // Queue injection resets instrumental mode
+        // Queue injection resets instrumental mode (sync both UI flag and engine state)
         if isInstrumentalModeActive {
-            isInstrumentalModeActive = false
+            setInstrumentalMode(false)
         }
 
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
@@ -2192,8 +2192,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        // Reset instrumental mode flag (engine cleanup happens in cleanup())
-        isInstrumentalModeActive = false
+        // Reset instrumental mode (sync both UI flag and engine state)
+        if isInstrumentalModeActive {
+            setInstrumentalMode(false)
+        }
 
         // Cancel any in-flight progressive stream downloads
         for loader in streamLoaders.values { loader.cancel() }
