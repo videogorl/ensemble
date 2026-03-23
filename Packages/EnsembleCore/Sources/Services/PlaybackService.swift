@@ -2409,6 +2409,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             try audioEngine?.setIsolationEnabled(enabled)
             isInstrumentalModeActive = enabled
+
+            // Increase IO buffer when isolation is active to give the neural network
+            // more time per render cycle, reducing HALC overload dropouts.
+            #if !os(macOS)
+            let session = AVAudioSession.sharedInstance()
+            let preferredDuration: TimeInterval = enabled ? 0.046 : 0.023
+            try? session.setPreferredIOBufferDuration(preferredDuration)
+            #if DEBUG
+            EnsembleLogger.debug("[Playback] IO buffer duration: preferred=\(preferredDuration), actual=\(session.ioBufferDuration)")
+            #endif
+            #endif
+
             EnsembleLogger.playback("INSTRUMENTAL: \(enabled ? "enabled" : "disabled")")
         } catch {
             EnsembleLogger.playback("INSTRUMENTAL: toggle failed -- \(error.localizedDescription)")

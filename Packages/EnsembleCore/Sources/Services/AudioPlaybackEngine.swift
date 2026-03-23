@@ -295,6 +295,12 @@ public final class AudioPlaybackEngine {
         AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &asbd, formatSize)
         AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &asbd, formatSize)
 
+        // Increase max frames per slice to give the neural network more headroom per render call.
+        // Default is 1156; 4096 reduces render call frequency and helps prevent overload dropouts.
+        var maxFrames: UInt32 = 4096
+        AudioUnitSetProperty(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
+                             &maxFrames, UInt32(MemoryLayout<UInt32>.size))
+
         #if DEBUG
         EnsembleLogger.debug("[AudioEngine] AU format configured: \(format)")
         #endif
