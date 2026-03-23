@@ -2411,10 +2411,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isInstrumentalModeActive = enabled
 
             // Increase IO buffer when isolation is active to give the neural network
-            // more time per render cycle, reducing HALC overload dropouts.
+            // more time per render cycle, reducing audio stutters during UI updates.
+            // 93ms (~4096 frames at 44.1kHz) gives the AU enough headroom to complete
+            // even when CPU cores are busy with SwiftUI layout or Core Animation.
             #if !os(macOS)
             let session = AVAudioSession.sharedInstance()
-            let preferredDuration: TimeInterval = enabled ? 0.046 : 0.023
+            let preferredDuration: TimeInterval = enabled ? 0.093 : 0.023
             try? session.setPreferredIOBufferDuration(preferredDuration)
             #if DEBUG
             EnsembleLogger.debug("[Playback] IO buffer duration: preferred=\(preferredDuration), actual=\(session.ioBufferDuration)")

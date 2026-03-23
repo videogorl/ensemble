@@ -1,6 +1,7 @@
 import AudioToolbox
 import AVFoundation
 import Combine
+import QuartzCore
 
 /// General-purpose AVAudioEngine wrapper for file-based audio playback.
 /// Replaces AVQueuePlayer with direct PCM scheduling for gapless transitions,
@@ -77,9 +78,24 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Time Tracking
 
-    /// Current playback time, updated at ~10Hz via DispatchSourceTimer
+    /// Current playback time, updated at ~10Hz via DispatchSourceTimer.
+    /// Sent from a dedicated background queue using wall-clock estimation to
+    /// avoid any playerNode property access that could cause priority inversion
+    /// with the audio render thread.
     let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private var timeUpdateTimer: DispatchSourceTimer?
+    /// Dedicated queue for time updates. Uses wall-clock estimation (CACurrentMediaTime)
+    /// instead of playerNode.lastRenderTime to avoid priority inversion between the
+    /// audio render thread and the main thread during heavy SwiftUI layout passes.
+    private let timeUpdateQueue = DispatchQueue(label: "com.ensemble.audioTimeUpdate", qos: .userInteractive)
+
+    // Wall-clock time estimation: avoids polling playerNode.lastRenderTime which
+    // acquires an internal AVAudioNode lock. If the timer thread holds that lock and
+    // gets preempted by the main thread (doing heavy SwiftUI layout), the real-time
+    // IO thread is blocked for the duration of the layout pass — classic unbounded
+    // priority inversion. Instead we estimate time from CACurrentMediaTime().
+    private var wallTimeBase: TimeInterval = 0       // CACurrentMediaTime() at play/resume/seek
+    private var positionAtWallTimeBase: TimeInterval = 0 // Playback position at that moment
 
     // MARK: - Route Change Recovery
 
@@ -221,7 +237,7 @@ public final class AudioPlaybackEngine {
             if wasActive {
                 playerNode.play()
                 wasPlaying = true
-                startTimeUpdates()
+                startTimeUpdates(from: position)
             }
 
             #if DEBUG
@@ -269,6 +285,13 @@ public final class AudioPlaybackEngine {
         loadMusicModel(for: effect)
 
         engine.attach(effect)
+
+        // Allow the AU to render up to 4096 frames per callback (matches the larger
+        // IO buffer we request when isolation is active). Without this, the engine may
+        // split large buffers into multiple smaller render passes, adding overhead that
+        // makes deadline misses more likely under system load.
+        effect.auAudioUnit.maximumFramesToRender = 4096
+
         isolationNodeCreated = true
 
         #if DEBUG
@@ -481,7 +504,7 @@ public final class AudioPlaybackEngine {
             }
             playerNode.play()
             wasPlaying = true
-            startTimeUpdates()
+            startTimeUpdates(from: position)
         }
 
         currentTimeSubject.send(position)
@@ -700,7 +723,7 @@ public final class AudioPlaybackEngine {
 
         playerNode.play()
         wasPlaying = true
-        startTimeUpdates()
+        startTimeUpdates(from: time)
 
         #if DEBUG
         EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(startFrame)/\(totalFrames))")
@@ -804,7 +827,7 @@ public final class AudioPlaybackEngine {
             }
             playerNode.play()
             wasPlaying = true
-            startTimeUpdates()
+            startTimeUpdates(from: time)
         }
 
         // Update time immediately for responsive UI
@@ -828,17 +851,38 @@ public final class AudioPlaybackEngine {
         return max(0, TimeInterval(framePosition) / sampleRate)
     }
 
-    /// Start periodic time updates at ~10Hz.
-    private func startTimeUpdates() {
+    /// Start periodic time updates at ~10Hz using wall-clock estimation.
+    /// Uses CACurrentMediaTime() to estimate playback position without touching
+    /// playerNode.lastRenderTime, which would acquire the AVAudioNode render lock
+    /// and risk priority inversion with the IO thread.
+    ///
+    /// - Parameter position: Known playback position to anchor from. If nil,
+    ///   reads from `currentTime()` (only safe when called from a discrete user
+    ///   action, never from a periodic timer).
+    private func startTimeUpdates(from position: TimeInterval? = nil) {
         stopTimeUpdates()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        captureWallTimeBase(position: position)
+        let timer = DispatchSource.makeTimerSource(queue: timeUpdateQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            self.currentTimeSubject.send(self.currentTime())
+            let elapsed = CACurrentMediaTime() - self.wallTimeBase
+            let estimated = min(self.positionAtWallTimeBase + elapsed, self.fileDuration)
+            self.currentTimeSubject.send(max(0, estimated))
         }
         timer.resume()
         timeUpdateTimer = timer
+    }
+
+    /// Capture the current wall clock and playback position for time estimation.
+    /// Called at play, resume, seek, and gapless transitions to re-anchor.
+    ///
+    /// - Parameter position: Known position to use. Pass this when the exact
+    ///   position is already known (seek, play) to avoid calling currentTime()
+    ///   which accesses playerNode.lastRenderTime.
+    private func captureWallTimeBase(position: TimeInterval? = nil) {
+        wallTimeBase = CACurrentMediaTime()
+        positionAtWallTimeBase = position ?? currentTime()
     }
 
     /// Stop periodic time updates.
@@ -877,6 +921,9 @@ public final class AudioPlaybackEngine {
             fileDuration = Double(next.file.length) / sampleRate
             seekFrameOffset = 0
 
+            // Re-anchor wall-clock estimation for the new track (position ≈ 0)
+            captureWallTimeBase(position: 0)
+
             #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
             #endif
@@ -914,6 +961,9 @@ public final class AudioPlaybackEngine {
             sampleRate = next.file.processingFormat.sampleRate
             fileDuration = Double(next.file.length) / sampleRate
             seekFrameOffset = 0
+
+            // Re-anchor wall-clock estimation for the new track (position ≈ 0)
+            captureWallTimeBase(position: 0)
 
             #if DEBUG
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
