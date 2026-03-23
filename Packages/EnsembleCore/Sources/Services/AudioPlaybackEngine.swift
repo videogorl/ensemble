@@ -498,13 +498,12 @@ public final class AudioPlaybackEngine {
         guard let target else { return }
         let au = target.audioUnit
 
-        // Sound to Isolate: 1.0 = vocals (the AU + model isolate the vocal signal)
-        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 1.0, 0)
+        // Sound to Isolate: 0.0 = background/instruments, 1.0 = vocals
+        // With the v0 model loaded, 0.0 isolates the instrumental track.
+        AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
 
-        // Wet/Dry Mix controls the blend between original and isolated signal.
-        // -100 = complementary output (original minus vocals = instrumentals)
-        // 0 = passthrough (original audio, no processing audible)
-        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? -100.0 : 0.0
+        // Wet/Dry Mix: 100 = fully isolated output, 0 = original (passthrough)
+        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 100.0 : 0.0
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
         #if DEBUG
