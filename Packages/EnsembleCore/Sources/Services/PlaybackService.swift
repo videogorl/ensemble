@@ -3274,10 +3274,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return
                 }
 
-                // Pre-compute frequency analysis for the visualizer
+                // Pre-compute frequency analysis for the visualizer.
+                // Throttle when instrumental mode is active to reduce CPU cache
+                // contention with AUSoundIsolation's neural network on the IO thread.
                 if isVisualizerEnabled {
+                    let throttle = isInstrumentalModeActive
+                    let priority: TaskPriority = throttle ? .background : .userInitiated
                     Task.detached { [audioAnalyzer] in
-                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .userInitiated)
+                        await audioAnalyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                     }
                 }
 
@@ -3899,11 +3903,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Schedule for gapless playback
             try engine.scheduleNext(fileURL: fileURL, trackId: track.id)
 
-            // Pre-compute frequency timeline so the visualizer is ready on gapless advance
+            // Pre-compute frequency timeline so the visualizer is ready on gapless advance.
+            // Throttle when instrumental mode is active to reduce CPU cache contention.
             if isVisualizerEnabled {
                 let analyzer = self.audioAnalyzer
+                let throttle = isInstrumentalModeActive
+                let priority: TaskPriority = throttle ? .background : .utility
                 Task.detached {
-                    await analyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: .utility)
+                    await analyzer.loadTimeline(for: track.id, fileURL: fileURL, priority: priority, throttled: throttle)
                 }
             }
         } catch {
@@ -4166,11 +4173,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 currentTime = savedTime
             }
 
-            // Pre-load frequency timeline
+            // Pre-load frequency timeline (throttle during instrumental mode)
             if isVisualizerEnabled {
+                let throttle = isInstrumentalModeActive
+                let priority: TaskPriority = throttle ? .background : .utility
                 Task.detached { [audioAnalyzer] in
                     await audioAnalyzer.loadTimeline(
-                        for: track.id, fileURL: fileURL, priority: .utility
+                        for: track.id, fileURL: fileURL, priority: priority, throttled: throttle
                     )
                 }
             }
