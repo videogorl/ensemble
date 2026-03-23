@@ -404,6 +404,11 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Gapless Scheduling
 
+    /// Whether a track is already in the gapless schedule queue.
+    func isTrackScheduled(_ trackId: String) -> Bool {
+        scheduledFiles.contains { $0.trackId == trackId }
+    }
+
     /// Schedule the next file for gapless playback. Uses AVAudioPlayerNode's FIFO queue --
     /// the segment plays immediately after the current segment finishes, with zero gap.
     /// Call this during prefetch to ensure seamless transitions.
@@ -411,7 +416,10 @@ public final class AudioPlaybackEngine {
         let file = try AVAudioFile(forReading: fileURL)
         let frameCount = AVAudioFrameCount(file.length)
 
-        scheduleGeneration &+= 1
+        // Don't bump scheduleGeneration here — that would invalidate the current
+        // segment's completion handler. The generation counter only needs to change
+        // when playerNode.stop() is called (which fires all pending callbacks as stale).
+        // scheduleNext just appends to the FIFO queue; no stop, no stale callbacks.
         let myGeneration = scheduleGeneration
 
         // Schedule the entire file to play after current segment (at: nil = FIFO)

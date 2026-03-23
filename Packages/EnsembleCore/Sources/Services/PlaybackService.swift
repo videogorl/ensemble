@@ -3862,6 +3862,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let firstIndex = targetIndices[0]
         let track = queue[firstIndex].track
 
+        // Don't schedule if already in the engine's gapless queue
+        guard !engine.isTrackScheduled(track.id) else { return }
+
         do {
             // Check cache first
             let fileURL: URL
@@ -4282,6 +4285,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func invalidatePrefetchForQualityChange() {
         guard currentQueueIndex >= 0 else { return }
         let currentId = queue[currentQueueIndex].track.id
+
+        // Clear engine's gapless queue — those segments are at the old quality
+        audioEngine?.clearScheduledFiles()
 
         // Evict all cached items except the currently-playing track
         let idsToEvict = resolvedFileURLs.keys.filter { $0 != currentId }
