@@ -2407,20 +2407,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard audioEngine != nil else { return }
 
         do {
-            try audioEngine?.setIsolationEnabled(enabled)
-            isInstrumentalModeActive = enabled
-
-            // Increase IO buffer when isolation is active to give the neural network
-            // more time per render cycle, reducing audio stutters during UI updates.
-            // 93ms (~4096 frames at 44.1kHz) gives the AU enough headroom to complete
-            // even when CPU cores are busy with SwiftUI layout or Core Animation.
+            // Set IO buffer preference BEFORE toggling isolation. wireIsolationIntoGraph()
+            // stops and restarts the engine, and the restart picks up the new buffer size.
+            // 93ms (~4096 frames at 44.1kHz) gives AUSoundIsolation enough headroom to
+            // complete its neural network pass even when CPU is busy with SwiftUI layout.
             #if !os(macOS)
             let session = AVAudioSession.sharedInstance()
             let preferredDuration: TimeInterval = enabled ? 0.093 : 0.023
             try? session.setPreferredIOBufferDuration(preferredDuration)
-            #if DEBUG
-            EnsembleLogger.debug("[Playback] IO buffer duration: preferred=\(preferredDuration), actual=\(session.ioBufferDuration)")
             #endif
+
+            try audioEngine?.setIsolationEnabled(enabled)
+            isInstrumentalModeActive = enabled
+
+            #if !os(macOS) && DEBUG
+            EnsembleLogger.debug("[Playback] IO buffer duration: preferred=\(preferredDuration), actual=\(AVAudioSession.sharedInstance().ioBufferDuration)")
             #endif
 
             EnsembleLogger.playback("INSTRUMENTAL: \(enabled ? "enabled" : "disabled")")

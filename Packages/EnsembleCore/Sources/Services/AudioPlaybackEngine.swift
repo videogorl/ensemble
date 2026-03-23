@@ -447,15 +447,19 @@ public final class AudioPlaybackEngine {
     }
 
     /// Wire the isolation effect into the audio graph for the first time.
-    /// Requires stopping the player and rescheduling — only called once.
+    /// Requires stopping the engine and rescheduling — only called once.
     private func wireIsolationIntoGraph() throws {
         let position = currentTime()
         let wasActive = wasPlaying || playerNode.isPlaying
 
-        // Stop player to rebuild connections safely
+        // Stop player and engine to rebuild connections safely.
+        // The engine must be fully stopped (not just the playerNode) so that
+        // when it restarts, it picks up any pending IO buffer preference change
+        // (e.g. the larger buffer requested for AUSoundIsolation headroom).
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
         playerNode.stop()
+        engine.stop()
         playerTimeBaseOffset = 0
 
         // Rebuild graph with effect permanently in the chain
@@ -498,10 +502,17 @@ public final class AudioPlaybackEngine {
             }
         }
 
+        // Always restart the engine (we stopped it above for graph rebuild).
+        // This ensures the IO buffer preference is applied.
+        try engine.start()
+
+        #if DEBUG && !os(macOS)
+        let ioBufferFrames = engine.outputNode.outputFormat(forBus: 0).sampleRate *
+            AVAudioSession.sharedInstance().ioBufferDuration
+        EnsembleLogger.debug("[AudioEngine] Engine restarted after isolation wire-up, IO buffer: \(String(format: "%.1f", AVAudioSession.sharedInstance().ioBufferDuration * 1000))ms (\(Int(ioBufferFrames)) frames)")
+        #endif
+
         if wasActive {
-            if !engine.isRunning {
-                try engine.start()
-            }
             playerNode.play()
             wasPlaying = true
             startTimeUpdates(from: position)
