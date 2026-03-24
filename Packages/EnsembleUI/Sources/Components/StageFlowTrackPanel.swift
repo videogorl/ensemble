@@ -70,96 +70,92 @@ struct StageFlowTrackPanel: View {
     @State private var recentPlaylistTitle: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-
-            Group {
-                if isLoading {
-                    ProgressView("Loading tracks…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error {
-                    errorState(error)
-                } else if tracks.isEmpty {
-                    emptyState
-                } else {
-                    #if os(iOS)
-                    MediaTrackList(
-                        tracks: tracks,
-                        showArtwork: true,
-                        showTrackNumbers: true,
-                        showAlbumName: false,
-                        groupByDisc: false,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadRatingKeys: activeDownloadRatingKeys,
-                        managesOwnScrolling: true,
-                        bottomContentInset: 8,
-                        onPlayNext: { track in
-                            nowPlayingVM.playNext(track)
-                        },
-                        onPlayLast: { track in
-                            nowPlayingVM.playLast(track)
-                        },
-                        onAddToPlaylist: { track in
-                            presentPlaylistPicker(with: [track])
-                        },
-                        onAddToRecentPlaylist: { track in
-                            addToRecentPlaylist(track)
-                        },
-                        onToggleFavorite: { track in
-                            Task {
-                                await nowPlayingVM.toggleTrackFavorite(track)
+        Group {
+            if isLoading {
+                ProgressView("Loading tracks…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                errorState(error)
+            } else if tracks.isEmpty {
+                emptyState
+            } else {
+                #if os(iOS)
+                MediaTrackList(
+                    tracks: tracks,
+                    showArtwork: true,
+                    showTrackNumbers: true,
+                    showAlbumName: false,
+                    groupByDisc: false,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    managesOwnScrolling: true,
+                    bottomContentInset: 4,
+                    onPlayNext: { track in
+                        nowPlayingVM.playNext(track)
+                    },
+                    onPlayLast: { track in
+                        nowPlayingVM.playLast(track)
+                    },
+                    onAddToPlaylist: { track in
+                        presentPlaylistPicker(with: [track])
+                    },
+                    onAddToRecentPlaylist: { track in
+                        addToRecentPlaylist(track)
+                    },
+                    onToggleFavorite: { track in
+                        Task {
+                            await nowPlayingVM.toggleTrackFavorite(track)
+                        }
+                    },
+                    onShareLink: { track in
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: { track in
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
+                    isTrackFavorited: { track in
+                        nowPlayingVM.isTrackFavorited(track)
+                    },
+                    canAddToRecentPlaylist: { track in
+                        recentPlaylistTitle(for: track) != nil
+                    },
+                    recentPlaylistTitle: recentPlaylistTitle
+                ) { _, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
+                }
+                #else
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                showArtwork: true,
+                                isPlaying: track.id == currentTrackId,
+                                onPlayNext: { nowPlayingVM.playNext(track) },
+                                onPlayLast: { nowPlayingVM.playLast(track) },
+                                onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                                onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                onShareLink: {
+                                    ShareActions.shareTrackLink(track, deps: deps)
+                                },
+                                onShareFile: {
+                                    ShareActions.shareTrackFile(track, deps: deps)
+                                },
+                                recentPlaylistTitle: recentPlaylistTitle(for: track)
+                            ) {
+                                nowPlayingVM.play(tracks: tracks, startingAt: index)
                             }
-                        },
-                        onShareLink: { track in
-                            ShareActions.shareTrackLink(track, deps: deps)
-                        },
-                        onShareFile: { track in
-                            ShareActions.shareTrackFile(track, deps: deps)
-                        },
-                        isTrackFavorited: { track in
-                            nowPlayingVM.isTrackFavorited(track)
-                        },
-                        canAddToRecentPlaylist: { track in
-                            recentPlaylistTitle(for: track) != nil
-                        },
-                        recentPlaylistTitle: recentPlaylistTitle
-                    ) { _, index in
-                        nowPlayingVM.play(tracks: tracks, startingAt: index)
-                    }
-                    #else
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(
-                                    track: track,
-                                    showArtwork: true,
-                                    isPlaying: track.id == currentTrackId,
-                                    onPlayNext: { nowPlayingVM.playNext(track) },
-                                    onPlayLast: { nowPlayingVM.playLast(track) },
-                                    onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
-                                    onAddToRecentPlaylist: { addToRecentPlaylist(track) },
-                                    onShareLink: {
-                                        ShareActions.shareTrackLink(track, deps: deps)
-                                    },
-                                    onShareFile: {
-                                        ShareActions.shareTrackFile(track, deps: deps)
-                                    },
-                                    recentPlaylistTitle: recentPlaylistTitle(for: track)
-                                ) {
-                                    nowPlayingVM.play(tracks: tracks, startingAt: index)
-                                }
-                                .padding(.vertical, 8)
-                            }
+                            .padding(.vertical, 6)
                         }
                     }
-                    #endif
                 }
+                #endif
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys {
                 activeDownloadRatingKeys = keys
@@ -187,15 +183,6 @@ struct StageFlowTrackPanel: View {
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
-        }
-    }
-
-    private var header: some View {
-        HStack {
-            Text("\(tracks.count) track\(tracks.count == 1 ? "" : "s")")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Spacer()
         }
     }
 

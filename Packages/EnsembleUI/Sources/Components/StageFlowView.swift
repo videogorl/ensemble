@@ -183,7 +183,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let baseItemSize = min(geometry.size.height * 0.62, geometry.size.width * 0.34)
         let currentIndex = scrollIndex + dragIndexDelta
         let panelWidth = detailPanelWidth(for: geometry)
-        let centerX = geometry.size.width * (isPanelPresented ? 0.4 : 0.5)
+        let centerX = geometry.size.width * (isPanelPresented ? 0.415 : 0.5)
 
         return ZStack {
             Color.clear
@@ -228,7 +228,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .position(x: centerX, y: geometry.size.height * 0.44)
+        .position(x: centerX, y: stageCenterY(for: geometry))
         .animation(.easeInOut(duration: 0.22), value: isPanelPresented)
     }
 
@@ -257,6 +257,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
         let panelWidth = detailPanelWidth(for: geometry)
+        let panelTrailingInset: CGFloat = 22
+        let panelCenterX = geometry.size.width - (panelWidth / 2) - panelTrailingInset
 
         return ZStack {
             Color.clear
@@ -266,27 +268,20 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                     closePanel()
                 }
 
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    VStack(spacing: 0) {
-                        detailView(item)
-                    }
-                    .frame(width: panelWidth)
-                    .frame(maxHeight: geometry.size.height * 0.72)
-                    .background(stagePanelBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.32), radius: 22, x: -10, y: 10)
-                    .padding(.trailing, 10)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-                Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                detailView(item)
             }
+            .frame(width: panelWidth)
+            .frame(maxHeight: geometry.size.height * 0.68)
+            .background(stagePanelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.32), radius: 22, x: -10, y: 10)
+            .position(x: panelCenterX, y: stageCenterY(for: geometry) - 6)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
         }
         .zIndex(150)
         .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.86), value: isPanelPresented)
@@ -352,6 +347,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func detailPanelWidth(for geometry: GeometryProxy) -> CGFloat {
         min(max(geometry.size.width * 0.42, 300), 380)
+    }
+
+    private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
+        geometry.size.height * 0.44
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
