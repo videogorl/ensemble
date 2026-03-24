@@ -222,6 +222,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let currentIndex = scrollIndex + dragIndexDelta
         let centerX = stageCenterX(for: geometry)
         let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
+        let dragVisualIntensity = min(abs(dragIndexDelta), 3)
         let stageDragGesture = DragGesture()
             .onChanged { value in
                 dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
@@ -239,12 +240,13 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 if !(isPanelPresented && index == centeredIndex) {
                     let relativeIndex = Double(index) - currentIndex
 
-                    if abs(relativeIndex) < 10 {
+                    if abs(relativeIndex) < visibleStageDepth(for: dragVisualIntensity) {
                         let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
                         stageCard(
                             for: item,
                             itemSize: baseItemSize,
-                            layout: itemLayout
+                            layout: itemLayout,
+                            dragVisualIntensity: dragVisualIntensity
                         )
                         #if os(iOS)
                             .accessibilityIdentifier("stageflow.item.\(index)")
@@ -271,7 +273,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     private func stageCard(
         for item: Item,
         itemSize: CGFloat,
-        layout: StageFlowItemLayout
+        layout: StageFlowItemLayout,
+        dragVisualIntensity: Double
     ) -> some View {
         let reflectionHeight = stageReflectionHeight(for: itemSize)
 
@@ -282,7 +285,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             reflectedStageItem(for: item, itemSize: itemSize)
         }
         .scaleEffect(layout.scale)
-        .opacity(layout.opacity)
+        .opacity(displayOpacity(for: layout.opacity, dragVisualIntensity: dragVisualIntensity))
         .rotation3DEffect(
             .degrees(layout.rotation),
             axis: (x: 0, y: 1, z: 0),
@@ -294,6 +297,17 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         )
         .zIndex(layout.zIndex)
         .allowsHitTesting(false)
+    }
+
+    /// Keep the wings more present during fast swipes so motion reads as artwork
+    /// flying by instead of a stack of dim fading cards.
+    private func displayOpacity(for baseOpacity: Double, dragVisualIntensity: Double) -> Double {
+        let minimumOpacity = 0.72 + (dragVisualIntensity * 0.08)
+        return min(1, max(baseOpacity, minimumOpacity))
+    }
+
+    private func visibleStageDepth(for dragVisualIntensity: Double) -> Double {
+        10 + dragVisualIntensity * 2
     }
 
     private func reflectedStageItem(for item: Item, itemSize: CGFloat) -> some View {
