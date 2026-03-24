@@ -137,6 +137,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     @State private var scrollIndex: Double = 0
     @State private var dragIndexDelta: Double = 0
+    @State private var releaseVisualIntensity: Double = 0
     @State private var isPanelPresented = false
     @State private var isPlaying = false
     @State private var isTransportLoading = false
@@ -222,9 +223,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let currentIndex = scrollIndex + dragIndexDelta
         let centerX = stageCenterX(for: geometry)
         let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
-        let dragVisualIntensity = min(abs(dragIndexDelta), 3)
+        let dragVisualIntensity = max(min(abs(dragIndexDelta), 3), releaseVisualIntensity)
         let stageDragGesture = DragGesture()
             .onChanged { value in
+                releaseVisualIntensity = 0
                 dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
             }
             .onEnded { value in
@@ -611,12 +613,14 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             for: projectedIndex,
             itemCount: items.count
         )
+        let carriedVisualIntensity = min(abs(dragIndexDelta), 3)
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             scrollIndex = releasedIndex
             dragIndexDelta = 0
+            releaseVisualIntensity = carriedVisualIntensity
         }
 
         snap(to: targetIndex, closePanel: true)
@@ -707,6 +711,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let update = {
             scrollIndex = Double(index)
             selectedItem = items[index]
+            releaseVisualIntensity = 0
             if closePanel {
                 isPanelPresented = false
             }
