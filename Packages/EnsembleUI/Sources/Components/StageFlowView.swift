@@ -203,20 +203,18 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let currentIndex = scrollIndex + dragIndexDelta
         let centerX = stageCenterX(for: geometry)
         let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
+        let stageDragGesture = DragGesture()
+            .onChanged { value in
+                dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
+            }
+            .onEnded { value in
+                handleDragEnded(value, itemSize: baseItemSize)
+            }
 
         return ZStack {
             Color.clear
                 .contentShape(Rectangle())
-                .allowsHitTesting(!isPanelPresented)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
-                        }
-                        .onEnded { value in
-                            handleDragEnded(value, itemSize: baseItemSize)
-                        }
-            )
+                .allowsHitTesting(false)
 
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 if !(isPanelPresented && index == centeredIndex) {
@@ -256,6 +254,9 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .position(x: centerX, y: stageCenterY(for: geometry))
+        .contentShape(Rectangle())
+        .allowsHitTesting(!isPanelPresented)
+        .highPriorityGesture(stageDragGesture)
     }
 
     @ViewBuilder
