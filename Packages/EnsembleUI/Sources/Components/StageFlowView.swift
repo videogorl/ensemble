@@ -282,7 +282,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .position(x: panelCenterX, y: stageCenterY(for: geometry))
         .transition(.move(edge: .trailing).combined(with: .opacity))
-        .zIndex(-1)
         .allowsHitTesting(true)
         .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.86), value: isPanelPresented)
     }
@@ -386,7 +385,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.height * 0.468
+        geometry.size.height * 0.44
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
