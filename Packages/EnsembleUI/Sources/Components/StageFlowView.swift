@@ -95,7 +95,7 @@ enum StageFlowLayoutModel {
             scale: scale,
             opacity: opacity,
             rotation: -direction * rotationMagnitude,
-            zIndex: 100 - absoluteDistance
+            zIndex: absoluteDistance < 0.001 ? 200 : 100 - absoluteDistance
         )
     }
 
@@ -146,10 +146,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Color.black
                     .ignoresSafeArea()
 
-                if let centeredItem = centeredItem, isPanelPresented {
-                    detailPanel(for: centeredItem, in: geometry)
-                }
-
                 stageLayer(in: geometry)
 
                 footerLayer
@@ -189,6 +185,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let centerX = stageCenterX(for: geometry)
 
         return ZStack {
+            if let centeredItem = centeredItem, isPanelPresented {
+                detailPanel(for: centeredItem, in: geometry)
+            }
+
             Color.clear
                 .contentShape(Rectangle())
                 .gesture(
@@ -281,7 +281,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
         }
         .position(x: panelCenterX, y: stageCenterY(for: geometry))
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+        .transition(panelRevealTransition)
+        .zIndex(150)
         .allowsHitTesting(true)
         .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.86), value: isPanelPresented)
     }
@@ -386,6 +387,13 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
         geometry.size.height * 0.44
+    }
+
+    private var panelRevealTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: -42).combined(with: .opacity),
+            removal: .offset(x: -20).combined(with: .opacity)
+        )
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
