@@ -164,7 +164,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .onAppear {
             syncSelectionWithItems(closePanel: true)
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: nowPlayingVM.queue.count)
-            isPlaying = nowPlayingVM.isPlaying
+            isPlaying = isTransportPlaying(
+                currentTrack: nowPlayingVM.currentTrack,
+                playbackState: nowPlayingVM.playbackState
+            )
         }
         .onChange(of: items.map(\.id)) { _ in
             syncSelectionWithItems(closePanel: true)
@@ -172,11 +175,18 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .onChange(of: selectedItem?.id) { _ in
             handleExternalSelectionChange()
         }
-        .onReceive(nowPlayingVM.$playbackState) { _ in
-            isPlaying = nowPlayingVM.isPlaying
+        .onReceive(nowPlayingVM.$playbackState) { playbackState in
+            isPlaying = isTransportPlaying(
+                currentTrack: nowPlayingVM.currentTrack,
+                playbackState: playbackState
+            )
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             updatePlaybackContext(currentTrack: track, queueCount: nowPlayingVM.queue.count)
+            isPlaying = isTransportPlaying(
+                currentTrack: track,
+                playbackState: nowPlayingVM.playbackState
+            )
         }
         .onReceive(nowPlayingVM.$queue) { queue in
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: queue.count)
@@ -411,7 +421,19 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {
-        stageCenterY(for: geometry) + 14
+        stageCenterY(for: geometry) + 8
+    }
+
+    /// Treat buffering as active playback so the transport reflects a tapped track immediately.
+    private func isTransportPlaying(currentTrack: Track?, playbackState: PlaybackState) -> Bool {
+        guard currentTrack != nil else { return false }
+
+        switch playbackState {
+        case .loading, .playing, .buffering:
+            return true
+        case .stopped, .paused, .failed:
+            return false
+        }
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
