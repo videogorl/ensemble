@@ -36,7 +36,7 @@ public struct NowPlayingSheetView: View {
                 
                 VStack(spacing: 0) {
                     if shouldUseSideBySideLayout(geometry: geometry) {
-                        viewportLayout
+                        viewportLayout(for: geometry)
                     } else {
                         mobileSheetLayout
                     }
@@ -102,7 +102,7 @@ public struct NowPlayingSheetView: View {
 
     // MARK: - iPad/Mac Viewport Layout
 
-    private var viewportLayout: some View {
+    private func viewportLayout(for geometry: GeometryProxy) -> some View {
         VStack(spacing: 20) {
             viewportHeader
 
@@ -116,7 +116,7 @@ public struct NowPlayingSheetView: View {
             .frame(maxWidth: 1120, maxHeight: .infinity)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 20)
+        .padding(.top, viewportTopInset(for: geometry))
         .padding(.bottom, 24)
     }
 
@@ -155,6 +155,7 @@ public struct NowPlayingSheetView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
         }
         .frame(maxWidth: 1120)
         .padding(.horizontal, 8)
@@ -193,6 +194,17 @@ public struct NowPlayingSheetView: View {
         } else {
             dismiss()
         }
+    }
+
+    private func viewportTopInset(for geometry: GeometryProxy) -> CGFloat {
+        #if os(macOS)
+        // The viewport overlay sits inside the app content area, below the
+        // window toolbar. Reserve extra clearance so the header controls remain
+        // tappable instead of ending up under toolbar items.
+        return max(geometry.safeAreaInsets.top + 16, 60)
+        #else
+        return max(geometry.safeAreaInsets.top + 12, 20)
+        #endif
     }
     
     private func shouldUseSideBySideLayout(geometry: GeometryProxy) -> Bool {

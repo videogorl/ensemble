@@ -108,6 +108,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
 - Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`) and change the outer shell first before considering card-specific rewrites.
 - For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
+- On macOS, keep the Now Playing header below the window toolbar region and bind Escape to dismiss so close controls never compete with toolbar items.
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
