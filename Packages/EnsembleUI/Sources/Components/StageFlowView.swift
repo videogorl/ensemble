@@ -471,9 +471,13 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             .contentShape(Rectangle())
             .offset(x: layout.xOffset, y: 0)
             .zIndex(layout.zIndex + 0.2)
-            .onTapGesture {
-                handleTap(on: item, at: index)
-            }
+            // Use a simultaneous tap recognizer so horizontal drags still belong
+            // to the stage gesture instead of being swallowed by the tap target.
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    handleTap(on: item, at: index)
+                }
+            )
     }
 
     private func stageTapTargetWidth(for relativeIndex: Double, baseItemSize: CGFloat) -> CGFloat {
