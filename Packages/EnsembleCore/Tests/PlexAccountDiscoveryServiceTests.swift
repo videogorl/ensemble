@@ -7,6 +7,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         let user: PlexUser
         let resources: [PlexDevice]
         let librariesByServerID: [String: Result<[PlexLibrarySection], Error>]
+        var capabilitiesByServerID: [String: PlexServerCapabilities] = [:]
 
         func getUserInfo(token: String) async throws -> PlexUser {
             user
@@ -23,6 +24,14 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         ) async throws -> [PlexLibrarySection] {
             let result = librariesByServerID[device.clientIdentifier] ?? .success([])
             return try result.get()
+        }
+
+        func getServerCapabilities(
+            for device: PlexDevice,
+            token: String,
+            allowInsecurePolicy: AllowInsecureConnectionsPolicy
+        ) async throws -> PlexServerCapabilities {
+            capabilitiesByServerID[device.clientIdentifier] ?? PlexServerCapabilities()
         }
     }
 

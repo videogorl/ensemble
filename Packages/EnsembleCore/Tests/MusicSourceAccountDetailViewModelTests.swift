@@ -79,6 +79,18 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         }
     }
 
+    private final class MockPendingMutationRepository: PendingMutationRepositoryProtocol, @unchecked Sendable {
+        func fetchPendingMutations() async throws -> [CDPendingMutation] { [] }
+        func fetchAllMutations() async throws -> [CDPendingMutation] { [] }
+        func enqueueMutation(id: String, type: CDPendingMutation.MutationType, payload: Data, sourceCompositeKey: String?) async throws {}
+        func incrementRetryCount(id: String) async throws {}
+        func markFailed(id: String) async throws {}
+        func resetToRetry(id: String) async throws {}
+        func deleteMutation(id: String) async throws {}
+        func deleteAllMutations() async throws {}
+        func countPendingMutations() async throws -> Int { 0 }
+    }
+
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
@@ -551,7 +563,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         )
         let discoveryService = MockDiscoveryService()
         let mutationCoordinator = MutationCoordinator(
-            repository: PendingMutationRepository(coreDataStack: stack),
+            repository: MockPendingMutationRepository(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )

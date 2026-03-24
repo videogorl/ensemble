@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### StageFlow Landed (Mar 24, 2026)
+
+Replaced the old immersive carousel implementation with `StageFlow` across iPhone landscape Songs, Albums, and Playlists. StageFlow keeps one item center stage, clamps side-item transforms by proximity, snaps drags to the nearest centered item, opens a trailing track panel from the centered card, and uses the already-filtered source data from each host screen. Songs now build stage items from `filteredTracks` grouped by album instead of the raw album collection. Aurora is also suppressed while immersive StageFlow is active so decorative layers never render above the carousel.
+
+**Key files:** `StageFlowView.swift`, `StageFlowItemView.swift`, `StageFlowTrackPanel.swift`, `SongsStageFlowAlbum.swift`, `SongsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`, `MainTabView.swift`, `View+Extensions.swift`, `AppDelegate.swift`
+
 ### Instrumental Mode / Vocal Attenuation (Mar 20, 2026)
 
 Apple Music Sing-style feature using AUSoundIsolation AudioUnit for on-device vocal removal. Hybrid engine switching: AVQueuePlayer stays active for normal playback; toggling instrumental mode switches to an AVAudioEngine pipeline with AUSoundIsolation, then switches back when toggled off.
@@ -142,7 +148,7 @@ Replaced `ConnectionStatusBanner` (full-width orange bar that pushed content dow
 **Issue 2 — Playlist/Album searchable reveal stutter (Run 6 + Run 7):**
 - **Contributing cause (Run 6):** `displayedFilteredPlaylists` computed on every body eval; PlaylistViewModel pipeline had no debounce. Cached as @State; added debounce.
 - **Root cause (Run 7 trace):** Both PlaylistsView and AlbumsView wrapped their entire body (including all `.alert`, `.onReceive`, `.toolbar` modifiers) in a `GeometryReader` for cover flow detection. `GeometryReader` re-evaluates its closure on ANY geometry change — including every pixel of `.searchable` bar reveal animation. Each re-eval ran full body with heavy Swift type demangling overhead.
-- **Fix (Run 7):** Replaced wrapping `GeometryReader` with lightweight `.background(GeometryReader { ... })` overlay that only updates `@State isCoverFlowActive`. Body now re-evaluates only when orientation actually changes (portrait ↔ landscape).
+- **Fix (Run 7):** Replaced wrapping `GeometryReader` with lightweight `.background(GeometryReader { ... })` overlay that only updates the immersive-mode flag. Body now re-evaluates only when orientation actually changes (portrait ↔ landscape).
 
 **Issue 3 — UI lag during sync (Run 6):**
 - Added `.removeDuplicates()` to all 4 filtered pipelines in LibraryViewModel. Prevents cascading no-op publishes.
@@ -193,7 +199,7 @@ Replaced `ConnectionStatusBanner` (full-width orange bar that pushed content dow
 **Root cause:** Run 4 trace (5 min, iPhone 6s, music playing) showed artists/songs items jumping/disappearing while scrolling, laggy scrolling in playlists/downloads/albums, and album filter keyboard failing. Multiple high-traffic views subscribed to `offlineDownloadService` (5 @Published) and `navigationCoordinator` (14 @Published) via `@ObservedObject`, but only needed 1-2 specific values. ANY @Published change triggered full body re-evaluation of ALL subscribing views.
 
 **Phase 1 — offlineDownloadService/trackAvailabilityResolver `.onReceive`:**
-- Replaced `@ObservedObject` with `@State` + `.onReceive` targeting only `activeDownloadRatingKeys` and `availabilityGeneration` in 6 views: SongsView, FavoritesView, SearchView, ArtistDetailView, MediaDetailView, CoverFlowDetailView. Eliminates ~60-80% of spurious re-evals during downloads.
+- Replaced `@ObservedObject` with `@State` + `.onReceive` targeting only `activeDownloadRatingKeys` and `availabilityGeneration` in 6 views: SongsView, FavoritesView, SearchView, ArtistDetailView, MediaDetailView, StageFlowTrackPanel. Eliminates ~60-80% of spurious re-evals during downloads.
 
 **Phase 2 — navigationCoordinator removal:**
 - Removed `@ObservedObject private var navigationCoordinator` from 6 views that only write `showingAddAccount = true` in button closures (never read in body): ArtistsView, SongsView, AlbumsView, PlaylistsView, FavoritesView, SearchView. Use `DependencyContainer.shared.navigationCoordinator` directly in closures instead.
@@ -201,10 +207,10 @@ Replaced `ConnectionStatusBanner` (full-width orange bar that pushed content dow
 **Phase 3 — Section caching:**
 - Replaced `albumSections` and `artistSections` computed properties (Dictionary grouping + map + sorted on every body eval) with `@State` cached values updated via `.onReceive` on `libraryVM.$filteredAlbums`/`$albumSortOption`/`$filteredArtists`. Avoids O(n log n) recomputation with 277 albums / 193 artists.
 
-**Phase 4 — ArtistDetailView + CoverFlowDetailView NVM `.onReceive`:**
+**Phase 4 — ArtistDetailView + StageFlow detail NVM `.onReceive`:**
 - Changed `@ObservedObject var nowPlayingVM` → `let nowPlayingVM` + `@State` + `.onReceive` targeting only `currentTrack` and `lastPlaylistTarget`. NVM has ~25 @Published properties publishing frequently during playback — reduces body re-evals from ~25/s to ~1/track change.
 
-**Key files:** `SongsView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`, `MediaDetailView.swift`, `CoverFlowDetailView.swift`
+**Key files:** `SongsView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `AlbumsView.swift`, `PlaylistsView.swift`, `MediaDetailView.swift`, `StageFlowTrackPanel.swift`
 
 ### Download CPU Contention + NVM Observation Cascade Fix — Run 3 (Mar 18, 2026)
 

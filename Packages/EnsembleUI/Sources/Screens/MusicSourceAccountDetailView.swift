@@ -153,7 +153,9 @@ public struct MusicSourceAccountDetailView: View {
                     }
                     .padding(.vertical, -4)
                     .listRowBackground(Color.clear)
+                    #if os(iOS)
                     .listRowSeparator(.hidden)
+                    #endif
                 } header: {
                     Text("Legend")
                 }

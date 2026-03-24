@@ -91,6 +91,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
         func deleteArtwork(ratingKey: String, type: ArtworkType) {}
+        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
         func clearArtworkCache() async throws {}
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }

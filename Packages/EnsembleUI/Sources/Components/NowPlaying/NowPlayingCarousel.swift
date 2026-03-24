@@ -36,7 +36,9 @@ public struct NowPlayingCarousel: View {
                 InfoCard(viewModel: viewModel, currentPage: $currentPage)
                     .tag(3)
             }
+            #if os(iOS)
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide native page dots
+            #endif
             .onChange(of: currentPage) { newPage in
                 handlePageChange(from: previousPage, to: newPage)
                 previousPage = newPage

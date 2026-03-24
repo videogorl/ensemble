@@ -129,7 +129,7 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `FilterSheet` -- Advanced filtering UI with artist/genre multi-select, year ranges
 - `AlbumDetailLoader` / `ArtistDetailLoader` / `PlaylistDetailLoader` -- Async loading wrappers for detail views
 - `WaveformView` -- Audio waveform visualization with real Plex loudness data or fallback generation
-- `CoverFlowView` -- 3D carousel view with perspective rotation, scaling, and tap-to-zoom/flip interactions
+- `StageFlowView` -- iPhone landscape stage carousel with snapping, inward-facing side cards, and a trailing track panel
 - `TrackSwipeContainer` -- Shared swipe-action wrapper for track rows on iOS/iPadOS
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN

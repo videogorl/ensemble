@@ -21,7 +21,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
   - **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to-default
 - **Favorites** — Quick access to your highly-rated tracks (4+ stars)
 - **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
-- **3D CoverFlow Carousel** — Browse albums with perspective rotation, scaling, and tap-to-zoom/flip interactions
+- **StageFlow** — Immersive landscape browsing with a centered stage, snapping, and slide-out track details
 - **Search** — Fast search across your entire library with compact result layouts
 - **Gesture Actions (iOS/iPadOS)** — Mail-style track swipe actions (`Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle) across library and search track lists
 - **Long-Press Menus** — Album, artist, and playlist cards expose context actions that match detail-view capabilities
@@ -115,7 +115,7 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
 | **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `PlexAccountDiscoveryService`, `LibraryVisibilityStore`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
-| **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `CoverFlowView`, `HubOrderingSheet`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
+| **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `StageFlowView`, `HubOrderingSheet`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
@@ -195,7 +195,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Multi-library Plex support with network resilience
 - Hub-based home screen with offline-first loading and DetailLoader pattern
 - Customizable hub section ordering with drag-to-reorder interface
-- 3D CoverFlow carousel for immersive album browsing
+- StageFlow immersive carousel for albums, songs, and playlists in iPhone landscape
 - Smart navigation with tab fallback logic from Now Playing
 - Advanced filtering and customization
 - Persistent artwork caching system with hub support
@@ -238,7 +238,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
-- [x] **3D CoverFlow Carousel** — Immersive album browsing with perspective transforms and tap-to-zoom/flip
+- [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel
 - [x] **Favorites System** — Quick access to highly-rated tracks
 - [x] **Advanced Filtering** — Multi-select genres/artists, year ranges, sort persistence
 - [x] **Customizable UI** — Accent colors and customizable tabs

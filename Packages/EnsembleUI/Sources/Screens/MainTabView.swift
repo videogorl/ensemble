@@ -313,7 +313,7 @@ public struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if settingsManager.auroraVisualizationEnabled {
+            if settingsManager.auroraVisualizationEnabled && !isImmersiveMode {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     accentColor: settingsManager.accentColor.color,
