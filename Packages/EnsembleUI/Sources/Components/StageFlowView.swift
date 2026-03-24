@@ -141,14 +141,15 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     @State private var isPlaying = false
     @State private var isTransportLoading = false
     @State private var hasPlaybackContext = false
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     private let layoutMetrics = StageFlowLayoutMetrics.default
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color.black
-                    .ignoresSafeArea()
+                stageBackground
 
                 stageLayer(in: geometry)
 
@@ -196,6 +197,23 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: queue.count)
         }
         .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private var stageBackground: some View {
+        Color.black
+            .ignoresSafeArea()
+
+        if settingsManager.auroraVisualizationEnabled {
+            AuroraVisualizationView(
+                playbackService: DependencyContainer.shared.playbackService,
+                accentColor: settingsManager.accentColor.color,
+                isPaused: false,
+                isLowPowerMode: powerStateMonitor.isLowPowerMode
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
     }
 
     private func stageLayer(in geometry: GeometryProxy) -> some View {
@@ -276,7 +294,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                         .lineLimit(1)
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 20)
             .padding(.horizontal, 24)
             .allowsHitTesting(false)
         }
@@ -380,7 +398,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 16)
-                .padding(.bottom, 16)
+                .padding(.bottom, 28)
             }
         }
         .zIndex(200)
@@ -417,7 +435,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
         let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
-        return min(viewportHeight * 0.62, geometry.size.width * 0.34)
+        return max(0, min(viewportHeight * 0.62, geometry.size.width * 0.34) - 5)
     }
 
     private func centeredItemSize(for geometry: GeometryProxy) -> CGFloat {
