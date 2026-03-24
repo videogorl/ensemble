@@ -28,8 +28,4 @@ PLIST_PATH="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
 [ -f "$PLIST_PATH" ] || exit 0
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST_PATH"
-
-# Touch the output marker so Xcode knows the script ran
-touch "${PLIST_PATH}.buildnumber"
-
 echo "Set CFBundleVersion=$BUILD_NUMBER for target $TARGET_NAME"
