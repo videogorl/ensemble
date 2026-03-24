@@ -109,7 +109,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     @Binding var selectedItem: Item?
 
     @State private var scrollIndex: Double = 0
-    @GestureState private var dragIndexDelta: Double = 0
+    @State private var dragIndexDelta: Double = 0
     @State private var isPanelPresented = false
     @State private var isPlaying = false
     @State private var hasPlaybackContext = false
@@ -166,8 +166,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture()
-                        .updating($dragIndexDelta) { value, state, _ in
-                            state = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
+                        .onChanged { value in
+                            dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
                         }
                         .onEnded { value in
                             handleDragEnded(value, itemSize: baseItemSize)
@@ -205,7 +205,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .position(x: centerX, y: geometry.size.height * 0.44)
-        .animation(.interactiveSpring(response: 0.42, dampingFraction: 0.84), value: scrollIndex)
         .animation(.easeInOut(duration: 0.22), value: isPanelPresented)
     }
 
@@ -319,12 +318,20 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
-        let dragDelta = -Double(value.translation.width / dragSensitivity(for: itemSize))
-        let predictedDelta = -Double(value.predictedEndTranslation.width / dragSensitivity(for: itemSize)) * 0.2
+        let releasedIndex = scrollIndex + dragIndexDelta
+        let predictedDelta = -Double(value.predictedEndTranslation.width / dragSensitivity(for: itemSize)) * 0.08
         let targetIndex = StageFlowLayoutModel.snappedIndex(
-            for: scrollIndex + dragDelta + predictedDelta,
+            for: releasedIndex + predictedDelta,
             itemCount: items.count
         )
+
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            scrollIndex = releasedIndex
+            dragIndexDelta = 0
+        }
+
         snap(to: targetIndex, closePanel: true)
     }
 
@@ -365,6 +372,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         guard !items.isEmpty else {
             selectedItem = nil
             scrollIndex = 0
+            dragIndexDelta = 0
             if closePanel {
                 isPanelPresented = false
             }
@@ -374,6 +382,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         if let selectedItem,
            let existingIndex = items.firstIndex(where: { $0.id == selectedItem.id }) {
             scrollIndex = Double(existingIndex)
+            dragIndexDelta = 0
             if closePanel {
                 isPanelPresented = false
             }
@@ -382,6 +391,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
         let nearestIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
         scrollIndex = Double(nearestIndex)
+        dragIndexDelta = 0
         selectedItem = items[nearestIndex]
         if closePanel {
             isPanelPresented = false
@@ -415,8 +425,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             }
         }
 
-        if animate {
-            withAnimation(.interactiveSpring(response: 0.42, dampingFraction: 0.84)) {
+        let targetIndex = Double(index)
+        let correctionDistance = abs(scrollIndex - targetIndex)
+
+        if animate, correctionDistance > 0.001 {
+            withAnimation(snapAnimation(for: correctionDistance)) {
                 update()
             }
         } else {
@@ -432,5 +445,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func updatePlaybackContext(currentTrack: Track?, queueCount: Int) {
         hasPlaybackContext = currentTrack != nil || queueCount > 0
+    }
+
+    /// Applies a short residual correction after release instead of a second inertial flourish.
+    private func snapAnimation(for correctionDistance: Double) -> Animation {
+        let duration = min(max(0.08 + (correctionDistance * 0.045), 0.11), 0.18)
+        return .easeOut(duration: duration)
     }
 }
