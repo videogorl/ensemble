@@ -136,6 +136,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     @State private var dragIndexDelta: Double = 0
     @State private var isPanelPresented = false
     @State private var isPlaying = false
+    @State private var isTransportLoading = false
     @State private var hasPlaybackContext = false
 
     private let layoutMetrics = StageFlowLayoutMetrics.default
@@ -164,7 +165,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .onAppear {
             syncSelectionWithItems(closePanel: true)
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: nowPlayingVM.queue.count)
-            isPlaying = isTransportPlaying(
+            updateTransportState(
                 currentTrack: nowPlayingVM.currentTrack,
                 playbackState: nowPlayingVM.playbackState
             )
@@ -176,14 +177,14 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             handleExternalSelectionChange()
         }
         .onReceive(nowPlayingVM.$playbackState) { playbackState in
-            isPlaying = isTransportPlaying(
+            updateTransportState(
                 currentTrack: nowPlayingVM.currentTrack,
                 playbackState: playbackState
             )
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             updatePlaybackContext(currentTrack: track, queueCount: nowPlayingVM.queue.count)
-            isPlaying = isTransportPlaying(
+            updateTransportState(
                 currentTrack: track,
                 playbackState: nowPlayingVM.playbackState
             )
@@ -233,13 +234,18 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                                 y: 0
                             )
                             .zIndex(itemLayout.zIndex)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                handleTap(on: item, at: index)
-                            }
+                            .allowsHitTesting(false)
                         #if os(iOS)
                             .accessibilityIdentifier("stageflow.item.\(index)")
                         #endif
+
+                        stageTapTarget(
+                            for: item,
+                            at: index,
+                            relativeIndex: relativeIndex,
+                            baseItemSize: baseItemSize,
+                            layout: itemLayout
+                        )
                     }
                 }
             }
@@ -346,18 +352,26 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Button {
                     handleTransportTap()
                 } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 48, height: 48)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.16))
-                        )
-                        .overlay(
-                            Circle()
-                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                        )
+                    ZStack {
+                        if isTransportLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.9)
+                        } else {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.16))
+                    )
+                    .overlay(
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 16)
@@ -424,15 +438,55 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         stageCenterY(for: geometry) + 8
     }
 
-    /// Treat buffering as active playback so the transport reflects a tapped track immediately.
-    private func isTransportPlaying(currentTrack: Track?, playbackState: PlaybackState) -> Bool {
-        guard currentTrack != nil else { return false }
+    private func stageTapTarget(
+        for item: Item,
+        at index: Int,
+        relativeIndex: Double,
+        baseItemSize: CGFloat,
+        layout: StageFlowItemLayout
+    ) -> some View {
+        Color.clear
+            .frame(
+                width: stageTapTargetWidth(for: relativeIndex, baseItemSize: baseItemSize),
+                height: baseItemSize * 0.98
+            )
+            .contentShape(Rectangle())
+            .offset(x: layout.xOffset, y: 0)
+            .zIndex(layout.zIndex + 0.2)
+            .onTapGesture {
+                handleTap(on: item, at: index)
+            }
+    }
+
+    private func stageTapTargetWidth(for relativeIndex: Double, baseItemSize: CGFloat) -> CGFloat {
+        switch abs(relativeIndex) {
+        case ..<0.5:
+            return baseItemSize * 0.84
+        case ..<1.5:
+            return baseItemSize * 0.42
+        default:
+            return baseItemSize * 0.26
+        }
+    }
+
+    /// Mirrors the main transport control: show a spinner while loading/buffering.
+    private func updateTransportState(currentTrack: Track?, playbackState: PlaybackState) {
+        guard currentTrack != nil else {
+            isPlaying = false
+            isTransportLoading = false
+            return
+        }
 
         switch playbackState {
-        case .loading, .playing, .buffering:
-            return true
+        case .loading, .buffering:
+            isPlaying = false
+            isTransportLoading = true
+        case .playing:
+            isPlaying = true
+            isTransportLoading = false
         case .stopped, .paused, .failed:
-            return false
+            isPlaying = false
+            isTransportLoading = false
         }
     }
 
