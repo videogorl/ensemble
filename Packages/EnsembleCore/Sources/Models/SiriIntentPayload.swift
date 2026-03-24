@@ -18,6 +18,7 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
     public let sourceCompositeKey: String?
     public let displayName: String?
     public let artistHint: String?
+    public let shuffle: Bool?
 
     public init(
         schemaVersion: Int = SiriPlaybackRequestPayload.currentSchemaVersion,
@@ -25,7 +26,8 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
         entityID: String,
         sourceCompositeKey: String? = nil,
         displayName: String? = nil,
-        artistHint: String? = nil
+        artistHint: String? = nil,
+        shuffle: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -33,6 +35,7 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
         self.artistHint = artistHint
+        self.shuffle = shuffle
     }
 }
 

@@ -145,14 +145,20 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
-        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
+        let shuffleRequested = intent.playShuffled ?? false
+        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld shuffle=%{public}d", requestedMediaType.rawValue, shuffleRequested)
+        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
-        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
+        guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
             os_log(.info, "SIRI_EXT: handle returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
+        }
+
+        // Attach shuffle flag from intent
+        if shuffleRequested {
+            payload.shuffle = true
         }
 
         // Do not fail in the extension based on index trackCount metadata.

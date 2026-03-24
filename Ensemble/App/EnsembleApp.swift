@@ -189,10 +189,23 @@ struct EnsembleApp: App {
 
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
+        let shuffle = intent.playShuffled
+
         // Try to decode from identifier first
         if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
            let data = Data(base64Encoded: identifier),
-           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+           var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            // Override shuffle from live intent if not already set in payload
+            if payload.shuffle == nil, let shuffle {
+                payload = SiriPlaybackRequestPayload(
+                    kind: payload.kind,
+                    entityID: payload.entityID,
+                    sourceCompositeKey: payload.sourceCompositeKey,
+                    displayName: payload.displayName,
+                    artistHint: payload.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return payload
         }
 
@@ -218,7 +231,7 @@ struct EnsembleApp: App {
         default: kind = .track
         }
 
-        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query)
+        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
     }
     #endif
 

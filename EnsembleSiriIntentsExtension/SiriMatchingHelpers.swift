@@ -31,6 +31,7 @@ struct SiriPayloadIdentifier: Codable {
     let sourceCompositeKey: String?
     let displayName: String?
     let artistHint: String?
+    var shuffle: Bool? = nil
 }
 
 // MARK: - Shared helpers

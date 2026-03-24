@@ -419,7 +419,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: extensionPayload.entityID,
                 sourceCompositeKey: extensionPayload.sourceCompositeKey,
                 displayName: extensionPayload.displayName,
-                artistHint: extensionPayload.artistHint
+                artistHint: extensionPayload.artistHint,
+                shuffle: extensionPayload.shuffle
             )
         } catch {
             os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
@@ -557,10 +558,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
 
         if let identifier = rawIdentifier,
-           let decoded = decodePayloadIdentifier(identifier),
+           var decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
+            // Override shuffle from the live intent if it wasn't already set in the payload
+            if decoded.shuffle == nil, let shuffle {
+                decoded = SiriPlaybackRequestPayload(
+                    kind: decoded.kind,
+                    entityID: decoded.entityID,
+                    sourceCompositeKey: decoded.sourceCompositeKey,
+                    displayName: decoded.displayName,
+                    artistHint: decoded.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return decoded
         }
 
@@ -578,7 +591,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -592,7 +606,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -784,6 +799,7 @@ private struct ExtensionSiriPayloadIdentifier: Codable {
     let sourceCompositeKey: String?
     let displayName: String?
     let artistHint: String?
+    let shuffle: Bool?
 }
 
 func executeSiriPlaybackInBackground(
@@ -1115,10 +1131,22 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
 
         if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
-           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+           var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            // Override shuffle from live intent if not already set in payload
+            if payload.shuffle == nil, let shuffle {
+                payload = SiriPlaybackRequestPayload(
+                    kind: payload.kind,
+                    entityID: payload.entityID,
+                    sourceCompositeKey: payload.sourceCompositeKey,
+                    displayName: payload.displayName,
+                    artistHint: payload.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return payload
         }
 
@@ -1135,7 +1163,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -1147,7 +1176,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
