@@ -382,7 +382,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func stageCenterX(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.width * (isPanelPresented ? 0.472 : 0.5)
+        geometry.size.width * (isPanelPresented ? 0.452 : 0.5)
     }
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
