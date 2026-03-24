@@ -741,20 +741,36 @@ public final class AudioPlaybackEngine {
         #endif
     }
 
-    /// Pause playback (engine stays running to avoid restart latency).
+    /// Pause playback and stop the engine.
+    ///
+    /// Stopping the engine is essential: while `playerNode.pause()` silences audio,
+    /// the engine's render cycle continues pulling frames from CoreAudio. iOS detects
+    /// this active render cycle and overrides `MPNowPlayingInfoCenter.playbackState`,
+    /// causing the lock screen to show "playing" even though audio is paused.
+    ///
+    /// `engine.stop()` does NOT detach nodes or reset the player node's paused position.
+    /// On resume, `engine.start()` + `playerNode.play()` picks up where we left off.
     func pause() {
         playerNode.pause()
         wasPlaying = false
         stopTimeUpdates()
+        if engine.isRunning {
+            engine.stop()
+        }
         #if DEBUG
-        EnsembleLogger.debug("[AudioEngine] Paused")
+        EnsembleLogger.debug("[AudioEngine] Paused (engine stopped)")
         #endif
     }
 
     /// Resume playback after pause.
+    ///
+    /// The engine may have been stopped during `pause()`, so we restart it here.
+    /// Restarting the engine can reset AU state, so we re-apply isolation parameters.
     func resume() throws {
         if !engine.isRunning {
             try engine.start()
+            // Engine restart can reset AU state — re-apply isolation parameters
+            applyIsolationParameters()
         }
         playerNode.play()
         wasPlaying = true

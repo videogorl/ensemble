@@ -3,8 +3,9 @@ import Intents
 import os
 
 public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
-    private static let activityType = "com.videogorl.ensemble.siri.addtoplaylist"
-    private static let payloadUserInfoKey = "siriAddToPlaylistPayload"
+    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
+    private static let pendingFilename = "siri-pending-addtoplaylist.json"
+    private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingAddToPlaylist"
     private static let disambiguationThreshold = 0.1
 
     private let logger = Logger(
@@ -23,7 +24,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         for intent: INAddMediaIntent,
         with completion: @escaping ([INAddMediaMediaItemResolutionResult]) -> Void
     ) {
-        // The "media to add" is the current track — no resolution needed.
+        // The "media to add" is the current track -- no resolution needed.
         logger.info("resolveMediaItems: returning success for current track")
         let currentTrackItem = INMediaItem(
             identifier: "current-track",
@@ -106,31 +107,41 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        // Build payload
-        let payloadDict: [String: Any?] = [
+        // Write payload to shared App Group file for the main app to pick up
+        let payloadDict: [String: Any] = [
             "schemaVersion": 1,
             "playlistRatingKey": match.item.id,
-            "sourceCompositeKey": match.item.sourceCompositeKey,
+            "sourceCompositeKey": match.item.sourceCompositeKey ?? "",
             "playlistDisplayName": match.item.displayName
-        ]
+        ].compactMapValues { $0 }
 
-        // Filter nil values for JSON serialization
-        let filteredDict = payloadDict.compactMapValues { $0 }
-
-        guard let payloadData = try? JSONSerialization.data(withJSONObject: filteredDict) else {
-            logger.error("handle: failed to encode payload")
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else {
+            logger.error("handle: App Group container unavailable")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
-        let activity = NSUserActivity(activityType: Self.activityType)
-        activity.title = "Add to Playlist in Ensemble"
-        activity.userInfo = [Self.payloadUserInfoKey: payloadData]
-        activity.isEligibleForHandoff = true
-        activity.isEligibleForSearch = false
-        activity.isEligibleForPrediction = false
+        let fileURL = containerURL.appendingPathComponent(Self.pendingFilename)
 
-        logger.info("handle: returning handleInApp for playlist=\(match.item.displayName, privacy: .public)")
-        completion(INAddMediaIntentResponse(code: .handleInApp, userActivity: activity))
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payloadDict)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            logger.error("handle: failed to write pending file: \(error.localizedDescription, privacy: .public)")
+            completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
+            return
+        }
+
+        // Post Darwin notification to wake the main app
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(Self.darwinNotificationName as CFString),
+            nil, nil, true
+        )
+
+        logger.info("handle: wrote pending add-to-playlist file + posted Darwin notification, returning success")
+        completion(INAddMediaIntentResponse(code: .success, userActivity: nil))
     }
 }

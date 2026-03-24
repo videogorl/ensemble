@@ -75,6 +75,11 @@ public final class SiriAffinityCoordinator {
 
         let outcome = try await mutationCoordinator.rateTrack(currentTrack, rating: rating)
 
+        // Update in-memory model, CoreData, and Now Playing feedback commands
+        // so the UI reflects the change immediately (heart icon, etc.)
+        let localRating = rating ?? 0
+        await playbackService.applyRatingLocally(trackId: currentTrack.id, rating: localRating)
+
         let message: String? = outcome == .queued ? "Will sync when online" : nil
         toastCenter.show(ToastPayload(
             style: .success,
