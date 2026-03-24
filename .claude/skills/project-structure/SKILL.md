@@ -221,9 +221,10 @@ Sources/
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
-|   +-- CoverFlowView.swift           # 3D carousel with perspective rotation and scaling
-|   +-- CoverFlowItemView.swift       # Individual item in CoverFlow carousel
-|   +-- CoverFlowDetailView.swift     # Flipped detail view for CoverFlow items
+|   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
+|   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay
+|   +-- StageFlowItemView.swift       # Individual card used in StageFlow
+|   +-- StageFlowTrackPanel.swift     # Slide-out track panel for centered StageFlow items
 |   +-- EmptyLibraryView.swift        # Empty state with sync prompt
 |   +-- FilterSheet.swift             # Advanced filtering UI with persistence
 |   +-- FlipOpacity.swift             # View modifier for flip animations
