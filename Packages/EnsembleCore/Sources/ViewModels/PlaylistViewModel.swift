@@ -605,7 +605,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
         }
         if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
         }
 
         // Downloaded only filter
