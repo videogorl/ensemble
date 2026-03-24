@@ -14,15 +14,15 @@ struct StageFlowLayoutMetrics: Equatable {
     let wingRotation: Double
 
     static let `default` = StageFlowLayoutMetrics(
-        centerSpacing: 176,
+        centerSpacing: 188,
         wingSpacing: 82,
         centerScale: 1.16,
         siblingScale: 0.92,
         wingScale: 0.78,
         siblingOpacity: 0.94,
         wingOpacity: 0.68,
-        siblingRotation: 58,
-        wingRotation: 72
+        siblingRotation: 52,
+        wingRotation: 64
     )
 }
 
@@ -146,13 +146,13 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Color.black
                     .ignoresSafeArea()
 
+                if isPanelPresented {
+                    panelDismissLayer()
+                }
+
                 stageLayer(in: geometry)
 
                 footerLayer
-
-                if isPanelPresented {
-                    panelDismissLayer(in: geometry)
-                }
 
                 transportButton
             }
@@ -192,6 +192,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
             Color.clear
                 .contentShape(Rectangle())
+                .allowsHitTesting(!isPanelPresented)
                 .gesture(
                     DragGesture()
                         .onChanged { value in
@@ -235,7 +236,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .position(x: centerX, y: stageCenterY(for: geometry))
-        .animation(.easeInOut(duration: 0.22), value: isPanelPresented)
     }
 
     @ViewBuilder
@@ -266,9 +266,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let centeredItemSize = centeredItemSize(for: geometry)
         let seamOverlap: CGFloat = 12
         let combinedPanelWidth = centeredItemSize + trackPanelWidth - seamOverlap
-        let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (combinedPanelWidth / 2)
-        let desiredPanelCenterX = stageCenterX(for: geometry) + (trackPanelWidth / 2) - (seamOverlap / 2)
-        let panelCenterX = min(desiredPanelCenterX, maxPanelCenterX)
+        let panelCenterX = geometry.size.width * 0.5
 
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -315,21 +313,19 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .frame(width: combinedPanelWidth, height: centeredItemSize)
         .position(x: panelCenterX, y: stageCenterY(for: geometry))
-        .transition(panelRevealTransition)
         .zIndex(150)
         .allowsHitTesting(true)
-        .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.86), value: isPanelPresented)
     }
 
-    private func panelDismissLayer(in geometry: GeometryProxy) -> some View {
+    private func panelDismissLayer() -> some View {
         Color.clear
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
-        .contentShape(Rectangle())
-        .onTapGesture {
-            closePanel()
-        }
-        .zIndex(120)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                closePanel()
+            }
+            .zIndex(50)
     }
 
     private var transportButton: some View {
@@ -407,18 +403,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func stageCenterX(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.width * (isPanelPresented ? 0.452 : 0.5)
+        geometry.size.width * 0.5
     }
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.height * 0.44
-    }
-
-    private var panelRevealTransition: AnyTransition {
-        .asymmetric(
-            insertion: .offset(x: -16).combined(with: .opacity),
-            removal: .offset(x: -10).combined(with: .opacity)
-        )
+        geometry.size.height * 0.41
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
