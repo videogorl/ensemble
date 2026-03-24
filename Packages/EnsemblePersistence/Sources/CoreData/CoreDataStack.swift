@@ -73,11 +73,15 @@ public final class CoreDataStack: @unchecked Sendable {
         }
     }
 
-    /// Refresh all objects in the view context to ensure they reflect the latest store data.
+    /// Reset the view context so the next fetch reads the latest store data.
     /// Call this after background sync operations to ensure UI sees updated data.
+    /// Uses reset() instead of refreshAllObjects() to avoid a crash when
+    /// background deletions leave a nil entry in the registered-objects set.
     public func refreshViewContext() {
         viewContext.perform {
-            self.viewContext.refreshAllObjects()
+            self.viewContext.stalenessInterval = 0
+            self.viewContext.reset()
+            self.viewContext.stalenessInterval = 5.0
         }
     }
 
