@@ -218,6 +218,11 @@ public struct FilterSheet: View {
                 maxYear = String(yearRange.upperBound)
             }
         }
+        #if os(macOS)
+        // macOS sheets can collapse a Form-backed NavigationView down to its
+        // toolbar height if we do not provide an explicit content size.
+        .frame(minWidth: 720, minHeight: 560)
+        #endif
     }
     
     private func applyYearRange() {
