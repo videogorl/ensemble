@@ -152,6 +152,7 @@ struct LibraryDownloadDetailView: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
         .disabled(viewModel.playableTracks.isEmpty)
     }
 

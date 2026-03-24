@@ -355,6 +355,7 @@ public struct MoodTracksView: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
     }
 
     // MARK: - Helpers

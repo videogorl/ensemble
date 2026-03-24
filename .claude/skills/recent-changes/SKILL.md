@@ -14,9 +14,9 @@ user-invocable: true
 
 ### macOS Media Controls Drop Default Button Chrome (Mar 24, 2026)
 
-Added shared `chromelessMediaControlButton()` and `chromelessMediaControlMenu()` helpers for self-styled playback/action controls on macOS. Now Playing controls, queue/history controls, and common detail-page play/shuffle/radio rows now opt out of the default bordered macOS bezel so they keep the same visual language as the iOS/iPadOS designs without rewriting each view.
+Added shared `chromelessMediaControlButton()` and `chromelessMediaControlMenu()` helpers for self-styled playback/action controls on macOS. Coverage now includes Now Playing controls, queue/history controls, lyrics transport, the mini player transport, and the common detail/favorites/mood/download play-shuffle-radio rows so macOS no longer adds bordered button chrome on top of the iOS/iPadOS visual treatment.
 
-**Key files:** `View+Extensions.swift`, `ControlsCard.swift`, `QueueCard.swift`, `MediaDetailView.swift`, `ArtistsView.swift`, `DownloadTargetDetailView.swift`, `ui-conventions` skill
+**Key files:** `View+Extensions.swift`, `ControlsCard.swift`, `QueueCard.swift`, `LyricsCard.swift`, `MiniPlayer.swift`, `MediaDetailView.swift`, `ArtistsView.swift`, `FavoritesView.swift`, `MoodTracksView.swift`, `DownloadTargetDetailView.swift`, `LibraryDownloadDetailView.swift`, `ui-conventions` skill
 
 ### Desktop Sheet Scaffold + Viewport Now Playing (Mar 24, 2026)
 

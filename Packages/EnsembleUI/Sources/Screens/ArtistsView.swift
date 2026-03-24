@@ -867,6 +867,7 @@ public struct ArtistDetailView: View {
                 }
             }
             .padding(.horizontal)
+            .chromelessMediaControlButton()
 
             // Track list (UIKit table for consistent swipe actions and row height)
             #if os(iOS)

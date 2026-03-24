@@ -347,6 +347,7 @@ public struct FavoritesView: View {
                 }
                 .padding(.horizontal)
                 .padding(.bottom)
+                .chromelessMediaControlButton()
 
                 // Track list
                 #if os(iOS)
