@@ -433,8 +433,6 @@ public struct PlaylistsView: View {
             detailView: { selectedPlaylist in
                 StageFlowTrackPanel(
                     contentType: .playlist(id: selectedPlaylist.id, sourceCompositeKey: selectedPlaylist.sourceCompositeKey),
-                    title: selectedPlaylist.title,
-                    subtitle: "\(selectedPlaylist.trackCount) tracks",
                     nowPlayingVM: nowPlayingVM
                 )
             },

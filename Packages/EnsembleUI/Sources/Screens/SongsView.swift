@@ -609,8 +609,6 @@ public struct SongsView: View {
             detailView: { selectedAlbum in
                 StageFlowTrackPanel(
                     contentType: .album(id: selectedAlbum.albumID, sourceCompositeKey: selectedAlbum.sourceCompositeKey),
-                    title: selectedAlbum.title,
-                    subtitle: selectedAlbum.artistName,
                     nowPlayingVM: nowPlayingVM
                 )
             },
