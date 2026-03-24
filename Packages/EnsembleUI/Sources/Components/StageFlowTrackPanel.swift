@@ -56,8 +56,6 @@ struct StageFlowTrackPanel: View {
     }
 
     let contentType: StageFlowContentType
-    let title: String
-    let subtitle: String?
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var deps
@@ -72,7 +70,7 @@ struct StageFlowTrackPanel: View {
     @State private var recentPlaylistTitle: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header
 
             Group {
@@ -95,7 +93,7 @@ struct StageFlowTrackPanel: View {
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadRatingKeys: activeDownloadRatingKeys,
                         managesOwnScrolling: true,
-                        bottomContentInset: 16,
+                        bottomContentInset: 8,
                         onPlayNext: { track in
                             nowPlayingVM.playNext(track)
                         },
@@ -160,7 +158,8 @@ struct StageFlowTrackPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(20)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys {
                 activeDownloadRatingKeys = keys
@@ -192,22 +191,11 @@ struct StageFlowTrackPanel: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .foregroundColor(.primary)
-                .lineLimit(2)
-
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-
+        HStack {
             Text("\(tracks.count) track\(tracks.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            Spacer()
         }
     }
 

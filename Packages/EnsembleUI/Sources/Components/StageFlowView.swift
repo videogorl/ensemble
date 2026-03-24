@@ -183,7 +183,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let baseItemSize = min(geometry.size.height * 0.62, geometry.size.width * 0.34)
         let currentIndex = scrollIndex + dragIndexDelta
         let panelWidth = detailPanelWidth(for: geometry)
-        let centerX = geometry.size.width * (isPanelPresented ? 0.36 : 0.5)
+        let centerX = geometry.size.width * (isPanelPresented ? 0.4 : 0.5)
 
         return ZStack {
             Color.clear
@@ -213,7 +213,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                             perspective: 0.58
                         )
                         .offset(
-                            x: itemLayout.xOffset - (isPanelPresented ? panelWidth * 0.18 : 0),
+                            x: itemLayout.xOffset - (isPanelPresented ? panelWidth * 0.1 : 0),
                             y: isPanelPresented ? -6 : 0
                         )
                         .zIndex(itemLayout.zIndex)
@@ -234,22 +234,22 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     @ViewBuilder
     private var footerLayer: some View {
-        if let centeredItem {
+        if let liveCenteredItem {
             VStack(spacing: 6) {
                 Spacer()
-                Text(titleContent(centeredItem))
-                    .font(.title3.weight(.semibold))
+                Text(titleContent(liveCenteredItem))
+                    .font(.headline.weight(.semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
 
-                if let subtitle = subtitleContent(centeredItem), !subtitle.isEmpty {
+                if let subtitle = subtitleContent(liveCenteredItem), !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.white.opacity(0.72))
                         .lineLimit(1)
                 }
             }
-            .padding(.bottom, 28)
+            .padding(.bottom, 8)
             .padding(.horizontal, 24)
             .allowsHitTesting(false)
         }
@@ -259,29 +259,33 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let panelWidth = detailPanelWidth(for: geometry)
 
         return ZStack {
-            Color.black.opacity(0.32)
+            Color.clear
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture {
                     closePanel()
                 }
 
-            HStack {
+            VStack {
                 Spacer()
-                VStack(spacing: 0) {
-                    detailView(item)
+                HStack {
+                    Spacer()
+                    VStack(spacing: 0) {
+                        detailView(item)
+                    }
+                    .frame(width: panelWidth)
+                    .frame(maxHeight: geometry.size.height * 0.72)
+                    .background(stagePanelBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.32), radius: 22, x: -10, y: 10)
+                    .padding(.trailing, 10)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .frame(width: panelWidth)
-                .frame(maxHeight: geometry.size.height * 0.88)
-                .background(stagePanelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.32), radius: 22, x: -10, y: 10)
-                .padding(.trailing, 24)
-                .padding(.vertical, 24)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                Spacer(minLength: 0)
             }
         }
         .zIndex(150)
@@ -297,9 +301,9 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                     handleTransportTap()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(width: 62, height: 62)
+                        .frame(width: 48, height: 48)
                         .background(
                             Circle()
                                 .fill(Color.white.opacity(0.16))
@@ -310,11 +314,20 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, 24)
-                .padding(.bottom, 24)
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
             }
         }
         .zIndex(200)
+    }
+
+    private var liveCenteredItem: Item? {
+        guard !items.isEmpty else { return nil }
+        let centeredIndex = StageFlowLayoutModel.snappedIndex(
+            for: scrollIndex + dragIndexDelta,
+            itemCount: items.count
+        )
+        return items[centeredIndex]
     }
 
     private var centeredItem: Item? {
