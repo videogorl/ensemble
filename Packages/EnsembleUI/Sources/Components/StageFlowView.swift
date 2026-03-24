@@ -211,6 +211,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 isPaused: false,
                 isLowPowerMode: powerStateMonitor.isLowPowerMode
             )
+            .environment(\.colorScheme, .dark)
             .ignoresSafeArea()
             .allowsHitTesting(false)
         }
@@ -240,21 +241,11 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
                     if abs(relativeIndex) < 10 {
                         let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
-                        itemView(item)
-                            .frame(width: baseItemSize, height: baseItemSize)
-                            .scaleEffect(itemLayout.scale)
-                            .opacity(itemLayout.opacity)
-                            .rotation3DEffect(
-                                .degrees(itemLayout.rotation),
-                                axis: (x: 0, y: 1, z: 0),
-                                perspective: 0.58
-                            )
-                            .offset(
-                                x: itemLayout.xOffset,
-                                y: 0
-                            )
-                            .zIndex(itemLayout.zIndex)
-                            .allowsHitTesting(false)
+                        stageCard(
+                            for: item,
+                            itemSize: baseItemSize,
+                            layout: itemLayout
+                        )
                         #if os(iOS)
                             .accessibilityIdentifier("stageflow.item.\(index)")
                         #endif
@@ -275,6 +266,58 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .contentShape(Rectangle())
         .allowsHitTesting(!isPanelPresented)
         .highPriorityGesture(stageDragGesture)
+    }
+
+    private func stageCard(
+        for item: Item,
+        itemSize: CGFloat,
+        layout: StageFlowItemLayout
+    ) -> some View {
+        VStack(spacing: 0) {
+            itemView(item)
+                .frame(width: itemSize, height: itemSize)
+
+            reflectedStageItem(for: item, itemSize: itemSize)
+        }
+        .scaleEffect(layout.scale)
+        .opacity(layout.opacity)
+        .rotation3DEffect(
+            .degrees(layout.rotation),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: 0.58
+        )
+        .offset(
+            x: layout.xOffset,
+            y: 0
+        )
+        .zIndex(layout.zIndex)
+        .allowsHitTesting(false)
+    }
+
+    private func reflectedStageItem(for item: Item, itemSize: CGFloat) -> some View {
+        itemView(item)
+            .frame(width: itemSize, height: itemSize)
+            .scaleEffect(x: 1, y: -1, anchor: .center)
+            .opacity(0.18)
+            .mask(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.45),
+                        Color.white.opacity(0.12),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(width: itemSize, height: itemSize * 0.42)
+                .frame(maxHeight: .infinity, alignment: .top)
+            )
+            .blur(radius: 1.6)
+            .offset(y: 10)
+            .padding(.top, -8)
+            .frame(width: itemSize, height: itemSize * 0.34, alignment: .top)
+            .clipped()
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
