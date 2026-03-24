@@ -91,6 +91,7 @@ struct StageFlowTrackPanel: View {
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
                     managesOwnScrolling: true,
                     bottomContentInset: 4,
+                    rowHeight: 60,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
