@@ -486,7 +486,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
         let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
-        return max(0, min(viewportHeight * 0.62, geometry.size.width * 0.34) - 5)
+        return max(0, min(viewportHeight * 0.62, geometry.size.width * 0.34) - 7)
     }
 
     private func centeredItemSize(for geometry: GeometryProxy) -> CGFloat {
@@ -519,7 +519,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
         let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
-        return viewportHeight * 0.41
+        return viewportHeight * 0.41 + 5
     }
 
     private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {
