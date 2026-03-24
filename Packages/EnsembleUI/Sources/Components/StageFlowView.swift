@@ -261,7 +261,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
         let panelWidth = detailPanelWidth(for: geometry)
         let centeredItemSize = centeredItemSize(for: geometry)
-        let overlap = centeredItemSize * 0.24
+        let overlap = centeredItemSize * 0.09
         let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (panelWidth / 2)
         let desiredPanelCenterX = stageCenterX(for: geometry) + (centeredItemSize / 2) + (panelWidth / 2) - overlap
         let panelCenterX = min(desiredPanelCenterX, maxPanelCenterX)
@@ -391,8 +391,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private var panelRevealTransition: AnyTransition {
         .asymmetric(
-            insertion: .offset(x: -42).combined(with: .opacity),
-            removal: .offset(x: -20).combined(with: .opacity)
+            insertion: .offset(x: -16).combined(with: .opacity),
+            removal: .offset(x: -10).combined(with: .opacity)
         )
     }
 
