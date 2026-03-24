@@ -146,13 +146,17 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Color.black
                     .ignoresSafeArea()
 
+                stageLayer(in: geometry)
+
+                footerLayer
+
                 if isPanelPresented {
                     panelDismissLayer()
                 }
 
-                stageLayer(in: geometry)
-
-                footerLayer
+                if let centeredItem = centeredItem, isPanelPresented {
+                    detailPanel(for: centeredItem, in: geometry)
+                }
 
                 transportButton
             }
@@ -186,10 +190,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
 
         return ZStack {
-            if let centeredItem = centeredItem, isPanelPresented {
-                detailPanel(for: centeredItem, in: geometry)
-            }
-
             Color.clear
                 .contentShape(Rectangle())
                 .allowsHitTesting(!isPanelPresented)
@@ -312,7 +312,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             }
         }
         .frame(width: combinedPanelWidth, height: centeredItemSize)
-        .position(x: panelCenterX, y: stageCenterY(for: geometry))
+        .position(x: panelCenterX, y: detailSurfaceCenterY(for: geometry))
         .zIndex(150)
         .allowsHitTesting(true)
     }
@@ -408,6 +408,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
         geometry.size.height * 0.41
+    }
+
+    private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {
+        stageCenterY(for: geometry) + 14
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
