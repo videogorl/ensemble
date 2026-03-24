@@ -319,12 +319,12 @@ public final class NowPlayingViewModel: ObservableObject {
                     // immediately compute the active line so lyrics start at the right position.
                     // Uses a short delay to let the player report real time after startup.
                     if lyrics.isTimed {
-                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.presentationTimeValue)
                         // Retry shortly after in case the player hasn't reported real time yet
                         Task { @MainActor [weak self] in
                             try? await Task.sleep(nanoseconds: 500_000_000)
                             guard let self, case .available(let lyrics) = self.lyricsState else { return }
-                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.presentationTimeValue)
                         }
                     }
                 } else {
@@ -342,7 +342,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         // Track active lyrics line based on playback time.
         // Uses slight anticipation so lyrics appear just before the vocal.
-        playbackService.currentTimePublisher
+        playbackService.presentationTimePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
                 guard let self else { return }

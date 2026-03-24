@@ -316,6 +316,15 @@ public final class LyricsService: ObservableObject {
         currentLyricsSource = .none
     }
 
+    #if DEBUG
+    /// Test seam for view-model timing coverage without hitting the network/cache pipeline.
+    func setLyricsStateForTesting(_ state: LyricsState, source: LyricsSource = .server) {
+        loadTask?.cancel()
+        currentLyrics = state
+        currentLyricsSource = source
+    }
+    #endif
+
     // MARK: - Fetch Pipeline
 
     private func fetchLyrics(for track: Track) async -> (LyricsState, LyricsSource) {

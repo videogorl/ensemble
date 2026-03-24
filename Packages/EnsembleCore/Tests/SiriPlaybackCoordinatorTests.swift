@@ -26,6 +26,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -45,6 +46,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
         var currentTime: TimeInterval { currentTimeSubject.value }
+        var presentationTime: TimeInterval { presentationTimeSubject.value }
         var duration: TimeInterval { currentTrack?.duration ?? 0 }
         var queue: [QueueItem] { queueSubject.value }
         var currentQueueIndex: Int { queueIndexSubject.value }
@@ -65,6 +67,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { playbackStateSubject.eraseToAnyPublisher() }
         var currentTimePublisher: AnyPublisher<TimeInterval, Never> { currentTimeSubject.eraseToAnyPublisher() }
         var currentTimeValue: TimeInterval { currentTimeSubject.value }
+        var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { presentationTimeSubject.eraseToAnyPublisher() }
+        var presentationTimeValue: TimeInterval { presentationTimeSubject.value }
         var bufferedProgressValue: Double { 0 }
         var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
         var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }

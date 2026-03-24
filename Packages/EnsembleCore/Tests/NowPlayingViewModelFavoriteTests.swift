@@ -26,6 +26,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -42,6 +43,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         var currentTrack: Track? { currentTrackSubject.value }
         var playbackState: PlaybackState { playbackStateSubject.value }
         var currentTime: TimeInterval { currentTimeSubject.value }
+        var presentationTime: TimeInterval { presentationTimeSubject.value }
         var bufferedProgressValue: Double { 0 }
         var duration: TimeInterval { mockedDuration > 0 ? mockedDuration : (currentTrack?.duration ?? 0) }
         var queue: [QueueItem] { queueSubject.value }
@@ -63,6 +65,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { playbackStateSubject.eraseToAnyPublisher() }
         var currentTimePublisher: AnyPublisher<TimeInterval, Never> { currentTimeSubject.eraseToAnyPublisher() }
         var currentTimeValue: TimeInterval { currentTimeSubject.value }
+        var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { presentationTimeSubject.eraseToAnyPublisher() }
+        var presentationTimeValue: TimeInterval { presentationTimeSubject.value }
         var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
         var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }
         var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }
@@ -91,6 +95,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func setCurrentTime(_ time: TimeInterval) {
             currentTimeSubject.send(time)
+            presentationTimeSubject.send(time)
+        }
+
+        func setPresentationTime(_ time: TimeInterval) {
+            presentationTimeSubject.send(time)
         }
 
         func setDuration(_ duration: TimeInterval) {
@@ -109,6 +118,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func previous() {}
         func seek(to time: TimeInterval) {
             currentTimeSubject.send(time)
+            presentationTimeSubject.send(time)
         }
         func startFastSeeking(forward: Bool) {}
         func stopFastSeeking() {}
@@ -251,7 +261,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func deleteAllDownloads() async throws {}
     }
 
-    private func makeViewModel() -> (viewModel: NowPlayingViewModel, playbackService: MockPlaybackService) {
+    private func makeViewModel() -> (
+        viewModel: NowPlayingViewModel,
+        playbackService: MockPlaybackService,
+        lyricsService: LyricsService
+    ) {
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
         let accountManager = AccountManager(keychain: TestKeychain())
@@ -281,16 +295,20 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             syncCoordinator: syncCoordinator
         )
 
-        return (NowPlayingViewModel(
-            playbackService: playbackService,
-            syncCoordinator: syncCoordinator,
-            libraryRepository: libraryRepository,
-            navigationCoordinator: NavigationCoordinator(),
-            toastCenter: ToastCenter(),
-            mutationCoordinator: mutationCoordinator,
-            trackAvailabilityResolver: trackAvailabilityResolver,
-            lyricsService: lyricsService
-        ), playbackService)
+        return (
+            NowPlayingViewModel(
+                playbackService: playbackService,
+                syncCoordinator: syncCoordinator,
+                libraryRepository: libraryRepository,
+                navigationCoordinator: NavigationCoordinator(),
+                toastCenter: ToastCenter(),
+                mutationCoordinator: mutationCoordinator,
+                trackAvailabilityResolver: trackAvailabilityResolver,
+                lyricsService: lyricsService
+            ),
+            playbackService,
+            lyricsService
+        )
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {
@@ -351,7 +369,9 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     }
 
     func testToggleRatingUpdatesFavoriteStateForCurrentTrack() async {
-        let (viewModel, playback) = makeViewModel()
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", rating: 10)
 
         viewModel.trackRatingMutationHandlerForTesting = { _, _ in }
@@ -367,8 +387,37 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertFalse(viewModel.isTrackFavorited(track))
     }
 
+    func testLyricsUsePresentationTimeInsteadOfRawPlaybackTime() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let lyricsService = viewModelTuple.lyricsService
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
+        let lyrics = ParsedLyrics(
+            lines: [
+                LyricsLine(timestamp: 10, text: "Line 1"),
+                LyricsLine(timestamp: 19, text: "Line 2")
+            ],
+            isTimed: true
+        )
+
+        playback.setCurrentTrack(track)
+        playback.setDuration(100)
+        playback.setPlaybackState(.playing)
+        lyricsService.setLyricsStateForTesting(.available(lyrics))
+        playback.setCurrentTime(20)
+        playback.setPresentationTime(18.5)
+
+        await Task.yield()
+
+        XCTAssertEqual(viewModel.currentTime, 20, accuracy: 0.001)
+        XCTAssertEqual(viewModel.currentLyricsLineIndex, 0)
+    }
+
     func testProgressPinsAtCompleteWhenCurrentTimeReachesDuration() async {
-        let (viewModel, playback) = makeViewModel()
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 100)
         playback.setCurrentTrack(track)
         playback.setDuration(100)
@@ -383,7 +432,9 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     }
 
     func testScrubberDurationMatchesPlaybackDuration() async {
-        let (viewModel, playback) = makeViewModel()
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
         playback.setCurrentTrack(track)
         playback.setDuration(200)
