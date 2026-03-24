@@ -195,6 +195,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .onReceive(nowPlayingVM.$queue) { queue in
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: queue.count)
         }
+        .ignoresSafeArea()
     }
 
     private func stageLayer(in geometry: GeometryProxy) -> some View {
