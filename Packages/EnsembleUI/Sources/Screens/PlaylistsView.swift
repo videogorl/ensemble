@@ -30,12 +30,12 @@ public struct PlaylistsView: View {
     // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
     @State private var cachedDisplayedPlaylists: [Playlist] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
-    @State private var isCoverFlowActive = false
+    @State private var isStageFlowActive = false
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
-    private var supportsCoverFlow: Bool {
+    private var supportsStageFlow: Bool {
         #if os(iOS)
         UIDevice.current.userInterfaceIdiom == .phone
         #else
@@ -54,24 +54,24 @@ public struct PlaylistsView: View {
                 loadingView
             } else if effectivePlaylists.isEmpty {
                 emptyView
-            } else if isCoverFlowActive {
-                landscapeCoverFlowView
+            } else if isStageFlowActive {
+                landscapeStageFlowView
             } else {
                 playlistListView
             }
         }
-        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
         // instead of re-evaluating the entire body on every geometry change
         .background(
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
-                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
+                        if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        let active = supportsCoverFlow && newSize.width > newSize.height
-                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                        let active = supportsStageFlow && newSize.width > newSize.height
+                        if active != isStageFlowActive { isStageFlowActive = active }
                     }
             }
         )
@@ -168,12 +168,12 @@ public struct PlaylistsView: View {
                     .frame(width: 720, height: 560)
                 #endif
             }
-            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
-            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
+            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .stageFlowRotationSupport(isEnabled: supportsStageFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
             #endif
-            .navigationTitle(isCoverFlowActive ? "" : "Playlists")
+            .navigationTitle(isStageFlowActive ? "" : "Playlists")
             .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             .task {
                 await viewModel.loadPlaylists()
@@ -238,7 +238,7 @@ public struct PlaylistsView: View {
             .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !isCoverFlowActive {
+                if !isStageFlowActive {
                     HStack(spacing: 16) {
                         // Extracted to scope syncCoordinator observation to just the button
                         PlaylistsNewButton {
@@ -273,7 +273,7 @@ public struct PlaylistsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !isCoverFlowActive {
+                if !isStageFlowActive {
                     HStack(spacing: 16) {
                         PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
@@ -309,13 +309,13 @@ public struct PlaylistsView: View {
             }
     }
 
-    private var landscapeCoverFlowView: some View {
+    private var landscapeStageFlowView: some View {
         #if os(iOS)
-        coverFlowView
+        stageFlowView
             .navigationBarHidden(true)
             .statusBar(hidden: true)
         #else
-        coverFlowView
+        stageFlowView
         #endif
     }
 
@@ -423,29 +423,34 @@ public struct PlaylistsView: View {
         .miniPlayerBottomSpacing(140)
     }
     
-    private var coverFlowView: some View {
-        CoverFlowView(
+    private var stageFlowView: some View {
+        StageFlowView(
             items: cachedDisplayedPlaylists,
+            nowPlayingVM: nowPlayingVM,
             itemView: { playlist in
-                CoverFlowItemView(playlist: playlist)
+                StageFlowItemView(playlist: playlist)
             },
-            detailContent: { selectedPlaylist in
-                if let selectedPlaylist = selectedPlaylist {
-                    AnyView(
-                        CoverFlowDetailView(
-                            contentType: .playlist(selectedPlaylist.id),
-                            nowPlayingVM: nowPlayingVM
-                        )
-                    )
-                } else {
-                    AnyView(Color.clear.frame(height: 0))
-                }
+            detailView: { selectedPlaylist in
+                StageFlowTrackPanel(
+                    contentType: .playlist(id: selectedPlaylist.id, sourceCompositeKey: selectedPlaylist.sourceCompositeKey),
+                    title: selectedPlaylist.title,
+                    subtitle: "\(selectedPlaylist.trackCount) tracks",
+                    nowPlayingVM: nowPlayingVM
+                )
             },
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
+            resolvePlaybackTracks: { playlist in
+                if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) {
+                    return cachedPlaylist.tracksArray.map { Track(from: $0) }
+                }
+                return []
+            },
             selectedItem: $selectedPlaylist
         )
-        .background(Color.black)
     }
 
     private var effectivePlaylists: [Playlist] {

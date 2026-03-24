@@ -4,13 +4,14 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
     @State private var showingManageSources = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
-    @State private var isCoverFlowActive = false
+    @State private var isStageFlowActive = false
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel
@@ -25,7 +26,7 @@ public struct AlbumsView: View {
         return Array(Set(artists))
     }
 
-    private var supportsCoverFlow: Bool {
+    private var supportsStageFlow: Bool {
         #if os(iOS)
         UIDevice.current.userInterfaceIdiom == .phone
         #else
@@ -39,33 +40,33 @@ public struct AlbumsView: View {
                 loadingView
             } else if libraryVM.albums.isEmpty {
                 emptyView
-            } else if isCoverFlowActive {
-                landscapeCoverFlowView
+            } else if isStageFlowActive {
+                landscapeStageFlowView
             } else {
                 albumGridView
             }
         }
-        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // Lightweight GeometryReader overlay — only updates @State isStageFlowActive
         // instead of re-evaluating the entire body on every geometry change
         .background(
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
-                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                        let active = supportsStageFlow && geometry.size.width > geometry.size.height
+                        if active != isStageFlowActive { isStageFlowActive = active }
                     }
                     .onChange(of: geometry.size) { newSize in
-                        let active = supportsCoverFlow && newSize.width > newSize.height
-                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                        let active = supportsStageFlow && newSize.width > newSize.height
+                        if active != isStageFlowActive { isStageFlowActive = active }
                     }
             }
         )
-            .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
-            .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
+            .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+            .stageFlowRotationSupport(isEnabled: supportsStageFlow)
             #if os(iOS)
-            .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
+            .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
             #endif
-            .navigationTitle(isCoverFlowActive ? "" : "Albums")
+            .navigationTitle(isStageFlowActive ? "" : "Albums")
             .searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
             .refreshable {
                 await libraryVM.refreshFromServer()
@@ -73,7 +74,7 @@ public struct AlbumsView: View {
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
+                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -119,7 +120,7 @@ public struct AlbumsView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    if !libraryVM.albums.isEmpty && !isCoverFlowActive {
+                    if !libraryVM.albums.isEmpty && !isStageFlowActive {
                         HStack(spacing: 16) {
                             Button {
                                 showFilterSheet = true
@@ -193,13 +194,13 @@ public struct AlbumsView: View {
             }
     }
 
-    private var landscapeCoverFlowView: some View {
+    private var landscapeStageFlowView: some View {
         #if os(iOS)
-        coverFlowView
+        stageFlowView
             .navigationBarHidden(true)
             .statusBar(hidden: true)
         #else
-        coverFlowView
+        stageFlowView
         #endif
     }
 
@@ -365,29 +366,39 @@ public struct AlbumsView: View {
             .padding(.vertical, 8)
     }
     
-    private var coverFlowView: some View {
-        CoverFlowView(
+    private var stageFlowView: some View {
+        StageFlowView(
             items: libraryVM.filteredAlbums,
+            nowPlayingVM: nowPlayingVM,
             itemView: { album in
-                CoverFlowItemView(album: album)
+                StageFlowItemView(album: album)
             },
-            detailContent: { selectedAlbum in
-                if let selectedAlbum = selectedAlbum {
-                    AnyView(
-                        CoverFlowDetailView(
-                            contentType: .album(selectedAlbum.id),
-                            nowPlayingVM: nowPlayingVM
-                        )
-                    )
-                } else {
-                    AnyView(Color.clear.frame(height: 0))
-                }
+            detailView: { selectedAlbum in
+                StageFlowTrackPanel(
+                    contentType: .album(id: selectedAlbum.id, sourceCompositeKey: selectedAlbum.sourceCompositeKey),
+                    title: selectedAlbum.title,
+                    subtitle: selectedAlbum.artistName,
+                    nowPlayingVM: nowPlayingVM
+                )
             },
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
+            resolvePlaybackTracks: { album in
+                await resolveStageFlowTracks(for: album)
+            },
             selectedItem: $selectedAlbum
         )
-        .background(Color.black)
+    }
+
+    private func resolveStageFlowTracks(for album: Album) async -> [Track] {
+        let cachedTracks: [CDTrack]
+        if let sourceCompositeKey = album.sourceCompositeKey {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceCompositeKey)) ?? []
+        } else {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id)) ?? []
+        }
+
+        return cachedTracks.map { Track(from: $0) }
     }
 }
 

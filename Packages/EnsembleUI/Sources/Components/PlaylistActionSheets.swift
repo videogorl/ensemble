@@ -26,7 +26,9 @@ public struct PlaylistPickerSheet: View {
                 NavigationStack { listContent }
             } else {
                 NavigationView { listContent }
+                    #if os(iOS)
                     .navigationViewStyle(.stack)
+                    #endif
             }
         }
     }

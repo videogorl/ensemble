@@ -167,7 +167,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Offline indicator | indicator | Device-aware overlay showing network connectivity status | `OfflineIndicatorOverlay` |
 | Mini player | control | Floating persistent player widget above tab bar | `MiniPlayer` |
 | Tab selection | state | Currently active tab | `navigationCoordinator.selectedTab` |
-| Immersive mode | state | Hidden chrome state for cover flow views | `isImmersiveMode` |
+| Immersive mode | state | Hidden chrome state for StageFlow and other full-screen views | `isImmersiveMode` |
 
 ---
 
@@ -250,7 +250,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Shuffle all action | action | Menu item to shuffle play entire library | `Shuffle All` |
 | Play all action | action | Menu item to play library in order | `Play All` |
 | Scroll index | control | Right-edge alphabetical jump index | `ScrollIndex` |
-| Cover flow view | region | Landscape-only 3D album browsing mode | `CoverFlowView` |
+| StageFlow view | region | Landscape-only centered stage browsing mode for filtered albums | `StageFlowView` |
 | Loading state | state | Spinner during initial song load | `loadingView` |
 | Empty state | state | Message when no songs available | `emptyView` |
 
@@ -275,7 +275,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Menu with sort options (title, artist, year, etc.) | `arrow.up.arrow.down` |
 | Scroll index | control | Right-edge alphabetical jump index | `ScrollIndex` |
-| Cover flow view | region | Landscape-only 3D album browsing mode | `CoverFlowView` |
+| StageFlow view | region | Landscape-only centered stage browsing mode for filtered albums | `StageFlowView` |
 | Loading state | state | Spinner during initial album load | `loadingView` |
 | Empty state | state | Message when no albums available | `emptyView` |
 
@@ -407,7 +407,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Playlist context menu | menu | Long-press menu with play, shuffle, pin, edit, delete | `playlistContextMenu` |
 | Playlist download action | action | Toggle playlist offline target from context menu | `Download`, `Remove Download` |
 | Delete swipe action | gesture | Swipe-to-delete for non-smart playlists | `standardDeleteSwipeAction` |
-| Cover flow view | region | Landscape-only 3D playlist browsing mode | `CoverFlowView` |
+| StageFlow view | region | Landscape-only centered stage browsing mode for filtered playlists | `StageFlowView` |
 | Loading state | state | Spinner during initial playlist load | `loadingView` |
 | Empty state | state | Message when no playlists available | `emptyView` |
 | Creating indicator | indicator | Toast showing playlist creation in progress | `Creating...` |
@@ -843,10 +843,10 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 ---
 
-## CoverFlowView
+## StageFlowView
 
-- **View name:** `CoverFlowView`
-- **Canonical name:** CoverFlowView
+- **View name:** `StageFlowView`
+- **Canonical name:** StageFlowView
 - **Area:** Shared
 - **Platform:** iOS
 - **Definition status:** Draft
@@ -855,13 +855,13 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| 3D carousel | region | Horizontally scrolling 3D artwork carousel | `CoverFlowView<Item, ItemView>` |
-| Center item | artwork | Focused item displayed front and center | `selectedItem` |
-| Side items | artwork | Angled items on either side of center | `CoverFlowRotationModifier` |
-| Item title | text | Title of selected item below carousel | `titleContent` |
-| Item subtitle | text | Subtitle of selected item | `subtitleContent` |
-| Detail content | region | Additional content below selected item | `detailContent` |
-| Swipe gesture | gesture | Horizontal swipe to navigate carousel | |
+| Stage carousel | region | Horizontally dragging carousel that always keeps one item centered | `StageFlowView<Item, Card, Detail>` |
+| Center-stage item | artwork | Focused item facing the user | `centeredIndex` |
+| Wing items | artwork | Inward-facing side items with clamped transforms by distance | `StageFlowLayoutModel` |
+| Stage card | control | Artwork card with title and subtitle | `StageFlowItemView` |
+| Track panel | region | Trailing slide-out panel for the centered item | `StageFlowTrackPanel` |
+| Snap gesture | gesture | Horizontal drag that snaps to the nearest centered item | `DragGesture` |
+| Transport button | control | Bottom-right play or pause control | `playbackButton` |
 | Background | region | Black background for immersive effect | `Color.black` |
 
 ---

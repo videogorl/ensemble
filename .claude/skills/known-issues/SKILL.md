@@ -263,7 +263,7 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Resolved (March 11, 2026)**
 - **Previous:** `MediaTrackList` directly observed 3 singletons as `@ObservedObject` (networkMonitor, offlineDownloadService, trackAvailabilityResolver). When SongsView rendered 26 alphabetic sections, this created 78 independent subscriptions (26×3). Every publish triggered `updateUIView` on ALL instances → reconfigured ALL visible cells.
 - **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadRatingKeys: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
-- **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `CoverFlowDetailView.swift`
+- **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `StageFlowTrackPanel.swift`
 
 ### Per-Track activeDownloadRatingKeys Refresh During Bulk Downloads
 - **Resolved (March 11, 2026)**

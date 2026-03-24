@@ -63,9 +63,9 @@ public extension View {
 
     /// Enables/disables landscape rotation support while this view is active.
     @ViewBuilder
-    func coverFlowRotationSupport(isEnabled: Bool) -> some View {
+    func stageFlowRotationSupport(isEnabled: Bool) -> some View {
         #if os(iOS)
-        self.modifier(CoverFlowRotationSupportModifier(isEnabled: isEnabled))
+        self.modifier(StageFlowRotationSupportModifier(isEnabled: isEnabled))
         #else
         self
         #endif
@@ -130,7 +130,7 @@ public extension View {
 }
 
 #if os(iOS)
-private struct CoverFlowRotationSupportModifier: ViewModifier {
+private struct StageFlowRotationSupportModifier: ViewModifier {
     let isEnabled: Bool
 
     func body(content: Content) -> some View {
@@ -148,7 +148,7 @@ private struct CoverFlowRotationSupportModifier: ViewModifier {
 
     private func postRotationSupport(_ isEnabled: Bool) {
         NotificationCenter.default.post(
-            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: isEnabled
         )
     }

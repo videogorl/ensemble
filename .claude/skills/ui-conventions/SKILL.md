@@ -65,14 +65,14 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Tab Bar
 - **Stay native:** Use SwiftUI's native `TabView` unless there's a compelling reason
-- **Immersive mode:** Tab bar hidden via `ChromeVisibilityPreferenceKey` (CoverFlow, full-screen)
+- **Immersive mode:** Tab bar hidden via `ChromeVisibilityPreferenceKey` (StageFlow, full-screen)
 - **iOS 18+:** Uses `.sidebarAdaptable` tab view style when available
 - **Mini player offset:** MiniPlayer sits 56pt above tab bar on iPhone
 
-### CoverFlow + Rotation Policy
-- CoverFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
+### StageFlow + Rotation Policy
+- StageFlow is **iPhone-only** (`UIDevice.current.userInterfaceIdiom == .phone`), even though iPad shares `os(iOS)`.
 - iPadOS and macOS always use their standard list/grid layouts for Songs, Albums, and Playlists.
-- iOS orientation is portrait-locked by default and only unlocks landscape while a CoverFlow-capable root view is active.
+- iOS orientation is portrait-locked by default and only unlocks landscape while a StageFlow-capable root view is active.
 
 ### Button Labels
 
@@ -96,7 +96,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
-- Respect safe areas unless deliberately edge-to-edge (like CoverFlow)
+- Respect safe areas unless deliberately edge-to-edge (like StageFlow)
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
