@@ -583,29 +583,7 @@ public struct SidebarView: View {
             NavigationSplitView {
                 sidebarColumn
             } detail: {
-                ZStack(alignment: .bottom) {
-                    detailView
-
-                    if !showingNowPlaying {
-                        MiniPlayer(
-                            viewModel: nowPlayingVM,
-                            isFloating: true,
-                            namespace: playerNamespace,
-                            animationID: artworkAnimationID
-                        ) {
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                                showingNowPlaying = true
-                            }
-                        }
-                        .frame(maxWidth: 540)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 20)
-                        .accentColor(deps.settingsManager.accentColor.color)
-                        .zIndex(2)
-                        .transition(.identity)
-                    }
-                }
+                detailContainerView
             }
 
             if usesViewportNowPlayingPresentation && showingNowPlaying {
@@ -721,14 +699,6 @@ public struct SidebarView: View {
                     sidebarLibrarySelectionButton("Favorites", systemImage: "heart.fill", tab: .favorites)
                 }
 
-                Section(header: Text("Playlists").textCase(nil)) {
-                    sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
-
-                    ForEach(playlistsVM.sortedPlaylists) { playlist in
-                        sidebarPlaylistButton(playlist)
-                    }
-                }
-
                 if !pinnedVM.resolvedPins.isEmpty {
                     Section(header: Text("Pins").textCase(nil)) {
                         ForEach(pinnedVM.resolvedPins) { pin in
@@ -746,6 +716,14 @@ public struct SidebarView: View {
                         .onMove { source, destination in
                             pinnedVM.move(fromOffsets: source, toOffset: destination)
                         }
+                    }
+                }
+
+                Section(header: Text("Playlists").textCase(nil)) {
+                    sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
+
+                    ForEach(playlistsVM.sortedPlaylists) { playlist in
+                        sidebarPlaylistButton(playlist)
                     }
                 }
             }
@@ -860,6 +838,31 @@ public struct SidebarView: View {
         .miniPlayerBottomSpacing(64)
     }
 
+    private var detailContainerView: some View {
+        detailView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !showingNowPlaying {
+                    MiniPlayer(
+                        viewModel: nowPlayingVM,
+                        isFloating: true,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID
+                    ) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            showingNowPlaying = true
+                        }
+                    }
+                    .frame(maxWidth: 540)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 20)
+                    .accentColor(deps.settingsManager.accentColor.color)
+                    .transition(.identity)
+                }
+            }
+    }
+
     @ViewBuilder
     private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
         NavigationStack(path: sidebarPathBinding(for: .playlists)) {
@@ -872,6 +875,7 @@ public struct SidebarView: View {
                 destinationView(for: destination)
             }
         }
+        .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
     }
 
     /// Keep the detail column's navigation container shape consistent across sidebar sections.
@@ -952,10 +956,10 @@ public struct SidebarView: View {
 
     private func sidebarSelectableRow(title: String, systemImage: String, isSelected: Bool = false) -> some View {
         Label(title, systemImage: systemImage)
-            .font(.body)
+            .font(.callout)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .foregroundColor(isSelected ? .white : .primary)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
