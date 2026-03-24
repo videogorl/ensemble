@@ -284,6 +284,9 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
             reflectedStageItem(for: item, itemSize: itemSize)
         }
+        // Rasterize the composed artwork + reflection once, then transform that
+        // layer during drags so fast swipes don't look like the whole stage fades.
+        .compositingGroup()
         .scaleEffect(layout.scale)
         .opacity(displayOpacity(for: layout.opacity, dragVisualIntensity: dragVisualIntensity))
         .rotation3DEffect(
