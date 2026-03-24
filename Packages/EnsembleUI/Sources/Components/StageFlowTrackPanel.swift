@@ -1,75 +1,97 @@
-import SwiftUI
 import EnsembleCore
+import SwiftUI
 
-/// Inline track list view for CoverFlow - loads and displays tracks for selected album/playlist
-struct CoverFlowDetailView: View {
+/// Supported detail sources for the StageFlow track panel.
+enum StageFlowContentType: Equatable {
+    case album(id: String, sourceCompositeKey: String?)
+    case playlist(id: String, sourceCompositeKey: String?)
+}
+
+/// Repository-backed track loading for StageFlow panels.
+struct StageFlowTrackLoader {
+    let libraryRepository: LibraryRepositoryProtocol
+    let playlistRepository: PlaylistRepositoryProtocol
+
+    func loadTracks(for contentType: StageFlowContentType) async throws -> [Track] {
+        switch contentType {
+        case .album(let id, let sourceCompositeKey):
+            let tracks: [CDTrack]
+            if let sourceCompositeKey {
+                tracks = try await libraryRepository.fetchTracks(forAlbum: id, sourceCompositeKey: sourceCompositeKey)
+            } else {
+                tracks = try await libraryRepository.fetchTracks(forAlbum: id)
+            }
+
+            return tracks
+                .map { Track(from: $0) }
+                .sorted { lhs, rhs in
+                    if lhs.discNumber != rhs.discNumber {
+                        return lhs.discNumber < rhs.discNumber
+                    }
+                    if lhs.trackNumber != rhs.trackNumber {
+                        return lhs.trackNumber < rhs.trackNumber
+                    }
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                }
+
+        case .playlist(let id, let sourceCompositeKey):
+            guard let playlist = try await playlistRepository.fetchPlaylist(
+                ratingKey: id,
+                sourceCompositeKey: sourceCompositeKey
+            ) else {
+                return []
+            }
+
+            return playlist.tracksArray.map { Track(from: $0) }
+        }
+    }
+}
+
+/// Scrollable trailing panel that shows the centered StageFlow item's tracks.
+struct StageFlowTrackPanel: View {
     private struct PlaylistPickerPayload: Identifiable {
         let id = UUID()
         let tracks: [Track]
         let title: String
     }
 
-    enum ContentType {
-        case album(String)
-        case playlist(String)
-    }
-    
-    let contentType: ContentType
+    let contentType: StageFlowContentType
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) var deps
+
+    @Environment(\.dependencies) private var deps
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    // Targeted NVM observation: only re-evaluate for track changes and playlist target
     @State private var currentTrackId: String?
-    @State private var nvmRecentPlaylistTitle: String?
-    
+    @State private var recentPlaylistTitle: String?
+
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             if isLoading {
-                ProgressView()
-                    .padding()
+                ProgressView("Loading tracks…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = error {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("Failed to load tracks")
-                        .font(.headline)
-                    Text(error.localizedDescription)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                errorState(error)
             } else if tracks.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("No tracks found")
-                        .font(.headline)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
             } else {
                 #if os(iOS)
-                let height: CGFloat = CGFloat(tracks.count * 68)
-                
                 MediaTrackList(
                     tracks: tracks,
                     showArtwork: true,
                     showTrackNumbers: true,
+                    showAlbumName: false,
                     groupByDisc: false,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
+                    managesOwnScrolling: true,
+                    bottomContentInset: 4,
+                    rowHeight: 58,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
@@ -99,14 +121,11 @@ struct CoverFlowDetailView: View {
                     canAddToRecentPlaylist: { track in
                         recentPlaylistTitle(for: track) != nil
                     },
-                    recentPlaylistTitle: nvmRecentPlaylistTitle
-                ) { track, index in
+                    recentPlaylistTitle: recentPlaylistTitle
+                ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-                .frame(height: height)
-                .padding(.horizontal)
                 #else
-                // macOS fallback
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
@@ -128,62 +147,87 @@ struct CoverFlowDetailView: View {
                             ) {
                                 nowPlayingVM.play(tracks: tracks, startingAt: index)
                             }
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 6)
                         }
                     }
                 }
                 #endif
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.leading, 12)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
-            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+            if keys != activeDownloadRatingKeys {
+                activeDownloadRatingKeys = keys
+            }
         }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { generation in
+            if generation != availabilityGeneration {
+                availabilityGeneration = generation
+            }
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.id
-            if id != currentTrackId { currentTrackId = id }
+            let trackID = track?.id
+            if trackID != currentTrackId {
+                currentTrackId = trackID
+            }
         }
         .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
-            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
+            let updatedTitle = target?.title
+            if updatedTitle != recentPlaylistTitle {
+                recentPlaylistTitle = updatedTitle
+            }
         }
-        .task(id: contentTypeId) {
+        .task(id: contentType) {
             await loadTracks()
         }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
     }
-    
-    private var contentTypeId: String {
-        switch contentType {
-        case .album(let id):
-            return "album-\(id)"
-        case .playlist(let id):
-            return "playlist-\(id)"
+
+    private func errorState(_ error: Error) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.secondary)
+            Text("Couldn’t load tracks")
+                .font(.headline)
+            Text(error.localizedDescription)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 28))
+                .foregroundColor(.secondary)
+            Text("No tracks available")
+                .font(.headline)
+            Text("This item doesn’t have any cached tracks yet.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func loadTracks() async {
         isLoading = true
         error = nil
-        
+
         do {
-            switch contentType {
-            case .album(let albumId):
-                let cdTracks = try await deps.libraryRepository.fetchTracks(forAlbum: albumId)
-                tracks = cdTracks.map { Track(from: $0) }
-                    .sorted { ($0.trackNumber, $0.title) < ($1.trackNumber, $1.title) }
-                
-            case .playlist:
-                // For playlists, we would need to implement playlist track fetching
-                // For now, just mark as loaded with empty array
-                // This should be enhanced in a future update to fetch actual playlist tracks
-                tracks = []
-            }
+            let loader = StageFlowTrackLoader(
+                libraryRepository: deps.libraryRepository,
+                playlistRepository: deps.playlistRepository
+            )
+            tracks = try await loader.loadTracks(for: contentType)
             isLoading = false
         } catch {
             self.error = error
@@ -221,17 +265,5 @@ struct CoverFlowDetailView: View {
             sourceCompositeKey: target.sourceCompositeKey
         )
         return nowPlayingVM.compatibleTrackCount([track], for: playlist) > 0 ? target.title : nil
-    }
-}
-
-// MARK: - Preview
-
-struct CoverFlowDetailView_Previews: PreviewProvider {
-    static var previews: some View {
-        CoverFlowDetailView(
-            contentType: .album("123"),
-            nowPlayingVM: DependencyContainer.shared.makeNowPlayingViewModel()
-        )
-        .frame(height: 400)
     }
 }

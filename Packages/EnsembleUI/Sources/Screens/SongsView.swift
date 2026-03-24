@@ -19,16 +19,17 @@ public struct SongsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
-    @State private var selectedAlbum: Album?
+    @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var showingManageSources = false
-    @State private var isCoverFlowActive = false
+    @State private var isStageFlowActive = false
+    @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
-    private var supportsCoverFlow: Bool {
+    private var supportsStageFlow: Bool {
         #if os(iOS)
         UIDevice.current.userInterfaceIdiom == .phone
         #else
@@ -55,34 +56,34 @@ public struct SongsView: View {
                 loadingView
             } else if libraryVM.tracks.isEmpty {
                 emptyView
-            } else if isCoverFlowActive {
-                landscapeAlbumCoverFlowView
+            } else if isStageFlowActive {
+                landscapeAlbumStageFlowView
             } else {
                 trackListView
             }
         }
-        // Detect landscape for CoverFlow via background GeometryReader.
+        // Detect landscape for StageFlow via background GeometryReader.
         // Placed in .background so it doesn't block the navigation controller
         // from finding the ScrollView for large title collapse tracking.
         .background(
             GeometryReader { geometry in
                 Color.clear
                     .onAppear {
-                        isCoverFlowActive = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        isStageFlowActive = supportsStageFlow && geometry.size.width > geometry.size.height
                     }
                     .onChange(of: geometry.size) { newSize in
-                        isCoverFlowActive = supportsCoverFlow && newSize.width > newSize.height
+                        isStageFlowActive = supportsStageFlow && newSize.width > newSize.height
                     }
             }
         )
-        .hideTabBarIfAvailable(isHidden: isCoverFlowActive)
-        .coverFlowRotationSupport(isEnabled: supportsCoverFlow)
+        .hideTabBarIfAvailable(isHidden: isStageFlowActive)
+        .stageFlowRotationSupport(isEnabled: supportsStageFlow)
         #if os(iOS)
-        .preference(key: ChromeVisibilityPreferenceKey.self, value: isCoverFlowActive)
+        .preference(key: ChromeVisibilityPreferenceKey.self, value: isStageFlowActive)
         #endif
-        .navigationTitle(isCoverFlowActive ? "" : "Songs")
+        .navigationTitle(isStageFlowActive ? "" : "Songs")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(isCoverFlowActive ? .inline : .large)
+        .navigationBarTitleDisplayMode(isStageFlowActive ? .inline : .large)
         #endif
         .searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
         .refreshable {
@@ -91,7 +92,7 @@ public struct SongsView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
+                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -155,7 +156,7 @@ public struct SongsView: View {
             }
             #else
             ToolbarItem(placement: .automatic) {
-                if !libraryVM.tracks.isEmpty && !isCoverFlowActive {
+                if !libraryVM.tracks.isEmpty && !isStageFlowActive {
                     HStack(spacing: 16) {
                         Button {
                             showFilterSheet = true
@@ -180,6 +181,18 @@ public struct SongsView: View {
         }
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
+        .onReceive(libraryVM.$filteredTracks) { tracks in
+            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: tracks)
+            if rebuiltAlbums != cachedStageFlowAlbums {
+                cachedStageFlowAlbums = rebuiltAlbums
+            }
+        }
+        .onAppear {
+            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: libraryVM.filteredTracks)
+            if rebuiltAlbums != cachedStageFlowAlbums {
+                cachedStageFlowAlbums = rebuiltAlbums
+            }
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -208,13 +221,13 @@ public struct SongsView: View {
         }
     }
 
-    private var landscapeAlbumCoverFlowView: some View {
+    private var landscapeAlbumStageFlowView: some View {
         #if os(iOS)
-        albumCoverFlowView
+        albumStageFlowView
             .navigationBarHidden(true)
             .statusBar(hidden: true)
         #else
-        albumCoverFlowView
+        albumStageFlowView
         #endif
     }
 
@@ -349,6 +362,7 @@ public struct SongsView: View {
             let trackCount = section.tracks.count
             let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68)
 
+            #if os(iOS)
             MediaTrackList(
                 tracks: section.tracks,
                 showArtwork: true,
@@ -404,12 +418,51 @@ public struct SongsView: View {
             }
             .frame(height: height)
             .padding(.horizontal)
+            #else
+            VStack(spacing: 0) {
+                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { _, track in
+                    TrackRow(
+                        track: track,
+                        showArtwork: true,
+                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        onPlayNext: { nowPlayingVM.playNext(track) },
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                        onGoToAlbum: {
+                            if let albumId = track.albumRatingKey {
+                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            }
+                        },
+                        onGoToArtist: {
+                            if let artistId = track.artistRatingKey {
+                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            }
+                        },
+                        onShareLink: {
+                            ShareActions.shareTrackLink(track, deps: deps)
+                        },
+                        onShareFile: {
+                            ShareActions.shareTrackFile(track, deps: deps)
+                        },
+                        recentPlaylistTitle: recentPlaylistTitle(for: track)
+                    ) {
+                        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.id == track.id }) {
+                            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+            }
+            #endif
         }
         .id(section.letter)
     }
     
     /// Non-indexed mode: self-scrolling UITableView with cell recycling.
     private var unsortedTrackListContent: some View {
+        #if os(iOS)
         MediaTrackList(
             tracks: libraryVM.filteredTracks,
             showArtwork: true,
@@ -464,6 +517,44 @@ public struct SongsView: View {
             nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
         }
         .padding(.horizontal)
+        #else
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.element.id) { index, track in
+                    TrackRow(
+                        track: track,
+                        showArtwork: true,
+                        isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                        onPlayNext: { nowPlayingVM.playNext(track) },
+                        onPlayLast: { nowPlayingVM.playLast(track) },
+                        onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
+                        onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                        onGoToAlbum: {
+                            if let albumId = track.albumRatingKey {
+                                DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            }
+                        },
+                        onGoToArtist: {
+                            if let artistId = track.artistRatingKey {
+                                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                            }
+                        },
+                        onShareLink: {
+                            ShareActions.shareTrackLink(track, deps: deps)
+                        },
+                        onShareFile: {
+                            ShareActions.shareTrackFile(track, deps: deps)
+                        },
+                        recentPlaylistTitle: recentPlaylistTitle(for: track)
+                    ) {
+                        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+        #endif
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {
@@ -508,28 +599,36 @@ public struct SongsView: View {
             .background(backgroundColor.opacity(0.9))
     }
     
-    private var albumCoverFlowView: some View {
-        CoverFlowView(
-            items: libraryVM.albums,
+    private var albumStageFlowView: some View {
+        StageFlowView(
+            items: cachedStageFlowAlbums,
+            nowPlayingVM: nowPlayingVM,
             itemView: { album in
-                CoverFlowItemView(album: album)
+                StageFlowItemView(albumItem: album)
             },
-            detailContent: { selectedAlbum in
-                if let selectedAlbum = selectedAlbum {
-                    AnyView(
-                        CoverFlowDetailView(
-                            contentType: .album(selectedAlbum.id),
-                            nowPlayingVM: nowPlayingVM
-                        )
-                    )
-                } else {
-                    AnyView(Color.clear.frame(height: 0))
-                }
+            detailView: { selectedAlbum in
+                StageFlowTrackPanel(
+                    contentType: .album(id: selectedAlbum.albumID, sourceCompositeKey: selectedAlbum.sourceCompositeKey),
+                    nowPlayingVM: nowPlayingVM
+                )
             },
             titleContent: { $0.title },
             subtitleContent: { $0.artistName },
+            resolvePlaybackTracks: { album in
+                await resolveStageFlowTracks(for: album)
+            },
             selectedItem: $selectedAlbum
         )
-        .background(Color.black)
+    }
+
+    private func resolveStageFlowTracks(for album: SongsStageFlowAlbum) async -> [Track] {
+        let cachedTracks: [CDTrack]
+        if let sourceCompositeKey = album.sourceCompositeKey {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID, sourceCompositeKey: sourceCompositeKey)) ?? []
+        } else {
+            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID)) ?? []
+        }
+
+        return cachedTracks.map { Track(from: $0) }
     }
 }

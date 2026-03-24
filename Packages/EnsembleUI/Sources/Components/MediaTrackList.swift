@@ -43,8 +43,12 @@ public class TrackTableViewCell: UITableViewCell {
     private let trackNumberLabel = UILabel()
     private let favoriteHeartView = UIImageView()
 
+    private var artworkWidthConstraint: NSLayoutConstraint?
+    private var artworkHeightConstraint: NSLayoutConstraint?
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
+    private var titleTopConstraint: NSLayoutConstraint?
+    private var subtitleTopConstraint: NSLayoutConstraint?
     private var downloadIconWidthConstraint: NSLayoutConstraint?
     private var downloadIconTrailingConstraint: NSLayoutConstraint?
     private var currentTrackID: String?
@@ -134,17 +138,12 @@ public class TrackTableViewCell: UITableViewCell {
 
             artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            artworkImageView.widthAnchor.constraint(equalToConstant: 44),
-            artworkImageView.heightAnchor.constraint(equalToConstant: 44),
 
             trackNumberLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             trackNumberLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             trackNumberLabel.widthAnchor.constraint(equalToConstant: 30),
-            
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadIcon.leadingAnchor, constant: -6),
 
             // Download icon / spinner sit just left of the duration label
@@ -164,6 +163,15 @@ public class TrackTableViewCell: UITableViewCell {
             playingIndicator.heightAnchor.constraint(equalToConstant: 20)
         ])
 
+        artworkWidthConstraint = artworkImageView.widthAnchor.constraint(equalToConstant: 44)
+        artworkHeightConstraint = artworkImageView.heightAnchor.constraint(equalToConstant: 44)
+        titleTopConstraint = titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14)
+        subtitleTopConstraint = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2)
+        artworkWidthConstraint?.isActive = true
+        artworkHeightConstraint?.isActive = true
+        titleTopConstraint?.isActive = true
+        subtitleTopConstraint?.isActive = true
+
         // Stored constraints toggled based on download state
         downloadIconWidthConstraint = downloadIcon.widthAnchor.constraint(equalToConstant: 0)
         downloadIconTrailingConstraint = downloadIcon.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor)
@@ -180,8 +188,10 @@ public class TrackTableViewCell: UITableViewCell {
         isUnavailableOffline: Bool,
         isActivelyDownloading: Bool = false,
         isFavorited: Bool = false,
+        rowHeight: CGFloat = 68,
         artworkLoader: ArtworkLoaderProtocol
     ) {
+        applyLayoutMetrics(for: rowHeight)
         titleLabel.text = track.title
 
         // Show/hide favorite heart (positioned in existing margin, no content shift)
@@ -301,6 +311,21 @@ public class TrackTableViewCell: UITableViewCell {
             artworkImageView.image = nil
         }
     }
+
+    /// Keeps StageFlow's compact rows balanced without changing the default density elsewhere.
+    private func applyLayoutMetrics(for rowHeight: CGFloat) {
+        let isCompact = rowHeight <= 60
+
+        artworkWidthConstraint?.constant = isCompact ? 40 : 44
+        artworkHeightConstraint?.constant = isCompact ? 40 : 44
+        titleTopConstraint?.constant = isCompact ? 10 : 14
+        subtitleTopConstraint?.constant = isCompact ? 1 : 2
+
+        trackNumberLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
+        titleLabel.font = .systemFont(ofSize: isCompact ? 15 : 16, weight: .regular)
+        subtitleLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
+        durationLabel.font = .systemFont(ofSize: isCompact ? 13 : 14, weight: .regular)
+    }
     
     public override func prepareForReuse() {
         super.prepareForReuse()
@@ -351,6 +376,8 @@ public struct MediaTrackList: UIViewRepresentable {
     /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
     /// Only applies when managesOwnScrolling is true.
     let bottomContentInset: CGFloat
+    /// Fixed height for each row. StageFlow uses a denser value while standard lists keep 68pt.
+    let rowHeight: CGFloat
     /// Optional SwiftUI content to embed as the UITableView's `tableHeaderView`.
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
@@ -377,6 +404,7 @@ public struct MediaTrackList: UIViewRepresentable {
         activeDownloadRatingKeys: Set<String> = [],
         managesOwnScrolling: Bool = false,
         bottomContentInset: CGFloat = 0,
+        rowHeight: CGFloat = 68,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
@@ -404,6 +432,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.activeDownloadRatingKeys = activeDownloadRatingKeys
         self.managesOwnScrolling = managesOwnScrolling
         self.bottomContentInset = bottomContentInset
+        self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
@@ -576,6 +605,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.isOffline = isOffline
         context.coordinator.activeDownloadRatingKeys = activeDownloadRatingKeys
+        context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
 
         // Update table header view size if needed (e.g., after initial width becomes available).
@@ -659,6 +689,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadRatingKeys.contains(track.id),
+                        rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
@@ -691,7 +722,8 @@ public struct MediaTrackList: UIViewRepresentable {
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
-            activeDownloadRatingKeys: activeDownloadRatingKeys
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            rowHeight: rowHeight
         )
         return coordinator
     }
@@ -733,6 +765,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
         var activeDownloadRatingKeys: Set<String>
+        var rowHeight: CGFloat
         var lastAvailabilityGeneration: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
@@ -772,7 +805,8 @@ public struct MediaTrackList: UIViewRepresentable {
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
-            activeDownloadRatingKeys: Set<String> = []
+            activeDownloadRatingKeys: Set<String> = [],
+            rowHeight: CGFloat
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
@@ -798,6 +832,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
             self.activeDownloadRatingKeys = activeDownloadRatingKeys
+            self.rowHeight = rowHeight
         }
         
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -822,6 +857,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadRatingKeys.contains(track.id),
                 isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
+                rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )
             return cell
@@ -887,7 +923,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            68
+            rowHeight
         }
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {

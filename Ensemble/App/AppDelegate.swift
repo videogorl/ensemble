@@ -11,7 +11,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// Process-level launch timestamp for TTFMP measurement
     static let launchTime = Date()
 
-    private var coverFlowRotationSupportEnabled = false
+    private var stageFlowRotationSupportEnabled = false
 
     /// Stored early health check task so executeSiriPlaybackInBackground can
     /// await it instead of running redundant checks. Set in didFinishLaunching.
@@ -60,8 +60,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleCoverFlowRotationSupportChanged(_:)),
-            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            selector: #selector(handleStageFlowRotationSupportChanged(_:)),
+            name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: nil
         )
         
@@ -211,7 +211,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     deinit {
         NotificationCenter.default.removeObserver(
             self,
-            name: AppOrientationNotifications.coverFlowRotationSupportChanged,
+            name: AppOrientationNotifications.stageFlowRotationSupportChanged,
             object: nil
         )
     }
@@ -762,18 +762,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        if coverFlowRotationSupportEnabled {
+        if stageFlowRotationSupportEnabled {
             return .allButUpsideDown
         }
         return .portrait
     }
 
     @objc
-    private func handleCoverFlowRotationSupportChanged(_ notification: Notification) {
+    private func handleStageFlowRotationSupportChanged(_ notification: Notification) {
         guard let isEnabled = notification.object as? Bool else { return }
-        guard coverFlowRotationSupportEnabled != isEnabled else { return }
+        guard stageFlowRotationSupportEnabled != isEnabled else { return }
 
-        coverFlowRotationSupportEnabled = isEnabled
+        stageFlowRotationSupportEnabled = isEnabled
         refreshSupportedOrientations()
     }
 

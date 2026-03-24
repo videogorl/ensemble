@@ -62,11 +62,21 @@ public struct NowPlayingSheetView: View {
     // MARK: - Background
     
     private var backgroundView: some View {
-        ZStack {
+        let lightOverlayColor: Color = {
+            #if os(iOS)
+            return Color(uiColor: .systemBackground)
+            #elseif os(macOS)
+            return Color(nsColor: .windowBackgroundColor)
+            #else
+            return .white
+            #endif
+        }()
+
+        return ZStack {
             // Base blurred artwork
             BlurredArtworkBackground(
                 image: viewModel.artworkImage,
-                overlayColor: colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
+                overlayColor: colorScheme == .dark ? .black : lightOverlayColor
             )
             .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
             
@@ -75,7 +85,7 @@ public struct NowPlayingSheetView: View {
                 Color.black.opacity(0.45)
                     .allowsHitTesting(false)
             } else {
-                Color(uiColor: .systemBackground).opacity(0.7)
+                lightOverlayColor.opacity(0.7)
                     .allowsHitTesting(false)
             }
         }
@@ -111,7 +121,9 @@ public struct NowPlayingSheetView: View {
                     LyricsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isLowPowerMode: powerStateMonitor.isLowPowerMode)
                         .tag(2)
                 }
+                #if os(iOS)
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                #endif
                 .frame(maxWidth: 500) // Cap width to match controls
                 
                 // Fixed page indicator for side-by-side carousel
