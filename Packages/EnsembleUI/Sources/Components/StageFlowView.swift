@@ -259,18 +259,24 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
-        let panelWidth = detailPanelWidth(for: geometry)
+        let trackPanelWidth = detailPanelWidth(for: geometry)
         let centeredItemSize = centeredItemSize(for: geometry)
-        let overlap = centeredItemSize * 0.09
-        let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (panelWidth / 2)
-        let desiredPanelCenterX = stageCenterX(for: geometry) + (centeredItemSize / 2) + (panelWidth / 2) - overlap
+        let seamOverlap: CGFloat = 10
+        let combinedPanelWidth = centeredItemSize + trackPanelWidth - seamOverlap
+        let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (combinedPanelWidth / 2)
+        let desiredPanelCenterX = stageCenterX(for: geometry) + (trackPanelWidth / 2) + (seamOverlap / 2)
         let panelCenterX = min(desiredPanelCenterX, maxPanelCenterX)
 
         return VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                detailView(item)
+            HStack(spacing: 0) {
+                Spacer(minLength: centeredItemSize - seamOverlap)
+
+                VStack(spacing: 0) {
+                    detailView(item)
+                }
+                .frame(width: trackPanelWidth)
             }
-            .frame(width: panelWidth)
+            .frame(width: combinedPanelWidth)
             .frame(height: centeredItemSize)
             .background(stagePanelBackground)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -278,6 +284,27 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             )
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    closePanel()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primary.opacity(0.8))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.36))
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
+                .padding(.trailing, 10)
+            }
             .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
         }
         .position(x: panelCenterX, y: stageCenterY(for: geometry))
@@ -288,23 +315,14 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func panelDismissLayer(in geometry: GeometryProxy) -> some View {
-        let panelWidth = detailPanelWidth(for: geometry)
-        let panelInteractionWidth = panelWidth + detailPanelTrailingInset + 12
-        let dismissWidth = max(geometry.size.width - panelInteractionWidth, 0)
-
-        return HStack(spacing: 0) {
-            Color.clear
-                .frame(width: dismissWidth)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    closePanel()
-                }
-
-            Spacer(minLength: 0)
-        }
+        Color.clear
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
-        .zIndex(150)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            closePanel()
+        }
+        .zIndex(120)
     }
 
     private var transportButton: some View {
