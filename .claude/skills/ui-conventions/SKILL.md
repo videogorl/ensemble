@@ -109,6 +109,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`) and change the outer shell first before considering card-specific rewrites.
 - For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
 - On macOS, keep the Now Playing header below the window toolbar region and bind Escape to dismiss so close controls never compete with toolbar items.
+- When viewport Now Playing is active, hide the underlying navigation/window chrome so titles, search bars, and toolbar items from the host screen do not show through behind the overlay.
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`

@@ -8,7 +8,7 @@ user-invocable: true
 
 ### Desktop Sheet Scaffold + Viewport Now Playing (Mar 24, 2026)
 
-macOS modal cleanup now uses a reusable `DesktopSheetScaffold` instead of repeating iOS-style `NavigationView` sheet shells. `HubOrderingSheet` was migrated to the scaffold with desktop footer actions, and `NowPlayingSheetView` now uses a viewport-filling presentation on iPad and macOS with a desktop/tablet header and direct Queue/Lyrics switching rather than a floating phone sheet. `MainTabView` and `SidebarView` present Now Playing as an in-app overlay on large platforms while keeping the existing sheet path on iPhone. A follow-up pass moved the desktop/tablet header safely below toolbar chrome and bound Escape to dismiss the overlay.
+macOS modal cleanup now uses a reusable `DesktopSheetScaffold` instead of repeating iOS-style `NavigationView` sheet shells. `HubOrderingSheet` was migrated to the scaffold with desktop footer actions, and `NowPlayingSheetView` now uses a viewport-filling presentation on iPad and macOS with a desktop/tablet header and direct Queue/Lyrics switching rather than a floating phone sheet. `MainTabView` and `SidebarView` present Now Playing as an in-app overlay on large platforms while keeping the existing sheet path on iPhone. Follow-up passes moved the desktop/tablet header safely below toolbar chrome, bound Escape to dismiss the overlay, and hide the host screen's navigation/window chrome while Now Playing is active so titles/search bars do not bleed through.
 
 **Key files:** `DesktopSheetScaffold.swift`, `HubOrderingSheet.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
 

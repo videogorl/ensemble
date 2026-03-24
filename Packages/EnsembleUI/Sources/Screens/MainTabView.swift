@@ -231,6 +231,9 @@ public struct MainTabView: View {
                         }
                     }
             )
+            .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
+                applyViewportNowPlayingChromeVisibility(to: view)
+            }
         }
     }
 
@@ -270,6 +273,27 @@ public struct MainTabView: View {
                 isImmersiveMode = isHidden
             }
         }
+        #endif
+    }
+
+    @ViewBuilder
+    private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            content.toolbar(.hidden, for: .windowToolbar)
+        } else {
+            content
+        }
+        #elseif os(iOS)
+        if #available(iOS 16.0, *) {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .toolbar(.hidden, for: .tabBar)
+        } else {
+            content
+        }
+        #else
+        content
         #endif
     }
     
@@ -633,6 +657,9 @@ public struct SidebarView: View {
             }
 
         }
+        .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
+            applyViewportNowPlayingChromeVisibility(to: view)
+        }
         .onChange(of: showingNowPlaying) { isShowing in
             // Execute pending navigation after sheet fully dismisses.
             if !isShowing, let pending = navigationCoordinator.pendingNavigation {
@@ -677,6 +704,21 @@ public struct SidebarView: View {
                 navigationCoordinator.selectedTab = tab
             }
         }
+    }
+
+    @ViewBuilder
+    private func applyViewportNowPlayingChromeVisibility<Content: View>(to content: Content) -> some View {
+        #if os(macOS)
+        content.toolbar(.hidden, for: .windowToolbar)
+        #elseif os(iOS)
+        if #available(iOS 16.0, *) {
+            content.toolbar(.hidden, for: .navigationBar)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 
     /// SF Symbol for each pinned item type
