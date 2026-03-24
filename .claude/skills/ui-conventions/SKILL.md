@@ -98,6 +98,17 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Views should adapt to platform idioms (tab bar on iPhone, sidebar on iPad/macOS)
 - Respect safe areas unless deliberately edge-to-edge (like StageFlow)
 
+### Desktop Sheets (macOS)
+- Avoid reusing iOS-style `NavigationView` + `Form` modal shells on macOS for complex sheets; they tend to collapse into split/sidebar or table-like layouts.
+- Prefer `DesktopSheetScaffold` for macOS modal chrome: title/subtitle header, flexible content region, and footer action bar.
+- Keep desktop sheet sizing consistent with scaffold defaults unless a flow genuinely needs a different footprint.
+- When a desktop flow needs drill-in selection (artists/genres, etc.), prefer a secondary focused sheet over embedding navigation chrome into the primary sheet.
+
+### Now Playing on iPad/macOS
+- iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
+- Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`) and change the outer shell first before considering card-specific rewrites.
+- For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
+
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
 - Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it

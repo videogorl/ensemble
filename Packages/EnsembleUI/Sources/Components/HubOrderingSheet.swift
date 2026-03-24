@@ -14,6 +14,43 @@ public struct HubOrderingSheet: View {
     }
 
     public var body: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        iOSBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macOSBody: some View {
+        DesktopSheetScaffold(
+            title: "Home Screen",
+            subtitle: headerSubtitle
+        ) {
+            hubList
+        } footer: {
+            Button("Reset") {
+                handleReset()
+            }
+
+            Button("Done") {
+                viewModel.exitEditMode(save: true)
+            }
+            .keyboardShortcut(.defaultAction)
+        }
+        .onAppear {
+            reorderedHubs = viewModel.editableHubs
+        }
+        .onChange(of: reorderedHubs) { newValue in
+            viewModel.editableHubs = newValue
+        }
+        .onChange(of: viewModel.editableHubs) { newValue in
+            reorderedHubs = newValue
+        }
+    }
+    #endif
+
+    private var iOSBody: some View {
         NavigationView {
             VStack(spacing: 0) {
                 headerBanner
@@ -35,6 +72,14 @@ public struct HubOrderingSheet: View {
         }
         .onChange(of: viewModel.editableHubs) { newValue in
             reorderedHubs = newValue
+        }
+    }
+
+    private var headerSubtitle: String {
+        if viewModel.currentSourceName.isEmpty {
+            return "Drag to reorder sections"
+        } else {
+            return "Drag to reorder sections\n\(viewModel.currentSourceName)"
         }
     }
 

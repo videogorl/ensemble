@@ -78,6 +78,16 @@ public struct MainTabView: View {
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
     }
 
+    private var usesViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
+    }
+
     private var isKeyboardVisible: Bool {
         #if os(iOS)
         return keyboard.isVisible
@@ -170,16 +180,36 @@ public struct MainTabView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingNowPlaying) {
-                NowPlayingSheetView(
-                    viewModel: nowPlayingVM,
-                    namespace: playerNamespace,
-                    animationID: artworkAnimationID,
-                    dismissAction: {
-                        showingNowPlaying = false
-                    }
-                )
-                .accentColor(settingsManager.accentColor.color)
+            .overlay {
+                if usesViewportNowPlayingPresentation && showingNowPlaying {
+                    NowPlayingSheetView(
+                        viewModel: nowPlayingVM,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: {
+                            withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+                                showingNowPlaying = false
+                            }
+                        }
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(3)
+                }
+            }
+            .if(!usesViewportNowPlayingPresentation) { view in
+                view.sheet(isPresented: $showingNowPlaying) {
+                    NowPlayingSheetView(
+                        viewModel: nowPlayingVM,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        dismissAction: {
+                            showingNowPlaying = false
+                        }
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                }
             }
             // Add account sheet presented at root level so it survives
             // TabView content recreation on iOS 15 foreground transitions
@@ -500,6 +530,16 @@ public struct SidebarView: View {
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
+    private var usesViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
+    }
+
     public var body: some View {
         ZStack(alignment: .bottom) {
             // Main split view
@@ -575,6 +615,23 @@ public struct SidebarView: View {
                 .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
 
+            if usesViewportNowPlayingPresentation && showingNowPlaying {
+                NowPlayingSheetView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+                            showingNowPlaying = false
+                        }
+                    }
+                )
+                .accentColor(deps.settingsManager.accentColor.color)
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(3)
+            }
+
         }
         .onChange(of: showingNowPlaying) { isShowing in
             // Execute pending navigation after sheet fully dismisses.
@@ -588,16 +645,18 @@ public struct SidebarView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingSheetView(
-                viewModel: nowPlayingVM,
-                namespace: playerNamespace,
-                animationID: artworkAnimationID,
-                dismissAction: {
-                    showingNowPlaying = false
-                }
-            )
-            .accentColor(deps.settingsManager.accentColor.color)
+        .if(!usesViewportNowPlayingPresentation) { view in
+            view.sheet(isPresented: $showingNowPlaying) {
+                NowPlayingSheetView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        showingNowPlaying = false
+                    }
+                )
+                .accentColor(deps.settingsManager.accentColor.color)
+            }
         }
         // Add account sheet presented at root level so it survives
         // view content recreation on foreground transitions

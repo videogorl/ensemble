@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Desktop Sheet Scaffold + Viewport Now Playing (Mar 24, 2026)
+
+macOS modal cleanup now uses a reusable `DesktopSheetScaffold` instead of repeating iOS-style `NavigationView` sheet shells. `HubOrderingSheet` was migrated to the scaffold with desktop footer actions, and `NowPlayingSheetView` now uses a viewport-filling presentation on iPad and macOS with a desktop/tablet header and direct Queue/Lyrics switching rather than a floating phone sheet. `MainTabView` and `SidebarView` present Now Playing as an in-app overlay on large platforms while keeping the existing sheet path on iPhone.
+
+**Key files:** `DesktopSheetScaffold.swift`, `HubOrderingSheet.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
+
 ### StageFlow Landed (Mar 24, 2026)
 
 Replaced the old immersive carousel implementation with `StageFlow` across iPhone landscape Songs, Albums, and Playlists. StageFlow keeps one item center stage, clamps side-item transforms by proximity, snaps drags to the nearest centered item, opens a trailing track panel from the centered card, and uses the already-filtered source data from each host screen. Songs now build stage items from `filteredTracks` grouped by album instead of the raw album collection. Aurora is also suppressed while immersive StageFlow is active so decorative layers never render above the carousel.

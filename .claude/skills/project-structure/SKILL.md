@@ -220,6 +220,7 @@ Sources/
 |   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
+|   +-- DesktopSheetScaffold.swift    # Shared macOS sheet scaffold with title bar and footer actions
 |   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- SongsStageFlowAlbum.swift     # Builds StageFlow album cards from filtered song results
 |   +-- StageFlowView.swift           # Center-stage carousel with snapping and transport overlay

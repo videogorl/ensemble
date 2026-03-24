@@ -35,24 +35,10 @@ public struct NowPlayingSheetView: View {
                 backgroundView
                 
                 VStack(spacing: 0) {
-                    // Dismiss pill (tappable to close sheet)
-                    dismissPill
-                        .padding(.top, 28)
-                        .padding(.bottom, 8)
-                        .contentShape(Rectangle()) // Expand tap area
-                        .onTapGesture {
-                            if let dismissAction = dismissAction {
-                                dismissAction()
-                            } else {
-                                dismiss()
-                            }
-                        }
-                    
-                    // Layout: side-by-side on iPad/Mac, carousel on iPhone
                     if shouldUseSideBySideLayout(geometry: geometry) {
-                        sideBySideLayout
+                        viewportLayout
                     } else {
-                        NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                        mobileSheetLayout
                     }
                 }
             }
@@ -100,40 +86,112 @@ public struct NowPlayingSheetView: View {
             .frame(width: 36, height: 5)
     }
     
-    // MARK: - iPad/Mac Side-by-Side Layout
-    
-    private var sideBySideLayout: some View {
-        HStack(spacing: 0) {
-            // Left: Controls card (fixed, primary focus)
-            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                .frame(maxWidth: 500) // Cap width for readability
-            
-            // Right: Carousel with Queue and Lyrics
-            ZStack(alignment: .bottom) {
-                TabView(selection: $viewModel.currentPage) {
-                    QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-                        .tag(0)
-                    
-                    // Placeholder center slot (not shown in side-by-side)
-                    Color.clear
-                        .tag(1)
-                    
-                    LyricsCard(viewModel: viewModel, currentPage: $viewModel.currentPage, isLowPowerMode: powerStateMonitor.isLowPowerMode)
-                        .tag(2)
+    private var mobileSheetLayout: some View {
+        VStack(spacing: 0) {
+            dismissPill
+                .padding(.top, 28)
+                .padding(.bottom, 8)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    handleDismiss()
                 }
-                #if os(iOS)
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                #endif
-                .frame(maxWidth: 500) // Cap width to match controls
-                
-                // Fixed page indicator for side-by-side carousel
-                PageIndicator(
-                    currentPage: $viewModel.currentPage,
-                    lyricsAvailable: viewModel.lyricsState.isAvailable
-                )
-                .padding(.top, 10)
-                .padding(.bottom, 10)
+
+            NowPlayingCarousel(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        }
+    }
+
+    // MARK: - iPad/Mac Viewport Layout
+
+    private var viewportLayout: some View {
+        VStack(spacing: 20) {
+            viewportHeader
+
+            HStack(spacing: 20) {
+                ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+                    .frame(maxWidth: 520, maxHeight: .infinity)
+
+                viewportDetailPanel
+                    .frame(maxWidth: 520, maxHeight: .infinity)
             }
+            .frame(maxWidth: 1120, maxHeight: .infinity)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 24)
+    }
+
+    private var viewportHeader: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.currentTrack?.title ?? "Now Playing")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+
+                if let artist = viewModel.currentTrack?.artistName, !artist.isEmpty {
+                    Text(artist)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if viewModel.lyricsState.isAvailable {
+                Picker("Panel", selection: viewportPanelSelection) {
+                    Text("Queue").tag(0)
+                    Text("Lyrics").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+            }
+
+            Button {
+                handleDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: 1120)
+        .padding(.horizontal, 8)
+    }
+
+    private var viewportPanelSelection: Binding<Int> {
+        Binding(
+            get: {
+                if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
+                    return 2
+                }
+                return 0
+            },
+            set: { newValue in
+                viewModel.currentPage = newValue
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var viewportDetailPanel: some View {
+        if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
+            LyricsCard(
+                viewModel: viewModel,
+                currentPage: $viewModel.currentPage,
+                isLowPowerMode: powerStateMonitor.isLowPowerMode
+            )
+        } else {
+            QueueCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        }
+    }
+    
+    private func handleDismiss() {
+        if let dismissAction = dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
         }
     }
     
