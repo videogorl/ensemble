@@ -6,6 +6,18 @@ user-invocable: true
 
 # Recent Major Changes
 
+### External Output Sync Compensation (Mar 24, 2026)
+
+Aurora visualization and live lyrics now follow a presentation clock instead of raw transport time when playback is actively flowing. `PlaybackService` estimates external output latency for AirPlay and Bluetooth routes from the audio session, publishes `presentationTime`, and keeps transport time untouched for seek/reporting/scrobble paths. `NowPlayingViewModel` now drives lyric highlighting from the presentation clock, and the visualizer analyzer receives the adjusted timeline so the UI better matches what the user actually hears on buffered routes.
+
+**Key files:**
+- `PlaybackService.swift` -- Presentation clock, route classification, latency estimation, adjusted analyzer feed
+- `NowPlayingViewModel.swift` -- Lyrics highlight/restore now consume presentation time
+- `LyricsService.swift` -- Added debug-only test seam for view-model timing coverage
+- `PlaybackServiceTests.swift` -- Route kind, latency estimate, and presentation time tests
+- `NowPlayingViewModelFavoriteTests.swift` -- Lyrics timing regression coverage
+- `README.md` -- Playback feature list updated for external-output sync compensation
+
 ### Instrumental Mode / Vocal Attenuation (Mar 20, 2026)
 
 Apple Music Sing-style feature using AUSoundIsolation AudioUnit for on-device vocal removal. Hybrid engine switching: AVQueuePlayer stays active for normal playback; toggling instrumental mode switches to an AVAudioEngine pipeline with AUSoundIsolation, then switches back when toggled off.
