@@ -9,6 +9,7 @@ import AppKit
 public struct AddPlexAccountView: View {
     @StateObject private var viewModel: AddPlexAccountViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(\.dependencies) private var deps
 
     public init() {
@@ -161,7 +162,11 @@ public struct AddPlexAccountView: View {
             }
             .buttonStyle(.plain)
 
-            Link(destination: linkURL) {
+            // Use Button + openURL instead of Link to prevent the sheet
+            // from dismissing on iOS 15/16 (known SwiftUI Link-in-sheet bug)
+            Button {
+                openURL(linkURL)
+            } label: {
                 HStack {
                     Text("Open plex.tv/link")
                     Image(systemName: "arrow.up.right.square")

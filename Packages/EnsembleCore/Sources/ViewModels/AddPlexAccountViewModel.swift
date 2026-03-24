@@ -71,6 +71,11 @@ public final class AddPlexAccountViewModel: ObservableObject {
         do {
             let token = try await authService.waitForAuthorization(pin: pin)
             authToken = token
+
+            // Trigger local network permission dialog before server discovery
+            // so the user sees the prompt before we try to probe local endpoints
+            await LocalNetworkPermissionProbe.promptIfNeeded()
+
             state = .selectingServer
             await loadServers()
         } catch {

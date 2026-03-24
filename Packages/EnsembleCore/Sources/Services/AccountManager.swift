@@ -8,12 +8,14 @@ public final class AccountManager: ObservableObject {
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
 
     private let keychain: KeychainServiceProtocol
+    private let connectionRegistry: ServerConnectionRegistry?
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private static let authMigrationVersionKey = "plex_auth_migration_version"
     private static let authMigrationVersion = 2
 
-    public init(keychain: KeychainServiceProtocol) {
+    public init(keychain: KeychainServiceProtocol, connectionRegistry: ServerConnectionRegistry? = nil) {
         self.keychain = keychain
+        self.connectionRegistry = connectionRegistry
     }
 
     // MARK: - Load / Save
@@ -60,10 +62,11 @@ public final class AccountManager: ObservableObject {
 
     public func updatePlexAccount(_ account: PlexAccountConfig) {
         if let index = plexAccounts.firstIndex(where: { $0.id == account.id }) {
-            // Clear cached API clients for this account's servers
-            account.servers.forEach { server in
-                clearAPIClientCache(accountId: account.id, serverId: server.id)
-            }
+            // NOTE: We intentionally do NOT clear the API client cache here.
+            // Clearing the cache invalidates existing references held by providers,
+            // causing them to use stale URLs when building stream requests.
+            // The cached API client's currentServerURL is updated separately by
+            // SyncCoordinator.refreshAPIClientConnections() after health checks.
             plexAccounts[index] = account
             saveAccounts()
         }
@@ -85,9 +88,10 @@ public final class AccountManager: ObservableObject {
             id: updatedLibraries[libraryIndex].id,
             key: updatedLibraries[libraryIndex].key,
             title: updatedLibraries[libraryIndex].title,
-            isEnabled: false
+            isEnabled: false,
+            allowSync: updatedLibraries[libraryIndex].allowSync
         )
-        
+
         // Create new server with updated libraries
         var updatedServers = account.servers
         updatedServers[serverIndex] = PlexServerConfig(
@@ -97,9 +101,10 @@ public final class AccountManager: ObservableObject {
             connections: server.connections,
             token: server.token,
             platform: server.platform,
+            capabilities: server.capabilities,
             libraries: updatedLibraries
         )
-        
+
         // Create new account with updated servers
         plexAccounts[accountIndex] = PlexAccountConfig(
             id: account.id,
@@ -108,9 +113,10 @@ public final class AccountManager: ObservableObject {
             displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
             servers: updatedServers
         )
-        
+
         saveAccounts()
     }
 
@@ -141,7 +147,8 @@ public final class AccountManager: ObservableObject {
             id: library.id,
             key: library.key,
             title: library.title,
-            isEnabled: isEnabled
+            isEnabled: isEnabled,
+            allowSync: library.allowSync
         )
 
         var updatedServers = account.servers
@@ -152,6 +159,7 @@ public final class AccountManager: ObservableObject {
             connections: server.connections,
             token: server.token,
             platform: server.platform,
+            capabilities: server.capabilities,
             libraries: updatedLibraries
         )
 
@@ -162,6 +170,7 @@ public final class AccountManager: ObservableObject {
             displayTitle: account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
             servers: updatedServers
         )
 
@@ -220,44 +229,23 @@ public final class AccountManager: ObservableObject {
 
     /// Create or retrieve cached PlexAPIClient for a specific server
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
-        #if DEBUG
-        EnsembleLogger.debug("🔄 AccountManager.makeAPIClient() called")
-        EnsembleLogger.debug("  - Account ID: \(accountId)")
-        EnsembleLogger.debug("  - Server ID: \(serverId)")
-        #endif
-        
         let cacheKey = "\(accountId):\(serverId)"
 
-        // Return cached client if available
+        // Return cached client if available (no log — called frequently)
         if let cachedClient = apiClientCache[cacheKey] {
-            #if DEBUG
-            EnsembleLogger.debug("✅ Returning cached API client")
-            #endif
             return cachedClient
         }
-        
-        #if DEBUG
-        EnsembleLogger.debug("🔄 Creating new API client...")
-        EnsembleLogger.debug("  - Looking for account with ID: \(accountId)")
-        #endif
+
         guard let account = plexAccounts.first(where: { $0.id == accountId }),
               let server = account.servers.first(where: { $0.id == serverId }) else {
             #if DEBUG
-            EnsembleLogger.debug("❌ Could not find account or server")
-            EnsembleLogger.debug("  - Accounts available: \(plexAccounts.count)")
+            EnsembleLogger.debug("❌ makeAPIClient: account/server not found — accountId:\(accountId) serverId:\(serverId)")
             #endif
-            if let account = plexAccounts.first(where: { $0.id == accountId }) {
-                #if DEBUG
-                EnsembleLogger.debug("  - Account found, but server not found. Servers available: \(account.servers.count)")
-                #endif
-            }
             return nil
         }
 
         #if DEBUG
-        EnsembleLogger.debug("✅ Found account and server")
-        EnsembleLogger.debug("  - Server name: \(server.name)")
-        EnsembleLogger.debug("  - Server URL: \(server.url)")
+        EnsembleLogger.debug("🔄 makeAPIClient: Creating new client for \(server.name) (\(server.url))")
         #endif
 
         let insecurePolicy = currentAllowInsecureConnectionsPolicy()
@@ -279,11 +267,6 @@ public final class AccountManager: ObservableObject {
         let alternativeURLs = endpointDescriptors
             .map(\.url)
             .filter { $0 != primaryURL }
-        #if DEBUG
-        EnsembleLogger.debug("  - Connection policy: \(insecurePolicy.rawValue)")
-        EnsembleLogger.debug("  - Alternative URLs available: \(alternativeURLs.count)")
-        #endif
-
         let connection = PlexServerConnection(
             url: primaryURL,
             alternativeURLs: alternativeURLs,
@@ -295,11 +278,13 @@ public final class AccountManager: ObservableObject {
             name: server.name
         )
 
-        let client = PlexAPIClient(connection: connection, keychain: keychain)
+        let client = PlexAPIClient(
+            connection: connection,
+            keychain: keychain,
+            connectionRegistry: connectionRegistry,
+            serverKey: cacheKey
+        )
         apiClientCache[cacheKey] = client
-        #if DEBUG
-        EnsembleLogger.debug("✅ API client created and cached")
-        #endif
         return client
     }
 

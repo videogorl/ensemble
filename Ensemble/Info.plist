@@ -5,6 +5,8 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.videogorl.ensemble.refresh</string>
+		<string>com.videogorl.ensemble.offline.continued</string>
+		<string>com.videogorl.ensemble.offline.continued.*</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -21,7 +23,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,23 +36,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_plex._tcp</string>
-	</array>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
-	<key>NSSiriUsageDescription</key>
-	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>com.videogorl.ensemble.siri.playmedia</string>
-	</array>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>INAlternativeAppNames</key>
 	<array>
 		<dict>
@@ -70,11 +56,31 @@
 			<string>Ensemble Player</string>
 		</dict>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_plex._tcp</string>
+	</array>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Ensemble uses Apple Music to find shareable links for your tracks and albums.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Ensemble uses Siri to play tracks, albums, artists, and playlists.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.videogorl.ensemble.siri.playmedia</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 	</dict>
+	<key>AVInitialRouteSharingPolicy</key>
+	<string>LongFormAudio</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

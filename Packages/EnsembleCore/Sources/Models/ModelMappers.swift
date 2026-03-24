@@ -2,6 +2,27 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+// MARK: - Audio File Info Mapper
+
+public extension AudioFileInfo {
+    /// Extract audio format metadata from a PlexTrack's media/stream objects
+    init?(from plexTrack: PlexTrack) {
+        guard let media = plexTrack.media?.first else { return nil }
+        let part = media.part?.first
+        let audioStream = part?.stream?.first(where: { $0.streamType == 2 })
+
+        self.init(
+            codec: audioStream?.codec ?? media.audioCodec,
+            bitrate: audioStream?.bitrate ?? media.bitrate,
+            sampleRate: audioStream?.samplingRate,
+            bitDepth: audioStream?.bitDepth,
+            fileSize: part?.size,
+            channels: audioStream?.channels ?? media.audioChannels,
+            container: media.container
+        )
+    }
+}
+
 // MARK: - Plex API to Domain Model Mappers
 
 public extension Track {
@@ -14,7 +35,8 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -30,6 +52,7 @@ public extension Track {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
             playCount: plex.viewCount ?? 0
         )
@@ -45,7 +68,8 @@ public extension Track {
             id: plex.ratingKey,
             key: plex.key,
             title: plex.title,
-            artistName: plex.grandparentTitle,
+            artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+            albumArtistName: plex.grandparentTitle,
             albumName: plex.parentTitle,
             albumRatingKey: plex.parentRatingKey,
             artistRatingKey: plex.grandparentRatingKey,
@@ -61,6 +85,7 @@ public extension Track {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
             playCount: plex.viewCount ?? 0,
             sourceCompositeKey: sourceKey
@@ -68,11 +93,35 @@ public extension Track {
     }
 
     init(from cd: CDTrack) {
+        self.init(from: cd, downloadedFilenames: nil)
+    }
+
+    /// Batch-optimized initializer that checks a pre-computed set of downloaded filenames
+    /// instead of calling FileManager.fileExists() per track.
+    init(from cd: CDTrack, downloadedFilenames: Set<String>?) {
+        // Resolve stored filename to absolute path in the current sandbox.
+        // CoreData stores just the filename; we reconstruct the full path here
+        // so all downstream code gets a valid, current absolute path.
+        let resolvedLocalFilePath: String? = cd.localFilePath.flatMap { stored in
+            guard !stored.isEmpty else { return nil }
+            let filename = DownloadManager.extractFilename(from: stored)
+            let absolute = DownloadManager.absolutePath(forFilename: filename)
+            if let knownFiles = downloadedFilenames {
+                return knownFiles.contains(filename) ? absolute : nil
+            }
+            return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
+        }
+
+        // Parse genre names: stored as comma-separated string, fall back to album's genres
+        let genreString = cd.genreNames ?? cd.album?.genreNames
+        let trackGenres: [String] = genreString?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? []
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
             title: cd.title,
             artistName: cd.artistName,
+            albumArtistName: cd.album?.artist?.name,  // Album artist from artist entity
             albumName: cd.albumName,
             albumRatingKey: cd.album?.ratingKey,
             artistRatingKey: cd.album?.artist?.ratingKey,
@@ -84,18 +133,39 @@ public extension Track {
             fallbackRatingKey: cd.album?.ratingKey,  // Album ratingKey
             streamKey: cd.streamKey,
             streamId: nil,  // Not stored in CoreData yet (would require migration)
-            localFilePath: cd.localFilePath,
+            localFilePath: resolvedLocalFilePath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
+            lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
             playCount: Int(cd.playCount),
+            genres: trackGenres,
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
 }
 
 public extension Album {
+    /// Maps a hub metadata item (from /related endpoint) to an Album
+    init(from hub: PlexHubMetadata) {
+        self.init(
+            id: hub.ratingKey,
+            key: hub.key,
+            title: hub.title,
+            artistName: hub.parentTitle,
+            albumArtist: hub.parentTitle,
+            artistRatingKey: hub.parentRatingKey,
+            year: hub.year,
+            trackCount: hub.leafCount ?? 0,
+            thumbPath: hub.thumb,
+            artPath: hub.art,
+            dateAdded: hub.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: hub.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0
+        )
+    }
+
     init(from plex: PlexAlbum) {
         self.init(
             id: plex.ratingKey,
@@ -110,11 +180,17 @@ public extension Album {
             artPath: plex.art,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0
+            rating: 0,
+            genres: plex.genreNames
         )
     }
 
     init(from cd: CDAlbum) {
+        // Prefer actual synced track count from the relationship over the Plex metadata field,
+        // which may be 0 if leafCount wasn't included in the API response
+        let syncedCount = (cd.tracks as? Set<CDTrack>)?.count ?? 0
+        let resolvedTrackCount = syncedCount > 0 ? syncedCount : Int(cd.trackCount)
+
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -123,12 +199,13 @@ public extension Album {
             albumArtist: cd.albumArtist ?? cd.artistName ?? cd.artist?.name,
             artistRatingKey: cd.artist?.ratingKey,
             year: cd.year > 0 ? Int(cd.year) : nil,
-            trackCount: Int(cd.trackCount),
+            trackCount: resolvedTrackCount,
             thumbPath: cd.thumbPath,
             artPath: cd.artPath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             rating: Int(cd.rating),
+            genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey
         )
     }
@@ -149,7 +226,7 @@ public extension Artist {
     }
 
     init(from cd: CDArtist) {
-        let firstAlbum = cd.albumsArray.first
+        let firstAlbum = cd.newestAlbum
         
         self.init(
             id: cd.ratingKey,
@@ -163,6 +240,33 @@ public extension Artist {
             sourceCompositeKey: cd.sourceCompositeKey,
             fallbackThumbPath: firstAlbum?.thumbPath,
             fallbackRatingKey: firstAlbum?.ratingKey
+        )
+    }
+}
+
+public extension ArtistDetail {
+    /// Maps the rich PlexArtistDetail response into a lightweight domain model
+    init(from plex: PlexArtistDetail) {
+        self.init(
+            genres: plex.genre?.map(\.tag) ?? [],
+            country: plex.country?.first?.tag,
+            similarArtists: plex.similar?.map(\.tag) ?? [],
+            styles: plex.style?.map(\.tag) ?? [],
+            artistName: plex.title
+        )
+    }
+}
+
+public extension AlbumDetail {
+    /// Maps the rich PlexAlbumDetail response into a lightweight domain model
+    init(from plex: PlexAlbumDetail) {
+        self.init(
+            genres: plex.genre?.map(\.tag) ?? [],
+            styles: plex.style?.map(\.tag) ?? [],
+            studio: plex.studio,
+            summary: plex.summary,
+            albumTitle: plex.title,
+            artistName: plex.parentTitle
         )
     }
 }
@@ -263,13 +367,53 @@ public extension Library {
 
 public extension Download {
     init(from cd: CDDownload) {
-        let track = cd.track.map { Track(from: $0) } ?? Track(
+        let mappedTrack = cd.track.map { Track(from: $0) } ?? Track(
             id: "unknown",
             key: "",
             title: "Unknown Track",
             artistName: "Unknown Artist",
             albumName: "Unknown Album"
         )
+
+        // Resolve download.filePath (filename) to absolute path for the domain model.
+        let resolvedFilePath: String? = cd.filePath.flatMap { stored in
+            guard !stored.isEmpty else { return nil }
+            let filename = DownloadManager.extractFilename(from: stored)
+            return DownloadManager.absolutePath(forFilename: filename)
+        }
+
+        // Use download.filePath as a safety net when track.localFilePath has not been populated yet.
+        let track: Track
+        if mappedTrack.localFilePath == nil, let resolvedFilePath, !resolvedFilePath.isEmpty,
+           FileManager.default.fileExists(atPath: resolvedFilePath) {
+            track = Track(
+                id: mappedTrack.id,
+                key: mappedTrack.key,
+                title: mappedTrack.title,
+                artistName: mappedTrack.artistName,
+                albumName: mappedTrack.albumName,
+                albumRatingKey: mappedTrack.albumRatingKey,
+                artistRatingKey: mappedTrack.artistRatingKey,
+                trackNumber: mappedTrack.trackNumber,
+                discNumber: mappedTrack.discNumber,
+                duration: mappedTrack.duration,
+                thumbPath: mappedTrack.thumbPath,
+                fallbackThumbPath: mappedTrack.fallbackThumbPath,
+                fallbackRatingKey: mappedTrack.fallbackRatingKey,
+                streamKey: mappedTrack.streamKey,
+                streamId: mappedTrack.streamId,
+                localFilePath: resolvedFilePath,
+                dateAdded: mappedTrack.dateAdded,
+                dateModified: mappedTrack.dateModified,
+                lastPlayed: mappedTrack.lastPlayed,
+                lastRatedAt: mappedTrack.lastRatedAt,
+                rating: mappedTrack.rating,
+                playCount: mappedTrack.playCount,
+                sourceCompositeKey: mappedTrack.sourceCompositeKey
+            )
+        } else {
+            track = mappedTrack
+        }
 
         let status: DownloadStatus
         switch cd.downloadStatus {
@@ -285,7 +429,7 @@ public extension Download {
             track: track,
             status: status,
             progress: cd.progress,
-            filePath: cd.filePath,
+            filePath: resolvedFilePath,
             fileSize: cd.fileSize,
             error: cd.error
         )
@@ -302,7 +446,7 @@ public extension HubItem {
         // Determine subtitle based on type
         let subtitle: String?
         if type == "track" {
-            subtitle = plex.grandparentTitle ?? plex.parentTitle
+            subtitle = plex.originalTitle ?? plex.grandparentTitle ?? plex.parentTitle
         } else {
             subtitle = plex.parentTitle
         }
@@ -327,6 +471,7 @@ public extension HubItem {
                 key: plex.key,
                 title: plex.title,
                 artistName: plex.parentTitle,
+                artistRatingKey: plex.parentRatingKey,
                 year: plex.year,
                 thumbPath: plex.thumb,
                 artPath: plex.art,
@@ -339,8 +484,11 @@ public extension HubItem {
                 id: plex.ratingKey,
                 key: plex.key,
                 title: plex.title,
-                artistName: plex.grandparentTitle,
+                artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
+                albumArtistName: plex.grandparentTitle,
                 albumName: plex.parentTitle,
+                albumRatingKey: plex.parentRatingKey,
+                artistRatingKey: plex.grandparentRatingKey,
                 duration: plex.duration.map { TimeInterval($0) / 1000.0 } ?? 0,
                 thumbPath: plex.parentThumb ?? plex.grandparentThumb,
                 dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },

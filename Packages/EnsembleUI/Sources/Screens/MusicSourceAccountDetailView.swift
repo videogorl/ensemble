@@ -5,6 +5,7 @@ import SwiftUI
 public struct MusicSourceAccountDetailView: View {
     @StateObject private var viewModel: MusicSourceAccountDetailViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
     @State private var showingRemoveSourceAlert = false
 
     public init(accountId: String) {
@@ -15,54 +16,14 @@ public struct MusicSourceAccountDetailView: View {
 
     public var body: some View {
         List {
-            Section {
-                Button {
-                    Task {
-                        await viewModel.syncEnabledLibraries()
+            // Pending offline mutations — navigate to detail
+            if viewModel.pendingMutationCount > 0 {
+                Section {
+                    NavigationLink {
+                        PendingMutationsView()
+                    } label: {
+                        PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .foregroundColor(.accentColor)
-                        Text("Sync Enabled Libraries")
-                        Spacer()
-                        if viewModel.isSyncingEnabledLibraries {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
-
-                Button {
-                    Task {
-                        await viewModel.refreshAvailableLibraries()
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundColor(.accentColor)
-                        Text("Refresh Available Libraries")
-                        Spacer()
-                        if viewModel.isRefreshingInventory {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
-
-                if viewModel.isRefreshingInventory {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Checking for library updates…")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
                 }
             }
 
@@ -78,8 +39,26 @@ public struct MusicSourceAccountDetailView: View {
                             .foregroundColor(.secondary)
                     }
                 } else {
+                    // Server/library sections
                     ForEach(viewModel.sections) { server in
                         Section {
+                            // Show scan progress bar when server is scanning
+                            if let scanProgress = viewModel.scanProgressByServer[server.id] {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "magnifyingglass")
+                                            .font(.caption)
+                                            .foregroundColor(.accentColor)
+                                        Text("Scanning library…")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    ProgressView(value: Double(scanProgress), total: 100)
+                                        .tint(.accentColor)
+                                }
+                                .padding(.vertical, 2)
+                            }
+
                             if let refreshError = viewModel.serverLibraryErrors[server.id] {
                                 Text(refreshError)
                                     .font(.caption)
@@ -106,11 +85,80 @@ public struct MusicSourceAccountDetailView: View {
                                     Text("(\(platform))")
                                         .foregroundColor(.secondary)
                                 }
+                                Spacer()
+                                ServerFeatureBadges(section: server)
                             }
                         }
                     }
                 }
 
+                // Sync buttons
+                Section {
+                    Button {
+                        Task {
+                            await viewModel.syncEnabledLibraries()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .foregroundColor(.accentColor)
+                            Text("Sync Enabled Libraries")
+                            Spacer()
+                            if viewModel.isSyncingEnabledLibraries {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(!viewModel.hasEnabledLibraries || viewModel.isSyncingEnabledLibraries || viewModel.isReauthenticationRequired)
+
+                    Button {
+                        Task {
+                            await viewModel.refreshAvailableLibraries()
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundColor(.accentColor)
+                            Text("Refresh Available Libraries")
+                            Spacer()
+                            if viewModel.isRefreshingInventory {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isRefreshingInventory || viewModel.isReauthenticationRequired)
+
+                    if viewModel.isRefreshingInventory {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Checking for library updates…")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if let error = viewModel.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                // Feature legend (plain text, no cell styling)
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        featureLegendRow(icon: "ticket.fill", text: "Plex Pass: Higher quality transcoding and lyrics")
+                        featureLegendRow(icon: "quote.bubble.fill", text: "Lyrics: Time-synced lyrics via LyricFind")
+                        featureLegendRow(icon: "infinity", text: "Radio: Sonically similar radio stations")
+                    }
+                    .padding(.vertical, -4)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                } header: {
+                    Text("Legend")
+                }
+
+                // Remove source
                 Section {
                     Button(role: .destructive) {
                         showingRemoveSourceAlert = true
@@ -149,6 +197,18 @@ public struct MusicSourceAccountDetailView: View {
             await viewModel.performInitialRefreshIfNeeded()
         }
     }
+
+    private func featureLegendRow(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundColor(.accentColor)
+                .frame(width: 14)
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
 }
 
 private struct LibrarySyncStatusRow: View {
@@ -167,6 +227,12 @@ private struct LibrarySyncStatusRow: View {
                         .foregroundColor(.primary)
 
                     Spacer()
+
+                    if row.allowSync == true {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.accentColor)
+                    }
                 }
                 .contentShape(Rectangle())
             }
@@ -309,6 +375,31 @@ private struct EnabledLibraryStatusView: View {
         } else {
             let days = Int(interval / 86400)
             return "\(days)d ago"
+        }
+    }
+}
+
+/// Compact inline badges for server-level feature availability (Plex Pass, Lyrics, Radio).
+private struct ServerFeatureBadges: View {
+    let section: MusicSourceAccountDetailViewModel.ServerSection
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if section.hasPlexPass {
+                Image(systemName: "ticket.fill")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
+            if section.capabilities?.hasLyrics == true {
+                Image(systemName: "quote.bubble.fill")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
+            if section.capabilities?.hasRadio == true {
+                Image(systemName: "infinity")
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            }
         }
     }
 }

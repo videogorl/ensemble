@@ -37,7 +37,12 @@ public final class NetworkMonitor: ObservableObject {
 
     private var monitor: (any NetworkPathMonitoring)?
     private var isMonitoring = false
+    /// When true, NWPathMonitor updates are ignored so the simulated state sticks
+    private var isSimulatingOffline = false
     private var debounceTask: Task<Void, Never>?
+
+    // UserDefaults key for persisting last-known network state across launches
+    private static let cachedStateKey = "lastKnownNetworkState"
 
     internal private(set) var monitorGeneration = 0
     internal var isMonitoringForTesting: Bool { isMonitoring }
@@ -58,6 +63,54 @@ public final class NetworkMonitor: ObservableObject {
         self.debounceNanoseconds = debounceNanoseconds
         self.monitorQueue = monitorQueue
         self.monitorFactory = monitorFactory
+
+        // Seed initial state from cached value so dependents don't wait for
+        // NWPathMonitor's first callback (~1-5s). The monitor will correct
+        // this if the real state differs.
+        let cached = Self.loadCachedState()
+        if cached != .unknown {
+            networkState = cached
+            isConnected = cached.isConnected
+            #if DEBUG
+            EnsembleLogger.debug("📡 NetworkMonitor: Restored cached state: \(cached.description)")
+            #endif
+        }
+    }
+
+    // MARK: - State Persistence
+
+    /// Persist current network state for optimistic startup on next launch
+    private func persistState(_ state: NetworkState) {
+        let raw: String
+        switch state {
+        case .online(let type):
+            switch type {
+            case .wifi: raw = "online_wifi"
+            case .cellular: raw = "online_cellular"
+            case .wired: raw = "online_wired"
+            case .other: raw = "online_other"
+            }
+        case .offline: raw = "offline"
+        case .limited: raw = "limited"
+        case .unknown: raw = "unknown"
+        }
+        UserDefaults.standard.set(raw, forKey: Self.cachedStateKey)
+    }
+
+    /// Load cached network state from UserDefaults
+    private static func loadCachedState() -> NetworkState {
+        guard let raw = UserDefaults.standard.string(forKey: cachedStateKey) else {
+            return .unknown
+        }
+        switch raw {
+        case "online_wifi": return .online(.wifi)
+        case "online_cellular": return .online(.cellular)
+        case "online_wired": return .online(.wired)
+        case "online_other": return .online(.other)
+        case "offline": return .offline
+        case "limited": return .limited
+        default: return .unknown
+        }
     }
 
     // MARK: - Public Methods
@@ -79,6 +132,7 @@ public final class NetworkMonitor: ObservableObject {
 
         #if DEBUG
         EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring (generation \(monitorGeneration))")
+        restoreDebugSimulationIfNeeded()
         #endif
     }
 
@@ -101,6 +155,26 @@ public final class NetworkMonitor: ObservableObject {
 
     // MARK: - Testing Helpers
 
+    #if DEBUG
+    /// Simulate an offline or online state for manual testing from the Settings Developer section.
+    /// Sets a flag so NWPathMonitor updates don't overwrite the simulated state.
+    public func simulateOffline(_ offline: Bool) {
+        isSimulatingOffline = offline
+        let state: NetworkState = offline ? .offline : .online(.wifi)
+        injectNetworkStateForTesting(state, debounced: false)
+    }
+
+    /// Re-apply debug simulation on cold start if the toggle was left on.
+    /// Called from `startMonitoring()` after the monitor is up.
+    public func restoreDebugSimulationIfNeeded() {
+        let persisted = UserDefaults.standard.bool(forKey: "debugSimulateOffline")
+        if persisted {
+            EnsembleLogger.debug("📡 NetworkMonitor: Restoring debug offline simulation from cold start")
+            simulateOffline(true)
+        }
+    }
+    #endif
+
     internal func injectNetworkStateForTesting(_ state: NetworkState, debounced: Bool = true) {
         if debounced {
             debounceStateUpdate(state: state)
@@ -112,7 +186,9 @@ public final class NetworkMonitor: ObservableObject {
     // MARK: - Private Methods
 
     /// Debounce network state updates to avoid rapid changes.
+    /// Ignored when offline simulation is active so the monitor doesn't overwrite the simulated state.
     private func debounceStateUpdate(path: NWPath) {
+        guard !isSimulatingOffline else { return }
         debounceStateUpdate(state: networkState(from: path))
     }
 
@@ -130,7 +206,7 @@ public final class NetworkMonitor: ObservableObject {
         }
     }
 
-    /// Update the published state.
+    /// Update the published state and persist for optimistic startup.
     private func updateState(to newState: NetworkState) {
         let newIsConnected = newState.isConnected
         guard newState != networkState || newIsConnected != isConnected else { return }
@@ -141,6 +217,7 @@ public final class NetworkMonitor: ObservableObject {
 
         networkState = newState
         isConnected = newIsConnected
+        persistState(newState)
     }
 
     /// Convert NWPath to NetworkState

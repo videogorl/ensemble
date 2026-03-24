@@ -15,6 +15,7 @@ ensemble/
 +-- README.md                      # User-facing documentation
 +-- scripts/
 |   +-- compile_coredata_model.sh # Compiles SwiftPM CoreData model bundle for package tests
+|   +-- update_build_number.sh    # Sets deterministic CFBundleVersion for app + Siri extension builds
 |
 +-- Ensemble/                      # Main app target (iOS/iPadOS/macOS)
 |   +-- App/
@@ -59,7 +60,12 @@ Sources/
 +-- Client/
 |   +-- PlexConnectionPolicy.swift     # Endpoint descriptors, routing policies, refresh/probe result models
 |   +-- PlexAPIClient.swift            # HTTP client for Plex API (actor)
+|   +-- PlexErrorClassification.swift  # Unified error taxonomy for failover/retry decisions
+|   +-- PlexWebSocketManager.swift     # Per-server WebSocket connections with exponential backoff (actor)
+|   +-- ServerConnectionRegistry.swift # Single source of truth for per-server endpoints (actor)
 |   +-- ConnectionFailoverManager.swift # Server connection resilience
+|   +-- AudioFormatConverter.swift      # MP3→CAF conversion for zero-gap gapless playback
+|   +-- MP3VBRHeaderUtility.swift      # XING VBR header injection for transcoded MP3 files
 +-- Models/
 |   +-- PlexModels.swift               # API response models (Plex*)
 +-- EnsembleLogger.swift               # Package logger categories
@@ -84,6 +90,7 @@ Sources/
 |   +-- ManagedObjects.swift           # NSManagedObject subclasses (CD* prefix)
 +-- Downloads/
 |   +-- DownloadManager.swift          # Track download queue & file storage
+|   +-- OfflineDownloadTargetRepository.swift # Offline target + membership persistence
 |   +-- ArtworkDownloadManager.swift   # Image caching
 +-- Repositories/
 |   +-- LibraryRepository.swift        # CRUD for artists, albums, tracks, genres
@@ -93,6 +100,9 @@ Sources/
 
 Tests/
 +-- LibraryRepositoryTests.swift
++-- PlaylistRepositoryTests.swift
++-- DownloadManagerTests.swift
++-- OfflineDownloadTargetRepositoryTests.swift
 ```
 
 ## EnsembleCore (Business Logic Layer)
@@ -120,6 +130,7 @@ Sources/
 |   +-- PlexMusicSourceSyncProvider.swift # Plex implementation of sync protocol
 |   +-- NavigationCoordinator.swift    # Centralized navigation state management (MainActor)
 |   +-- PlaybackService.swift          # AVPlayer wrapper with queue/shuffle/repeat
+|   +-- ProgressiveStreamLoader.swift  # AVAssetResourceLoaderDelegate bridge for chunked transcode streams
 |   +-- ArtworkLoader.swift            # Persistent artwork caching & loading
 |   +-- CacheManager.swift             # Cache size tracking & management (MainActor)
 |   +-- NetworkMonitor.swift           # Network connectivity monitoring (NWPathMonitor)
@@ -128,6 +139,8 @@ Sources/
 |   +-- HubRepository.swift            # Hub data persistence (CDHub/CDHubItem)
 |   +-- HubOrderManager.swift          # User-customizable hub section ordering
 |   +-- BackgroundSyncScheduler.swift  # iOS BGAppRefreshTask scheduling for background sync
+|   +-- OfflineDownloadService.swift   # Target-based offline queue, reconciliation, and progress tracking
+|   +-- OfflineBackgroundExecutionCoordinator.swift # Optional iOS 26+ BG continued-processing adapter
 |   +-- MoodRepository.swift           # Mood data persistence (CDMood)
 |   +-- LibraryVisibilityStore.swift   # Persisted visibility profiles + active profile state
 |   +-- SiriMediaIndexStore.swift      # Shared App Group Siri index persistence/rebuild hooks
@@ -135,18 +148,32 @@ Sources/
 |   +-- QueueManager.swift             # Queue management (extracted from PlaybackService)
 |   +-- ToastCenter.swift              # App-wide toast notification coordination (MainActor)
 |   +-- PlexRadioProvider.swift        # Plex Radio support implementing RadioProvider protocol
+|   +-- PlexWebSocketCoordinator.swift # Routes WebSocket events to sync/health systems (@MainActor)
 |   +-- RadioProvider.swift            # Protocol for radio/station providers
+|   +-- TrackAvailabilityResolver.swift # Reactive per-server+per-download track availability (@MainActor ObservableObject)
+|   +-- AudioAnalyzer.swift            # Pre-computed frequency analysis (FrequencyTimeline, FrequencyAnalysisService, FrequencyTimelinePersistence)
+|   +-- InstrumentalModeCapability.swift # Static AUSoundIsolation availability probe (iOS 16+ / A13+)
+|   +-- InstrumentalAudioEngine.swift  # AVAudioEngine wrapper with AUSoundIsolation for vocal attenuation
+|   +-- PowerStateMonitor.swift        # Low Power Mode observer; publishes isLowPowerMode for GPU/network throttling (@MainActor ObservableObject)
+|   +-- SongLinkService.swift          # Universal song.link URL resolution via MusicKit + song.link API
+|   +-- ShareService.swift             # Share payload coordinator (link/file/text) with temp download support
+|   +-- LyricsService.swift            # LRC parser, lyrics models (LyricsLine/ParsedLyrics/LyricsState), LyricsService fetch pipeline + offline sidecar
 +-- EnsembleLogger.swift               # Package logger categories
 +-- ViewModels/
 |   +-- AddPlexAccountViewModel.swift
 |   +-- AlbumDetailViewModel.swift
 |   +-- ArtistDetailViewModel.swift
 |   +-- DownloadsViewModel.swift
-|   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars
+|   +-- FavoritesViewModel.swift       # Tracks rated 4+ stars, sorting (FavoritesSortOption), download toggle
 |   +-- HomeViewModel.swift            # Hub-based home screen (Recently Added, etc.)
 |   +-- LibraryViewModel.swift
 |   +-- MusicSourceAccountDetailViewModel.swift
 |   +-- NowPlayingViewModel.swift
+|   +-- DownloadManagerSettingsViewModel.swift # Settings manager list for offline targets
+|   +-- DownloadTargetDetailViewModel.swift # Per-track detail for a single download target
+|   +-- LibraryDownloadDetailViewModel.swift # All downloads for a library (by sourceCompositeKey)
+|   +-- OfflineServersViewModel.swift  # Server-grouped sync-enabled library toggles for offline targets
+|   +-- PendingMutationsViewModel.swift # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PinnedViewModel.swift          # Resolves PinnedItem references into domain objects
 |   +-- PlaylistViewModel.swift
 |   +-- SearchViewModel.swift
@@ -164,6 +191,9 @@ Tests/
 +-- LibraryVisibilityProfileTests.swift # Visibility profile persistence + filtering seams
 +-- SiriIntentPayloadTests.swift       # Siri payload serialization + userInfo contract
 +-- SiriPlaybackCoordinatorTests.swift # In-app Siri playback execution coverage
++-- SongLinkServiceTests.swift         # Song.link URL resolution + caching + fallback tests
++-- ShareServiceTests.swift            # Share payload assembly + file detection tests
++-- LyricsServiceTests.swift           # LRC parser timestamp parsing + line lookup coverage
 ```
 
 ## EnsembleUI (Presentation Layer)
@@ -171,6 +201,13 @@ Tests/
 ```
 Sources/
 +-- Components/
+|   +-- NowPlaying/
+|   |   +-- ControlsCard.swift        # Center card with artwork, scrubber, playback controls
+|   |   +-- InfoCard.swift            # Track metadata and streaming/connection details card
+|   |   +-- LyricsCard.swift          # Lyrics display card: loading / not-available / karaoke-style timed line highlight
+|   |   +-- NowPlayingCarousel.swift  # Horizontal paging carousel for all cards
+|   |   +-- PageIndicator.swift       # Page dots/icons for carousel navigation
+|   |   +-- QueueCard.swift           # Queue list with shuffle/repeat/autoplay controls
 |   +-- AirPlayButton.swift           # AVRoutePickerView wrapper for AirPlay
 |   +-- AlbumCard.swift               # Grid card for albums
 |   +-- AlbumDetailLoader.swift       # Async loader for album detail with loading/error states
@@ -178,10 +215,12 @@ Sources/
 |   +-- ArtistDetailLoader.swift      # Async loader for artist detail with loading/error states
 |   +-- ArtworkColorExtractor.swift   # Actor-based color extraction from artwork for dynamic gradients
 |   +-- ArtworkView.swift             # Lazy-loading artwork with Nuke
+|   +-- AuroraVisualizationView.swift # Aurora-style background visualization of music loudness
 |   +-- BlurredArtworkBackground.swift # Heavily blurred artwork background with contrast/saturation
+|   +-- CollapsingToolbar.swift      # Shared collapsing toolbar title with nav bar appearance toggle
 |   +-- ChromeVisibilityPreferenceKey.swift # SwiftUI preference key for hiding tab bar in immersive views
 |   +-- CompactSearchRows.swift       # Compact row layouts for search results
-|   +-- ConnectionStatusBanner.swift  # Network status UI indicator
+|   +-- OfflineIndicatorOverlay.swift  # Device-aware offline connectivity indicator (DI/notch/classic)
 |   +-- CoverFlowView.swift           # 3D carousel with perspective rotation and scaling
 |   +-- CoverFlowItemView.swift       # Individual item in CoverFlow carousel
 |   +-- CoverFlowDetailView.swift     # Flipped detail view for CoverFlow items
@@ -189,12 +228,16 @@ Sources/
 |   +-- FilterSheet.swift             # Advanced filtering UI with persistence
 |   +-- FlipOpacity.swift             # View modifier for flip animations
 |   +-- GenreCard.swift               # Grid card for genres
+|   +-- GenreChipBar.swift            # Horizontal scrollable genre filter chips (OR multi-select)
 |   +-- HubOrderingSheet.swift        # Sheet for reordering hub sections with drag & drop
 |   +-- KeyboardObserver.swift        # iOS-specific keyboard height tracking with view modifier
 |   +-- MarqueeText.swift             # Auto-scrolling text component for long titles
 |   +-- MediaTrackList.swift          # Reusable track list with context menu
 |   +-- MiniPlayer.swift              # Compact persistent player overlay
+|   +-- PendingChangesRow.swift        # Shared row for pending mutations (used in Downloads + Source Detail)
 |   +-- PlaylistActionSheets.swift    # Shared add-to-playlist and create-playlist UI sheets
+|   +-- ShareSheet.swift              # iOS 15-compatible UIActivityViewController / NSSharingServicePicker wrapper
+|   +-- ShareActions.swift            # Static helpers bridging ShareService payloads to share sheet presentation
 |   +-- PlaylistCard.swift            # Grid card for playlists
 |   +-- PlaylistDetailLoader.swift    # Async loader for playlist detail with loading/error states
 |   +-- QueueTableView.swift          # UIKit-backed drag-to-reorder table view for queue
@@ -217,7 +260,12 @@ Sources/
 |   +-- MoodTracksView.swift          # Track list for a specific Plex mood/vibe category
 |   +-- MoreView.swift                # Additional options
 |   +-- NowPlayingView.swift          # Full-screen player
+|   +-- PendingMutationsView.swift    # Offline-queued mutations (pending/failed playlist & track changes)
 |   +-- PlaylistsView.swift           # Playlist grid
+|   +-- DownloadManagerSettingsView.swift # Settings-only offline manager (quality, cellular toggle, remove all)
+|   +-- DownloadTargetDetailView.swift # Per-track detail for album/artist/playlist download target
+|   +-- LibraryDownloadDetailView.swift # All downloaded tracks in a library (by sourceCompositeKey)
+|   +-- OfflineServersView.swift      # (Legacy) Server-grouped sync-enabled library toggles
 |   +-- RootView.swift                # Platform-adaptive root (tabs vs sidebar)
 |   +-- SearchView.swift              # Search interface
 |   +-- SettingsView.swift            # App settings with customizable tabs & accent colors

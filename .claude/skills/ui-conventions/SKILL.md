@@ -22,12 +22,6 @@ These are core design decisions that must be maintained throughout the app.
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
 
-### Music Sources Navigation
-- **Account-centric source list:** Settings → Music Sources lists accounts/sources, not individual server rows.
-- **Account row content:** title is source type (currently `Plex`), subtitle is account identifier (email-first fallback chain).
-- **Detail destination:** tapping an account opens `MusicSourceAccountDetailView` with server headings and library checklists.
-- **Sync controls location:** per-library status and manual sync actions live in account detail; do not add standalone Sync Panel entry points.
-
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
@@ -108,11 +102,6 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`
 - Do not mount `ToastHostView` in individual screens; call `deps.toastCenter.show(...)` and let the global host render it
 - Global toast window must stay above mini player and modal sheets for consistent feedback visibility
-
-### Add-Account Plex Flow
-- PIN code in `AddPlexAccountView` should support copy-on-tap with toast confirmation.
-- Server/library selection UI should be grouped by server heading with library checkboxes.
-- Keep server cards full width even when no music libraries are found to avoid narrow/uneven layout.
 
 ### Gesture Actions (iOS/iPadOS)
 - Track rows use a shared swipe layout from `SettingsManager.trackSwipeLayout` (2 leading slots, 2 trailing slots)
@@ -208,6 +197,45 @@ struct AlbumDetailLoader: View {
 - **Network monitor:** 1s to reduce unnecessary UI updates
 - **Home screen loading:** 2s to prevent rapid reloads
 - **App launch:** Network monitor starts with 500ms delay
+
+### GeometryReader: Background, Not Wrapper
+Never wrap large view trees in `GeometryReader`. Use `.background(GeometryReader { ... })` to capture geometry into `@State`, then branch on the state value in body. Wrapping causes the entire subtree to re-layout on every geometry change.
+
+### Context Menu Extraction
+If a grid/list holds `@ObservedObject` only for context menu content (e.g., pinManager), extract the context menu into a separate View struct that owns the observation. This prevents the entire grid from re-evaluating when pin state changes.
+
+### Scoped Sub-View Observation (MiniPlayer Pattern)
+When a view needs multiple fields from a frequently-publishing ViewModel, extract observation into small sub-views:
+- **Parent:** `let viewModel` (no observation) — handles layout, gestures, context menu
+- **Sub-views:** `@ObservedObject var viewModel` — each reads only its relevant fields (track info, controls, background)
+
+This prevents the entire parent tree from re-evaluating on every publish.
+
+### `.searchable()` in Nested Sheets
+`.searchable()` has version-specific bugs in nested presentation contexts (sheet-on-fullScreenCover). iOS 15 can freeze keyboard input.
+
+**iOS 26 crash:** `NavigationView` + `.searchable()` triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app. **Fix:** Use `NavigationStack` on iOS 16+ (which is already the default in `MainTabView.tabRootView`). For sheets that create their own navigation container (like `PlaylistPickerSheet`), use `if #available(iOS 16.0, ...) { NavigationStack } else { NavigationView }`.
+
+Tab-level views are already inside `NavigationStack` on iOS 16+ and are not affected. The crash was specific to `NavigationView` in sheet contexts.
+
+## Genre Chip Bar
+
+### GenreChipBar Pattern
+- **Component:** `GenreChipBar` — horizontal scrollable chip bar for inline genre filtering
+- **Behavior:** OR multi-select (selecting multiple genres shows items matching any selected genre)
+- **Visibility:** Only renders when 2+ genres are available; hidden otherwise
+- **Chip style:** Capsule shape — accent border when unselected, accent fill + white text when selected
+- **Layout:** Fixed 36pt height, placed above content inside ScrollView
+- **Clear button:** An xmark chip appears when any genres are selected, clearing the selection on tap
+- **Usage:** Integrated into AlbumsView, SongsView, ArtistsView, PlaylistDetailView, and wired into FilterSheet
+
+## Informational Badges
+
+### Feature / Capability Badges
+- **Pattern:** `ServerFeatureBadges` (private view in `MusicSourceAccountDetailView.swift`) displays small icon+label badges for server-level capabilities (e.g., Plex Pass, hardware transcoding).
+- **Style:** Compact horizontal badges with SF Symbol + short label, secondary foreground color.
+- **Per-library indicators:** Download permission badge (arrow.down.circle.fill) shown inline on library rows when `allowSync` is true.
+- **Data source:** Badges are driven by `PlexServerCapabilities` and `PlexSubscription` populated during discovery -- no additional API calls at display time.
 
 ## Feature Philosophy
 

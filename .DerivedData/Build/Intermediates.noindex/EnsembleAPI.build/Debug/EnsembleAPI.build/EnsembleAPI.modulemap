@@ -1,4 +1,0 @@
-module EnsembleAPI {
-header "EnsembleAPI-Swift.h"
-export *
-}

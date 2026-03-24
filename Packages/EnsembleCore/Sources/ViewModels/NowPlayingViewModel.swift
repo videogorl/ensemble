@@ -1,6 +1,16 @@
 import Combine
 import Foundation
 import EnsemblePersistence
+import Nuke
+import SwiftUI
+
+#if os(iOS) || os(tvOS) || os(watchOS)
+import UIKit
+public typealias PlatformImage = UIImage
+#elseif os(macOS)
+import AppKit
+public typealias PlatformImage = NSImage
+#endif
 
 /// Rating states for the three-state heart button
 public enum TrackRating: Equatable {
@@ -63,6 +73,12 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
+
+    /// The QueueItem currently playing (includes queued streaming quality)
+    public var currentQueueItem: QueueItem? {
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
+        return queue[currentQueueIndex]
+    }
     @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
@@ -74,17 +90,51 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
+    /// Persists the selected card page (0: Queue, 1: Controls, 2: Lyrics, 3: Info) across sheet dismiss/reopen
+    @Published public var currentPage: Int = 1
     @Published public private(set) var isPlaylistMutationInProgress = false
-    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
+    @Published public var lastPlaylistTarget: LastPlaylistTarget?
+    @Published public private(set) var artworkImage: PlatformImage?
     @Published private var optimisticTrackRatings: [String: Int] = [:]
+    /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
+    @Published private var availabilityGeneration: UInt64 = 0
+
+    // Lyrics state driven by LyricsService
+    @Published public private(set) var lyricsState: LyricsState = .notAvailable
+    @Published public private(set) var lyricsSource: LyricsSource = .none
+    @Published public private(set) var currentLyricsLineIndex: Int?
+    // Scroll target looks ahead so lyrics anticipate the vocals
+    @Published public private(set) var lyricsScrollTargetIndex: Int?
+    // Progress through an instrumental gap (0.0 to 1.0), nil when not in a gap
+    @Published public private(set) var instrumentalProgress: Double?
+    // Pre-computed set of line indices that have an instrumental gap AFTER them
+    @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
+    // Whether there's an instrumental gap before the first lyric
+    @Published public private(set) var hasIntroInstrumentalGap: Bool = false
+    // Whether there's an instrumental gap after the last lyric (outro)
+    @Published public private(set) var hasOutroInstrumentalGap: Bool = false
+    // Suppresses auto-scroll and disables blur when user is manually scrolling lyrics
+    @Published public private(set) var isUserScrollingLyrics: Bool = false
+    private var userScrollResumeTask: Task<Void, Never>?
+
+    // Instrumental mode (vocal attenuation)
+    @Published public private(set) var isInstrumentalModeActive: Bool = false
+    public let isInstrumentalModeSupported: Bool = InstrumentalModeCapability.isSupported
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
+    private let mutationCoordinator: MutationCoordinator
+    private let trackAvailabilityResolver: TrackAvailabilityResolver
+    private let lyricsService: LyricsService
     private var cancellables = Set<AnyCancellable>()
-    
+
+    // Artwork loading state
+    private var artworkLoadTask: Task<Void, Never>?
+    private var currentLoadTrackID: String?
+
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
@@ -96,13 +146,19 @@ public final class NowPlayingViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         libraryRepository: LibraryRepositoryProtocol,
         navigationCoordinator: NavigationCoordinator,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        mutationCoordinator: MutationCoordinator,
+        trackAvailabilityResolver: TrackAvailabilityResolver,
+        lyricsService: LyricsService
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
+        self.mutationCoordinator = mutationCoordinator
+        self.trackAvailabilityResolver = trackAvailabilityResolver
+        self.lyricsService = lyricsService
         self.lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
     }
@@ -160,6 +216,10 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$recommendationsExhausted)
 
+        playbackService.instrumentalModeActivePublisher
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isInstrumentalModeActive)
+
         syncCoordinator.$lastPlaylistTarget
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastPlaylistTarget)
@@ -201,6 +261,333 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.currentRating = TrackRating.from(rating: self.trackDisplayRating(for: track))
             }
             .store(in: &cancellables)
+
+        // Automatically load artwork when track changes
+        $currentTrack
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self = self else { return }
+                if let track = track {
+                    self.loadArtworkImage(for: track)
+                } else {
+                    self.artworkLoadTask?.cancel()
+                    self.artworkImage = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        // Forward availability generation so isCurrentTrackPlayable re-evaluates
+        // when server connectivity changes (e.g. health check completes after restore)
+        trackAvailabilityResolver.$availabilityGeneration
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$availabilityGeneration)
+
+        // Load lyrics when track changes
+        $currentTrack
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] track in
+                guard let self else { return }
+                if let track {
+                    self.lyricsService.loadLyrics(for: track)
+                } else {
+                    self.lyricsService.clearLyrics()
+                    self.currentLyricsLineIndex = nil
+                    self.lyricsScrollTargetIndex = nil
+                    self.instrumentalProgress = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        // Pipe lyrics state from service to view model
+        lyricsService.$currentLyrics
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                self.lyricsState = state
+                // Reset line index when lyrics change
+                self.currentLyricsLineIndex = nil
+                self.lyricsScrollTargetIndex = nil
+                self.instrumentalProgress = nil
+                // Pre-compute gap positions for persistent instrumental indicators
+                if case .available(let lyrics) = state {
+                    #if DEBUG
+                    EnsembleLogger.debug("Lyrics: typicalVocalDuration=\(String(format: "%.2f", lyrics.typicalVocalDuration))s, instrumentalGapThreshold=\(String(format: "%.1f", lyrics.instrumentalGapThreshold))s")
+                    #endif
+                    self.computeInstrumentalGapPositions(lyrics: lyrics)
+
+                    // If we're already mid-track (e.g. app restored from background),
+                    // immediately compute the active line so lyrics start at the right position.
+                    // Uses a short delay to let the player report real time after startup.
+                    if lyrics.isTimed {
+                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        // Retry shortly after in case the player hasn't reported real time yet
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            guard let self, case .available(let lyrics) = self.lyricsState else { return }
+                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.currentTimeValue)
+                        }
+                    }
+                } else {
+                    self.instrumentalGapAfterIndices = []
+                    self.hasIntroInstrumentalGap = false
+                    self.hasOutroInstrumentalGap = false
+                }
+            }
+            .store(in: &cancellables)
+
+        // Pipe lyrics source from service to view model
+        lyricsService.$currentLyricsSource
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lyricsSource)
+
+        // Track active lyrics line based on playback time.
+        // Uses slight anticipation so lyrics appear just before the vocal.
+        playbackService.currentTimePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] time in
+                guard let self else { return }
+                guard case .available(let lyrics) = self.lyricsState, lyrics.isTimed else { return }
+                self.applyLyricsPosition(lyrics: lyrics, time: time)
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Lyrics Helpers
+
+    /// Anticipation offset (seconds) — lyrics scroll/highlight slightly before the vocal.
+    /// Kept small (0.15s) so it feels natural without being noticeably ahead during seeks.
+    private static let lyricsAnticipation: TimeInterval = 0.15
+
+    /// Core lyrics position computation. Shared between the periodic time subscriber
+    /// and mid-track restore. Determines highlight, scroll target, and instrumental progress.
+    private func applyLyricsPosition(lyrics: ParsedLyrics, time: TimeInterval) {
+        let anticipatedTime = time + Self.lyricsAnticipation
+        let activeIndex = lyrics.activeLineIndex(at: anticipatedTime)
+
+        // Compute instrumental progress — determines whether a gap is active
+        let progress = Self.computeInstrumentalProgress(
+            lyrics: lyrics, activeIndex: activeIndex,
+            currentTime: anticipatedTime, trackDuration: self.duration
+        )
+
+        // Keep the lyric line highlighted for its typical vocal duration,
+        // then de-highlight and let the dots take over as the "active" element
+        let elapsedSinceLine: TimeInterval
+        if let activeIndex, let ts = lyrics.lines[activeIndex].timestamp {
+            elapsedSinceLine = anticipatedTime - ts
+        } else {
+            elapsedSinceLine = 0
+        }
+        let newLineIndex: Int?
+        if progress != nil && elapsedSinceLine > lyrics.typicalVocalDuration {
+            newLineIndex = nil
+        } else {
+            newLineIndex = activeIndex
+        }
+
+        let newScrollTarget = self.isUserScrollingLyrics ? self.lyricsScrollTargetIndex : activeIndex
+
+        // Skip assignment if nothing changed — avoids firing @Published for 4 properties
+        // every 0.5s when the active line hasn't changed
+        if newLineIndex == self.currentLyricsLineIndex
+            && progress == self.instrumentalProgress
+            && newScrollTarget == self.lyricsScrollTargetIndex {
+            return
+        }
+
+        self.instrumentalProgress = progress
+        self.currentLyricsLineIndex = newLineIndex
+        if !self.isUserScrollingLyrics {
+            self.lyricsScrollTargetIndex = activeIndex
+        }
+    }
+
+    /// Called by the lyrics view when user manually scrolls.
+    /// Suppresses auto-scroll for 5 seconds so the user can browse freely.
+    public func userDidScrollLyrics() {
+        // Only fire @Published change when transitioning from false → true
+        if !isUserScrollingLyrics {
+            isUserScrollingLyrics = true
+        }
+        // Always reset the 5s resume timer
+        userScrollResumeTask?.cancel()
+        userScrollResumeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.isUserScrollingLyrics = false
+        }
+    }
+
+    /// Pre-compute which line indices have instrumental gaps after them.
+    /// Also determines intro/outro gap presence. Called when lyrics change.
+    /// Uses the lyrics' adaptive threshold so songs with naturally long phrase
+    /// spacing don't get false instrumental dots.
+    private func computeInstrumentalGapPositions(lyrics: ParsedLyrics) {
+        guard lyrics.isTimed else {
+            instrumentalGapAfterIndices = []
+            hasIntroInstrumentalGap = false
+            hasOutroInstrumentalGap = false
+            return
+        }
+
+        let threshold = lyrics.instrumentalGapThreshold
+        var gapIndices = Set<Int>()
+
+        // Check intro gap (before first lyric)
+        if let firstTimestamp = lyrics.lines.first?.timestamp,
+           firstTimestamp >= threshold {
+            hasIntroInstrumentalGap = true
+        } else {
+            hasIntroInstrumentalGap = false
+        }
+
+        // Check gaps between consecutive lines
+        for i in 0..<lyrics.lines.count - 1 {
+            guard let current = lyrics.lines[i].timestamp,
+                  let next = lyrics.lines[i + 1].timestamp else { continue }
+            if next - current >= threshold {
+                gapIndices.insert(i)
+            }
+        }
+
+        // Check outro gap (last lyric to track end)
+        if let lastTimestamp = lyrics.lines.last?.timestamp,
+           duration > 0,
+           duration - lastTimestamp >= threshold {
+            hasOutroInstrumentalGap = true
+        } else {
+            hasOutroInstrumentalGap = false
+        }
+
+        instrumentalGapAfterIndices = gapIndices
+
+        #if DEBUG
+        EnsembleLogger.debug("Lyrics: gaps after indices=\(gapIndices.sorted()), intro=\(hasIntroInstrumentalGap), outro=\(hasOutroInstrumentalGap)")
+        #endif
+    }
+
+    /// Compute progress through an instrumental gap (0.0–1.0).
+    /// Returns nil if the current position is not within a gap.
+    /// Handles intro gaps, mid-song breaks, and outro gaps.
+    private static func computeInstrumentalProgress(
+        lyrics: ParsedLyrics,
+        activeIndex: Int?,
+        currentTime: TimeInterval,
+        trackDuration: TimeInterval
+    ) -> Double? {
+        let threshold = lyrics.instrumentalGapThreshold
+
+        // Intro gap: before the first lyric line starts
+        if activeIndex == nil, let firstTimestamp = lyrics.lines.first?.timestamp {
+            guard firstTimestamp >= threshold else { return nil }
+            let progress = currentTime / firstTimestamp
+            return min(max(progress, 0), 1)
+        }
+
+        guard let activeIndex else { return nil }
+
+        let currentTimestamp = lyrics.lines[activeIndex].timestamp ?? 0
+
+        // Mid-song gap: between current line and next line
+        let nextIndex = activeIndex + 1
+        if nextIndex < lyrics.lines.count,
+           let nextTimestamp = lyrics.lines[nextIndex].timestamp {
+            let gapDuration = nextTimestamp - currentTimestamp
+            guard gapDuration >= threshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
+        }
+
+        // Outro gap: last line to end of track
+        if nextIndex >= lyrics.lines.count, trackDuration > 0 {
+            let gapDuration = trackDuration - currentTimestamp
+            guard gapDuration >= threshold else { return nil }
+            let elapsed = currentTime - currentTimestamp
+            return min(max(elapsed / gapDuration, 0), 1)
+        }
+
+        return nil
+    }
+
+    // MARK: - Artwork Management
+
+    private var currentLoadArtworkPath: String?
+
+    private func loadArtworkImage(for track: Track) {
+        let trackID = track.id
+        guard currentLoadTrackID != trackID else { return }
+
+        // If the new track shares the same artwork path as the current one
+        // (e.g. tracks in the same album), skip the reload entirely
+        let effectiveArtworkPath = track.thumbPath ?? track.fallbackThumbPath
+        if effectiveArtworkPath != nil,
+           effectiveArtworkPath == currentLoadArtworkPath,
+           artworkImage != nil {
+            currentLoadTrackID = trackID
+            return
+        }
+
+        artworkLoadTask?.cancel()
+        currentLoadTrackID = trackID
+        currentLoadArtworkPath = effectiveArtworkPath
+        
+        artworkLoadTask = Task { @MainActor in
+            // Check if cancelled early
+            guard !Task.isCancelled else { return }
+            
+            // Get artwork URL
+            let deps = DependencyContainer.shared
+            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
+                for: track.thumbPath,
+                sourceKey: track.sourceCompositeKey,
+                ratingKey: track.id,
+                fallbackPath: track.fallbackThumbPath,
+                fallbackRatingKey: track.fallbackRatingKey,
+                size: 600 // Use slightly larger size for background
+            ) {
+                guard !Task.isCancelled else { return }
+                
+                // Check Nuke cache first for instant display
+                let request = Nuke.ImageRequest(url: artworkURL)
+                
+                // Try synchronous cache lookup first
+                if let cachedImage = Nuke.ImagePipeline.shared.cache.cachedImage(for: request) {
+                    guard !Task.isCancelled else { return }
+                    
+                    if self.currentLoadTrackID == trackID {
+                        self.artworkImage = cachedImage.image
+                    }
+                    return
+                }
+                
+                // Load asynchronously if not cached
+                if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
+                    guard !Task.isCancelled else { return }
+
+                    // Only update if this is still the current track
+                    if self.currentLoadTrackID == trackID {
+                        // Using a smooth cross-fade transition.
+                        // DO NOT REMOVE THIS - it ensures beautiful track transitions.
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            self.artworkImage = result
+                        }
+                    }
+                }
+                // If Nuke fails (transient network error, pipeline cancellation),
+                // keep the previous artwork rather than flashing to a placeholder.
+                // Tracks with truly no artwork are handled by the artworkURLAsync == nil
+                // path below, which clears artworkImage correctly.
+            } else {
+                // No artwork URL available - clear previous artwork
+                guard !Task.isCancelled else { return }
+                
+                if self.currentLoadTrackID == trackID {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        self.artworkImage = nil
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Computed Properties
@@ -209,18 +596,13 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.currentTimeValue
     }
 
-    /// Keeps the scrubber from reaching 100% while playback is still active when
-    /// stream metadata under-reports duration.
+    /// The duration used for scrubber position and remaining-time display.
+    /// Uses metadata duration as the source of truth. When the stream delivers
+    /// audio past the metadata duration (common with transcoded streams), the
+    /// scrubber pins at 100% and remaining time shows -0:00 until the track
+    /// actually ends and advances.
     public var scrubberDuration: TimeInterval {
-        let baseDuration = max(0, duration)
-        guard currentTrack != nil else { return baseDuration }
-
-        switch playbackState {
-        case .playing, .buffering, .loading:
-            return max(baseDuration, currentTime + 1.0)
-        default:
-            return max(baseDuration, currentTime)
-        }
+        max(0, duration)
     }
 
     public var progress: Double {
@@ -235,6 +617,15 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public var isPlaying: Bool {
         playbackState == .playing
+    }
+
+    /// Whether the current track can be played right now.
+    /// Downloaded tracks are always playable; server tracks require the server to be reachable.
+    /// Used to gate the play button after queue restoration before health checks complete.
+    public var isCurrentTrackPlayable: Bool {
+        guard let track = currentTrack else { return false }
+        let availability = trackAvailabilityResolver.availability(for: track)
+        return availability == .available || availability == .availableDownloadedOnly
     }
 
     public var hasCurrentTrack: Bool {
@@ -257,6 +648,43 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Queue split into sections for UI display
     public var queueSections: QueueSections {
         playbackService.queueSections
+    }
+
+    // MARK: - Album Metadata
+
+    /// Fetch album metadata for the current track (for Info card display)
+    public func fetchAlbumForCurrentTrack() async -> Album? {
+        guard let albumRatingKey = currentTrack?.albumRatingKey else { return nil }
+        do {
+            if let cdAlbum = try await libraryRepository.fetchAlbum(ratingKey: albumRatingKey) {
+                return Album(from: cdAlbum)
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("Failed to fetch album for current track: \(error)")
+            #endif
+        }
+        return nil
+    }
+
+    /// Returns codec and file size of what AVPlayer is actually decoding right now
+    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+        playbackService.currentPlaybackFileInfo()
+    }
+
+    /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
+    public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
+        guard let track = currentTrack,
+              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
+        do {
+            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
+            return AudioFileInfo(from: plexTrack)
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
+            #endif
+            return nil
+        }
     }
 
     // MARK: - Playback Controls
@@ -282,6 +710,11 @@ public final class NowPlayingViewModel: ObservableObject {
     public func togglePlayPause() {
         if isPlaying {
             playbackService.pause()
+        } else if case .failed = playbackState {
+            // When in failed state, tapping play retries the current track
+            Task {
+                await playbackService.retryCurrentTrack()
+            }
         } else {
             playbackService.resume()
         }
@@ -318,6 +751,22 @@ public final class NowPlayingViewModel: ObservableObject {
     public func seekToProgress(_ progress: Double) {
         let time = progress * scrubberDuration
         seek(to: time)
+    }
+
+    /// Update the visualizer position during scrubber drag for instant aurora feedback
+    public func updateVisualizerPosition(_ progress: Double) {
+        let time = progress * scrubberDuration
+        playbackService.updateVisualizerPosition(time)
+    }
+
+    /// Begin rate-based audible scrubbing (long-press skip buttons).
+    public func startFastSeeking(forward: Bool) {
+        playbackService.startFastSeeking(forward: forward)
+    }
+
+    /// Stop rate-based scrubbing and restore normal playback.
+    public func stopFastSeeking() {
+        playbackService.stopFastSeeking()
     }
 
     // MARK: - Queue Management
@@ -429,7 +878,22 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+        // Route through MutationCoordinator — handles offline queuing automatically
+        let (resultOrNil, outcome) = try await mutationCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+        if outcome == .queued {
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "clock.arrow.circlepath",
+                    title: "Queued for \(playlist.title)",
+                    message: "Will be added when back online.",
+                    dedupeKey: "playlist-add-queued-\(playlist.id)"
+                )
+            )
+            return PlaylistMutationResult(addedCount: 0, skippedCount: 0)
+        }
+
+        let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
         await MainActor.run {
             if result.skippedCount > 0 {
                 self.toastCenter.show(
@@ -477,7 +941,7 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = try await syncCoordinator.createPlaylist(
+        let result = try await mutationCoordinator.createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
@@ -629,6 +1093,11 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.toggleAutoplay()
     }
 
+    /// Toggle instrumental mode (vocal attenuation via AUSoundIsolation)
+    public func toggleInstrumentalMode() {
+        playbackService.setInstrumentalMode(!isInstrumentalModeActive)
+    }
+
     public func toggleHistory() {
         showHistory.toggle()
     }
@@ -703,10 +1172,23 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(trackId: track.id, rating: optimisticRating)
             applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: optimisticRating)
 
+            // Route through MutationCoordinator — handles offline queuing automatically
             if let trackRatingMutationHandlerForTesting {
                 try await trackRatingMutationHandlerForTesting(track, plexRating)
             } else {
-                try await syncCoordinator.rateTrack(track: track, rating: plexRating)
+                let outcome = try await mutationCoordinator.rateTrack(track, rating: plexRating)
+                if outcome == .queued {
+                    toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: isFavorite ? "heart.fill" : "heart.slash.fill",
+                            title: isFavorite ? "Saved — will sync when online" : "Removed — will sync when online",
+                            message: track.title,
+                            dedupeKey: "favorite-toggle-queued-\(track.id)-\(isFavorite ? 1 : 0)"
+                        )
+                    )
+                    return
+                }
             }
 
             if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
@@ -777,21 +1259,31 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.optimisticTrackRatings[track.id] = nextDisplayRating
             }
             
-            // Send to server
+            // Apply optimistic local update for immediate consistency with swipe-driven state.
             do {
-                // Apply optimistic local update for immediate consistency with swipe-driven state.
                 try await storeTrackRating(trackId: track.id, rating: nextDisplayRating)
                 applyCurrentTrackRatingIfNeeded(trackId: track.id, rating: nextDisplayRating)
 
+                // Route through MutationCoordinator — handles offline queuing automatically
                 if let trackRatingMutationHandlerForTesting {
                     try await trackRatingMutationHandlerForTesting(track, nextPlexRating)
                 } else {
-                    try await syncCoordinator.rateTrack(
-                        track: track,
-                        rating: nextPlexRating
-                    )
+                    let outcome = try await mutationCoordinator.rateTrack(track, rating: nextPlexRating)
+                    if outcome == .queued {
+                        toastCenter.show(
+                            ToastPayload(
+                                style: .info,
+                                iconSystemName: newRating.icon,
+                                title: "Rating saved — will sync when online",
+                                message: track.title,
+                                dedupeKey: "rating-toggle-queued-\(track.id)"
+                            )
+                        )
+                        await MainActor.run { self.isUpdatingRating = false }
+                        return
+                    }
                 }
-                
+
                 // Refresh the track to get updated data
                 if let updatedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id) {
                     let refreshedTrack = Track(from: updatedTrack)
@@ -807,7 +1299,7 @@ public final class NowPlayingViewModel: ObservableObject {
                         self.optimisticTrackRatings[track.id] = nextDisplayRating
                     }
                 }
-                
+
                 // Clear the updating flag
                 await MainActor.run {
                     self.isUpdatingRating = false
@@ -902,6 +1394,7 @@ public final class NowPlayingViewModel: ObservableObject {
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
+            lastRatedAt: track.lastRatedAt,
             rating: track.rating,
             playCount: track.playCount,
             sourceCompositeKey: sourceCompositeKey
@@ -929,6 +1422,7 @@ public final class NowPlayingViewModel: ObservableObject {
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,
+            lastRatedAt: track.lastRatedAt,
             rating: rating,
             playCount: track.playCount,
             sourceCompositeKey: track.sourceCompositeKey

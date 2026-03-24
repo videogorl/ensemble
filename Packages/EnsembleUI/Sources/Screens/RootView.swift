@@ -5,37 +5,78 @@ import SwiftUI
 @available(iOS 15.0, macOS 12.0, watchOS 8.0, *)
 public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    
+
     public init() {}
 
     public var body: some View {
         mainContentView
-            .accentColor(settingsManager.accentColor.color)
-            .onAppear {
-                updateAppearance()
-            }
-            .onChange(of: settingsManager.accentColor) { _ in
-                updateAppearance()
-            }
-            .task {
-                let deps = DependencyContainer.shared
-                deps.accountManager.loadAccounts()
-                deps.syncCoordinator.refreshProviders()
-                _ = await deps.siriMediaIndexStore.rebuildIndex()
-            }
+        .accentColor(settingsManager.accentColor.color)
+        .onAppear {
+            updateAppearance()
+        }
+        .onChange(of: settingsManager.accentColor) { _ in
+            updateAppearance()
+        }
+        .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
+            updateAppearance()
+        }
+        .task {
+            let deps = DependencyContainer.shared
+            deps.accountManager.loadAccounts()
+            // Pre-populate server health states so tracks from unchecked servers
+            // are dimmed until health checks confirm reachability.
+            deps.serverHealthChecker.prepopulateUnknownStates()
+            deps.syncCoordinator.refreshProviders()
+            _ = await deps.siriMediaIndexStore.rebuildIndex()
+        }
     }
 
     private func updateAppearance() {
-        #if canImport(UIKit)
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
+        #if canImport(UIKit) && !os(watchOS)
+        let navAppearance = UINavigationBarAppearance()
+        let tabBarAppearance = UITabBarAppearance()
 
-        // Use default system title colors — accent color is applied via
-        // .accentColor() modifier and only affects interactive elements
+        if settingsManager.auroraVisualizationEnabled {
+            // Transparent backgrounds for aurora visibility
+            navAppearance.configureWithTransparentBackground()
+            tabBarAppearance.configureWithTransparentBackground()
+        } else {
+            // Default opaque backgrounds
+            navAppearance.configureWithDefaultBackground()
+            tabBarAppearance.configureWithDefaultBackground()
+        }
 
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
+        // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
+        // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
+        // effect so content doesn't scroll behind chrome.
+        if #available(iOS 16.0, *) {
+            // iOS 16+ handles this correctly — no extra work needed
+        } else {
+            let bgAlpha: CGFloat = settingsManager.auroraVisualizationEnabled ? 0.3 : 0.85
+            let blurStyle: UIBlurEffect.Style = .systemChromeMaterial
+
+            // Nav bar
+            navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+            // Tab bar
+            tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+            // Toolbar
+            let toolbarAppearance = UIToolbarAppearance()
+            toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+            toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+            UIToolbar.appearance().standardAppearance = toolbarAppearance
+            UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
+        }
+
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
         #endif
     }
 

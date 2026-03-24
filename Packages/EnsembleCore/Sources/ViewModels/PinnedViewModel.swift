@@ -60,36 +60,51 @@ public final class PinnedViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Fetch each pinned item from CoreData by ratingKey
+    /// Fetch each pinned item from CoreData by ratingKey (parallel fetches)
     public func loadPinnedItems() async {
         guard !isMoving else { return }
-        
+
         // Safety reset of dragging state
         self.draggingPinId = nil
         self.draggingPin = nil
-        
+
         isLoading = true
         let pins = pinManager.pinnedItems
-        var resolved: [ResolvedPin] = []
 
-        for pin in pins {
-            switch pin.type {
-            case .album:
-                if let cd = try? await libraryRepository.fetchAlbum(ratingKey: pin.id) {
-                    resolved.append(.album(Album(from: cd), pin))
-                }
-            case .artist:
-                if let cd = try? await libraryRepository.fetchArtist(ratingKey: pin.id) {
-                    resolved.append(.artist(Artist(from: cd), pin))
-                }
-            case .playlist:
-                if let cd = try? await playlistRepository.fetchPlaylist(ratingKey: pin.id) {
-                    resolved.append(.playlist(Playlist(from: cd), pin))
+        // Fetch all pins in parallel, then reassemble in original order
+        let results: [(index: Int, pin: ResolvedPin?)] = await withTaskGroup(
+            of: (Int, ResolvedPin?).self
+        ) { group in
+            for (index, pin) in pins.enumerated() {
+                group.addTask { [libraryRepository, playlistRepository] in
+                    switch pin.type {
+                    case .album:
+                        if let cd = try? await libraryRepository.fetchAlbum(ratingKey: pin.id) {
+                            return (index, .album(Album(from: cd), pin))
+                        }
+                    case .artist:
+                        if let cd = try? await libraryRepository.fetchArtist(ratingKey: pin.id) {
+                            return (index, .artist(Artist(from: cd), pin))
+                        }
+                    case .playlist:
+                        if let cd = try? await playlistRepository.fetchPlaylist(ratingKey: pin.id) {
+                            return (index, .playlist(Playlist(from: cd), pin))
+                        }
+                    }
+                    return (index, nil)
                 }
             }
+            var collected: [(Int, ResolvedPin?)] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
         }
 
-        resolvedPins = resolved
+        // Preserve original pin order
+        resolvedPins = results
+            .sorted { $0.index < $1.index }
+            .compactMap { $0.pin }
         isLoading = false
     }
 

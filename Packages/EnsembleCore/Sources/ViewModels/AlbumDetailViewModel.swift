@@ -26,6 +26,15 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
+    /// Rich metadata loaded on-demand from the single-item metadata endpoint
+    @Published public private(set) var albumDetail: AlbumDetail?
+    /// Albums by the same artist, excluding the current album
+    @Published public private(set) var relatedAlbums: [Album] = []
+    /// Similar/related albums from Plex's recommendation engine
+    @Published public private(set) var similarAlbums: [Album] = []
+    /// Whether detail metadata is still loading
+    @Published public private(set) var isLoadingDetail = false
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
@@ -42,6 +51,9 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Re-fetch tracks when download state changes so offline dimming is accurate
+        observeDownloadChanges()
     }
     
     private func setupFilterPersistence() {
@@ -79,6 +91,76 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoading = false
     }
     
+    /// Loads rich album metadata (genres, styles, studio/label) from the API
+    public func loadAlbumDetail() async {
+        guard let sourceKey = album.sourceCompositeKey else { return }
+        isLoadingDetail = true
+
+        do {
+            let detail = try await syncCoordinator.getAlbumDetail(albumId: album.id, sourceKey: sourceKey)
+            albumDetail = detail
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadAlbumDetail error: \(error.localizedDescription)")
+            #endif
+        }
+
+        isLoadingDetail = false
+    }
+
+    /// Loads albums by the same artist, excluding the current album.
+    /// First tries CoreData, falls back to API if empty (same pattern as ArtistDetailViewModel.loadAlbums).
+    public func loadRelatedAlbums() async {
+        guard let artistId = album.artistRatingKey else { return }
+
+        do {
+            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            if !cachedAlbums.isEmpty {
+                relatedAlbums = cachedAlbums
+                    .map { Album(from: $0) }
+                    .filter { $0.id != album.id }
+            } else if let sourceKey = album.sourceCompositeKey {
+                // Fallback to API if not found locally
+                #if DEBUG
+                EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
+                #endif
+                let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artistId, sourceKey: sourceKey)
+                relatedAlbums = apiAlbums.filter { $0.id != album.id }
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadRelatedAlbums error: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Loads similar/related albums from Plex's recommendation engine
+    public func loadSimilarAlbums() async {
+        guard let sourceKey = album.sourceCompositeKey else { return }
+
+        do {
+            let albums = try await syncCoordinator.getSimilarAlbums(albumId: album.id, sourceKey: sourceKey)
+            similarAlbums = albums.filter { $0.id != album.id }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("AlbumDetailViewModel.loadSimilarAlbums error: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    // MARK: - Download Change Observation
+
+    private func observeDownloadChanges() {
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Filtered Collections
     
     /// Filtered tracks based on current filter options

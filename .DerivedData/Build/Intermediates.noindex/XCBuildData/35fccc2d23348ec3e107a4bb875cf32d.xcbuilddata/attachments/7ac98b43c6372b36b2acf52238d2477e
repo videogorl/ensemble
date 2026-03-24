@@ -1,4 +1,0 @@
-module EnsembleCore {
-header "EnsembleCore-Swift.h"
-export *
-}

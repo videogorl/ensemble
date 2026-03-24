@@ -9,13 +9,21 @@ public actor ConnectionFailoverManager {
     private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
+
+    // TLS failure cooldown tracking - deprioritize endpoints with persistent TLS errors
+    private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
+    private let tlsCooldownDuration: TimeInterval = 300     // 5 minutes
     
     public init(timeout: TimeInterval = 5.0) {
         self.timeout = timeout
-        
+
         let config = URLSessionConfiguration.default
+        // Set session-level timeouts high so per-request timeouts (set on
+        // individual URLRequests) are the effective ceiling. This allows
+        // local endpoints to use a short timeout (1.5s) without the session
+        // overriding it.
         config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = timeout
+        config.timeoutIntervalForResource = timeout + 2
         let session = URLSession(configuration: config)
         self.requestPerformer = { request in
             try await session.data(for: request)
@@ -68,11 +76,18 @@ public actor ConnectionFailoverManager {
     }
 
     /// Policy-aware endpoint probing used by API client and server health checks.
+    /// - Parameters:
+    ///   - endpoints: All available endpoints for the server
+    ///   - token: Auth token for probing
+    ///   - selectionPolicy: Policy for ordering candidates
+    ///   - allowInsecure: Policy for insecure connections
+    ///   - networkContext: Current network reachability context for filtering unreachable endpoints
     public func findBestConnection(
         endpoints: [PlexEndpointDescriptor],
         token: String,
         selectionPolicy: ConnectionSelectionPolicy,
-        allowInsecure: AllowInsecureConnectionsPolicy
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext = .unknown
     ) async -> ConnectionSelectionResult {
         guard !endpoints.isEmpty else {
             return ConnectionSelectionResult(
@@ -83,19 +98,37 @@ public actor ConnectionFailoverManager {
             )
         }
 
+        // Filter by network reachability first to skip unreachable endpoint classes
+        let reachableEndpoints = filterByNetworkReachability(endpoints, context: networkContext)
+
+        // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
+        let activeCandidates = filterByTLSCooldown(reachableEndpoints)
+
+        // Move endpoints with recent network-unreachable failures to the end.
+        // This avoids wasting time probing IPv6 addresses that consistently fail
+        // while still trying them if all other endpoints fail.
+        let orderedCandidates = deprioritizeNetworkUnreachable(activeCandidates)
+
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: endpoints,
+            from: orderedCandidates,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
         var candidates = ordering.candidates
+
+        // Compute adaptive timeout based on network context
+        let adaptiveTimeout = probeTimeout(for: networkContext)
 
         if let preferred = preferredRecentHealthyEndpoint(from: candidates) {
             #if DEBUG
             EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint first: \(preferred.url)")
             #endif
 
-            let probe = await probeConnection(endpoint: preferred, token: token)
+            // Use a tighter timeout for the preferred endpoint — it recently worked,
+            // so if it doesn't respond quickly, something changed and we should fall
+            // through to parallel probing rather than waiting the full timeout.
+            let preferredTimeout = preferred.local ? min(1.5, adaptiveTimeout) : min(3.0, adaptiveTimeout)
+            let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: preferredTimeout)
             if probe.success {
                 #if DEBUG
                 EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(preferred.url)")
@@ -123,27 +156,87 @@ public actor ConnectionFailoverManager {
             )
         }
 
-        let probes = await withTaskGroup(of: ConnectionProbeResult.self) { group in
+        // Determine the best possible endpoint class among candidates so we know
+        // when an early exit is safe (no remaining probe could beat the current best).
+        let bestPossibleClass = candidates.map(\.endpointClass).min() ?? .relay
+
+        // Use Optional to distinguish real probe results from the grace-period
+        // deadline sentinel (nil). When a working endpoint is found but higher-priority
+        // probes are still pending, we inject a deadline task that fires after 0.25s.
+        // If nothing better arrives by then, we cancel remaining probes and return.
+        let gracePeriodNs: UInt64 = 250_000_000  // 0.25s
+
+        let (selected, probes) = await withTaskGroup(of: ConnectionProbeResult?.self) { group -> (PlexEndpointDescriptor?, [ConnectionProbeResult]) in
             for endpoint in candidates {
+                // Local endpoints respond in <100ms when reachable; use a shorter
+                // timeout so unreachable LAN/IPv6 addresses fail fast.
+                let localTimeout = endpoint.local ? min(1.5, adaptiveTimeout) : adaptiveTimeout
                 group.addTask {
-                    await self.probeConnection(endpoint: endpoint, token: token)
+                    await self.probeConnection(endpoint: endpoint, token: token, probeTimeout: localTimeout)
                 }
             }
 
             var collected: [ConnectionProbeResult] = []
-            for await result in group {
-                collected.append(result)
+            var bestSoFar: ConnectionProbeResult?
+            var graceTaskAdded = false
+
+            for await optionalProbe in group {
+                // nil = grace period deadline expired
+                guard let probe = optionalProbe else {
+                    if bestSoFar != nil {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar!.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
+                        )
+                        #endif
+                        group.cancelAll()
+                        break
+                    }
+                    continue
+                }
+
+                collected.append(probe)
+
+                if probe.success {
+                    // Keep the best successful probe (lowest class, then fastest)
+                    if let current = bestSoFar {
+                        if probe.endpoint.endpointClass < current.endpoint.endpointClass
+                            || (probe.endpoint.endpointClass == current.endpoint.endpointClass
+                                && probe.duration < current.duration) {
+                            bestSoFar = probe
+                        }
+                    } else {
+                        bestSoFar = probe
+                    }
+
+                    // Early exit: we already have the highest-priority class possible,
+                    // so no remaining probe can beat it. Cancel the rest immediately.
+                    if bestSoFar?.endpoint.endpointClass == bestPossibleClass {
+                        #if DEBUG
+                        EnsembleLogger.debug(
+                            "⚡️ ConnectionFailover: Early exit — best-class endpoint found (\(bestPossibleClass.rawValue)), cancelling \(candidates.count - collected.count) remaining probe(s)"
+                        )
+                        #endif
+                        group.cancelAll()
+                        break
+                    }
+
+                    // Inject a deadline task so we don't wait indefinitely for
+                    // higher-priority probes that may be timing out on unreachable hosts.
+                    if !graceTaskAdded {
+                        graceTaskAdded = true
+                        group.addTask {
+                            try? await Task.sleep(nanoseconds: gracePeriodNs)
+                            return nil  // Sentinel: grace period expired
+                        }
+                    }
+                }
             }
-            return collected
+
+            return (bestSoFar?.endpoint, collected)
         }
 
-        let successful = probes.filter(\.success)
-        guard let selected = successful.sorted(by: { lhs, rhs in
-            if lhs.endpoint.endpointClass == rhs.endpoint.endpointClass {
-                return lhs.duration < rhs.duration
-            }
-            return lhs.endpoint.endpointClass < rhs.endpoint.endpointClass
-        }).first?.endpoint else {
+        guard let selected else {
             #if DEBUG
             EnsembleLogger.debug("❌ ConnectionFailover: No successful endpoints from \(candidates.count) probes")
             #endif
@@ -183,10 +276,99 @@ public actor ConnectionFailoverManager {
     public func resetHealthTracking() {
         connectionHealth.removeAll()
         lastProbeResultsByURL.removeAll()
+        tlsFailureCooldowns.removeAll()
     }
     
     // MARK: - Private Methods
-    
+
+    /// Filter endpoints by network reachability context.
+    /// On cellular/remote networks, local endpoints (private IPs) are unreachable.
+    private func filterByNetworkReachability(
+        _ endpoints: [PlexEndpointDescriptor],
+        context: NetworkReachabilityContext
+    ) -> [PlexEndpointDescriptor] {
+        switch context {
+        case .remoteNetwork:
+            // On cellular: skip local endpoints (they'll timeout anyway)
+            let filtered = endpoints.filter { !$0.local }
+            #if DEBUG
+            let skipped = endpoints.count - filtered.count
+            if skipped > 0 {
+                EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skipped) local endpoint(s) on remote network")
+            }
+            #endif
+            return filtered
+        case .localNetwork, .unknown:
+            // On local network or unknown: keep all candidates
+            return endpoints
+        }
+    }
+
+    /// Compute probe timeout based on network context.
+    /// Uses shorter timeout on cellular to reduce worst-case probe time.
+    private func probeTimeout(for context: NetworkReachabilityContext) -> TimeInterval {
+        switch context {
+        case .remoteNetwork:
+            return 4.0  // Shorter timeout on cellular
+        case .localNetwork, .unknown:
+            return timeout  // Use default timeout on local network
+        }
+    }
+
+    /// Check if a URL is in TLS cooldown (had recent TLS failures)
+    private func isInTLSCooldown(_ url: String) -> Bool {
+        guard let expiry = tlsFailureCooldowns[url] else { return false }
+        return Date() < expiry
+    }
+
+    /// Record a TLS failure for a URL (places it in cooldown)
+    private func recordTLSFailure(_ url: String) {
+        tlsFailureCooldowns[url] = Date().addingTimeInterval(tlsCooldownDuration)
+        #if DEBUG
+        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint \(url) in TLS cooldown for \(Int(tlsCooldownDuration))s")
+        #endif
+    }
+
+    /// Filter out endpoints that are in TLS cooldown
+    private func filterByTLSCooldown(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        let filtered = endpoints.filter { !isInTLSCooldown($0.url) }
+        #if DEBUG
+        let skipped = endpoints.count - filtered.count
+        if skipped > 0 {
+            EnsembleLogger.debug("🔒 ConnectionFailover: Skipping \(skipped) endpoint(s) in TLS cooldown")
+        }
+        #endif
+        return filtered
+    }
+
+    /// Deprioritize endpoints that had recent network-unreachable failures (-1009).
+    /// These are typically IPv6 endpoints that aren't routable on the current network.
+    /// They're moved to the end of the list (not removed) so they're still tried if
+    /// all higher-priority endpoints fail. This avoids wasting time on consistently
+    /// unreachable addresses while preserving correctness if the network changes.
+    private func deprioritizeNetworkUnreachable(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        var prioritized: [PlexEndpointDescriptor] = []
+        var deprioritized: [PlexEndpointDescriptor] = []
+
+        for endpoint in endpoints {
+            if let lastResult = lastProbeResultsByURL[endpoint.url],
+               !lastResult.success,
+               lastResult.failureCategory == .network {
+                deprioritized.append(endpoint)
+            } else {
+                prioritized.append(endpoint)
+            }
+        }
+
+        #if DEBUG
+        if !deprioritized.isEmpty {
+            EnsembleLogger.debug("🌐 ConnectionFailover: Deprioritized \(deprioritized.count) endpoint(s) with recent network-unreachable failures")
+        }
+        #endif
+
+        return prioritized + deprioritized
+    }
+
     private func updateConnectionHealth(url: String, success: Bool) {
         if var health = connectionHealth[url] {
             health.recordAttempt(success: success)
@@ -219,7 +401,11 @@ public actor ConnectionFailoverManager {
         }.first?.endpoint
     }
 
-    private func probeConnection(endpoint: PlexEndpointDescriptor, token: String) async -> ConnectionProbeResult {
+    private func probeConnection(
+        endpoint: PlexEndpointDescriptor,
+        token: String,
+        probeTimeout: TimeInterval? = nil
+    ) async -> ConnectionProbeResult {
         let url = endpoint.url
         guard URL(string: url) != nil else {
             #if DEBUG
@@ -256,7 +442,7 @@ public actor ConnectionFailoverManager {
         var request = URLRequest(url: requestURL)
         request.httpMethod = "GET"
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
-        request.timeoutInterval = timeout
+        request.timeoutInterval = probeTimeout ?? timeout
 
         #if DEBUG
         EnsembleLogger.debug("🔄 ConnectionTest[\(url)]: Testing...")
@@ -329,6 +515,11 @@ public actor ConnectionFailoverManager {
             // Cancellation is expected in hedged probes and should not poison health scoring.
             if category != .cancelled {
                 updateConnectionHealth(url: url, success: false)
+            }
+
+            // Record TLS failures for cooldown tracking
+            if category == .tls {
+                recordTLSFailure(url)
             }
 
             #if DEBUG

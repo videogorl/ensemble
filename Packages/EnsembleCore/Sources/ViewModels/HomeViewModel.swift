@@ -38,6 +38,24 @@ public final class HomeViewModel: ObservableObject {
     private var pendingHubSnapshot: [Hub]?
     private var pendingHubApplyTask: Task<Void, Never>?
     private var unfilteredHubs: [Hub] = []
+
+    // Startup suppression: the explicit .task load IS the startup load;
+    // auto-refresh should not fire additional loads until it completes.
+    private var initialLoadCompleted = false
+
+    // Tracks when the last network hub fetch completed, so auto-refresh
+    // can skip redundant fetches if one just happened (10s guard)
+    private var lastNetworkHubFetchTime: Date?
+    private let networkHubFetchCooldown: TimeInterval = 10.0
+
+    // Hub keys (from getHubItems) that returned errors — persisted across sessions
+    // to avoid re-requesting endpoints that consistently 404. Cleared on pull-to-refresh
+    // or when the server list changes.
+    private static let failedHubKeysKey = "failedHubKeys"
+    private var failedHubKeys: Set<String> = {
+        let saved = UserDefaults.standard.stringArray(forKey: failedHubKeysKey) ?? []
+        return Set(saved)
+    }()
     
     // Periodic hub refresh
     private var hubRefreshTimer: Timer?
@@ -46,6 +64,18 @@ public final class HomeViewModel: ObservableObject {
     // Debounce interval to prevent rapid successive loads
     private let debounceInterval: TimeInterval = 2.0
     private let idleApplyDebounceNanoseconds: UInt64 = 350_000_000
+
+    // Rotating count for hub requests — different counts cause PMS to select
+    // different dynamic hub content (e.g. "More by...", "More in..." sections)
+    private var refreshCount: Int = 0
+    private static let hubCountOptions = [12, 15, 18, 20]
+
+    /// Returns a count parameter that rotates on each pull-to-refresh,
+    /// encouraging PMS to pick different dynamic hub content
+    private var currentHubCount: String {
+        let index = refreshCount % Self.hubCountOptions.count
+        return String(Self.hubCountOptions[index])
+    }
     internal private(set) var deferredAutoRefreshCount = 0
     internal private(set) var coalescedAutoRefreshCount = 0
     internal var autoRefreshRunnerForTesting: ((AutoRefreshReason) async -> Void)?
@@ -99,6 +129,7 @@ public final class HomeViewModel: ObservableObject {
                             hiddenSourceCompositeKeys: self.visibilityStore.hiddenSourceCompositeKeys
                         )
                     }
+                    EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(self.hubs.count) hubs)")
                 } else {
                     self.clearHubContentForUnavailableSources()
                 }
@@ -109,12 +140,17 @@ public final class HomeViewModel: ObservableObject {
             }
         }
         
-        // Reload when accounts change
+        // Reload when accounts change (skip initial publish — only clear
+        // persisted hub keys when accounts actually change after startup)
         accountManager.$plexAccounts
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] accounts in
                 guard let self else { return }
                 self.updateSourceAvailability(from: accounts)
+                // Server list changed — clear persisted failed hub keys so
+                // they're retried against the new configuration
+                self.clearFailedHubKeys()
                 guard self.hasEnabledLibraries else {
                     self.clearHubContentForUnavailableSources()
                     return
@@ -123,12 +159,16 @@ public final class HomeViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         
-        // Auto-reload when sync completes
+        // Auto-reload when sync completes or source statuses change.
+        // Combined into a single subscriber to avoid duplicate refreshes when both
+        // publishers fire in close succession (e.g., sync completion updates both
+        // isSyncing and sourceStatuses within the debounce window).
         syncCoordinator.$isSyncing
+            .combineLatest(syncCoordinator.$sourceStatuses)
             .receive(on: DispatchQueue.main)
-            .removeDuplicates()
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
-            .sink { [weak self] syncing in
+            .dropFirst()
+            .sink { [weak self] syncing, _ in
                 if !syncing {
                     self?.requestAutoRefresh(reason: .syncCompleted)
                 }
@@ -143,6 +183,17 @@ public final class HomeViewModel: ObservableObject {
                 self?.applyVisibilityToPublishedHubs()
             }
             .store(in: &cancellables)
+
+        // Safety timeout: if the initial .task load never completes (e.g. no
+        // configured accounts), unblock auto-refresh after 15 seconds.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, !self.initialLoadCompleted else { return }
+            self.initialLoadCompleted = true
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
+            #endif
+        }
     }
     
     deinit {
@@ -221,17 +272,20 @@ public final class HomeViewModel: ObservableObject {
             // Progressive updates are only used for empty-state loads to avoid in-scroll churn.
             var collectedHubs: [Hub] = []
             let shouldApplyProgressiveUpdates = self.hubs.isEmpty
+            let hubCount = self.currentHubCount
+            let knownFailedHubKeys = self.failedHubKeys
 
-            await withTaskGroup(of: [Hub].self) { group in
+            await withTaskGroup(of: (hubs: [Hub], failedKeys: [String]).self) { group in
                 // Fetch section-specific hubs in parallel
                 for task in fetchTasks {
                     group.addTask {
                         var hubs: [Hub] = []
+                        var newFailedKeys: [String] = []
                         do {
-                            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
+                            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey, count: hubCount)
 
                             // Process hub items in parallel
-                            await withTaskGroup(of: Hub?.self) { hubGroup in
+                            await withTaskGroup(of: (hub: Hub?, failedKey: String?).self) { hubGroup in
                                 for plexHub in plexHubs {
                                     hubGroup.addTask {
                                         let hubId = "\(task.sourceKey):\(plexHub.id)"
@@ -244,45 +298,65 @@ public final class HomeViewModel: ObservableObject {
                                             }
                                             hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
                                         } else if let key = plexHub.key ?? plexHub.hubKey {
-                                            if let metadata = try? await task.client.getHubItems(hubKey: key) {
+                                            // Skip hub keys that previously failed (e.g. 404)
+                                            guard !knownFailedHubKeys.contains(key) else {
+                                                return (hub: nil, failedKey: nil)
+                                            }
+                                            do {
+                                                let metadata = try await task.client.getHubItems(hubKey: key)
                                                 let filteredMetadata = metadata.filter { item in
                                                     let type = item.type?.lowercased() ?? ""
                                                     return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
                                                 }
                                                 hubItems = Array(filteredMetadata.prefix(12)).map { HubItem(from: $0, sourceKey: task.sourceKey) }
+                                            } catch {
+                                                // Track the failed key so we don't retry it this session
+                                                return (hub: nil, failedKey: key)
                                             }
                                         }
 
                                         if !hubItems.isEmpty {
-                                            return Hub(
+                                            let hub = Hub(
                                                 id: hubId,
                                                 title: plexHub.title,
                                                 type: plexHub.type ?? "mixed",
-                                                items: hubItems
+                                                items: hubItems,
+                                                context: plexHub.context
                                             )
+                                            return (hub: hub, failedKey: nil)
                                         }
-                                        return nil
+                                        return (hub: nil, failedKey: nil)
                                     }
                                 }
 
-                                for await hub in hubGroup {
-                                    if let hub = hub {
+                                for await result in hubGroup {
+                                    if let hub = result.hub {
                                         hubs.append(hub)
+                                    }
+                                    if let failedKey = result.failedKey {
+                                        newFailedKeys.append(failedKey)
                                     }
                                 }
                             }
                         } catch {
                             // Silently continue on error
                         }
-                        return hubs
+                        return (hubs: hubs, failedKeys: newFailedKeys)
                     }
                 }
 
                 // Collect hubs progressively and update UI only for first-time loads.
-                for await fetchedBatch in group {
-                    collectedHubs.append(contentsOf: fetchedBatch)
+                for await result in group {
+                    collectedHubs.append(contentsOf: result.hubs)
+                    // Cache failed hub keys across sessions
+                    if !result.failedKeys.isEmpty {
+                        for key in result.failedKeys {
+                            self.failedHubKeys.insert(key)
+                        }
+                        self.persistFailedHubKeys()
+                    }
 
-                    guard shouldApplyProgressiveUpdates, !fetchedBatch.isEmpty else { continue }
+                    guard shouldApplyProgressiveUpdates, !result.hubs.isEmpty else { continue }
 
                     let progressiveResult = self.mergeAndGroupHubs(collectedHubs)
                     let displayHubs: [Hub]
@@ -303,6 +377,12 @@ public final class HomeViewModel: ObservableObject {
             }
 
             let fetchedHubs = collectedHubs
+
+            #if DEBUG
+            if !self.failedHubKeys.isEmpty {
+                EnsembleLogger.debug("🏠 Cached \(self.failedHubKeys.count) failed hub key(s) — will skip on future loads")
+            }
+            #endif
 
             // Fallback to global hubs if few section hubs found
             let finalHubs: [Hub]
@@ -351,7 +431,8 @@ public final class HomeViewModel: ObservableObject {
                                                 id: hubId,
                                                 title: plexHub.title,
                                                 type: plexHub.type ?? "mixed",
-                                                items: hubItems
+                                                items: hubItems,
+                                                context: plexHub.context
                                             ))
                                         }
                                     }
@@ -393,6 +474,12 @@ public final class HomeViewModel: ObservableObject {
                 hubOrderManager.saveDefaultOrder(defaultHubs.map { $0.id }, for: sourceKey)
             }
 
+            // Migrate saved order if hub IDs changed format (e.g. single <-> merged)
+            if let sourceKey = currentSourceKey {
+                let serverHubs = hubsForServer(sourceKey: sourceKey, in: fetchedHubsResult)
+                migrateHubOrderIfNeeded(for: sourceKey, currentHubs: serverHubs)
+            }
+
             // Apply saved or default order to the fetched hubs
             let orderedHubs: [Hub]
             if let sourceKey = currentSourceKey {
@@ -424,20 +511,27 @@ public final class HomeViewModel: ObservableObject {
             }
             
             isLoading = false
-            
+            initialLoadCompleted = true
+            lastNetworkHubFetchTime = Date()
+            loadTask = nil
+
             // Persist to cache for offline access
             let hubsToCache = hubs
             Task.detached(priority: .background) { [hubRepository] in
                 try? await hubRepository.saveHubs(hubsToCache)
             }
         }
-        
+
         await loadTask?.value
     }
     
     /// Refresh hubs (clears debounce to force immediate reload)
+    /// Uses a rotated count to encourage PMS to pick different dynamic hub content
+    /// (e.g. different "More by...", "More in..." selections)
     public func refresh() async {
         lastLoadTime = nil
+        refreshCount += 1
+        clearFailedHubKeys()
         await loadHubs(deferUIUpdatesWhileInteracting: false)
     }
 
@@ -471,9 +565,29 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
+        // Suppress auto-refresh until the initial .task load completes.
+        // The explicit loadHubs() from HomeView.task IS the startup load.
+        guard initialLoadCompleted else {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh suppressed (initial load in flight) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+
         guard !syncCoordinator.isOffline else {
             #if DEBUG
             EnsembleLogger.debug("📴 Home auto-refresh skipped (offline) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+
+        // Skip if we recently completed a network hub fetch (prevents
+        // duplicate fetches when sync-completed fires shortly after a load)
+        if reason != .accountChange,
+           let lastFetch = lastNetworkHubFetchTime,
+           Date().timeIntervalSince(lastFetch) < networkHubFetchCooldown {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh skipped (fetched \(String(format: "%.1f", Date().timeIntervalSince(lastFetch)))s ago) reason=\(reason.rawValue)")
             #endif
             return
         }
@@ -488,6 +602,14 @@ public final class HomeViewModel: ObservableObject {
             )
             #endif
             scheduleDeferredAutoRefresh()
+            return
+        }
+
+        // Coalesce immediate refreshes: if a load is already in progress, skip
+        guard loadTask == nil else {
+            #if DEBUG
+            EnsembleLogger.debug("🏠 Home auto-refresh coalesced (load in progress) reason=\(reason.rawValue)")
+            #endif
             return
         }
 
@@ -511,7 +633,6 @@ public final class HomeViewModel: ObservableObject {
 
     private func performAutoRefresh(triggeringReason reason: AutoRefreshReason) async {
         pendingAutoRefreshReasons.removeAll()
-        lastLoadTime = nil
 
         if let autoRefreshRunnerForTesting {
             await autoRefreshRunnerForTesting(reason)
@@ -544,9 +665,7 @@ public final class HomeViewModel: ObservableObject {
             #endif
             self.pendingHubSnapshot = nil
             self.hubs = pendingHubSnapshot
-            if isEditingOrder {
-                self.editableHubs = pendingHubSnapshot
-            }
+            // Don't overwrite editableHubs — user may be actively reordering
         }
     }
 
@@ -575,9 +694,7 @@ public final class HomeViewModel: ObservableObject {
         pendingHubSnapshot = nil
         pendingHubApplyTask?.cancel()
         hubs = visibleSnapshot
-        if isEditingOrder {
-            editableHubs = visibleSnapshot
-        }
+        // Don't overwrite editableHubs — user may be actively reordering
     }
 
     private func applyVisibilityToPublishedHubs() {
@@ -594,9 +711,7 @@ public final class HomeViewModel: ObservableObject {
         pendingHubSnapshot = nil
         pendingHubApplyTask?.cancel()
         hubs = visibleHubs
-        if isEditingOrder {
-            editableHubs = visibleHubs
-        }
+        // Don't overwrite editableHubs — user may be actively reordering
     }
 
     internal var hasPendingAutoRefreshForTesting: Bool {
@@ -611,6 +726,11 @@ public final class HomeViewModel: ObservableObject {
         pendingAutoRefreshReasons.removeAll()
         deferredAutoRefreshTask?.cancel()
         deferredAutoRefreshTask = nil
+    }
+
+    /// Mark the initial load as complete so auto-refresh tests can proceed
+    internal func markInitialLoadCompletedForTesting() {
+        initialLoadCompleted = true
     }
 
     internal static func filterHubsForVisibility(
@@ -629,37 +749,134 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Normalize hub titles to allow merging across libraries (e.g. "Recently Added in Music" -> "Recently Added")
+    /// Normalize hub titles by removing " in [Library Name]" suffix
+    /// Only strips the suffix for known hub title patterns (e.g. "Recently Added in Music")
+    /// to avoid breaking titles like "More in Pop/Rock"
     private static nonisolated func normalizeHubTitle(_ title: String) -> String {
-        var normalized = title
-
-        // Remove " in [Library Name]" pattern (e.g. "Recently Added in Music")
-        if let range = normalized.range(of: " in ", options: .backwards) {
-            normalized = String(normalized[..<range.lowerBound])
+        // Only strip " in ..." for titles that start with known prefixes
+        // Dynamic hubs like "More in Pop/Rock" should keep their full title
+        let stripPrefixes = ["Recently Added", "Recently Played", "Most Played"]
+        for prefix in stripPrefixes {
+            if title.hasPrefix(prefix), let range = title.range(of: " in ", options: .backwards) {
+                return String(title[..<range.lowerBound])
+            }
         }
-
-        return normalized
+        return title
     }
 
-    /// Merge and group hubs by server and normalized title
+    /// Extract the hub type identifier from a hub ID for merging across libraries.
+    /// Hub IDs are formatted as "plex:{accountId}:{serverId}:{libraryKey}:{hubIdentifier}"
+    /// where hubIdentifier is like "music.recent.added.3". The trailing section number
+    /// is stripped so hubs from different libraries can be grouped together.
+    private static nonisolated func hubTypeIdentifier(from hubId: String) -> String {
+        // Extract the hubIdentifier portion (after the 4th colon)
+        let components = hubId.split(separator: ":")
+        if components.count >= 5 {
+            // hubIdentifier is everything after the 4th ":"
+            let hubIdentifier = components[4...].joined(separator: ":")
+            // Strip trailing section number (e.g. "music.recent.added.3" -> "music.recent.added")
+            if let lastDot = hubIdentifier.lastIndex(of: ".") {
+                let suffix = hubIdentifier[hubIdentifier.index(after: lastDot)...]
+                if suffix.allSatisfy(\.isNumber) {
+                    return String(hubIdentifier[..<lastDot])
+                }
+            }
+            return hubIdentifier
+        }
+        return hubId
+    }
+
+    /// Extract the raw Plex hub type from any hub ID format.
+    /// - Single: "plex:acct:srv:lib:music.recent.added.3" -> "music.recent.added"
+    /// - Merged: "plex:acct:srv:merged:music.recent.added" -> "music.recent.added"
+    private static nonisolated func rawHubType(from hubId: String) -> String {
+        let components = hubId.split(separator: ":")
+        guard components.count >= 5 else { return hubId }
+
+        if components[3] == "merged" {
+            // Merged format: typeId is the 5th component (already clean, no section number)
+            return String(components[4])
+        }
+
+        // Single-hub format: use hubTypeIdentifier which strips the trailing section number
+        return hubTypeIdentifier(from: hubId)
+    }
+
+    /// Migrate saved hub order when IDs change format (single <-> merged) after
+    /// libraries are added/removed. Matches stale IDs to current hubs by:
+    /// 1. Raw type + title from merged ID (for contextual hubs with title in the ID)
+    /// 2. Raw type only when unambiguous (exactly one current hub with that type)
+    private func migrateHubOrderIfNeeded(for sourceKey: String, currentHubs: [Hub]) {
+        guard let savedOrder = hubOrderManager.loadOrder(for: sourceKey) else { return }
+
+        let currentIdSet = Set(currentHubs.map { $0.id })
+        let hasStaleIds = savedOrder.contains { !currentIdSet.contains($0) }
+        guard hasStaleIds else { return }
+
+        // Build lookups: (rawType, title) -> hubId for exact matching,
+        // rawType -> [hubId] for type-only fallback
+        var typeAndTitleLookup: [String: String] = [:]
+        var typeOnlyLookup: [String: [String]] = [:]
+        for hub in currentHubs {
+            let rawType = HomeViewModel.rawHubType(from: hub.id)
+            let title = HomeViewModel.normalizeHubTitle(hub.title)
+            typeAndTitleLookup["\(rawType)|\(title)"] = hub.id
+            typeOnlyLookup[rawType, default: []].append(hub.id)
+        }
+
+        // Build remapping for stale IDs
+        var remapping: [String: String] = [:]
+        for savedId in savedOrder where !currentIdSet.contains(savedId) {
+            let rawType = HomeViewModel.rawHubType(from: savedId)
+
+            // Try type+title match using title embedded in merged IDs
+            let components = savedId.split(separator: ":")
+            if components.count >= 6, components[3] == "merged" {
+                let titleFromId = components[5...].joined(separator: ":")
+                let key = "\(rawType)|\(titleFromId)"
+                if let currentId = typeAndTitleLookup[key] {
+                    remapping[savedId] = currentId
+                    continue
+                }
+            }
+
+            // Fall back to type-only match (only when unambiguous)
+            if let candidates = typeOnlyLookup[rawType], candidates.count == 1 {
+                remapping[savedId] = candidates[0]
+            }
+        }
+
+        guard !remapping.isEmpty else { return }
+        hubOrderManager.migrateOrder(remapping: remapping, for: sourceKey)
+    }
+
+    /// Merge and group hubs by server and hub type identifier.
+    /// Uses the stable hubIdentifier (e.g. "music.recent.added") for grouping
+    /// rather than title normalization, so dynamic hubs like "More in Pop/Rock"
+    /// don't get incorrectly merged.
     private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
-        // Helper to get server key
+        // Server key is first 3 components: "plex:{acct}:{srv}"
         func getServerKey(_ hubId: String) -> String {
             let components = hubId.split(separator: ":")
-            if components.count >= 2 {
-                return "\(components[0]):\(components[1])"
+            if components.count >= 3 {
+                return "\(components[0]):\(components[1]):\(components[2])"
             }
             return "global"
         }
 
-        // Group hubs by server and normalized title to merge libraries on the same server
+        // Group hubs by server and hub type identifier to merge libraries on the same server
         var hubGroups: [String: [Hub]] = [:]
         var groupOrder: [String] = []
 
         for hub in hubs {
             let serverKey = getServerKey(hub.id)
+            let typeId = HomeViewModel.hubTypeIdentifier(from: hub.id)
+            // Include normalized title in the grouping key so contextual hubs from
+            // different libraries stay separate ("More by Gorillaz" vs "More by Tricia Brock",
+            // "More in Pop/Rock" vs "More in Religious"). Generic hubs still merge because
+            // normalizeHubTitle strips " in {Library}" suffix.
             let normalizedTitle = HomeViewModel.normalizeHubTitle(hub.title)
-            let groupingKey = "\(serverKey)|\(normalizedTitle)"
+            let groupingKey = "\(serverKey)|\(typeId)|\(normalizedTitle)"
 
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
@@ -677,15 +894,15 @@ public final class HomeViewModel: ObservableObject {
             let normalizedTitle = HomeViewModel.normalizeHubTitle(firstHub.title)
 
             if group.count == 1 {
-                // Even if not merged, use normalized title for consistency
                 mergedResults.append(Hub(
                     id: firstHub.id,
                     title: normalizedTitle,
                     type: firstHub.type,
-                    items: firstHub.items
+                    items: firstHub.items,
+                    context: firstHub.context
                 ))
             } else {
-                // Merge items from all hubs in group
+                // Merge items from all hubs in this group
                 var allItems: [HubItem] = []
                 var seenItems = Set<String>()
 
@@ -702,12 +919,13 @@ public final class HomeViewModel: ObservableObject {
                 // Sort merged items by dateAdded descending
                 allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
 
-                // Create merged hub with a stable ID for ordering
+                let typeId = HomeViewModel.hubTypeIdentifier(from: firstHub.id)
                 let mergedHub = Hub(
-                    id: "\(serverKey):merged:\(normalizedTitle)",
+                    id: "\(serverKey):merged:\(typeId):\(normalizedTitle)",
                     title: normalizedTitle,
                     type: firstHub.type,
-                    items: Array(allItems.prefix(40)) // Higher limit for merged hubs
+                    items: Array(allItems.prefix(40)),
+                    context: firstHub.context
                 )
                 mergedResults.append(mergedHub)
             }
@@ -715,13 +933,15 @@ public final class HomeViewModel: ObservableObject {
 
         return mergedResults
     }
-    
+
     // MARK: - Edit Mode
-    
+
+    /// Extract the server key from a hub ID.
+    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubId}" — server key is the first 3 components.
     private func serverKey(from hubId: String) -> String? {
         let components = hubId.split(separator: ":")
-        guard components.count >= 2 else { return nil }
-        return "\(components[0]):\(components[1])"
+        guard components.count >= 3 else { return nil }
+        return "\(components[0]):\(components[1]):\(components[2])"
     }
     
     private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
@@ -738,7 +958,8 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Determine the primary source key (first enabled server) and its display name
+    /// Determine the primary source key (first enabled server) and its display name.
+    /// Source key format matches the first 3 components of hub IDs: "plex:{acct}:{srv}"
     private func updateCurrentSource() {
         let servers = accountManager.plexAccounts.flatMap { $0.servers }
         let hasMultipleServers = servers.count > 1
@@ -747,7 +968,7 @@ public final class HomeViewModel: ObservableObject {
             for server in account.servers {
                 let enabledLibraries = server.libraries.filter { $0.isEnabled }
                 if !enabledLibraries.isEmpty {
-                    currentSourceKey = "\(account.id):\(server.id)"
+                    currentSourceKey = "plex:\(account.id):\(server.id)"
                     if hasMultipleServers {
                         currentSourceName = "Editing Music (on \(server.name))"
                     } else {
@@ -760,6 +981,17 @@ public final class HomeViewModel: ObservableObject {
 
         currentSourceKey = nil
         currentSourceName = "Editing Music"
+    }
+
+    /// Persist failed hub keys to UserDefaults so they survive app restarts
+    private func persistFailedHubKeys() {
+        UserDefaults.standard.set(Array(failedHubKeys), forKey: Self.failedHubKeysKey)
+    }
+
+    /// Clear persisted failed hub keys (on pull-to-refresh or server list change)
+    private func clearFailedHubKeys() {
+        failedHubKeys.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.failedHubKeysKey)
     }
 
     private func updateSourceAvailability(from accounts: [PlexAccountConfig]? = nil) {
@@ -812,6 +1044,28 @@ public final class HomeViewModel: ObservableObject {
         deferredAutoRefreshTask = nil
     }
     
+    /// Look up the library title for a hub based on its ID.
+    /// Hub IDs contain the account, server, and library key: "plex:{acct}:{srv}:{lib}:{hubType}".
+    /// Matches on both server ID and library key to avoid cross-server collisions
+    /// (different servers can have the same library key for different libraries).
+    /// Returns nil for merged hubs or if the library isn't found.
+    public func libraryName(forHubId hubId: String) -> String? {
+        let components = hubId.split(separator: ":")
+        // Merged hubs don't have a library key
+        guard components.count >= 5, components[3] != "merged" else { return nil }
+        let serverId = String(components[2])
+        let libraryKey = String(components[3])
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers where server.id == serverId {
+                if let library = server.libraries.first(where: { $0.key == libraryKey }) {
+                    return library.title
+                }
+            }
+        }
+        return nil
+    }
+
     /// Enter edit mode - prepare the hub list for reordering
     public func enterEditMode() {
         updateCurrentSource()

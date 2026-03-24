@@ -15,19 +15,27 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
     @Published public var filterOptions: FilterOptions
+    /// Cached sorted + filtered playlists, updated via Combine pipeline instead of re-computed on every body access
+    @Published public private(set) var filteredPlaylists: [Playlist] = []
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
+    private let toastCenter: ToastCenter
     private var cancellables = Set<AnyCancellable>()
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
 
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator,
+        toastCenter: ToastCenter
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
+        self.mutationCoordinator = mutationCoordinator
+        self.toastCenter = toastCenter
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -39,6 +47,9 @@ public final class PlaylistViewModel: ObservableObject {
         // Save filter options when they change
         setupFilterPersistence()
 
+        // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
+        setupFilteredPlaylistsPipeline()
+
         // Auto-reload when sync completes
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
@@ -48,6 +59,36 @@ public final class PlaylistViewModel: ObservableObject {
                     Task { @MainActor in
                         await self?.loadPlaylists()
                     }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
+        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] notification in
+                #if DEBUG
+                let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
+                EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
+                #endif
+                Task { @MainActor in
+                    await self?.loadPlaylists()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (e.g. WebSocket-triggered sync completes)
+        // This catches playlist updates from other devices that may not fire playlistsDidRefresh.
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] statuses in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistViewModel: sourceStatuses changed — \(statuses.map { "\($0.key.compositeKey): \($0.value.syncStatus)" })")
+                #endif
+                Task { @MainActor in
+                    await self?.loadPlaylists()
                 }
             }
             .store(in: &cancellables)
@@ -75,6 +116,24 @@ public final class PlaylistViewModel: ObservableObject {
             return
         }
 
+        // Check if sync is already in progress
+        if syncCoordinator.isSyncing {
+            #if DEBUG
+            EnsembleLogger.debug("⏳ Sync already in progress - loading playlists from cache")
+            #endif
+            toastCenter.show(
+                ToastPayload(
+                    style: .info,
+                    iconSystemName: "arrow.triangle.2.circlepath",
+                    title: "Sync in progress",
+                    message: "A background sync is already running.",
+                    dedupeKey: "sync-already-in-progress"
+                )
+            )
+            await loadPlaylists()
+            return
+        }
+
         error = nil
 
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
@@ -97,7 +156,11 @@ public final class PlaylistViewModel: ObservableObject {
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
         do {
-            try await syncCoordinator.deletePlaylist(playlist)
+            let outcome = try await mutationCoordinator.deletePlaylist(playlist)
+            if outcome == .queued {
+                // Optimistically remove from list while queued
+                playlists.removeAll { $0.id == playlist.id }
+            }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -115,7 +178,7 @@ public final class PlaylistViewModel: ObservableObject {
         addOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
 
         do {
-            _ = try await syncCoordinator.createPlaylist(
+            _ = try await mutationCoordinator.createPlaylist(
                 title: trimmed,
                 tracks: [],
                 serverSourceKey: serverSourceKey
@@ -139,44 +202,69 @@ public final class PlaylistViewModel: ObservableObject {
         Self.isOptimisticCreatingPlaylistID(playlist.id)
     }
     
-    public var sortedPlaylists: [Playlist] {
-        switch playlistSortOption {
+    // MARK: - Sort & Filter (static, used by Combine pipeline)
+
+    private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
+        switch option {
         case .title:
-            return playlists.sorted { $0.title.sortingKey.localizedStandardCompare($1.title.sortingKey) == .orderedAscending }
+            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
+            return sortByCachedKey(playlists, keyExtractor: { $0.title.sortingKey }, ascending: asc)
         case .trackCount:
-            return playlists.sorted { $0.trackCount > $1.trackCount }
+            return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
         case .duration:
-            return playlists.sorted { $0.duration > $1.duration }
+            return playlists.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
         case .dateAdded:
-            return playlists.sorted { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            return playlists.sorted { asc
+                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
+                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
+            }
         case .dateModified:
-            return playlists.sorted { ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast) }
+            return playlists.sorted { asc
+                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
+                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
+            }
         case .lastPlayed:
-            return playlists.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
-        }
-    }
-    
-    // MARK: - Filtered Collections
-    
-    /// Filtered playlists based on current filter options
-    public var filteredPlaylists: [Playlist] {
-        applyFilters(to: sortedPlaylists, with: filterOptions)
-    }
-    
-    // MARK: - Filter Application
-    
-    private func applyFilters(to playlists: [Playlist], with options: FilterOptions) -> [Playlist] {
-        var filtered = playlists
-        
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
+            return playlists.sorted { asc
+                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
+                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
             }
         }
-        
-        return filtered
+    }
+
+    /// Sort by pre-computed string keys — computes sortingKey once per element.
+    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
+    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
+        let keyed = items.map { ($0, keyExtractor($0)) }
+        return keyed.sorted {
+            let result = $0.1.localizedStandardCompare($1.1)
+            if result == .orderedSame {
+                return $0.0.id < $1.0.id
+            }
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map { $0.0 }
+    }
+
+    private static func filterPlaylists(_ playlists: [Playlist], searchText: String) -> [Playlist] {
+        guard !searchText.isEmpty else { return playlists }
+        let searchLower = searchText.lowercased()
+        return playlists.filter { $0.title.lowercased().contains(searchLower) }
+    }
+
+    /// Background queue for sort/filter computation so the main thread stays responsive
+    private static let computeQueue = DispatchQueue(label: "com.ensemble.playlist-compute", qos: .userInitiated)
+
+    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change.
+    /// Debounced on a background queue to avoid main-thread stutter (e.g. when .searchable reveals).
+    private func setupFilteredPlaylistsPipeline() {
+        Publishers.CombineLatest3($playlists, $playlistSortOption, $filterOptions)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .map { playlists, sortOption, options -> [Playlist] in
+                let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
+                return Self.filterPlaylists(sorted, searchText: options.searchText)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.filteredPlaylists = $0 }
+            .store(in: &cancellables)
     }
 
     private func reloadPlaylists(showLoading: Bool) async {
@@ -342,6 +430,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
 
@@ -349,22 +438,70 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator
     ) {
         self.playlist = playlist
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
-        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail")
-        
+        self.mutationCoordinator = mutationCoordinator
+        self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
+
         // Save filter options when they change
         setupFilterPersistence()
+
+        // Re-fetch tracks when download state changes so offline dimming is accurate
+        observeDownloadChanges()
+
+        // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
+        observePlaylistRefresh()
     }
-    
+
     private func setupFilterPersistence() {
+        let playlistId = playlist.id
         $filterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "PlaylistDetail") }
+            .sink { FilterPersistence.save($0, for: "PlaylistDetail-\(playlistId)") }
+            .store(in: &cancellables)
+    }
+
+    private func observeDownloadChanges() {
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
+    private func observePlaylistRefresh() {
+        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                #if DEBUG
+                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
+                #endif
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Defensive fallback: reload when source statuses change (catches WebSocket-triggered
+        // incremental syncs that include playlist data)
+        syncCoordinator.$sourceStatuses
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -384,7 +521,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             ) {
                 // Refresh playlist metadata from cache so title/count stays current after edits.
                 playlist = Playlist(from: cachedPlaylist)
-                tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+                let loadedTracks = cachedPlaylist.tracksArray
+                tracks = loadedTracks.map { Track(from: $0) }
+                #if DEBUG
+                let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
+                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
+                #endif
             } else {
                 tracks = []
             }
@@ -394,9 +536,39 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
         isLoading = false
     }
-    
+
+    /// Sync this playlist's tracks from the server, then reload from cache.
+    /// Uses a detached task to survive SwiftUI `.refreshable` cancellation.
+    public func refreshFromServer() async {
+        guard !syncCoordinator.isOffline else {
+            await loadTracks()
+            return
+        }
+        guard !syncCoordinator.isSyncing else {
+            await loadTracks()
+            return
+        }
+
+        error = nil
+
+        // Run in a detached task so SwiftUI's .refreshable cancellation doesn't kill the sync
+        await withCheckedContinuation { continuation in
+            Task.detached { [syncCoordinator] in
+                await syncCoordinator.syncPlaylistsOnly()
+                continuation.resume()
+            }
+        }
+
+        await loadTracks()
+    }
+
     // MARK: - Filtered Collections
-    
+
+    /// Available genres for chip bar filtering (derived from playlist tracks)
+    public var availableGenres: [String] {
+        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+    }
+
     /// Filtered tracks based on current filter options
     public var filteredTracks: [Track] {
         applyFilters(to: tracks, with: filterOptions)
@@ -417,7 +589,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         var filtered = tracks
-        
+
         // Search text filter
         if !options.searchText.isEmpty {
             let searchLower = options.searchText.lowercased()
@@ -427,12 +599,20 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 ($0.albumName?.lowercased().contains(searchLower) ?? false)
             }
         }
-        
+
+        // Genre filter (include and exclude)
+        if !options.selectedGenres.isEmpty {
+            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
+        }
+        if !options.excludedGenres.isEmpty {
+            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
+        }
+
         // Downloaded only filter
         if options.showDownloadedOnly {
             filtered = filtered.filter { $0.isDownloaded }
         }
-        
+
         return filtered
     }
 
@@ -462,8 +642,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         do {
-            try await syncCoordinator.renamePlaylist(playlist, to: trimmed)
-            await loadTracks()
+            let outcome = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+            if outcome == .completed {
+                await loadTracks()
+            }
+            // If queued, keep the optimistic rename and it will sync when back online
             return true
         } catch {
             playlist = previousPlaylist
@@ -474,7 +657,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     public func deletePlaylist() async -> Bool {
         do {
-            try await syncCoordinator.deletePlaylist(playlist)
+            try await mutationCoordinator.deletePlaylist(playlist)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -506,7 +689,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         applyEditedTracksLocally(editedTracks)
 
         do {
-            try await syncCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)

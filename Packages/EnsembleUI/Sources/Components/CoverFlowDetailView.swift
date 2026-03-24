@@ -15,13 +15,19 @@ struct CoverFlowDetailView: View {
     }
     
     let contentType: ContentType
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) var deps
-    
+
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    // Targeted NVM observation: only re-evaluate for track changes and playlist target
+    @State private var currentTrackId: String?
+    @State private var nvmRecentPlaylistTitle: String?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +67,9 @@ struct CoverFlowDetailView: View {
                     showArtwork: true,
                     showTrackNumbers: true,
                     groupByDisc: false,
-                    currentTrackId: nowPlayingVM.currentTrack?.id,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadRatingKeys: activeDownloadRatingKeys,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
@@ -79,13 +87,19 @@ struct CoverFlowDetailView: View {
                             await nowPlayingVM.toggleTrackFavorite(track)
                         }
                     },
+                    onShareLink: { track in
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: { track in
+                        ShareActions.shareTrackFile(track, deps: deps)
+                    },
                     isTrackFavorited: { track in
                         nowPlayingVM.isTrackFavorited(track)
                     },
                     canAddToRecentPlaylist: { track in
                         recentPlaylistTitle(for: track) != nil
                     },
-                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+                    recentPlaylistTitle: nvmRecentPlaylistTitle
                 ) { track, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
@@ -99,11 +113,17 @@ struct CoverFlowDetailView: View {
                             TrackRow(
                                 track: track,
                                 showArtwork: true,
-                                isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                                isPlaying: track.id == currentTrackId,
                                 onPlayNext: { nowPlayingVM.playNext(track) },
                                 onPlayLast: { nowPlayingVM.playLast(track) },
                                 onAddToPlaylist: { presentPlaylistPicker(with: [track]) },
                                 onAddToRecentPlaylist: { addToRecentPlaylist(track) },
+                                onShareLink: {
+                                    ShareActions.shareTrackLink(track, deps: deps)
+                                },
+                                onShareFile: {
+                                    ShareActions.shareTrackFile(track, deps: deps)
+                                },
                                 recentPlaylistTitle: recentPlaylistTitle(for: track)
                             ) {
                                 nowPlayingVM.play(tracks: tracks, startingAt: index)
@@ -115,6 +135,20 @@ struct CoverFlowDetailView: View {
                 }
                 #endif
             }
+        }
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let title = target?.title
+            if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
         .task(id: contentTypeId) {
             await loadTracks()

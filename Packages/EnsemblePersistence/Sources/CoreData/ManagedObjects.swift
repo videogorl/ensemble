@@ -72,6 +72,11 @@ extension CDArtist {
         let set = albums as? Set<CDAlbum> ?? []
         return set.sorted { ($0.year) > ($1.year) }
     }
+
+    /// O(n) lookup for the newest album by year (avoids sorting the full set)
+    public var newestAlbum: CDAlbum? {
+        (albums as? Set<CDAlbum>)?.max(by: { $0.year < $1.year })
+    }
 }
 
 // MARK: - CDAlbum
@@ -92,6 +97,7 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var dateModified: Date?
     @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var genreNames: String?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var artist: CDArtist?
     @NSManaged public var source: CDMusicSource?
@@ -132,13 +138,16 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
     @NSManaged public var lastPlayed: Date?
+    @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
     @NSManaged public var playCount: Int32
     @NSManaged public var updatedAt: Date?
+    @NSManaged public var genreNames: String?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var album: CDAlbum?
     @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?
+    @NSManaged public var offlineMemberships: NSSet?
     @NSManaged public var playlistTracks: NSSet?
 }
 
@@ -184,7 +193,15 @@ extension CDPlaylist {
 
     public var tracksArray: [CDTrack] {
         let set = playlistTracks as? Set<CDPlaylistTrack> ?? []
-        return set.sorted { $0.order < $1.order }.compactMap { $0.track }
+        let sorted = set.sorted { $0.order < $1.order }
+        let result = sorted.compactMap { $0.track }
+        #if DEBUG
+        if result.count != sorted.count {
+            let nilIndices = sorted.enumerated().filter { $0.element.track == nil }.map { $0.offset }
+            EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(sorted.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
+        }
+        #endif
+        return result
     }
 }
 
@@ -209,12 +226,88 @@ extension CDPlaylistTrack {
 public class CDDownload: NSManagedObject {
     @NSManaged public var status: String?
     @NSManaged public var progress: Float
+    @NSManaged public var quality: String?
     @NSManaged public var filePath: String?
     @NSManaged public var fileSize: Int64
     @NSManaged public var startedAt: Date?
     @NSManaged public var completedAt: Date?
     @NSManaged public var error: String?
     @NSManaged public var track: CDTrack?
+}
+
+// MARK: - CDOfflineDownloadTarget
+
+@objc(CDOfflineDownloadTarget)
+public class CDOfflineDownloadTarget: NSManagedObject {
+    @NSManaged public var key: String
+    @NSManaged public var kind: String
+    @NSManaged public var ratingKey: String?
+    @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var displayName: String?
+    @NSManaged public var status: String?
+    @NSManaged public var totalTrackCount: Int32
+    @NSManaged public var completedTrackCount: Int32
+    @NSManaged public var progress: Float
+    @NSManaged public var lastError: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var updatedAt: Date?
+    @NSManaged public var memberships: NSSet?
+}
+
+extension CDOfflineDownloadTarget {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDOfflineDownloadTarget> {
+        return NSFetchRequest<CDOfflineDownloadTarget>(entityName: "CDOfflineDownloadTarget")
+    }
+
+    public enum Kind: String {
+        case library
+        case album
+        case artist
+        case playlist
+        case favorites
+    }
+
+    public enum Status: String {
+        case pending
+        case downloading
+        case completed
+        case paused
+        case failed
+    }
+
+    public var membershipArray: [CDOfflineDownloadMembership] {
+        let set = memberships as? Set<CDOfflineDownloadMembership> ?? []
+        return set.sorted { $0.id < $1.id }
+    }
+
+    public var targetKind: Kind {
+        get { Kind(rawValue: kind) ?? .library }
+        set { kind = newValue.rawValue }
+    }
+
+    public var targetStatus: Status {
+        get { Status(rawValue: status ?? "") ?? .pending }
+        set { status = newValue.rawValue }
+    }
+}
+
+// MARK: - CDOfflineDownloadMembership
+
+@objc(CDOfflineDownloadMembership)
+public class CDOfflineDownloadMembership: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var targetKey: String
+    @NSManaged public var trackRatingKey: String
+    @NSManaged public var trackSourceCompositeKey: String
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var target: CDOfflineDownloadTarget?
+    @NSManaged public var track: CDTrack?
+}
+
+extension CDOfflineDownloadMembership {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDOfflineDownloadMembership> {
+        return NSFetchRequest<CDOfflineDownloadMembership>(entityName: "CDOfflineDownloadMembership")
+    }
 }
 
 extension CDDownload {
@@ -307,5 +400,50 @@ public class CDHubItem: NSManagedObject {
 extension CDHubItem {
     @nonobjc public class func fetchRequest() -> NSFetchRequest<CDHubItem> {
         return NSFetchRequest<CDHubItem>(entityName: "CDHubItem")
+    }
+}
+
+// MARK: - CDPendingMutation
+
+/// Persisted record for a server-side mutation that couldn't be sent while offline.
+/// Drained automatically when the device reconnects.
+@objc(CDPendingMutation)
+public class CDPendingMutation: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var type: String
+    @NSManaged public var payload: Data
+    @NSManaged public var createdAt: Date
+    @NSManaged public var retryCount: Int16
+    @NSManaged public var status: String
+    @NSManaged public var sourceCompositeKey: String?
+}
+
+extension CDPendingMutation {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDPendingMutation> {
+        return NSFetchRequest<CDPendingMutation>(entityName: "CDPendingMutation")
+    }
+
+    public enum MutationType: String {
+        case trackRating
+        case playlistAdd
+        case playlistRemove
+        case playlistRename
+        case playlistDelete
+        case scrobble
+    }
+
+    public enum MutationStatus: String {
+        case pending
+        case failed
+    }
+
+    public var mutationType: MutationType {
+        get { MutationType(rawValue: type) ?? .trackRating }
+        set { type = newValue.rawValue }
+    }
+
+    public var mutationStatus: MutationStatus {
+        get { MutationStatus(rawValue: status) ?? .pending }
+        set { status = newValue.rawValue }
     }
 }

@@ -23,7 +23,14 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
                 request.sortDescriptors = [NSSortDescriptor(key: "order", ascending: true)]
                 do {
                     let cdHubs = try context.fetch(request)
-                    let hubs = cdHubs.map { Hub(from: $0) }
+                    var seen = Set<String>()
+                    // Deduplicate by hub ID — concurrent saveHubs calls can race and
+                    // insert the same hubs twice via separate background contexts.
+                    let hubs = cdHubs.compactMap { cdHub -> Hub? in
+                        let hub = Hub(from: cdHub)
+                        guard seen.insert(hub.id).inserted else { return nil }
+                        return hub
+                    }
                     continuation.resume(returning: hubs)
                 } catch {
                     continuation.resume(throwing: error)
@@ -42,9 +49,15 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
                     for hub in existingHubs {
                         context.delete(hub)
                     }
-                    
+
+                    // Deduplicate by ID before inserting — guards against the caller
+                    // accidentally passing duplicate hubs and against concurrent saves
+                    // writing the same hubs via separate background contexts.
+                    var seen = Set<String>()
+                    let uniqueHubs = hubs.filter { seen.insert($0.id).inserted }
+
                     // Add new hubs
-                    for (hubIndex, hub) in hubs.enumerated() {
+                    for (hubIndex, hub) in uniqueHubs.enumerated() {
                         let cdHub = CDHub(context: context)
                         cdHub.id = hub.id
                         cdHub.title = hub.title

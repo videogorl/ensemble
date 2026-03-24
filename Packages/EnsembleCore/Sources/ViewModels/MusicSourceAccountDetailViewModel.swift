@@ -8,12 +8,23 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let id: String
         public let serverName: String
         public let serverPlatform: String?
+        public let capabilities: PlexServerCapabilities?
+        public let hasPlexPass: Bool
         public let libraries: [LibraryRow]
 
-        public init(id: String, serverName: String, serverPlatform: String?, libraries: [LibraryRow]) {
+        public init(
+            id: String,
+            serverName: String,
+            serverPlatform: String?,
+            capabilities: PlexServerCapabilities? = nil,
+            hasPlexPass: Bool = false,
+            libraries: [LibraryRow]
+        ) {
             self.id = id
             self.serverName = serverName
             self.serverPlatform = serverPlatform
+            self.capabilities = capabilities
+            self.hasPlexPass = hasPlexPass
             self.libraries = libraries
         }
     }
@@ -25,17 +36,20 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let title: String
         public let isEnabled: Bool
         public let status: MusicSourceStatus?
+        public let allowSync: Bool?
 
         public init(
             sourceIdentifier: MusicSourceIdentifier,
             title: String,
             isEnabled: Bool,
-            status: MusicSourceStatus?
+            status: MusicSourceStatus?,
+            allowSync: Bool? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.title = title
             self.isEnabled = isEnabled
             self.status = status
+            self.allowSync = allowSync
         }
     }
 
@@ -48,11 +62,17 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     @Published public private(set) var isReauthenticationRequired = false
     @Published public private(set) var serverLibraryErrors: [String: String] = [:]
     @Published public private(set) var error: String?
+    /// Number of pending offline mutations waiting to be replayed when connectivity resumes.
+    @Published public private(set) var pendingMutationCount: Int = 0
+    /// Active library scan progress for servers in this account (0-100), nil if no scan active.
+    @Published public private(set) var scanProgressByServer: [String: Int] = [:]
 
     private let accountId: String
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
+    private let mutationCoordinator: MutationCoordinator
+    private let webSocketCoordinator: PlexWebSocketCoordinator
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
@@ -69,12 +89,40 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountId: String,
         accountManager: AccountManager,
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        mutationCoordinator: MutationCoordinator,
+        webSocketCoordinator: PlexWebSocketCoordinator
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
+        self.mutationCoordinator = mutationCoordinator
+        self.webSocketCoordinator = webSocketCoordinator
+
+        // Subscribe to library scan progress from WebSocket events
+        webSocketCoordinator.$serverScanProgress
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] progressMap in
+                guard let self else { return }
+                // Filter to servers belonging to this account, keyed by serverId only
+                let accountPrefix = "\(accountId):"
+                var relevant: [String: Int] = [:]
+                for (key, value) in progressMap where key.hasPrefix(accountPrefix) {
+                    let serverId = String(key.dropFirst(accountPrefix.count))
+                    relevant[serverId] = value
+                }
+                self.scanProgressByServer = relevant
+            }
+            .store(in: &cancellables)
+
+        // Mirror the global pending mutation count so the view can show sync status
+        mutationCoordinator.$pendingCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                self?.pendingMutationCount = count
+            }
+            .store(in: &cancellables)
 
         accountManager.$plexAccounts
             .receive(on: DispatchQueue.main)
@@ -258,6 +306,10 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+
+        // Trigger a fresh server health check so library connection statuses
+        // reflect actual connectivity, not stale cached states.
+        syncCoordinator.refreshServerHealthStates()
     }
 
     private func syncSources(_ sources: [MusicSourceIdentifier]) async {
@@ -301,7 +353,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                         id: discoveredLibrary.id,
                         key: discoveredLibrary.key,
                         title: discoveredLibrary.title,
-                        isEnabled: existingLibrary?.isEnabled ?? false
+                        isEnabled: existingLibrary?.isEnabled ?? false,
+                        allowSync: discoveredLibrary.allowSync
                     )
                 }
 
@@ -328,6 +381,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     connections: discoveredServer.connections,
                     token: discoveredServer.token,
                     platform: discoveredServer.platform,
+                    capabilities: discoveredServer.capabilities,
                     libraries: resolvedLibraries
                 )
             )
@@ -367,6 +421,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             displayTitle: nonEmpty(discovery.identity.displayTitle) ?? account.displayTitle,
             authToken: account.authToken,
             authTokenMetadata: account.authTokenMetadata,
+            subscription: discovery.subscription ?? account.subscription,
             servers: updatedServers
         )
 
@@ -396,6 +451,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         isReauthenticationRequired = metadata.isExpired()
         accountIdentifier = account.accountIdentifier
 
+        // Account-level Plex Pass from subscription
+        let accountHasPlexPass = account.subscription?.active == true
+
         sections = account.servers.map { server in
             let libraries = server.libraries.map { library in
                 let sourceIdentifier = MusicSourceIdentifier(
@@ -411,7 +469,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     sourceIdentifier: sourceIdentifier,
                     title: library.title,
                     isEnabled: library.isEnabled,
-                    status: status
+                    status: status,
+                    allowSync: library.allowSync
                 )
             }
 
@@ -419,6 +478,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                 id: server.id,
                 serverName: server.name,
                 serverPlatform: server.platform,
+                capabilities: server.capabilities,
+                hasPlexPass: accountHasPlexPass || (server.capabilities?.hasPlexPass ?? false),
                 libraries: libraries
             )
         }

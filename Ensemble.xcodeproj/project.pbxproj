@@ -13,6 +13,9 @@
 		E0001005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0001004 /* Assets.xcassets */; };
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001008 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001011 /* PlayMediaIntentHandler.swift */; };
+		E0001017 /* UpdateMediaAffinityIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001020 /* UpdateMediaAffinityIntentHandler.swift */; };
+		E0001018 /* AddMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001021 /* AddMediaIntentHandler.swift */; };
+		E0001019 /* SiriMatchingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001022 /* SiriMatchingHelpers.swift */; };
 		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
@@ -59,6 +62,9 @@
 		E0001006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001010 /* IntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentHandler.swift; sourceTree = "<group>"; };
 		E0001011 /* PlayMediaIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayMediaIntentHandler.swift; sourceTree = "<group>"; };
+		E0001020 /* UpdateMediaAffinityIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateMediaAffinityIntentHandler.swift; sourceTree = "<group>"; };
+		E0001021 /* AddMediaIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMediaIntentHandler.swift; sourceTree = "<group>"; };
+		E0001022 /* SiriMatchingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMatchingHelpers.swift; sourceTree = "<group>"; };
 		E0001012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001013 /* Ensemble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ensemble.entitlements; sourceTree = "<group>"; };
 		E0001014 /* EnsembleSiriIntentsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EnsembleSiriIntentsExtension.entitlements; sourceTree = "<group>"; };
@@ -162,6 +168,9 @@
 			children = (
 				E0001010 /* IntentHandler.swift */,
 				E0001011 /* PlayMediaIntentHandler.swift */,
+				E0001020 /* UpdateMediaAffinityIntentHandler.swift */,
+				E0001021 /* AddMediaIntentHandler.swift */,
+				E0001022 /* SiriMatchingHelpers.swift */,
 				E0001012 /* Info.plist */,
 				E0001014 /* EnsembleSiriIntentsExtension.entitlements */,
 			);
@@ -243,6 +252,7 @@
 				E0010002 /* Frameworks */,
 				E0210002 /* Sources */,
 				E0220002 /* Resources */,
+				E0230003 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -263,6 +273,7 @@
 				E0010003 /* Frameworks */,
 				E0210003 /* Sources */,
 				E0220003 /* Resources */,
+				E0230002 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -350,17 +361,45 @@
 /* Begin PBXShellScriptBuildPhase section */
 		E0230001 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputPaths = (
-				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "BUILD_NUMBER=$(TZ=America/Los_Angeles date +\"%Y%m%d.%H%M\")\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
+			shellScript = "bash \"${SRCROOT}/scripts/update_build_number.sh\"";
+		};
+		E0230002 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"${SRCROOT}/scripts/update_build_number.sh\"";
+		};
+		E0230003 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"${SRCROOT}/scripts/update_build_number.sh\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -390,6 +429,9 @@
 			files = (
 				E0001007 /* IntentHandler.swift in Sources */,
 				E0001008 /* PlayMediaIntentHandler.swift in Sources */,
+				E0001017 /* UpdateMediaAffinityIntentHandler.swift in Sources */,
+				E0001018 /* AddMediaIntentHandler.swift in Sources */,
+				E0001019 /* SiriMatchingHelpers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -557,6 +599,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
 		};
@@ -600,6 +643,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
 		};
@@ -610,7 +654,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
@@ -618,7 +662,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 				SDKROOT = watchos;
@@ -626,6 +670,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
+				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 			};
 			name = Debug;
@@ -637,7 +682,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleWatch/Info.plist;
@@ -645,7 +690,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ensemble.app.watchkitapp;
 				PRODUCT_NAME = "Ensemble Watch";
 				SDKROOT = watchos;
@@ -654,6 +699,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 			};
 			name = Release;
@@ -667,6 +713,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleSiriIntentsExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -683,6 +730,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
 		};
@@ -695,6 +743,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnsembleSiriIntentsExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -712,6 +761,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
 		};

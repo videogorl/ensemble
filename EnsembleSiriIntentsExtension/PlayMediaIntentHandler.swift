@@ -64,11 +64,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public)"
         )
 
+        let artistHint = intent.mediaSearch?.artistName
+
         guard let index = loadIndex(), !index.items.isEmpty else {
             logger.debug("resolveMediaItems: index unavailable or empty; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType
+                mediaType: requestedMediaType,
+                artistHint: artistHint
             )
             completion([.success(with: fallback)])
             return
@@ -77,13 +80,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         let ranked = rankCandidates(
             for: normalizedQuery,
             mediaType: requestedMediaType,
-            index: index
+            index: index,
+            artistHint: artistHint
         )
         guard let top = ranked.first else {
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType
+                mediaType: requestedMediaType,
+                artistHint: artistHint
             )
             completion([.success(with: fallback)])
             return
@@ -94,41 +99,22 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.debug("resolveMediaItems: returning disambiguation with \(ranked.count, privacy: .public) options")
-                let options = Array(ranked.prefix(6)).map(makeMediaItem(from:))
+                let options = Array(ranked.prefix(6)).map { makeMediaItem(from: $0, artistHint: artistHint) }
                 completion([.disambiguation(with: options)])
                 return
             }
         }
 
         logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
-        completion([.success(with: makeMediaItem(from: top))])
+        completion([.success(with: makeMediaItem(from: top, artistHint: artistHint))])
     }
 
-    public func confirm(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        os_log(.info, "SIRI_EXT: confirm ENTRY")
-
-        // For HomePod requests, handle() is never called after confirm returns .ready.
-        // As a workaround, we write the payload to the App Group and post a Darwin
-        // notification so the app can pick it up directly.
-        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-
-        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
-            os_log(.info, "SIRI_EXT: confirm writing payload to App Group kind=%{public}@", payload.kind)
-            writePendingPayloadToAppGroup(payload)
-            postDarwinNotification()
-        }
-
-        // Also attach user activity in case the system decides to route it normally
-        let activity: NSUserActivity?
-        if let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) {
-            activity = playbackUserActivity(for: payload)
-        } else {
-            activity = nil
-        }
-
-        completion(INPlayMediaIntentResponse(code: .ready, userActivity: activity))
-        os_log(.info, "SIRI_EXT: confirm EXIT returning .ready (not .handleInApp) for HomePod relay compatibility")
-    }
+    // confirm is intentionally NOT implemented. Apple recommends skipping
+    // confirm for media intents (WWDC23 session 10238). Implementing it with
+    // .ready prevented handle() from being called on HomePod requests, which
+    // blocked the system from establishing an AirPlay route back to the
+    // requesting device. Without confirm, the flow goes directly to handle()
+    // which returns .handleInApp — the signal iOS needs to set up AirPlay.
 
     private func writePendingPayloadToAppGroup(_ payload: SiriPayloadIdentifier) {
         guard let containerURL = FileManager.default.containerURL(
@@ -159,14 +145,20 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
-        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld", requestedMediaType.rawValue)
-        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public)")
+        let shuffleRequested = intent.playShuffled ?? false
+        os_log(.info, "SIRI_EXT: handle ENTRY mediaType=%{public}ld shuffle=%{public}d", requestedMediaType.rawValue, shuffleRequested)
+        logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
-        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
+        guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
             os_log(.info, "SIRI_EXT: handle returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
             return
+        }
+
+        // Attach shuffle flag from intent
+        if shuffleRequested {
+            payload.shuffle = true
         }
 
         // Do not fail in the extension based on index trackCount metadata.
@@ -180,6 +172,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
+        // Write payload to App Group as fallback in case user activity delivery fails.
+        // The app's Darwin notification handler will pick this up if onContinueUserActivity
+        // doesn't fire within a few seconds.
+        writePendingPayloadToAppGroup(payload)
+        postDarwinNotification()
+
+        // Return .handleInApp — this is the signal iOS needs to establish AirPlay
+        // routing from the requesting HomePod before delivering the user activity.
         logger.debug("handle: returning handleInApp for payload kind=\(payload.kind, privacy: .public)")
         os_log(.info, "SIRI_EXT: handle returning handleInApp kind=%{public}@", payload.kind)
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
@@ -189,43 +189,66 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         from intent: INPlayMediaIntent,
         mediaType: INMediaItemType
     ) -> SiriPayloadIdentifier? {
-        if let identifier = (intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier),
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+
+        if let identifier = rawIdentifier,
            let decodedPayload = decodePayloadIdentifier(identifier),
            decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
             logger.debug("payloadIdentifier: using decoded payload identifier")
             return decodedPayload
         }
 
-        guard let query = queryText(from: intent), !query.isEmpty else {
-            return nil
-        }
-        let fallbackQuery = bestQueryVariant(from: query) ?? query
+        if let query = queryText(from: intent), !query.isEmpty {
+            let fallbackQuery = bestQueryVariant(from: query) ?? query
 
-        if let index = loadIndex(),
-           let top = rankCandidates(
-                for: fallbackQuery,
-                mediaType: mediaType,
-                index: index
-           ).first,
-           top.score >= Self.payloadResolutionThreshold {
-            logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
+            let artistHintForPayload = intent.mediaSearch?.artistName
+            if let index = loadIndex(),
+               let top = rankCandidates(
+                    for: fallbackQuery,
+                    mediaType: mediaType,
+                    index: index,
+                    artistHint: artistHintForPayload
+               ).first,
+               top.score >= Self.payloadResolutionThreshold {
+                logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
+                return SiriPayloadIdentifier(
+                    schemaVersion: Self.currentPayloadSchemaVersion,
+                    kind: top.item.kind,
+                    entityID: top.item.id,
+                    sourceCompositeKey: top.item.sourceCompositeKey,
+                    displayName: top.item.displayName,
+                    artistHint: artistHintForPayload
+                )
+            }
+
+            logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
             return SiriPayloadIdentifier(
                 schemaVersion: Self.currentPayloadSchemaVersion,
-                kind: top.item.kind,
-                entityID: top.item.id,
-                sourceCompositeKey: top.item.sourceCompositeKey,
-                displayName: top.item.displayName
+                kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
+                entityID: fallbackQuery,
+                sourceCompositeKey: nil,
+                displayName: fallbackQuery,
+                artistHint: artistHintForPayload
             )
         }
 
-        logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
-        return SiriPayloadIdentifier(
-            schemaVersion: Self.currentPayloadSchemaVersion,
-            kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
-            entityID: fallbackQuery,
-            sourceCompositeKey: nil,
-            displayName: fallbackQuery
-        )
+        if let rawIdentifier {
+            logger.debug("payloadIdentifier: falling back to raw media identifier")
+            let fallbackKind = primaryKindFor(mediaType: mediaType)
+            let fallbackDisplayName = intent.mediaItems?.first?.title
+                ?? intent.mediaContainer?.title
+                ?? rawIdentifier
+            return SiriPayloadIdentifier(
+                schemaVersion: Self.currentPayloadSchemaVersion,
+                kind: fallbackKind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: fallbackDisplayName,
+                artistHint: intent.mediaSearch?.artistName
+            )
+        }
+
+        return nil
     }
 
     private func playbackUserActivity(for payload: SiriPayloadIdentifier) -> NSUserActivity? {
@@ -273,10 +296,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func rankCandidates(
         for query: String,
         mediaType: INMediaItemType,
-        index: SiriMediaIndexSnapshot
+        index: SiriMediaIndexSnapshot,
+        artistHint: String? = nil
     ) -> [RankedItem] {
         let queryVariants = normalizedQueryVariants(for: query)
         let kinds = kindsFor(mediaType: mediaType)
+        let normalizedArtistHint = artistHint.map { normalize($0) }
 
         return index.items
             .compactMap { item in
@@ -288,8 +313,20 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
                 let primaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.displayName))
                 let secondaryScore = scoreMatch(queries: queryVariants, candidate: normalize(item.secondaryText ?? "")) * 0.35
-                let score = max(primaryScore, secondaryScore)
+                var score = max(primaryScore, secondaryScore)
                 guard score > 0 else { return nil }
+
+                // Boost score when the item's artist (secondaryText) matches the hint.
+                // This helps disambiguate "Orange County" by Gorillaz vs other artists.
+                if let hint = normalizedArtistHint,
+                   let secondary = item.secondaryText,
+                   !hint.isEmpty {
+                    let artistMatch = scoreMatch(query: hint, candidate: normalize(secondary))
+                    if artistMatch >= 0.7 {
+                        score = min(score + 0.15, 1.0)
+                    }
+                }
+
                 return RankedItem(item: item, score: score)
             }
             .sorted { lhs, rhs in
@@ -364,13 +401,14 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
     }
 
-    private func makeMediaItem(from ranked: RankedItem) -> INMediaItem {
+    private func makeMediaItem(from ranked: RankedItem, artistHint: String? = nil) -> INMediaItem {
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: ranked.item.kind,
             entityID: ranked.item.id,
             sourceCompositeKey: ranked.item.sourceCompositeKey,
-            displayName: ranked.item.displayName
+            displayName: ranked.item.displayName,
+            artistHint: artistHint
         )
 
         let identifier: String
@@ -388,14 +426,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
     }
 
-    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType) -> INMediaItem {
+    private func makeFallbackMediaItem(query: String, mediaType: INMediaItemType, artistHint: String? = nil) -> INMediaItem {
         let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
             schemaVersion: Self.currentPayloadSchemaVersion,
             kind: fallbackKind,
             entityID: query,
             sourceCompositeKey: nil,
-            displayName: query
+            displayName: query,
+            artistHint: artistHint
         )
 
         let identifier: String
@@ -416,6 +455,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPayloadIdentifier? {
         guard let data = Data(base64Encoded: identifier) else { return nil }
         return try? JSONDecoder().decode(SiriPayloadIdentifier.self, from: data)
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func matchingItem(for payload: SiriPayloadIdentifier, in index: SiriMediaIndexSnapshot) -> SiriMediaIndexItemSnapshot? {
@@ -497,10 +543,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         }
 
         if let mediaSearch = intent.mediaSearch {
-            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
+            let hasMediaName = mediaSearch.mediaName.map { !$0.isEmpty } ?? false
+
+            // When both mediaName and artistName are present (e.g., "Play Orange County
+            // by Gorillaz"), the user wants a specific song/album — not the artist.
+            // Return .unknown so rankCandidates searches across all kinds.
+            if let artistName = mediaSearch.artistName, !artistName.isEmpty, !hasMediaName {
                 return .artist
             }
-            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
+            if let albumName = mediaSearch.albumName, !albumName.isEmpty, !hasMediaName {
                 return .album
             }
         }
@@ -539,16 +590,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func loadIndex() -> SiriMediaIndexSnapshot? {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
-        ) else {
-            return nil
-        }
-        let url = containerURL.appendingPathComponent(Self.indexFilename)
-        guard let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(SiriMediaIndexSnapshot.self, from: data)
+        SiriMatchingHelpers.loadIndex()
     }
 
     private func normalize(_ raw: String) -> String {
@@ -654,32 +696,5 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 }
 
-private struct RankedItem {
-    let item: SiriMediaIndexItemSnapshot
-    let score: Double
-}
-
-private struct SiriPayloadIdentifier: Codable {
-    let schemaVersion: Int
-    let kind: String
-    let entityID: String
-    let sourceCompositeKey: String?
-    let displayName: String?
-}
-
-private struct SiriMediaIndexSnapshot: Decodable {
-    let schemaVersion: Int
-    let generatedAt: Date
-    let items: [SiriMediaIndexItemSnapshot]
-}
-
-private struct SiriMediaIndexItemSnapshot: Decodable {
-    let kind: String
-    let id: String
-    let displayName: String
-    let sourceCompositeKey: String?
-    let secondaryText: String?
-    let lastPlayed: Date?
-    let playCount: Int?
-    let trackCount: Int?
-}
+// Shared types: RankedItem, SiriPayloadIdentifier, SiriMediaIndexSnapshot,
+// SiriMediaIndexItemSnapshot are defined in SiriMatchingHelpers.swift

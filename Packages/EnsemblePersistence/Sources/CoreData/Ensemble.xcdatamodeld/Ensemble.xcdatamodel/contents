@@ -6,6 +6,7 @@
         <attribute name="artPath" optional="YES" attributeType="String"/>
         <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="genreNames" optional="YES" attributeType="String"/>
         <attribute name="key" attributeType="String"/>
         <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="ratingKey" attributeType="String"/>
@@ -53,9 +54,44 @@
         <attribute name="filePath" optional="YES" attributeType="String"/>
         <attribute name="fileSize" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="progress" optional="YES" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="quality" optional="YES" attributeType="String" defaultValueString="original"/>
         <attribute name="startedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="status" optional="YES" attributeType="String"/>
         <relationship name="track" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDTrack" inverseName="download" inverseEntity="CDTrack"/>
+    </entity>
+    <entity name="CDOfflineDownloadMembership" representedClassName="CDOfflineDownloadMembership" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="String"/>
+        <attribute name="targetKey" attributeType="String"/>
+        <attribute name="trackRatingKey" attributeType="String"/>
+        <attribute name="trackSourceCompositeKey" attributeType="String"/>
+        <relationship name="target" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDOfflineDownloadTarget" inverseName="memberships" inverseEntity="CDOfflineDownloadTarget"/>
+        <relationship name="track" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDTrack" inverseName="offlineMemberships" inverseEntity="CDTrack"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDOfflineDownloadTarget" representedClassName="CDOfflineDownloadTarget" syncable="YES">
+        <attribute name="completedTrackCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="key" attributeType="String"/>
+        <attribute name="kind" attributeType="String"/>
+        <attribute name="lastError" optional="YES" attributeType="String"/>
+        <attribute name="progress" optional="YES" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="ratingKey" optional="YES" attributeType="String"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="status" optional="YES" attributeType="String" defaultValueString="pending"/>
+        <attribute name="totalTrackCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="memberships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDOfflineDownloadMembership" inverseName="target" inverseEntity="CDOfflineDownloadMembership"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="key"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
     </entity>
     <entity name="CDGenre" representedClassName="CDGenre" syncable="YES">
         <attribute name="key" attributeType="String"/>
@@ -164,8 +200,10 @@
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="discNumber" optional="YES" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
         <attribute name="duration" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="genreNames" optional="YES" attributeType="String"/>
         <attribute name="key" attributeType="String"/>
         <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastRatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="localFilePath" optional="YES" attributeType="String"/>
         <attribute name="playCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="rating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
@@ -178,12 +216,27 @@
         <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="album" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDAlbum" inverseName="tracks" inverseEntity="CDAlbum"/>
         <relationship name="download" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="CDDownload" inverseName="track" inverseEntity="CDDownload"/>
+        <relationship name="offlineMemberships" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDOfflineDownloadMembership" inverseName="track" inverseEntity="CDOfflineDownloadMembership"/>
         <relationship name="playlistTracks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDPlaylistTrack" inverseName="track" inverseEntity="CDPlaylistTrack"/>
         <relationship name="source" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CDMusicSource" inverseName="tracks" inverseEntity="CDMusicSource"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="ratingKey"/>
                 <constraint value="sourceCompositeKey"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDPendingMutation" representedClassName="CDPendingMutation" syncable="YES">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="String"/>
+        <attribute name="payload" attributeType="Binary"/>
+        <attribute name="retryCount" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="status" attributeType="String" defaultValueString="pending"/>
+        <attribute name="type" attributeType="String"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>

@@ -12,7 +12,7 @@ private extension Notification.Name {
 
 public struct PlaylistsView: View {
     @StateObject private var viewModel: PlaylistViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @State private var selectedPlaylist: Playlist?
     @State private var pendingDeletionPlaylistIDs: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
@@ -26,11 +26,13 @@ public struct PlaylistsView: View {
     @State private var playlistPendingRename: Playlist?
     @State private var renamePlaylistTitle = ""
     @State private var playlistForEditSheet: Playlist?
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    // Cached filtered playlists — avoids recomputing .filter() on every body evaluation
+    @State private var cachedDisplayedPlaylists: [Playlist] = []
+    // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
+    @State private var isCoverFlowActive = false
+    private let accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
 
     private var supportsCoverFlow: Bool {
@@ -47,21 +49,32 @@ public struct PlaylistsView: View {
     }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            let isCoverFlowActive = supportsCoverFlow && isLandscape
-            
-            Group {
-                if viewModel.isLoading && effectivePlaylists.isEmpty {
-                    loadingView
-                } else if effectivePlaylists.isEmpty {
-                    emptyView
-                } else if isCoverFlowActive {
-                    landscapeCoverFlowView
-                } else {
-                    playlistListView
-                }
+        Group {
+            if viewModel.isLoading && effectivePlaylists.isEmpty {
+                loadingView
+            } else if effectivePlaylists.isEmpty {
+                emptyView
+            } else if isCoverFlowActive {
+                landscapeCoverFlowView
+            } else {
+                playlistListView
             }
+        }
+        // Lightweight GeometryReader overlay — only updates @State isCoverFlowActive
+        // instead of re-evaluating the entire body on every geometry change
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        let active = supportsCoverFlow && geometry.size.width > geometry.size.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+                    .onChange(of: geometry.size) { newSize in
+                        let active = supportsCoverFlow && newSize.width > newSize.height
+                        if active != isCoverFlowActive { isCoverFlowActive = active }
+                    }
+            }
+        )
             .alert("New Playlist", isPresented: $showCreatePlaylistPrompt) {
                 TextField("Playlist name", text: $newPlaylistName)
                 Button("Cancel", role: .cancel) {
@@ -137,12 +150,6 @@ public struct PlaylistsView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showingAddSourceFlow) {
-                AddPlexAccountView()
-                #if os(macOS)
-                    .frame(width: 720, height: 560)
-                #endif
-            }
             .sheet(isPresented: $showingManageSources) {
                 NavigationView {
                     SettingsView()
@@ -171,13 +178,19 @@ public struct PlaylistsView: View {
             .task {
                 await viewModel.loadPlaylists()
             }
+            // Keep cached displayed playlists in sync (avoids recomputing .filter() on every body eval)
+            .onReceive(viewModel.$filteredPlaylists) { playlists in
+                cachedDisplayedPlaylists = playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionStarted)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.insert(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistDeletionFailed)) { note in
                 guard let playlistID = note.userInfo?["playlistID"] as? String else { return }
                 pendingDeletionPlaylistIDs.remove(playlistID)
+                cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
                     deps.toastCenter.dismiss(id: toastID)
                 }
@@ -190,6 +203,7 @@ public struct PlaylistsView: View {
                 Task {
                     await viewModel.loadPlaylists()
                     pendingDeletionPlaylistIDs.remove(playlistID)
+                    cachedDisplayedPlaylists = viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playlistRenameStarted)) { note in
@@ -226,21 +240,27 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        // Extracted to scope syncCoordinator observation to just the button
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                 Button {
-                                    viewModel.playlistSortOption = option
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
                                 } label: {
                                     HStack {
                                         Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: "checkmark")
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
@@ -255,21 +275,26 @@ public struct PlaylistsView: View {
             ToolbarItem(placement: .automatic) {
                 if !isCoverFlowActive {
                     HStack(spacing: 16) {
-                        Button {
+                        PlaylistsNewButton {
                             showCreatePlaylistPrompt = true
-                        } label: {
-                            Label("New Playlist", systemImage: "plus")
                         }
 
                         Menu {
                             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
                                 Button {
-                                    viewModel.playlistSortOption = option
+                                    if viewModel.playlistSortOption == option {
+                                        viewModel.filterOptions.sortDirection =
+                                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
+                                    } else {
+                                        viewModel.playlistSortOption = option
+                                        viewModel.filterOptions.sortDirection = option.defaultDirection
+                                    }
                                 } label: {
                                     HStack {
                                         Text(option.rawValue)
                                         if viewModel.playlistSortOption == option {
-                                            Image(systemName: "checkmark")
+                                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
+                                                  ? "chevron.up" : "chevron.down")
                                         }
                                     }
                                 }
@@ -282,7 +307,6 @@ public struct PlaylistsView: View {
             }
             #endif
             }
-        }
     }
 
     private var landscapeCoverFlowView: some View {
@@ -319,7 +343,7 @@ public struct PlaylistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    DependencyContainer.shared.navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)
@@ -366,7 +390,7 @@ public struct PlaylistsView: View {
 
     private var playlistListView: some View {
         List {
-            ForEach(displayedFilteredPlaylists) { playlist in
+            ForEach(cachedDisplayedPlaylists) { playlist in
                 let isPendingCreation = viewModel.isPlaylistPendingCreation(playlist)
                 PlaylistRow(
                     playlist: playlist,
@@ -376,7 +400,16 @@ public struct PlaylistsView: View {
                 )
                     .contextMenu {
                         if !isPendingCreation {
-                            playlistContextMenu(playlist)
+                            PlaylistViewContextMenu(
+                                playlist: playlist,
+                                nowPlayingVM: nowPlayingVM,
+                                onRename: {
+                                    playlistPendingRename = playlist
+                                    renamePlaylistTitle = playlist.title
+                                },
+                                onEdit: { playlistForEditSheet = playlist },
+                                onDelete: { playlistPendingSwipeDelete = playlist }
+                            )
                         }
                     }
                     .if(!playlist.isSmart && !isPendingCreation) { row in
@@ -392,7 +425,7 @@ public struct PlaylistsView: View {
     
     private var coverFlowView: some View {
         CoverFlowView(
-            items: displayedFilteredPlaylists,
+            items: cachedDisplayedPlaylists,
             itemView: { playlist in
                 CoverFlowItemView(playlist: playlist)
             },
@@ -417,10 +450,6 @@ public struct PlaylistsView: View {
 
     private var effectivePlaylists: [Playlist] {
         viewModel.playlists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
-    }
-
-    private var displayedFilteredPlaylists: [Playlist] {
-        viewModel.filteredPlaylists.filter { !pendingDeletionPlaylistIDs.contains($0.id) }
     }
 
     private var hasEnabledLibraries: Bool {
@@ -557,8 +586,91 @@ public struct PlaylistsView: View {
         }
     }
 
-    @ViewBuilder
-    private func playlistContextMenu(_ playlist: Playlist) -> some View {
+
+    private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let renamingToast = ToastPayload(
+            style: .info,
+            iconSystemName: "pencil",
+            title: "Renaming \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: "playlist-rename-pending-\(playlist.id)",
+            showsActivityIndicator: true
+        )
+        viewModel.applyOptimisticRename(for: playlist, newTitle: trimmed)
+        deps.toastCenter.show(renamingToast)
+
+        Task {
+            do {
+                let outcome = try await deps.mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+                if outcome == .completed {
+                    await viewModel.awaitRenamedPlaylistMaterialization(
+                        for: playlist.id,
+                        expectedTitle: trimmed
+                    )
+                }
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: outcome == .queued ? .info : .success,
+                        iconSystemName: outcome == .queued ? "clock.arrow.circlepath" : "pencil.circle.fill",
+                        title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
+                        dedupeKey: "playlist-rename-success-\(playlist.id)"
+                    )
+                )
+            } catch {
+                viewModel.clearOptimisticRename(for: playlist.id)
+                await viewModel.loadPlaylists()
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    ToastPayload(
+                        style: .error,
+                        iconSystemName: "xmark.octagon.fill",
+                        title: "Could not rename playlist",
+                        message: error.localizedDescription,
+                        dedupeKey: "playlist-rename-error-\(playlist.id)"
+                    )
+                )
+            }
+        }
+    }
+}
+
+// MARK: - "New Playlist" Toolbar Button
+
+/// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
+/// not the entire PlaylistsView list.
+private struct PlaylistsNewButton: View {
+    let action: () -> Void
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+
+    var body: some View {
+        Button {
+            action()
+        } label: {
+            Label("New Playlist", systemImage: "plus")
+        }
+        .disabled(syncCoordinator.isOffline)
+    }
+}
+
+// MARK: - Playlist Context Menu
+
+/// Dedicated View struct for playlist context menus. Scopes @ObservedObject pinManager
+/// to each menu instance rather than the entire PlaylistsView list.
+private struct PlaylistViewContextMenu: View {
+    let playlist: Playlist
+    let nowPlayingVM: NowPlayingViewModel
+    var onRename: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
+    var body: some View {
         Button {
             withPlaylistTracks(playlist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -591,6 +703,18 @@ public struct PlaylistsView: View {
             Label("Play Last", systemImage: "text.append")
         }
 
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+        Button {
+            Task {
+                await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+            )
+        }
+
         let isPinned = pinManager.isPinned(id: playlist.id)
         Button {
             if isPinned {
@@ -613,20 +737,19 @@ public struct PlaylistsView: View {
 
         if !playlist.isSmart {
             Button {
-                playlistPendingRename = playlist
-                renamePlaylistTitle = playlist.title
+                onRename?()
             } label: {
                 Label("Rename…", systemImage: "pencil")
             }
 
             Button {
-                playlistForEditSheet = playlist
+                onEdit?()
             } label: {
                 Label("Edit Playlist", systemImage: "slider.horizontal.3")
             }
 
             Button(role: .destructive) {
-                playlistPendingSwipeDelete = playlist
+                onDelete?()
             } label: {
                 Label("Delete Playlist", systemImage: "trash")
             }
@@ -665,61 +788,13 @@ public struct PlaylistsView: View {
         }
         return []
     }
-
-    private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let renamingToast = ToastPayload(
-            style: .info,
-            iconSystemName: "pencil",
-            title: "Renaming \(playlist.title)...",
-            isPersistent: true,
-            dedupeKey: "playlist-rename-pending-\(playlist.id)",
-            showsActivityIndicator: true
-        )
-        viewModel.applyOptimisticRename(for: playlist, newTitle: trimmed)
-        deps.toastCenter.show(renamingToast)
-
-        Task {
-            do {
-                try await deps.syncCoordinator.renamePlaylist(playlist, to: trimmed)
-                await viewModel.awaitRenamedPlaylistMaterialization(
-                    for: playlist.id,
-                    expectedTitle: trimmed
-                )
-                deps.toastCenter.dismiss(id: renamingToast.id)
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: "pencil.circle.fill",
-                        title: "Renamed playlist",
-                        dedupeKey: "playlist-rename-success-\(playlist.id)"
-                    )
-                )
-            } catch {
-                viewModel.clearOptimisticRename(for: playlist.id)
-                await viewModel.loadPlaylists()
-                deps.toastCenter.dismiss(id: renamingToast.id)
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: "xmark.octagon.fill",
-                        title: "Could not rename playlist",
-                        message: error.localizedDescription,
-                        dedupeKey: "playlist-rename-error-\(playlist.id)"
-                    )
-                )
-            }
-        }
-    }
 }
 
 // MARK: - Playlist Detail View
 
 public struct PlaylistDetailView: View {
     @StateObject private var viewModel: PlaylistDetailViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
     @State private var showDeleteConfirmation = false
@@ -752,6 +827,13 @@ public struct PlaylistDetailView: View {
                     showTrackNumbers: false,
                     groupByDisc: false,
                     mediaType: .playlist,
+                    genreChipContent: AnyView(
+                        GenreChipBar(
+                            availableGenres: viewModel.availableGenres,
+                            selectedGenres: $viewModel.filterOptions.selectedGenres,
+                            excludedGenres: $viewModel.filterOptions.excludedGenres
+                        )
+                    ),
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
@@ -960,6 +1042,9 @@ public struct PlaylistDetailView: View {
             }
         } message: {
             Text("This will permanently delete \"\(viewModel.playlist.title)\" from Plex.")
+        }
+        .refreshable {
+            await viewModel.refreshFromServer()
         }
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)

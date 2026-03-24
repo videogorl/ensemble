@@ -22,6 +22,7 @@ public enum ArtworkType {
     case album
     case artist
     case track
+    case playlist
 }
 
 public protocol ArtworkDownloadManagerProtocol: Sendable {
@@ -29,7 +30,10 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int
     func getLocalArtworkPath(for album: CDAlbum) async throws -> String?
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
+    func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
+    func deleteArtwork(ratingKey: String, type: ArtworkType)
+    func deleteArtwork(forRatingKeys ratingKeys: Set<String>)
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
 }
@@ -90,10 +94,20 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let ratingKey = artist.ratingKey
         let filename = "\(ratingKey)_artist.jpg"
         let localPath = Self.artworkDirectory.appendingPathComponent(filename).path
-        
+
         return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
     }
-    
+
+    // MARK: - Playlist Artwork
+
+    public func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? {
+        let ratingKey = playlist.ratingKey
+        let filename = "\(ratingKey)_playlist.jpg"
+        let localPath = Self.artworkDirectory.appendingPathComponent(filename).path
+
+        return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
+    }
+
     // MARK: - Private Download Methods
     
     /// Download artwork from URL and cache it locally
@@ -108,6 +122,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         case .album: typeString = "album"
         case .artist: typeString = "artist"
         case .track: typeString = "track"
+        case .playlist: typeString = "playlist"
         }
         
         let filename = "\(ratingKey)_\(typeString).jpg"
@@ -137,6 +152,41 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     
 
     
+    // MARK: - Single Artwork Deletion
+
+    /// Delete a specific cached artwork file by ratingKey and type.
+    public func deleteArtwork(ratingKey: String, type: ArtworkType) {
+        let typeString: String
+        switch type {
+        case .album: typeString = "album"
+        case .artist: typeString = "artist"
+        case .track: typeString = "track"
+        case .playlist: typeString = "playlist"
+        }
+
+        let filename = "\(ratingKey)_\(typeString).jpg"
+        let fileURL = Self.artworkDirectory.appendingPathComponent(filename)
+
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    /// Delete all cached artwork files whose ratingKey is in the given set.
+    /// Checks all type suffixes (album, artist, track, playlist) for each key.
+    public func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {
+        let fileManager = FileManager.default
+        let dir = Self.artworkDirectory
+        for key in ratingKeys {
+            for suffix in ["album", "artist", "track", "playlist"] {
+                let path = dir.appendingPathComponent("\(key)_\(suffix).jpg").path
+                if fileManager.fileExists(atPath: path) {
+                    try? fileManager.removeItem(atPath: path)
+                }
+            }
+        }
+    }
+
     // MARK: - Cache Management
     
     public func clearArtworkCache() async throws {

@@ -220,6 +220,33 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 
+## Adding Offline Download Targets (Library / Album / Artist / Playlist)
+
+Use this flow for target-based offline support:
+
+1. Persist target state in `OfflineDownloadTargetRepository` using a stable target key:
+   - `OfflineDownloadService.targetKey(kind:ratingKey:sourceCompositeKey:)`
+2. Resolve memberships from repositories:
+   - library target: `LibraryRepository.fetchTracks(forSource:)`
+   - album target: `LibraryRepository.fetchTracks(forAlbum:sourceCompositeKey:)`
+   - artist target: `LibraryRepository.fetchTracks(forArtist:sourceCompositeKey:)`
+   - playlist target: `PlaylistRepository.fetchPlaylist(ratingKey:sourceCompositeKey:)` + tracks
+3. Upsert downloads through source-aware `DownloadManager` APIs:
+   - `createDownload(forTrackRatingKey:sourceCompositeKey:quality:)`
+   - `fetchDownload(forTrackRatingKey:sourceCompositeKey:)`
+   - `deleteDownload(forTrackRatingKey:sourceCompositeKey:)`
+4. Keep removal reference-counted by checking membership counts before deleting local files.
+5. Trigger reconcile after source changes:
+   - observe `SyncCoordinator.sourceStatuses` for sync timestamp updates
+   - wire `SyncCoordinator.onPlaylistRefreshCompleted` for playlist-target refresh
+6. Respect download quality by reading `downloadQuality` and passing mapped `StreamingQuality` into stream URL generation.
+
+UI integration rules:
+- Settings manager entry point remains `SettingsView` -> `DownloadManagerSettingsView` (do not repurpose `DownloadsView`).
+- Use `OfflineServersView` for library-wide toggles; only include sync-enabled libraries.
+- Album/artist/playlist download toggles are context/detail menu actions (`Download` / `Remove Download`), not inline buttons.
+- Track rows should dim and block taps offline when `!track.isDownloaded`, with toast feedback.
+
 ## Adding Track Swipe or Long-Press Actions
 
 Use these patterns when extending gesture actions:

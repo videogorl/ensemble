@@ -4,8 +4,9 @@ import SwiftUI
 // MARK: - Tab View Factory
 
 struct TabViewFactory {
+    @MainActor
     @ViewBuilder
-    static func view(
+    static func viewContent(
         for tab: TabItem,
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
@@ -52,7 +53,11 @@ public struct MainTabView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var networkMonitor = DependencyContainer.shared.networkMonitor
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+    
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
     
     #if os(iOS)
     @StateObject private var keyboard = KeyboardObserver()
@@ -61,7 +66,7 @@ public struct MainTabView: View {
     @State private var showingNowPlaying = false
     @State private var didSetInitialTab = false
     @State private var isImmersiveMode = false
-    
+
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(settingsManager.enabledTabs.prefix(4))
@@ -84,107 +89,118 @@ public struct MainTabView: View {
     public var body: some View {
         GeometryReader { geometry in
             // Keep mini-player spacing aligned with the active tab bar style.
-            // iOS 18 floating tab bars already sit above the home indicator, so
-            // adding safe-area bottom again pushes mini-player too high.
             let miniPlayerBottomLift: CGFloat = {
                 if #available(iOS 18.0, *) {
-                    return 56
+                    return 52
                 } else {
-                    return 56 + geometry.safeAreaInsets.bottom
+                    return 52 + geometry.safeAreaInsets.bottom
                 }
             }()
 
             let rootView = ZStack(alignment: .bottom) {
+                // Main content layer with TabView
                 VStack(spacing: 0) {
-                    // Connection status banner at top
-                    if !isImmersiveMode {
-                        ConnectionStatusBanner(networkState: networkMonitor.networkState)
-                    }
-                    
-                    // Main content layer (TabView)
                     tabBarVisibility(
                         TabView(selection: tabBinding) {
-                        // Dynamic Tabs
-                        ForEach(barTabs) { tab in
-                            tabRootView(for: tab)
-                                .tag(tab)
-                                .tabItem {
-                                    Label(tab.displayTitle, systemImage: tab.systemImage)
-                                }
-                        }
-
-                        // Always show More as the 5th tab
-                        tabRootView(for: .settings, isMoreRoot: true)
-                            .tag(TabItem.settings)
-                            .tabItem {
-                                Label("More", systemImage: "ellipsis")
+                            ForEach(barTabs) { tab in
+                                tabRootView(for: tab)
+                                    .tag(tab)
+                                    .tabItem {
+                                        Label(tab.displayTitle, systemImage: tab.systemImage)
+                                    }
                             }
-                    },
+
+                            tabRootView(for: .settings, isMoreRoot: true)
+                                .tag(TabItem.settings)
+                                .tabItem {
+                                    Label("More", systemImage: "ellipsis")
+                                }
+                        },
                         isHidden: isImmersiveMode
                     )
-                    // Use the new native floating style if available (iOS 18+)
-                    .tabViewStyle(sidebarAdaptableIfAvailable())
-                    .onAppear {
-                        // Sync visible tabs to NavigationCoordinator for fallback logic
-                        navigationCoordinator.visibleTabs = barTabs
-
-                        if !didSetInitialTab {
-                            navigationCoordinator.selectedTab = barTabs.first ?? .home
-                            didSetInitialTab = true
-                        }
-                    }
-                    .onChange(of: settingsManager.enabledTabs) { _ in
-                        // Keep visibleTabs in sync when user changes tab settings
-                        navigationCoordinator.visibleTabs = barTabs
-                    }
+                    .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
                 }
+                // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
+                // so content scrolls behind the tab bar with proper mini player clearance.
+                // The 70pt covers the mini player height + spacing above the tab bar.
+                .miniPlayerContainerInset(
+                    70,
+                    isVisible: !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode
+                )
+                .zIndex(0)
 
-                // Persistent MiniPlayer (Floating above native TabBar)
-                if !isKeyboardVisible && !isImmersiveMode {
-                    MiniPlayer(viewModel: nowPlayingVM) {
-                        showingNowPlaying = true
-                    }
-                    // Position above native tab bar and keep touch frame aligned to visuals.
-                    .alignmentGuide(.bottom) { dimensions in
-                        dimensions[.bottom] + miniPlayerBottomLift
-                    }
-                    .zIndex(2)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
+                // MiniPlayer extracted into sub-view so MainTabView body has
+                // no NVM-dependent branching. Body still re-evaluates (because
+                // of @StateObject) but produces a stable view tree — SwiftUI
+                // can efficiently skip diffing the content.
+                MainTabNowPlayingOverlay(
+                    nowPlayingVM: nowPlayingVM,
+                    showingNowPlaying: $showingNowPlaying,
+                    isImmersiveMode: isImmersiveMode,
+                    isKeyboardVisible: isKeyboardVisible,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    accentColor: settingsManager.accentColor.color,
+                    miniPlayerBottomLift: miniPlayerBottomLift
+                )
             }
             .task {
+                // Sync selectedTab with the actual first visible tab on launch.
+                // selectedTab defaults to .home, but the user may have reordered
+                // tabs so .home isn't in the bar — causing navigateFromNowPlaying
+                // to target the wrong tab until a manual tab switch.
+                if !didSetInitialTab {
+                    didSetInitialTab = true
+                    let firstTab = barTabs.first ?? .home
+                    if navigationCoordinator.selectedTab != firstTab {
+                        navigationCoordinator.selectedTab = firstTab
+                    }
+                }
                 await libraryVM.refresh()
             }
             .onChange(of: showingNowPlaying) { isShowing in
-                // Handle pending navigation when NowPlaying dismisses
+                // Execute pending navigation after the sheet fully dismisses.
+                // The 0.35s delay lets the NavigationStack settle after the
+                // sheet animation completes so path mutations are not dropped.
                 if !isShowing, let pending = navigationCoordinator.pendingNavigation {
-                    // The coordinator already determined the correct tab (current or fallback)
-                    navigationCoordinator.selectedTab = pending.tab
-                    
-                    // Push onto the target tab stack
-                    navigationCoordinator.push(pending.destination, in: pending.tab)
                     navigationCoordinator.pendingNavigation = nil
+                    navigationCoordinator.selectedTab = pending.tab
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        navigationCoordinator.push(pending.destination, in: pending.tab)
+                    }
                 }
             }
-            
-            let chromeAwareRootView = applyChromeVisibilityObservation(to: rootView)
+            .sheet(isPresented: $showingNowPlaying) {
+                NowPlayingSheetView(
+                    viewModel: nowPlayingVM,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID,
+                    dismissAction: {
+                        showingNowPlaying = false
+                    }
+                )
+                .accentColor(settingsManager.accentColor.color)
+            }
+            // Add account sheet presented at root level so it survives
+            // TabView content recreation on iOS 15 foreground transitions
+            .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
+                AddPlexAccountView()
+                #if os(macOS)
+                    .frame(width: 720, height: 560)
+                #endif
+            }
 
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
-                chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
-                    NowPlayingView(viewModel: nowPlayingVM)
-                }
-            } else {
-                chromeAwareRootView.fullScreenCover(isPresented: $showingNowPlaying) {
-                    NowPlayingView(viewModel: nowPlayingVM)
-                }
-            }
-            #else
-            chromeAwareRootView.sheet(isPresented: $showingNowPlaying) {
-                NowPlayingView(viewModel: nowPlayingVM)
-            }
-            #endif
+            applyChromeVisibilityObservation(
+                to: rootView
+                    .overlay(alignment: .top) {
+                        if !isImmersiveMode {
+                            OfflineIndicatorOverlay(
+                                networkState: networkMonitor.networkState,
+                                topInset: geometry.safeAreaInsets.top
+                            )
+                        }
+                    }
+            )
         }
     }
 
@@ -227,13 +243,18 @@ public struct MainTabView: View {
         #endif
     }
     
-    private func sidebarAdaptableIfAvailable() -> some TabViewStyle {
+    /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
+    /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
+    /// NavigationStack doesn't observe programmatic state changes until
+    /// a tab switch occurs. It gives the same visual tab bar as .automatic
+    /// on iPhone, so there's no downside to skipping it there.
+    private var useSidebarAdaptable: Bool {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            return .sidebarAdaptable
+            return UIDevice.current.userInterfaceIdiom == .pad
         }
         #endif
-        return .automatic
+        return false
     }
     
     private var tabBinding: Binding<TabItem> {
@@ -245,7 +266,7 @@ public struct MainTabView: View {
     
     private func handleTabTap(_ tag: TabItem) {
         if navigationCoordinator.selectedTab == tag {
-            // Already on this tab
+            // Already on this tab — pop to root or focus search
             if !pathForTab(tag).isEmpty {
                 navigationCoordinator.popToRoot(tab: tag)
             } else if tag == .search {
@@ -254,7 +275,7 @@ public struct MainTabView: View {
         } else {
             navigationCoordinator.selectedTab = tag
         }
-        
+
         #if os(iOS)
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
@@ -262,64 +283,94 @@ public struct MainTabView: View {
     
     @ViewBuilder
     private func tabRootView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack(path: pathBinding(for: tab)) {
-                TabViewFactory.view(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                isMoreRoot: isMoreRoot
-            )
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    destinationView(for: destination)
+        Group {
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationStack(path: pathBinding(for: tab)) {
+                    tabContentView(for: tab, isMoreRoot: isMoreRoot)
                 }
-            }
-        } else {
-            NavigationView {
-                // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                TabViewFactory.view(
-                for: tab,
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM,
-                isMoreRoot: isMoreRoot
-            )
-            .background(
-                    NestedNavigationLink(
-                        path: pathForTab(tab),
-                        tab: tab,
-                        destinationBuilder: destinationView
+            } else {
+                NavigationView {
+                    // iOS 15 Fallback: Support nested navigation by passing the remaining path
+                    TabViewFactory.viewContent(
+                        for: tab,
+                        libraryVM: libraryVM,
+                        nowPlayingVM: nowPlayingVM,
+                        searchVM: searchVM,
+                        isMoreRoot: isMoreRoot
                     )
-                )
+                    .auroraBackgroundSupport()
+                    .background(
+                        NestedNavigationLink(
+                            path: pathForTab(tab),
+                            tab: tab,
+                            destinationBuilder: destinationView
+                        )
+                    )
+                }
+                #if os(iOS)
+                .navigationViewStyle(.stack)
+                #endif
             }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
+        }
+        .overlay(alignment: .bottom) {
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+            }
         }
     }
 
     private func pathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
         switch tab {
         case .home: return $navigationCoordinator.homePath
+        case .songs: return $navigationCoordinator.songsPath
         case .artists: return $navigationCoordinator.artistsPath
         case .albums: return $navigationCoordinator.albumsPath
+        case .genres: return $navigationCoordinator.genresPath
         case .playlists: return $navigationCoordinator.playlistsPath
+        case .favorites: return $navigationCoordinator.favoritesPath
         case .search: return $navigationCoordinator.searchPath
+        case .downloads: return $navigationCoordinator.downloadsPath
         case .settings: return $navigationCoordinator.settingsPath
-        default: return .constant([])
         }
     }
 
     private func pathForTab(_ tab: TabItem) -> [NavigationCoordinator.Destination] {
         switch tab {
         case .home: return navigationCoordinator.homePath
+        case .songs: return navigationCoordinator.songsPath
         case .artists: return navigationCoordinator.artistsPath
         case .albums: return navigationCoordinator.albumsPath
+        case .genres: return navigationCoordinator.genresPath
         case .playlists: return navigationCoordinator.playlistsPath
+        case .favorites: return navigationCoordinator.favoritesPath
         case .search: return navigationCoordinator.searchPath
+        case .downloads: return navigationCoordinator.downloadsPath
         case .settings: return navigationCoordinator.settingsPath
-        default: return []
+        }
+    }
+
+    /// Tab content with navigation destinations registered for path-based push.
+    @available(iOS 16.0, macOS 13.0, *)
+    @ViewBuilder
+    private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
+        TabViewFactory.viewContent(
+            for: tab,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            searchVM: searchVM,
+            isMoreRoot: isMoreRoot
+        )
+        .auroraBackgroundSupport()
+        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+            destinationView(for: destination)
+                .auroraBackgroundSupport()
         }
     }
 
@@ -335,13 +386,60 @@ public struct MainTabView: View {
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
-            TabViewFactory.view(
+            TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM
+                searchVM: searchVM,
             )
         }
+    }
+}
+
+// MARK: - Now Playing Overlay
+
+/// Extracted sub-view that owns the NVM observation for MiniPlayer.
+/// MainTabView's body no longer branches on NVM properties, so SwiftUI
+/// can skip diffing the full TabView tree when NVM publishes.
+private struct MainTabNowPlayingOverlay: View {
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    @Binding var showingNowPlaying: Bool
+    let isImmersiveMode: Bool
+    let isKeyboardVisible: Bool
+    var namespace: Namespace.ID
+    let animationID: String
+    let accentColor: Color
+    let miniPlayerBottomLift: CGFloat
+
+    var body: some View {
+        // Persistent MiniPlayer (above tab bar)
+        if !showingNowPlaying && !isKeyboardVisible && !isImmersiveMode {
+            let isFloating: Bool = {
+                #if os(iOS)
+                if #available(iOS 18.0, *) {
+                    return true
+                }
+                #endif
+                return false
+            }()
+
+            MiniPlayer(
+                viewModel: nowPlayingVM,
+                isFloating: isFloating,
+                namespace: namespace,
+                animationID: animationID
+            ) {
+                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                    showingNowPlaying = true
+                }
+            }
+            .accentColor(accentColor)
+            .alignmentGuide(.bottom) { dimensions in
+                dimensions[.bottom] + miniPlayerBottomLift
+            }
+            .zIndex(2)
+        }
+
     }
 }
 
@@ -385,7 +483,12 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.dependencies) private var deps
+
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
 
     @State private var selection: SidebarSection? = .home
     @State private var showingNowPlaying = false
@@ -456,18 +559,64 @@ public struct SidebarView: View {
             }
 
             // Mini player overlay (always on top)
-            MiniPlayer(viewModel: nowPlayingVM) {
-                showingNowPlaying = true
+            if !showingNowPlaying {
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID
+                ) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        showingNowPlaying = true
+                    }
+                }
+                .accentColor(deps.settingsManager.accentColor.color)
+                .zIndex(2)
+                .transition(.identity) // Use identity to let matchedGeometry handle the morph
             }
-            .zIndex(2)
 
         }
+        .onChange(of: showingNowPlaying) { isShowing in
+            // Execute pending navigation after sheet fully dismisses.
+            if !isShowing, let pending = navigationCoordinator.pendingNavigation {
+                navigationCoordinator.pendingNavigation = nil
+                // Switch sidebar to the matching section
+                let targetTab = self.targetTab(for: pending.destination)
+                self.selection = self.sidebarSection(for: pending.destination)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    navigationCoordinator.push(pending.destination, in: targetTab)
+                }
+            }
+        }
         .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView(viewModel: nowPlayingVM)
+            NowPlayingSheetView(
+                viewModel: nowPlayingVM,
+                namespace: playerNamespace,
+                animationID: artworkAnimationID,
+                dismissAction: {
+                    showingNowPlaying = false
+                }
+            )
+            .accentColor(deps.settingsManager.accentColor.color)
+        }
+        // Add account sheet presented at root level so it survives
+        // view content recreation on foreground transitions
+        .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
+            AddPlexAccountView()
+            #if os(macOS)
+                .frame(width: 720, height: 560)
+            #endif
         }
         .task {
             await libraryVM.refresh()
             await pinnedVM.loadPinnedItems()
+        }
+        // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
+        // so navigate(to:) pushes onto the correct section's NavigationStack
+        .onChange(of: selection) { newSelection in
+            if let tab = newSelection?.correspondingTab {
+                navigationCoordinator.selectedTab = tab
+            }
         }
     }
 
@@ -479,6 +628,41 @@ public struct SidebarView: View {
         case .playlist: return "music.note.list"
         }
     }
+
+    /// Map a navigation destination to the sidebar section that should be selected
+    private func sidebarSection(for destination: NavigationCoordinator.Destination) -> SidebarSection {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab):
+            switch tab {
+            case .home: return .home
+            case .songs: return .songs
+            case .artists: return .artists
+            case .albums: return .albums
+            case .genres: return .genres
+            case .playlists: return .playlists
+            case .favorites: return .favorites
+            case .search: return .search
+            case .downloads: return .downloads
+            case .settings: return .settings
+            }
+        }
+    }
+
+    /// Map a navigation destination to the tab whose NavigationStack should receive the push
+    private func targetTab(for destination: NavigationCoordinator.Destination) -> TabItem {
+        switch destination {
+        case .artist: return .artists
+        case .album: return .albums
+        case .playlist: return .playlists
+        case .moodTracks: return .home
+        case .view(let tab): return tab
+        }
+    }
+
     
     @ViewBuilder
     private var detailView: some View {
@@ -486,58 +670,43 @@ public struct SidebarView: View {
             switch selection {
             case .home:
                 NavigationStack(path: $navigationCoordinator.homePath) {
-                    TabViewFactory.view(for: .home, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .home)
                 }
             case .songs:
                 NavigationStack {
-                    TabViewFactory.view(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                    TabViewFactory.viewContent(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .artists:
                 NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    TabViewFactory.view(for: .artists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .artists)
                 }
             case .albums:
                 NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    TabViewFactory.view(for: .albums, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .albums)
                 }
             case .genres:
                 NavigationStack {
-                    TabViewFactory.view(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                    TabViewFactory.viewContent(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .playlists:
                 NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    TabViewFactory.view(for: .playlists, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .playlists)
                 }
             case .favorites:
                 NavigationStack {
-                    TabViewFactory.view(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                    TabViewFactory.viewContent(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .search:
                 NavigationStack(path: $navigationCoordinator.searchPath) {
-                    TabViewFactory.view(for: .search, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                            destinationView(for: destination)
-                        }
+                    sidebarContentView(for: .search)
                 }
             case .downloads:
                 NavigationStack {
-                    TabViewFactory.view(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                    TabViewFactory.viewContent(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .settings:
                 NavigationStack {
-                    TabViewFactory.view(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+                    TabViewFactory.viewContent(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
                 }
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
@@ -556,9 +725,31 @@ public struct SidebarView: View {
                     .foregroundColor(.secondary)
             }
         }
+        .auroraBackgroundSupport()
+        .overlay(alignment: .bottom) {
+            if settingsManager.auroraVisualizationEnabled {
+                AuroraVisualizationView(
+                    playbackService: DependencyContainer.shared.playbackService,
+                    accentColor: settingsManager.accentColor.color,
+                    isPaused: showingNowPlaying,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
+                )
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+            }
+        }
         .miniPlayerBottomSpacing(64)
     }
     
+    /// Sidebar section content with navigation destinations registered for path-based push
+    @ViewBuilder
+    private func sidebarContentView(for tab: TabItem) -> some View {
+        TabViewFactory.viewContent(for: tab, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                destinationView(for: destination)
+            }
+    }
+
     @ViewBuilder
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         switch destination {
@@ -571,7 +762,7 @@ public struct SidebarView: View {
         case .moodTracks(let mood):
             MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .view(let tab):
-            TabViewFactory.view(
+            TabViewFactory.viewContent(
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
@@ -593,4 +784,46 @@ public enum SidebarSection: Hashable {
     case downloads
     case settings
     case pin(id: String, type: PinnedItemType)
+
+    /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
+    /// Returns nil for pinned items which don't map to a standard tab.
+    var correspondingTab: TabItem? {
+        switch self {
+        case .home: return .home
+        case .songs: return .songs
+        case .artists: return .artists
+        case .albums: return .albums
+        case .genres: return .genres
+        case .playlists: return .playlists
+        case .favorites: return .favorites
+        case .search: return .search
+        case .downloads: return .downloads
+        case .settings: return .settings
+        case .pin: return nil
+        }
+    }
+}
+
+// MARK: - TabView Style Helper
+
+extension View {
+    /// Apply .sidebarAdaptable or .automatic TabView style.
+    /// Needed because different styles are different types and can't be
+    /// returned from a single `some TabViewStyle` function.
+    @ViewBuilder
+    func applyTabViewStyle(sidebarAdaptable: Bool) -> some View {
+        #if os(iOS)
+        if sidebarAdaptable {
+            if #available(iOS 18.0, *) {
+                self.tabViewStyle(.sidebarAdaptable)
+            } else {
+                self.tabViewStyle(.automatic)
+            }
+        } else {
+            self.tabViewStyle(.automatic)
+        }
+        #else
+        self.tabViewStyle(.automatic)
+        #endif
+    }
 }

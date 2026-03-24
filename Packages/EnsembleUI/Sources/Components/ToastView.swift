@@ -154,7 +154,7 @@ private struct GlobalToastOverlayRootView: View {
                 .overlay(alignment: .bottom) {
                     ToastHostView(
                         toastCenter: toastCenter,
-                        horizontalPadding: 16,
+                        horizontalPadding: 20,
                         // Account for safe-area when rendering in a window that
                         // ignores safe areas so the toast stays above mini player.
                         bottomPadding: baseBottomPadding + geometry.safeAreaInsets.bottom
@@ -165,7 +165,7 @@ private struct GlobalToastOverlayRootView: View {
     }
 
     private var baseBottomPadding: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 84 : 140
+        UIDevice.current.userInterfaceIdiom == .pad ? 74 : 130
     }
 }
 #endif
@@ -214,13 +214,13 @@ public struct ToastBannerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(.regularMaterial, in: Capsule())
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            Capsule()
                 .stroke(borderColor, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Capsule())
         .onTapGesture {
             if toast.tapHandler != nil {
                 toastCenter.triggerTap(for: toast.id)

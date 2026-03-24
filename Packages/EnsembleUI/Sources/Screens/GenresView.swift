@@ -4,8 +4,8 @@ import SwiftUI
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @State private var searchText = ""
-    @State private var showingAddSourceFlow = false
     @State private var showingManageSources = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
 
     public init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
@@ -37,12 +37,6 @@ public struct GenresView: View {
         #endif
         .refreshable {
             await libraryVM.refreshFromServer()
-        }
-        .sheet(isPresented: $showingAddSourceFlow) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
         .sheet(isPresented: $showingManageSources) {
             NavigationView {
@@ -88,7 +82,7 @@ public struct GenresView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingAddSourceFlow = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     Label("Add Source", systemImage: "plus.circle.fill")
                         .padding(.horizontal, 20)

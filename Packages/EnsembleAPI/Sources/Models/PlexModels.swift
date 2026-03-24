@@ -185,6 +185,7 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public let agent: String?
     public let scanner: String?
     public let language: String?
+    public let allowSync: Bool?
 
     public var id: String { key }
 
@@ -236,6 +237,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
     public let media: [PlexMedia]?
+    public let genre: [PlexTag]?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -253,9 +255,13 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         case leafCount
         case viewedLeafCount
         case media = "Media"
+        case genre = "Genre"
     }
 
     public var id: String { ratingKey }
+
+    /// Genre names extracted from the Genre tag array
+    public var genreNames: [String] { genre?.map(\.tag) ?? [] }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -264,6 +270,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         key = try container.decode(String.self, forKey: .key)
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        genre = try container.decodeIfPresent([PlexTag].self, forKey: .genre)
 
         let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
         title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
@@ -281,6 +288,33 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Album Detail (full metadata from /library/metadata/{id})
+
+/// Rich album metadata returned by the single-item metadata endpoint.
+/// Includes tag-based fields (Genre, Style) and external GUIDs
+/// that are not present in the lightweight section listing response.
+public struct PlexAlbumDetail: Codable, Sendable {
+    public let ratingKey: String
+    public let key: String
+    public let title: String
+    public let parentTitle: String?  // Artist name
+    public let summary: String?
+    public let year: Int?
+    public let originallyAvailableAt: String?
+    public let studio: String?       // Record label
+    public let genre: [PlexTag]?
+    public let style: [PlexTag]?
+    public let guid: [PlexGuid]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey, key, title, parentTitle, summary, year
+        case originallyAvailableAt, studio
+        case genre = "Genre"
+        case style = "Style"
+        case guid = "Guid"
+    }
+}
+
 // MARK: - Track
 
 public struct PlexTrack: Codable, Sendable, Identifiable {
@@ -291,7 +325,8 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let grandparentRatingKey: String?  // Artist
     public let title: String
     public let parentTitle: String?  // Album name
-    public let grandparentTitle: String?  // Artist name
+    public let grandparentTitle: String?  // Album artist name
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let index: Int?  // Track number
     public let parentIndex: Int?  // Disc number
@@ -304,6 +339,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let updatedAt: Int?
     public let viewCount: Int?
     public let lastViewedAt: Int?
+    public let lastRatedAt: Int?  // Datetime the item was last rated (separate from updatedAt)
     public let userRating: Double?  // User's rating (0-10 scale, Plex uses even numbers: 0,2,4,6,8,10 for 0-5 stars)
     public let media: [PlexMedia]?
     public let loudnessTimeline: String?  // Path to loudness timeline data (used for waveform visualization)
@@ -317,6 +353,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case title
         case parentTitle
         case grandparentTitle
+        case originalTitle
         case summary
         case index
         case parentIndex
@@ -329,6 +366,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case updatedAt
         case viewCount
         case lastViewedAt
+        case lastRatedAt
         case userRating
         case media = "Media"
         case loudnessTimeline
@@ -346,6 +384,14 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         return part.key
     }
 
+    /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
+    public var lyricsStream: PlexStream? {
+        guard let streams = media?.first?.part?.first?.stream else { return nil }
+        let lyricsStreams = streams.filter { $0.streamType == 4 }
+        // Prefer timed (LRC) over plain text
+        return lyricsStreams.first(where: { $0.timed == 1 }) ?? lyricsStreams.first
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -359,6 +405,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         let decodedParentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
         parentTitle = PlexTitleFallback.albumTitle(from: decodedParentTitle, media: media)
         grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        originalTitle = try container.decodeIfPresent(String.self, forKey: .originalTitle)
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
         index = try container.decodeIfPresent(Int.self, forKey: .index)
         parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)
@@ -371,6 +418,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
         viewCount = try container.decodeIfPresent(Int.self, forKey: .viewCount)
         lastViewedAt = try container.decodeIfPresent(Int.self, forKey: .lastViewedAt)
+        lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
         userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
 
@@ -477,11 +525,20 @@ public struct PlexMediaPart: Codable, Sendable {
 
 public struct PlexStream: Codable, Sendable {
     public let id: Int
-    public let streamType: Int?  // 1 = video, 2 = audio, 3 = subtitle
+    public let streamType: Int?  // 1 = video, 2 = audio, 3 = subtitle, 4 = lyrics
     public let codec: String?
     public let loudness: Double?  // Loudness value if analyzed
     public let lra: Double?  // Loudness range if analyzed
     public let peak: Double?  // Peak loudness if analyzed
+    public let bitrate: Int?  // kbps
+    public let bitDepth: Int?  // e.g. 16, 24 (nil for lossy codecs like MP3)
+    public let samplingRate: Int?  // Hz, e.g. 44100, 96000
+    public let channels: Int?  // e.g. 2 for stereo
+    public let key: String?  // Fetch path for lyrics streams (e.g. /library/streams/12345)
+    public let format: String?  // "lrc" or "txt" for lyrics streams
+    public let timed: Int?  // 1 for time-synced lyrics (LRC)
+    public let provider: String?  // Lyrics provider (e.g. "com.plexapp.agents.lyricfind")
+    public let minLines: Int?  // Minimum number of lines in lyrics
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -490,21 +547,49 @@ public struct PlexStream: Codable, Sendable {
         case loudness
         case lra
         case peak
+        case bitrate
+        case bitDepth
+        case samplingRate
+        case channels
+        case key
+        case format
+        case timed
+        case provider
+        case minLines
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         id = try container.decode(Int.self, forKey: .id)
         streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
         codec = try container.decodeIfPresent(String.self, forKey: .codec)
-        
+        key = try container.decodeIfPresent(String.self, forKey: .key)
+        format = try container.decodeIfPresent(String.self, forKey: .format)
+        provider = try container.decodeIfPresent(String.self, forKey: .provider)
+
+        // Plex returns many integer fields as strings — use decodeIntOrString for safety
+        bitrate = PlexStream.decodeIntOrString(container: container, forKey: .bitrate)
+        bitDepth = PlexStream.decodeIntOrString(container: container, forKey: .bitDepth)
+        samplingRate = PlexStream.decodeIntOrString(container: container, forKey: .samplingRate)
+        channels = PlexStream.decodeIntOrString(container: container, forKey: .channels)
+        timed = PlexStream.decodeIntOrString(container: container, forKey: .timed)
+        minLines = PlexStream.decodeIntOrString(container: container, forKey: .minLines)
+
         // For fields that might be Double or String, manually handle both
         loudness = try PlexStream.decodeDoubleOrString(container: container, forKey: .loudness)
         lra = try PlexStream.decodeDoubleOrString(container: container, forKey: .lra)
         peak = try PlexStream.decodeDoubleOrString(container: container, forKey: .peak)
     }
     
+    /// Plex sometimes returns integer fields as strings (e.g. timed="1", minLines="3")
+    private static func decodeIntOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Int? {
+        guard container.contains(key) else { return nil }
+        if let intVal = try? container.decode(Int.self, forKey: key) { return intVal }
+        if let strVal = try? container.decode(String.self, forKey: key) { return Int(strVal) }
+        return nil
+    }
+
     private static func decodeDoubleOrString(container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double? {
         guard container.contains(key) else { return nil }
         
@@ -611,6 +696,59 @@ public struct PlexUser: Codable, Sendable {
     public let email: String?
     public let thumb: String?
     public let authToken: String?
+    public let subscription: PlexSubscription?
+}
+
+// MARK: - Plex Pass Subscription
+
+public struct PlexSubscription: Codable, Sendable, Equatable {
+    public let active: Bool?
+    public let status: String?    // "Active", "Inactive", etc.
+    public let features: [String]?
+
+    public init(active: Bool? = nil, status: String? = nil, features: [String]? = nil) {
+        self.active = active
+        self.status = status
+        self.features = features
+    }
+}
+
+// MARK: - Server Capabilities (from GET / root endpoint)
+
+/// Decoded from the `MediaContainer` attributes of a Plex server's root endpoint (`GET /`).
+/// Contains server-level feature flags like Plex Pass status, lyrics, radio, and transcoding support.
+public struct PlexServerCapabilities: Codable, Sendable, Equatable {
+    public let myPlexSubscription: Bool?
+    public let ownerFeatures: String?
+    public let allowSync: Bool?
+    public let musicAnalysis: Int?       // 0 or 1
+    public let transcoderAudio: Bool?
+    public let transcoderLyrics: Bool?
+
+    public init(
+        myPlexSubscription: Bool? = nil,
+        ownerFeatures: String? = nil,
+        allowSync: Bool? = nil,
+        musicAnalysis: Int? = nil,
+        transcoderAudio: Bool? = nil,
+        transcoderLyrics: Bool? = nil
+    ) {
+        self.myPlexSubscription = myPlexSubscription
+        self.ownerFeatures = ownerFeatures
+        self.allowSync = allowSync
+        self.musicAnalysis = musicAnalysis
+        self.transcoderAudio = transcoderAudio
+        self.transcoderLyrics = transcoderLyrics
+    }
+
+    /// Parsed set of owner features from the comma-separated string.
+    public var ownerFeatureSet: Set<String> {
+        Set((ownerFeatures ?? "").split(separator: ",").map(String.init))
+    }
+
+    public var hasLyrics: Bool { ownerFeatureSet.contains("lyrics") }
+    public var hasRadio: Bool { ownerFeatureSet.contains("radio") || ownerFeatureSet.contains("shared-radio") }
+    public var hasPlexPass: Bool { myPlexSubscription == true || ownerFeatureSet.contains("pass") }
 }
 
 // MARK: - Hubs (Home Screen Content)
@@ -652,8 +790,11 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let key: String
     public let type: String?  // "album", "track", "playlist"
     public let title: String
+    public let parentRatingKey: String?  // Artist ratingKey for albums, album ratingKey for tracks
     public let parentTitle: String?  // Artist name for albums/tracks
+    public let grandparentRatingKey: String?  // Artist ratingKey for tracks
     public let grandparentTitle: String?  // Artist name for tracks
+    public let originalTitle: String?  // Track artist (when different from album artist)
     public let summary: String?
     public let thumb: String?
     public let art: String?
@@ -666,6 +807,65 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let viewCount: Int?
     public let duration: Int?
     public let leafCount: Int?  // Track count for albums
-    
+
     public var id: String { ratingKey }
+}
+
+// MARK: - Tag (reusable for Genre/Country/Similar/Style tags)
+
+/// Generic tag element returned by Plex for artist detail metadata.
+/// Plex uses the same `{ "tag": "value" }` shape for Genre, Country, Similar, Style, etc.
+public struct PlexTag: Codable, Sendable, Hashable {
+    public let tag: String
+
+    public init(tag: String) {
+        self.tag = tag
+    }
+}
+
+// MARK: - GUID Reference
+
+/// External identifier reference (e.g. MusicBrainz, Last.fm)
+public struct PlexGuid: Codable, Sendable, Hashable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+// MARK: - Artist Detail (full metadata from /library/metadata/{id})
+
+/// Rich artist metadata returned by the single-item metadata endpoint.
+/// Includes tag-based fields (Genre, Country, Similar, Style) and external GUIDs
+/// that are not present in the lightweight section listing response.
+public struct PlexArtistDetail: Codable, Sendable {
+    public let ratingKey: String
+    public let key: String
+    public let title: String
+    public let summary: String?
+    public let thumb: String?
+    public let art: String?
+    public let addedAt: Int?
+    public let updatedAt: Int?
+    public let viewCount: Int?
+
+    // Tag-based metadata
+    public let genre: [PlexTag]?
+    public let country: [PlexTag]?
+    public let similar: [PlexTag]?
+    public let style: [PlexTag]?
+
+    // External identifiers (MusicBrainz, Last.fm, etc.)
+    public let guid: [PlexGuid]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey, key, title, summary, thumb, art
+        case addedAt, updatedAt, viewCount
+        case genre = "Genre"
+        case country = "Country"
+        case similar = "Similar"
+        case style = "Style"
+        case guid = "Guid"
+    }
 }

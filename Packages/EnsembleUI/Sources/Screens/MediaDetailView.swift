@@ -58,7 +58,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     @ObservedObject var viewModel: ViewModel
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
 
     let headerData: MediaHeaderData
     let navigationTitle: String
@@ -67,16 +67,27 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
+    let additionalFooterContent: AnyView?
 
     @State private var artworkImage: UIImage?
     @State private var currentLoadPath: String?
     @State private var showFilterSheet = false
+    @State private var showToolbarTitle = false
+    @State private var showToolbarActions = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
     @State private var lastPlaylistQuickTarget: Playlist?
+    // Targeted NVM observation: only re-evaluate on track/playlist target changes
+    @State private var currentTrackId: String?
+    @State private var nvmLastPlaylistTargetId: String?
     @Environment(\.dependencies) private var deps
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    // Targeted observation: only re-evaluate when these specific values change
+    @State private var activeDownloadRatingKeys: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadRatingKeys
+    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
     public init(
         viewModel: ViewModel,
@@ -88,8 +99,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         groupByDisc: Bool = false,
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
+        genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
-        albumMenuActions: AlbumDetailMenuActions? = nil
+        albumMenuActions: AlbumDetailMenuActions? = nil,
+        additionalFooterContent: AnyView? = nil
     ) {
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
@@ -100,8 +113,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
+        self.additionalFooterContent = additionalFooterContent
     }
 
     public var body: some View {
@@ -146,7 +161,39 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
             #endif
-            // Pin/Unpin menu button
+            // Compact play/shuffle/radio icons appear when action buttons scroll out of view
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if showToolbarActions {
+                    HStack(spacing: 16) {
+                        Button {
+                            nowPlayingVM.play(tracks: viewModel.filteredTracks)
+                        } label: {
+                            Image(systemName: "play.fill")
+                        }
+                        .disabled(viewModel.filteredTracks.isEmpty)
+
+                        Button {
+                            nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks)
+                        } label: {
+                            Image(systemName: "shuffle")
+                        }
+                        .disabled(viewModel.filteredTracks.isEmpty)
+
+                        if hasRadioButton {
+                            Button {
+                                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                            } label: {
+                                Image(systemName: "dot.radiowaves.left.and.right")
+                            }
+                            .disabled(viewModel.filteredTracks.isEmpty)
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            #endif
+            // "More" menu button — always rightmost in trailing toolbar
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 if let mediaType = mediaType,
@@ -163,7 +210,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             #endif
         }
+        .collapsingToolbarTitle(
+            navigationTitle,
+            threshold: 0,
+            showToolbarTitle: $showToolbarTitle
+        )
+        // iOS: MediaTrackList handles its own bottomContentInset for scroll-behind-chrome.
+        // macOS: ScrollView-based layout uses miniPlayerBottomSpacing.
+        #if !os(iOS)
         .miniPlayerBottomSpacing(140)
+        #endif
+        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
+            if keys != activeDownloadRatingKeys { activeDownloadRatingKeys = keys }
+        }
+        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
+            if gen != availabilityGeneration { availabilityGeneration = gen }
+        }
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(
                 nowPlayingVM: nowPlayingVM,
@@ -180,13 +242,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
             }
         }
+        .onReceive(nowPlayingVM.$currentTrack) { track in
+            let id = track?.id
+            if id != currentTrackId { currentTrackId = id }
+        }
+        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
+            let id = target?.id
+            if id != nvmLastPlaylistTargetId { nvmLastPlaylistTargetId = id }
+        }
     }
 
     @ViewBuilder
     private var contentWithOptionalFilter: some View {
         if showFilter {
             baseContent
-                .searchable(text: $viewModel.filterOptions.searchText, prompt: "Search tracks")
                 .sheet(isPresented: $showFilterSheet) {
                     FilterSheet(filterOptions: $viewModel.filterOptions)
                 }
@@ -195,19 +264,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    /// Whether the radio button should be shown (artist or album detail views)
+    private var hasRadioButton: Bool {
+        viewModel is ArtistDetailViewModel || viewModel is AlbumDetailViewModel
+    }
+
     private var shouldShowStandaloneFilterButton: Bool {
         showFilter && (mediaType == nil || headerData.ratingKey == nil)
     }
 
     private var quickTargetRefreshKey: String {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
-        let playlistTargetID = nowPlayingVM.lastPlaylistTarget?.id ?? "none"
+        let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
     /// Toolbar menu with Pin/Unpin action
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
         let isPinned = pinManager.isPinned(id: ratingKey)
+        let sourceKey = headerData.sourceKey
         return Menu {
             if showFilter {
                 Button {
@@ -240,6 +315,93 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     Label("Pin", systemImage: "pin.fill")
                 }
             }
+
+            if let sourceKey {
+                switch mediaType {
+                case .album:
+                    let album = Album(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        artistName: headerData.subtitle,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                        )
+                    }
+
+                case .artist:
+                    let artist = Artist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        name: headerData.title,
+                        summary: nil,
+                        thumbPath: headerData.artworkPath,
+                        artPath: nil,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                        )
+                    }
+
+                case .playlist:
+                    let playlist = Playlist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        summary: nil,
+                        isSmart: false,
+                        trackCount: 0,
+                        duration: 0,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+                    Button {
+                        Task {
+                            await deps.offlineDownloadService.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        Label(
+                            isDownloaded ? "Remove Download" : "Download",
+                            systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+                        )
+                    }
+                }
+            }
+
+            // Share album link
+            if viewModel is AlbumDetailViewModel {
+                let album = Album(
+                    id: ratingKey,
+                    key: headerData.ratingKey ?? ratingKey,
+                    title: headerData.title,
+                    artistName: headerData.subtitle,
+                    sourceCompositeKey: sourceKey ?? ""
+                )
+                Button {
+                    ShareActions.shareAlbumLink(album, deps: deps)
+                } label: {
+                    Label("Share Link…", systemImage: "link")
+                }
+            }
+
+            Divider()
 
             if viewModel is AlbumDetailViewModel {
                 if let lastPlaylistQuickTarget {
@@ -339,22 +501,32 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    /// Base content without filter UI — shared between filtered and unfiltered modes
+    /// Base content without filter UI — shared between filtered and unfiltered modes.
+    /// On iOS, uses a single self-scrolling MediaTrackList (UITableView) with the header
+    /// embedded as the table's `tableHeaderView`. This lets the album art and action buttons
+    /// scroll naturally with the track list while preserving UIKit cell recycling.
     private var baseContent: some View {
         ZStack(alignment: .top) {
             // Background gradient
             backgroundGradient
                 .ignoresSafeArea()
 
+            #if os(iOS)
+            // Always use MediaTrackList (UITableView), even with 0 tracks.
+            // Loading/empty indicators are shown via tableFooterContent.
+            // This keeps the header (genre chips + artwork + buttons) in a single
+            // code path with consistent safe area handling.
+            tracksSection
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
+            #else
             ScrollView {
                 VStack(spacing: 0) {
-                    // Header
                     headerView
-
-                    // Action buttons
                     actionButtons
+                    if let genreChipContent {
+                        genreChipContent
+                    }
 
-                    // Tracks
                     if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
                         ProgressView()
                             .padding(.top, 40)
@@ -367,19 +539,40 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                 }
             }
+            #endif
         }
-        .navigationTitle(navigationTitle)
+        .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
     }
     
+    private var backgroundOverlayColor: Color {
+        #if os(iOS)
+        return colorScheme == .dark ? .black : Color(UIColor.systemBackground)
+        #else
+        return colorScheme == .dark ? .black : Color(NSColor.windowBackgroundColor)
+        #endif
+    }
+
     private var backgroundGradient: some View {
-        BlurredArtworkBackground(
-            image: artworkImage,
-            topDimming: 0.1,
-            bottomDimming: 0.4
-        )
+        ZStack {
+            BlurredArtworkBackground(
+                image: artworkImage,
+                topDimming: colorScheme == .dark ? 0.1 : 0.05,
+                bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
+                overlayColor: backgroundOverlayColor
+            )
+
+            // Legibility overlay matching NowPlayingView treatment
+            if colorScheme == .dark {
+                Color.black.opacity(0.45)
+                    .allowsHitTesting(false)
+            } else {
+                backgroundOverlayColor.opacity(0.7)
+                    .allowsHitTesting(false)
+            }
+        }
         .mask(
             LinearGradient(
                 colors: [.white, .clear],
@@ -434,6 +627,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             ArtworkView(
                 path: headerData.artworkPath,
                 sourceKey: headerData.sourceKey,
+                ratingKey: headerData.ratingKey,
                 size: .medium,
                 cornerRadius: 12
             )
@@ -444,6 +638,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
+                    .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
 
                 if let subtitle = headerData.subtitle {
                     if let artistId = headerData.artistRatingKey {
@@ -560,18 +755,46 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
+    /// Footer content shown when the track list is loading or empty.
+    /// Displayed as the UITableView's tableFooterView so the header stays
+    /// in the same position regardless of track count.
+    @ViewBuilder
+    private var emptyStateFooter: some View {
+        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+            ProgressView()
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity)
+        } else if viewModel.filteredTracks.isEmpty {
+            Text("No tracks")
+                .foregroundColor(.secondary)
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
-        let trackCount = viewModel.filteredTracks.count
-        let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount * 68 + (groupByDisc ? 100 : 0))
-        
+        // Self-scrolling UITableView with the header embedded as tableHeaderView.
+        // Header (album art + action buttons) scrolls naturally with the tracks
+        // while preserving UIKit cell recycling for large track lists.
         MediaTrackList(
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
+            showAlbumName: !(viewModel is AlbumDetailViewModel),
             groupByDisc: groupByDisc,
-            currentTrackId: nowPlayingVM.currentTrack?.id,
+            currentTrackId: currentTrackId,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadRatingKeys: activeDownloadRatingKeys,
+            managesOwnScrolling: true,
+            bottomContentInset: 140,
+            tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableFooterContent: AnyView(VStack(spacing: 0) {
+                emptyStateFooter
+                if let additionalFooterContent { additionalFooterContent }
+            }),
+            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },
@@ -593,6 +816,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             },
+            onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
+                if let albumId = track.albumRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onGoToArtist: { track in
+                if let artistId = track.artistRatingKey {
+                    DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                }
+            },
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
@@ -604,7 +843,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) { track, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
-        .frame(height: height)
         #else
         // Basic List fallback for macOS
         VStack(spacing: 0) {
@@ -612,7 +850,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 TrackRow(
                     track: track,
                     showArtwork: showArtwork,
-                    isPlaying: track.id == nowPlayingVM.currentTrack?.id,
+                    isPlaying: track.id == currentTrackId,
                     onPlayNext: { nowPlayingVM.playNext(track) },
                     onPlayLast: { nowPlayingVM.playLast(track) },
                     onAddToPlaylist: {
@@ -629,6 +867,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         Task {
                             await nowPlayingVM.toggleTrackFavorite(track)
                         }
+                    },
+                    onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : {
+                        if let albumId = track.albumRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.album(id: albumId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onGoToArtist: {
+                        if let artistId = track.artistRatingKey {
+                            DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+                        }
+                    },
+                    onShareLink: {
+                        ShareActions.shareTrackLink(track, deps: deps)
+                    },
+                    onShareFile: {
+                        ShareActions.shareTrackFile(track, deps: deps)
                     },
                     isFavorited: nowPlayingVM.isTrackFavorited(track),
                     recentPlaylistTitle: {
@@ -648,5 +902,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
         #endif
+    }
+
+    /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
+    /// Scrolls with the track list while preserving cell recycling.
+    /// The header is structurally identical across all states (loading, empty, populated)
+    /// so the genre chips and artwork maintain consistent positioning.
+    private var tableHeaderForTrackList: some View {
+        VStack(spacing: 0) {
+            if let genreChipContent {
+                genreChipContent
+            }
+            headerView
+            actionButtons
+        }
     }
 }

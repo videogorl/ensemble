@@ -6,7 +6,15 @@ import Foundation
 public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
-    private let sectionKey: String
+    /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
+    let sectionKey: String
+
+    /// Tracks that failed with direct stream — retries skip to download path.
+    /// Cleared on connection refresh via `resetStreamFallbackState()`.
+    private var directStreamFailedKeys = Set<String>()
+
+    /// Read-only access for services that need direct API calls (e.g. LyricsService)
+    public var exposedAPIClient: PlexAPIClient { apiClient }
 
     public init(
         sourceIdentifier: MusicSourceIdentifier,
@@ -17,6 +25,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.apiClient = apiClient
         self.sectionKey = sectionKey
     }
+
+    /// No-op — retained for protocol conformance. The download-to-file approach
+    /// eliminates the AVPlayer HTTP stack issues that required fallback tracking.
+    public func resetUniversalEndpointFallback() {}
     
     public func syncLibraryIncremental(
         since timestamp: TimeInterval,
@@ -27,6 +39,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         #if DEBUG
         EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
         #endif
+
+        let syncStart = CFAbsoluteTimeGetCurrent()
 
         // Ensure CDMusicSource exists
         _ = try await repository.upsertMusicSource(
@@ -39,16 +53,41 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
+        // Fetch existing timestamps to skip unchanged items (avoids expensive per-item CoreData upserts)
+        progressHandler(0.05)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
+        let existingArtistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceKey)
+        let existingAlbumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceKey)
+        let existingTrackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceKey)
+        let existingTrackRatings = try await repository.fetchTrackRatings(forSource: sourceKey)
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingArtistTimestamps.count) artists, \(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
+        #endif
+
         // Sync artists added or updated since timestamp
         progressHandler(0.1)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allArtists = Set(newArtists.map { $0.ratingKey }).union(Set(updatedArtists.map { $0.ratingKey }))
-        let artistsToSync = (newArtists + updatedArtists).filter { allArtists.contains($0.ratingKey) }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var artistMap: [String: PlexArtist] = [:]
+        for a in newArtists { artistMap[a.ratingKey] = a }
+        for a in updatedArtists { artistMap[a.ratingKey] = a }
+        let artistsToSync = artistMap.values.filter { artist in
+            guard let serverUpdated = artist.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingArtistTimestamps[artist.ratingKey] == nil
+            }
+            guard let localDate = existingArtistTimestamps[artist.ratingKey] else { return true }
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(artistsToSync.count) artists changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistMap.count) from server, \(artistsToSync.count) actually changed")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for artist in artistsToSync {
             _ = try await repository.upsertArtist(
                 ratingKey: artist.ratingKey,
@@ -65,15 +104,40 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         // Sync albums added or updated since timestamp
         progressHandler(0.25)
+        #if DEBUG
+        if !artistsToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: artists upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allAlbums = Set(newAlbums.map { $0.ratingKey }).union(Set(updatedAlbums.map { $0.ratingKey }))
-        let albumsToSync = (newAlbums + updatedAlbums).filter { allAlbums.contains($0.ratingKey) }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var albumMap: [String: PlexAlbum] = [:]
+        for a in newAlbums { albumMap[a.ratingKey] = a }
+        for a in updatedAlbums { albumMap[a.ratingKey] = a }
+        let albumsToSync = albumMap.values.filter { album in
+            guard let serverUpdated = album.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingAlbumTimestamps[album.ratingKey] == nil
+            }
+            guard let localDate = existingAlbumTimestamps[album.ratingKey] else { return true }
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(albumsToSync.count) albums changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumMap.count) from server, \(albumsToSync.count) actually changed")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
+        // Build album genre lookup for incremental track upserts
+        var incrementalAlbumGenres: [String: String] = [:]
         for album in albumsToSync {
+            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+            if let genreString = genreString {
+                incrementalAlbumGenres[album.ratingKey] = genreString
+            }
             _ = try await repository.upsertAlbum(
                 ratingKey: album.ratingKey,
                 key: album.key,
@@ -89,26 +153,77 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: 0,
+                genreNames: genreString,
                 sourceCompositeKey: sourceKey
             )
         }
 
         // Sync tracks added or updated since timestamp
         progressHandler(0.4)
+        #if DEBUG
+        if !albumsToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: albums upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
-        let allTracks = Set(newTracks.map { $0.ratingKey }).union(Set(updatedTracks.map { $0.ratingKey }))
-        let tracksToSync = (newTracks + updatedTracks).filter { allTracks.contains($0.ratingKey) }
+
+        // Only fetch rated tracks when the sync window is recent (≤10min).
+        // The ratedAfter filter (lastRatedAt>=) returns ALL ever-rated tracks,
+        // not just recently rated ones, which wastes ~1MB per sync cycle.
+        // Beyond 10 minutes, rating changes are caught by the next full sync.
+        let ratedTracks: [PlexTrack]
+        let syncAge = Date().timeIntervalSince(Date(timeIntervalSince1970: timestamp))
+        if syncAge <= 600 {
+            ratedTracks = try await apiClient.getTracks(sectionKey: sectionKey, ratedAfter: timestamp)
+        } else {
+            ratedTracks = []
+            #if DEBUG
+            EnsembleLogger.debug("⏱️ Skipping ratedAfter fetch (sync age: \(String(format: "%.0f", syncAge))s > 600s)")
+            #endif
+        }
+
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
+        var trackMap: [String: PlexTrack] = [:]
+        for t in newTracks { trackMap[t.ratingKey] = t }
+        for t in updatedTracks { trackMap[t.ratingKey] = t }
+        for t in ratedTracks { trackMap[t.ratingKey] = t }
+        let tracksToSync = trackMap.values.filter { track in
+            // Check if rating changed (Plex updates lastRatedAt, not updatedAt, for rating changes)
+            let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
+            if let localRating = existingTrackRatings[track.ratingKey], localRating != serverRating {
+                return true
+            }
+
+            guard let serverUpdated = track.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingTrackTimestamps[track.ratingKey] == nil
+            }
+            guard let localDate = existingTrackTimestamps[track.ratingKey] else { return true }
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental sync: \(tracksToSync.count) tracks changed")
+        // Diagnostic: break down WHY items in tracksToSync were flagged
+        let tracksNew = tracksToSync.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
+        let tracksRatingChanged = tracksToSync.filter { track in
+            guard let localRating = existingTrackRatings[track.ratingKey] else { return false }
+            return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
+        }.count
+        let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server (\(ratedTracks.count) rated), \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for track in tracksToSync {
+            // Copy genre from parent album (Plex doesn't return genres on tracks)
+            let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
             _ = try await repository.upsertTrack(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
-                artistName: track.grandparentTitle,
+                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
                 albumName: track.parentTitle,
                 albumRatingKey: track.parentRatingKey,
                 trackNumber: track.index,
@@ -119,8 +234,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
+                genreNames: trackGenreNames,
                 sourceCompositeKey: sourceKey
             )
         }
@@ -128,8 +245,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
         #if DEBUG
-        EnsembleLogger.debug("🧹 Checking for orphaned items (lightweight inventory)...")
+        if !tracksToSync.isEmpty {
+            EnsembleLogger.debug("⏱️ Incremental sync: tracks upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        }
+        EnsembleLogger.debug("⏱️ Incremental sync: library phase total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         #endif
+        phaseStart = CFAbsoluteTimeGetCurrent()
 
         // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
         let artistInventory = try await apiClient.getArtistInventory(sectionKey: sectionKey)
@@ -164,7 +285,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         progressHandler(1.0)
         #if DEBUG
-        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey)")
+        EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         #endif
     }
     
@@ -172,7 +294,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws {
+        let syncStart = CFAbsoluteTimeGetCurrent()
         let sourceKey = sourceIdentifier.compositeKey
+        #if DEBUG
+        EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
+        #endif
 
         // Ensure CDMusicSource exists
         _ = try await repository.upsertMusicSource(
@@ -185,12 +311,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
-        // Sync artists
+        // Sync artists (batch upsert — single context, single save)
         progressHandler(0.1)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
         let artistRatingKeys = Set(artists.map { $0.ratingKey })
-        for artist in artists {
-            _ = try await repository.upsertArtist(
+        let artistInputs = artists.map { artist in
+            ArtistUpsertInput(
                 ratingKey: artist.ratingKey,
                 key: artist.key,
                 name: artist.title,
@@ -198,17 +325,28 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 thumbPath: artist.thumb,
                 artPath: artist.art,
                 dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: sourceKey
+                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
             )
         }
+        try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
 
-        // Sync albums
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
+        #endif
+
+        // Sync albums (batch upsert)
         progressHandler(0.3)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
-        for album in albums {
-            _ = try await repository.upsertAlbum(
+        // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
+        var albumGenresByKey: [String: String] = [:]
+        let albumInputs = albums.map { album in
+            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+            if let genreString = genreString {
+                albumGenresByKey[album.ratingKey] = genreString
+            }
+            return AlbumUpsertInput(
                 ratingKey: album.ratingKey,
                 key: album.key,
                 title: album.title,
@@ -223,23 +361,28 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: 0,
-                sourceCompositeKey: sourceKey
+                genreNames: genreString
             )
         }
+        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
-        // Sync tracks
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: albums \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(albums.count) items)")
+        #endif
+
+        // Sync tracks (batch upsert — biggest win, ~24s → ~2-3s)
         progressHandler(0.5)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
-        #if DEBUG
-        EnsembleLogger.debug("📀 Syncing \(tracks.count) tracks")
-        #endif
-        for track in tracks {
-            _ = try await repository.upsertTrack(
+        let trackInputs = tracks.map { track in
+            // Copy genre from parent album (Plex doesn't return genres on tracks)
+            let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }
+            return TrackUpsertInput(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
-                artistName: track.grandparentTitle,
+                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
                 albumName: track.parentTitle,
                 albumRatingKey: track.parentRatingKey,
                 trackNumber: track.index,
@@ -250,14 +393,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
-                sourceCompositeKey: sourceKey
+                genreNames: trackGenreNames
             )
         }
+        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
+
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: tracks \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(tracks.count) items)")
+        #endif
 
         // Sync genres
         progressHandler(0.7)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
         let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
         for genre in genres {
@@ -269,8 +419,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             )
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: genres \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(genres.count) items)")
+        #endif
+
         // Remove orphaned items (deleted/merged on server but still in local DB)
         progressHandler(0.85)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         #if DEBUG
         EnsembleLogger.debug("🧹 Checking for orphaned items...")
         #endif
@@ -289,12 +444,17 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             #endif
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Full sync: orphan check \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        EnsembleLogger.debug("⏱️ Full sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s (\(artists.count) artists, \(albums.count) albums, \(tracks.count) tracks, \(genres.count) genres)")
+        #endif
+
         // Update last sync timestamp
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
     }
-    
+
     public func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
@@ -302,8 +462,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
 
+        let playlistSyncStart = CFAbsoluteTimeGetCurrent()
         progressHandler(0.1)
         let playlists = try await apiClient.getPlaylists()
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Playlist sync: fetched \(playlists.count) playlists in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s")
+        #endif
 
         for (index, playlist) in playlists.enumerated() {
             let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
@@ -341,6 +505,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
+        #endif
         progressHandler(1.0)
     }
 
@@ -349,6 +516,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws {
+        let syncStart = CFAbsoluteTimeGetCurrent()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
 
@@ -366,21 +534,34 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         progressHandler(0.1)
 
+        // Fetch existing playlist timestamps for change detection
+        var phaseStart = CFAbsoluteTimeGetCurrent()
+        let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
+
         // Fetch playlists added or updated since last sync
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
         let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
 
-        // Combine and deduplicate
+        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
         var playlistMap: [String: PlexPlaylist] = [:]
         for playlist in newPlaylists { playlistMap[playlist.ratingKey] = playlist }
         for playlist in updatedPlaylists { playlistMap[playlist.ratingKey] = playlist }
-        let changedPlaylists = Array(playlistMap.values)
+        let changedPlaylists = playlistMap.values.filter { playlist in
+            guard let serverUpdated = playlist.updatedAt else {
+                // Server has nil updatedAt — only sync if item doesn't exist locally
+                return existingTimestamps[playlist.ratingKey] == nil
+            }
+            guard let localDate = existingTimestamps[playlist.ratingKey] else { return true }
+            // Compare as integer seconds to avoid sub-second precision mismatches
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
 
         #if DEBUG
-        EnsembleLogger.debug("🔄 Incremental playlist sync: \(changedPlaylists.count) playlists changed since \(Date(timeIntervalSince1970: lastSyncTimestamp))")
+        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(playlistMap.count) from server, \(changedPlaylists.count) actually changed")
         #endif
 
         // Sync only changed playlists (only fetch tracks for changed ones)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         for (index, playlist) in changedPlaylists.enumerated() {
             let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
             progressHandler(playlistProgress)
@@ -408,8 +589,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        #endif
+
         // Orphan removal: Fetch playlist inventory and remove deleted playlists
         progressHandler(0.7)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         #if DEBUG
         EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
         #endif
@@ -428,37 +614,135 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             #endif
         }
 
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
+        #endif
+
         // Update last playlist sync timestamp
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+
+        #if DEBUG
+        EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
+        #endif
 
         progressHandler(1.0)
     }
 
-    public func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL {
-        // If we have a direct stream key (the media part path), use it
-        if let streamKey = trackStreamKey, !streamKey.isEmpty {
-            #if DEBUG
-            EnsembleLogger.debug("🔍 PlexProvider: Using cached stream key: \(streamKey)")
-            #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
-        }
-        
-        // Fallback: Fetch the full track metadata which should include Media array
+public func getStreamURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double? = nil
+    ) async throws -> StreamResolution {
         #if DEBUG
-        EnsembleLogger.debug("⚠️ PlexProvider: No cached stream key, fetching full track metadata for: \(trackRatingKey)")
+        EnsembleLogger.debug("🎵 PlexProvider.getStreamURL: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
         #endif
-        if let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-           let streamKey = track.streamURL {
+
+        // Try smart routing: direct stream for compatible tracks, progressive transcode
+        // for transcodes. Direct stream gives instant playback (~<1s) because PMS serves
+        // direct files with Accept-Ranges: bytes and Content-Length. Progressive transcode
+        // gives ~1-2s startup by streaming chunks via AVAssetResourceLoaderDelegate.
+        if !directStreamFailedKeys.contains(trackRatingKey) {
+            do {
+                let resolution = try await apiClient.resolveStreamURL(
+                    ratingKey: trackRatingKey,
+                    trackStreamKey: trackStreamKey,
+                    quality: quality,
+                    metadataDurationSeconds: metadataDurationSeconds
+                )
+                #if DEBUG
+                switch resolution {
+                case .directStream:
+                    EnsembleLogger.debug("🎵 PlexProvider: Using direct stream (quality=\(quality.rawValue))")
+                case .downloadedFile:
+                    EnsembleLogger.debug("🎵 PlexProvider: Downloaded transcode to file (quality=\(quality.rawValue))")
+                case .progressiveTranscode:
+                    EnsembleLogger.debug("🎵 PlexProvider: Progressive transcode (quality=\(quality.rawValue))")
+                }
+                #endif
+                return resolution
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ PlexProvider: resolveStreamURL failed: \(error). Falling back to direct stream.")
+                #endif
+            }
+        } else {
+            // Previously failed with direct stream — skip straight to full download
             #if DEBUG
-            EnsembleLogger.debug("✅ PlexProvider: Got stream key from track metadata: \(streamKey)")
+            EnsembleLogger.debug("🎵 PlexProvider: ratingKey \(trackRatingKey) in directStreamFailedKeys, using download path")
             #endif
-            return try await apiClient.getStreamURL(trackKey: streamKey)
+            do {
+                let fileURL = try await apiClient.downloadUniversalStreamToFile(
+                    ratingKey: trackRatingKey,
+                    quality: quality,
+                    metadataDurationSeconds: metadataDurationSeconds
+                )
+                return .downloadedFile(fileURL)
+            } catch {
+                #if DEBUG
+                EnsembleLogger.debug("⚠️ PlexProvider: Download fallback also failed: \(error)")
+                #endif
+            }
         }
-        
+
+        // Last resort fallback: direct file URL (always original quality)
+        if let trackStreamKey, !trackStreamKey.isEmpty {
+            #if DEBUG
+            EnsembleLogger.debug("🔍 PlexProvider: Last resort — using direct stream key: \(trackStreamKey)")
+            #endif
+            let url = try await apiClient.getStreamURL(trackKey: trackStreamKey)
+            return .directStream(url)
+        }
+
         #if DEBUG
-        EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL for track")
+        EnsembleLogger.debug("⚠️ PlexProvider: Fallback fetching track metadata for stream key")
         #endif
-        throw PlexAPIError.invalidURL
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
+            #if DEBUG
+            EnsembleLogger.debug("❌ PlexProvider: Could not get stream URL from track metadata")
+            #endif
+            throw PlexAPIError.invalidURL
+        }
+        let url = try await apiClient.getStreamURL(trackKey: streamKey)
+        return .directStream(url)
+    }
+
+    /// Get a download URL for offline use. Skips the transcode decision endpoint
+    /// since URLSession downloads don't need session warmup.
+    /// Falls back to the direct file URL if universal URL construction fails.
+    public func getDownloadURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality
+    ) async throws -> URL {
+        // Try the universal download URL (no decision call)
+        do {
+            let url = try await apiClient.getUniversalDownloadURL(
+                ratingKey: trackRatingKey,
+                quality: quality
+            )
+            #if DEBUG
+            EnsembleLogger.debug("🎵 PlexProvider: Using universal download URL (quality=\(quality.rawValue))")
+            #endif
+            return url
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("⚠️ PlexProvider: Universal download URL failed: \(error). Falling back to direct stream.")
+            #endif
+        }
+
+        // Fallback: direct file URL (always original quality)
+        if let trackStreamKey, !trackStreamKey.isEmpty {
+            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
+        }
+
+        // Last resort: fetch track metadata for stream key
+        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
+              let streamKey = track.streamURL else {
+            throw PlexAPIError.invalidURL
+        }
+        return try await apiClient.getStreamURL(trackKey: streamKey)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
@@ -477,6 +761,25 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         try await apiClient.scrobble(ratingKey: ratingKey)
     }
 
+    public func resetStreamFallbackState() {
+        resetUniversalEndpointFallback()
+        directStreamFailedKeys.removeAll()
+    }
+
+    public func disableUniversalEndpoint() {
+        // No-op — the download-to-file approach bypasses the AVPlayer HTTP stack
+        // issues that previously required this cooldown mechanism.
+    }
+
+    /// Mark a track as having failed with direct stream so subsequent attempts
+    /// skip straight to the download path. Cleared on connection refresh.
+    public func markDirectStreamFailed(ratingKey: String) {
+        directStreamFailedKeys.insert(ratingKey)
+        #if DEBUG
+        EnsembleLogger.debug("🚫 Marked ratingKey \(ratingKey) as direct-stream-failed (\(directStreamFailedKeys.count) total)")
+        #endif
+    }
+
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {
         let plexTracks = try await apiClient.getAlbumTracks(albumKey: albumKey)
         return plexTracks.map { Track(from: $0, sourceKey: sourceIdentifier.compositeKey) }
@@ -490,5 +793,24 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     public func getArtistTracks(artistKey: String) async throws -> [Track] {
         let plexTracks = try await apiClient.getArtistTracks(artistKey: artistKey)
         return plexTracks.map { Track(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+    }
+
+    public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? {
+        guard let plexDetail = try await apiClient.getArtistDetail(artistKey: artistKey) else {
+            return nil
+        }
+        return ArtistDetail(from: plexDetail)
+    }
+
+    public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? {
+        guard let plexDetail = try await apiClient.getAlbumDetail(albumKey: albumKey) else {
+            return nil
+        }
+        return AlbumDetail(from: plexDetail)
+    }
+
+    public func getSimilarAlbums(albumKey: String) async throws -> [Album] {
+        let plexAlbums = try await apiClient.getSimilarAlbums(albumKey: albumKey)
+        return plexAlbums.map { Album(from: $0) }
     }
 }

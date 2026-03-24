@@ -33,9 +33,10 @@ public final class CoreDataStack: @unchecked Sendable {
 
         viewContext.automaticallyMergesChangesFromParent = true
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        // Ensure objects are always refetched from store (not cached)
-        // This fixes stale data after background sync operations
-        viewContext.stalenessInterval = 0
+        // Allow objects to remain cached for a short window before refetching.
+        // automaticallyMergesChangesFromParent handles background sync freshness,
+        // and refreshContext() forces a full refetch before library loads.
+        viewContext.stalenessInterval = 5.0
     }
 
     /// Create an in-memory stack for testing/previews
@@ -63,14 +64,24 @@ public final class CoreDataStack: @unchecked Sendable {
     }
 
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
-        persistentContainer.performBackgroundTask(block)
+        persistentContainer.performBackgroundTask { context in
+            // Match the merge policy used by viewContext and newBackgroundContext()
+            // so concurrent writes from download workers, sync, and target progress
+            // refresh resolve automatically instead of throwing merge conflicts.
+            context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+            block(context)
+        }
     }
 
-    /// Refresh all objects in the view context to ensure they reflect the latest store data.
+    /// Reset the view context so the next fetch reads the latest store data.
     /// Call this after background sync operations to ensure UI sees updated data.
+    /// Uses reset() instead of refreshAllObjects() to avoid a crash when
+    /// background deletions leave a nil entry in the registered-objects set.
     public func refreshViewContext() {
         viewContext.perform {
-            self.viewContext.refreshAllObjects()
+            self.viewContext.stalenessInterval = 0
+            self.viewContext.reset()
+            self.viewContext.stalenessInterval = 5.0
         }
     }
 

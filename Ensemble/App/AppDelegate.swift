@@ -1,13 +1,27 @@
 #if os(iOS)
 import AVFoundation
 import AppIntents
+import GameController
 import Intents
 import os
 import UIKit
 import EnsembleCore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Process-level launch timestamp for TTFMP measurement
+    static let launchTime = Date()
+
     private var coverFlowRotationSupportEnabled = false
+
+    /// Stored early health check task so executeSiriPlaybackInBackground can
+    /// await it instead of running redundant checks. Set in didFinishLaunching.
+    fileprivate var earlyHealthCheckTask: Task<Void, Never>?
+
+    /// Set synchronously in `application(_:handlerFor:)` when iOS delivers a Siri
+    /// intent during launch. Used to suppress playback restoration so Siri playback
+    /// isn't overwritten by the previous session's queue.
+    fileprivate var hasPendingSiriIntent = false
+
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private static let siriLeadingMediaTypePrefixes = [
@@ -24,13 +38,25 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ]
     private static let appGroupIdentifier = "group.com.videogorl.ensemble"
     private static let pendingPlaybackFilename = "siri-pending-playback.json"
+    private static let pendingAffinityFilename = "siri-pending-affinity.json"
+    private static let pendingAddToPlaylistFilename = "siri-pending-addtoplaylist.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingPlayback"
+    private static let darwinAffinityNotificationName = "com.videogorl.ensemble.siri.pendingAffinity"
+    private static let darwinAddToPlaylistNotificationName = "com.videogorl.ensemble.siri.pendingAddToPlaylist"
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching at \(Date())")
+        EnsembleStartupTiming.launchTime = AppDelegate.launchTime
+
+        // Register UserDefaults defaults so .bool(forKey:) returns correct values
+        // before the user has ever toggled a setting. Without this, bool(forKey:)
+        // returns false for unset keys, which would disable the visualizer by default.
+        UserDefaults.standard.register(defaults: [
+            "auroraVisualizationEnabled": true
+        ])
 
         NotificationCenter.default.addObserver(
             self,
@@ -39,51 +65,76 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             object: nil
         )
         
-        // Configure audio session for background playback
-        configureAudioSession()
+        // Audio session is configured lazily on first playback (PlaybackService.ensureAudioSessionConfigured)
+        // to avoid Code=-50 failures at launch before the audio system is ready.
         configureSiriAuthorization()
 
-        // Register for Darwin notification from Siri extension
+        // Install space-bar → play/pause hardware keyboard shortcut
+        SpaceBarPlaybackShortcut.install()
+
+        // Register for Darwin notifications from Siri extension
         registerForSiriPendingPlaybackNotification()
+        registerForSiriAffinityNotification()
+        registerForSiriAddToPlaylistNotification()
+
+        // Register optional iOS 26+ continued processing handler for offline downloads.
+        DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
 
         // Load accounts synchronously before any Siri/playback code runs.
         // This is critical for cold launches from Siri where the coordinator
         // needs accounts loaded before RootView.task has a chance to run.
         DependencyContainer.shared.accountManager.loadAccounts()
-        
-        // Start network monitoring immediately (non-blocking)
-        // Network monitor will publish initial state asynchronously
-        Task.detached(priority: .utility) {
-            await MainActor.run {
-                AppLogger.debug("📱 AppDelegate: Starting network monitor at \(Date())")
-                DependencyContainer.shared.networkMonitor.startMonitoring()
-                AppLogger.debug("📱 AppDelegate: Network monitor started at \(Date())")
-            }
-        }
-        
-        // Restore playback state after network monitor has had time to detect connectivity
-        // This prevents false "offline" errors during startup
-        Task.detached(priority: .utility) {
-            AppLogger.debug("📱 AppDelegate: Waiting for network monitor to initialize...")
-            
-            // Wait for network monitor to report a non-Unknown state
-            let networkMonitor = await MainActor.run { DependencyContainer.shared.networkMonitor }
-            var attempts = 0
-            let maxAttempts = 20 // 2 seconds max wait
-            
-            while attempts < maxAttempts {
-                let state = await MainActor.run { networkMonitor.networkState }
-                if state != .unknown {
-                    AppLogger.debug("📱 AppDelegate: Network state detected: \(state)")
-                    break
+
+        // Pre-populate server health states with .unknown immediately after accounts load.
+        // This ensures TrackAvailabilityResolver treats tracks from unchecked servers as
+        // unavailable (dimmed) until health checks confirm reachability, preventing the
+        // brief window where all tracks appear available at startup.
+        DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
+
+        // Start network monitor and health checks in a single high-priority task.
+        // NetworkMonitor restores cached state on init (usually Online from the
+        // previous session), so health checks can begin immediately without polling
+        // for network state — this eliminates ~1.5s of scheduling + poll overhead.
+        // The task is stored so executeSiriPlaybackInBackground can await it instead
+        // of running redundant checks.
+        earlyHealthCheckTask = Task { @MainActor in
+            AppLogger.debug("📱 AppDelegate: Starting network monitor + early health checks at \(Date())")
+            DependencyContainer.shared.networkMonitor.startMonitoring()
+
+            // If the cached state was .unknown (first launch or cleared cache),
+            // wait briefly for NWPathMonitor to report real state.
+            let nm = DependencyContainer.shared.networkMonitor
+            if nm.networkState == .unknown {
+                for _ in 0..<10 { // 1s max
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    if nm.networkState != .unknown { break }
                 }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
             }
-            
-            // Small additional delay to ensure connections are stable
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            
+
+            let sc = DependencyContainer.shared.syncCoordinator
+            AppLogger.debug("📱 AppDelegate: Running early health checks (network: \(nm.networkState))...")
+            // Route through SyncCoordinator so lastHealthRefreshAt is set,
+            // preventing the initial Unknown→Online network transition from
+            // triggering a duplicate health check pass.
+            await sc.performStartupHealthChecks()
+            let shc = DependencyContainer.shared.serverHealthChecker
+            AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
+        }
+
+        // Restore playback state after health checks complete (needs server connectivity).
+        // Skip restoration if a Siri playback execution is already in-flight — the Siri
+        // handler's intent arrives before restoration completes, so restoring would
+        // overwrite the Siri-initiated queue with the previous session's track.
+        Task.detached(priority: .utility) {
+            // Wait for early health checks to finish (they populate server endpoints)
+            await self.earlyHealthCheckTask?.value
+
+            let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
+            if hasPending || SiriPlaybackExecutionGate.isExecuting {
+                AppLogger.debug("📱 AppDelegate: Skipping playback restoration — Siri intent pending/in-flight")
+                return
+            }
+
             AppLogger.debug("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
                 DependencyContainer.shared.playbackService
@@ -93,8 +144,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             AppLogger.debug("📱 AppDelegate: Playback state restoration complete")
         }
 
-        // Ensure Siri media index exists even before the next sync/account-change notification.
+        // Siri media index and WebSocket connections are sequenced behind health checks
+        // so earlyHealthCheckTask gets uncontested MainActor time during launch.
+        // Both start immediately after health checks (~0.4s on simulator, ~3-7s on device).
         Task { @MainActor in
+            await self.earlyHealthCheckTask?.value
+
             let indexStore = DependencyContainer.shared.siriMediaIndexStore
             if indexStore.loadIndex(maxAge: 3600) == nil {
                 let rebuilt = await indexStore.rebuildIndex()
@@ -108,27 +163,32 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
                 #endif
             }
-            
+
             // Update Siri media user context with current library statistics
             await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
         }
-        
-        // Perform startup sync (non-blocking, runs in background)
+
+        // Start WebSocket connections after health checks complete.
+        // This enables real-time push notifications from Plex servers.
+        Task { @MainActor in
+            await self.earlyHealthCheckTask?.value
+            DependencyContainer.shared.webSocketCoordinator.start()
+        }
+
+        // Perform startup sync (non-blocking, runs in background at .utility priority).
+        // Normal launches start immediately; Siri launches wait briefly for audio session.
         Task.detached(priority: .utility) {
-            // Wait longer to ensure any Siri playback has a chance to start first.
-            // Resource contention during background launch is a common cause of
-            // audio session interruptions.
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-            
-            // If Siri playback was recently triggered, wait even longer.
-            // Using a simple file-based check as a global flag since some functions are top-level.
+            // Check if Siri playback was recently triggered. If so, wait a short time
+            // to let the audio session activate and route selection complete.
+            // Sync at .utility priority won't compete meaningfully with the Siri audio
+            // path which runs at default/userInitiated priority.
             let appGroup = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.videogorl.ensemble")
             let pendingFile = appGroup?.appendingPathComponent("siri-pending-playback.json")
             let hasPendingSiri = pendingFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-            
+
             if hasPendingSiri {
-                AppLogger.debug("📱 AppDelegate: Pending Siri playback detected, deferring startup sync further...")
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // Another 10s
+                AppLogger.debug("📱 AppDelegate: Pending Siri playback detected, deferring startup sync 2s...")
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s for audio session setup
             }
 
             AppLogger.debug("📱 AppDelegate: Starting startup sync...")
@@ -137,7 +197,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
             await syncCoordinator.performStartupSync()
             AppLogger.debug("📱 AppDelegate: Startup sync complete")
-            
+
             // Start periodic sync timer after startup sync completes
             await MainActor.run {
                 syncCoordinator.startPeriodicSync()
@@ -156,21 +216,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         )
     }
 
-    private func configureAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            // Use default routing to allow both local speaker and external routes.
-            // The .allowAirPlay option enables HomePod/AirPlay without requiring
-            // .longFormAudio policy (which deprioritizes local speaker playback).
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetooth]
-            )
-        } catch {
-            AppLogger.debug("Failed to configure audio session: \(error)")
-        }
-    }
+    // Audio session configuration moved to PlaybackService.ensureAudioSessionConfigured()
+    // to avoid Code=-50 errors when configuring before the audio system is ready.
 
     private func configureSiriAuthorization() {
         let status = INPreferences.siriAuthorizationStatus()
@@ -206,6 +253,117 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             .deliverImmediately
         )
         os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinNotificationName)
+    }
+
+    private func registerForSiriAffinityNotification() {
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            notifyCenter,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                appDelegate.handleSiriPendingAffinityNotification()
+            },
+            Self.darwinAffinityNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAffinityNotificationName)
+    }
+
+    private func handleSiriPendingAffinityNotification() {
+        os_log(.info, "SIRI_APP: Received trigger for pending affinity")
+
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else { return }
+
+        let fileURL = containerURL.appendingPathComponent(Self.pendingAffinityFilename)
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            os_log(.debug, "SIRI_APP: No pending affinity file found")
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            try FileManager.default.removeItem(at: fileURL)
+
+            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let affinityTypeStr = dict["affinityType"] as? String else {
+                os_log(.error, "SIRI_APP: Failed to decode affinity payload")
+                return
+            }
+
+            let affinityType: SiriAffinityType
+            switch affinityTypeStr {
+            case "love": affinityType = .love
+            case "dislike": affinityType = .dislike
+            case "remove": affinityType = .remove
+            default: affinityType = .love
+            }
+
+            let payload = SiriAffinityRequestPayload(affinityType: affinityType)
+            os_log(.info, "SIRI_APP: Executing affinity request: %{public}@", affinityTypeStr)
+
+            Task { @MainActor in
+                try? await DependencyContainer.shared.siriAffinityCoordinator.execute(payload: payload)
+            }
+        } catch {
+            os_log(.error, "SIRI_APP: Failed to read/process affinity file: %{public}@", error.localizedDescription)
+        }
+    }
+
+    private func registerForSiriAddToPlaylistNotification() {
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            notifyCenter,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                appDelegate.handleSiriPendingAddToPlaylistNotification()
+            },
+            Self.darwinAddToPlaylistNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAddToPlaylistNotificationName)
+    }
+
+    private func handleSiriPendingAddToPlaylistNotification() {
+        os_log(.info, "SIRI_APP: Received trigger for pending add-to-playlist")
+
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else { return }
+
+        let fileURL = containerURL.appendingPathComponent(Self.pendingAddToPlaylistFilename)
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            os_log(.debug, "SIRI_APP: No pending add-to-playlist file found")
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            try FileManager.default.removeItem(at: fileURL)
+
+            let decoder = JSONDecoder()
+            let payload = try decoder.decode(SiriAddToPlaylistRequestPayload.self, from: data)
+            os_log(.info, "SIRI_APP: Executing add-to-playlist: playlist=%{public}@", payload.playlistDisplayName ?? "unknown")
+
+            Task { @MainActor in
+                try? await DependencyContainer.shared.siriAddToPlaylistCoordinator.execute(payload: payload)
+            }
+        } catch {
+            os_log(.error, "SIRI_APP: Failed to read/process add-to-playlist file: %{public}@", error.localizedDescription)
+        }
     }
 
     private func handleSiriPendingPlaybackNotification() {
@@ -260,7 +418,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 kind: kind,
                 entityID: extensionPayload.entityID,
                 sourceCompositeKey: extensionPayload.sourceCompositeKey,
-                displayName: extensionPayload.displayName
+                displayName: extensionPayload.displayName,
+                artistHint: extensionPayload.artistHint,
+                shuffle: extensionPayload.shuffle
             )
         } catch {
             os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
@@ -307,9 +467,29 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Any? {
         os_log(.info, "SIRI_APP: application(handlerFor:) called with intent type: %{public}@", String(describing: type(of: intent)))
 
-        if let playMediaIntent = intent as? INPlayMediaIntent {
-            os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for INPlayMediaIntent")
+        // Mark that a Siri intent is pending so playback restoration is suppressed.
+        // This is set synchronously before any async work, preventing the restoration
+        // task from overwriting the Siri-initiated queue.
+        hasPendingSiriIntent = true
+
+        // INPlayMediaIntent is NOT in the app's Info.plist INIntentsSupported,
+        // so iOS routes the initial intent through the Siri extension. The
+        // extension returns .handleInApp which triggers AirPlay route setup
+        // from HomePod, then iOS forwards the intent here for execution.
+        // We must return a handler so the forwarded intent succeeds.
+        if intent is INPlayMediaIntent {
+            os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for forwarded INPlayMediaIntent")
             return InAppPlayMediaIntentHandler()
+        }
+
+        if intent is INAddMediaIntent {
+            os_log(.info, "SIRI_APP: Returning handler for INAddMediaIntent")
+            // INAddMediaIntent is handled via NSUserActivity delivery, not in-app handler
+        }
+
+        if intent is INUpdateMediaAffinityIntent {
+            os_log(.info, "SIRI_APP: Returning handler for INUpdateMediaAffinityIntent")
+            // INUpdateMediaAffinityIntent is handled via NSUserActivity delivery
         }
 
         os_log(.info, "SIRI_APP: No handler for intent type, returning nil")
@@ -377,29 +557,61 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
-           let decoded = decodePayloadIdentifier(identifier),
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
+
+        if let identifier = rawIdentifier,
+           var decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
+            // Override shuffle from the live intent if it wasn't already set in the payload
+            if decoded.shuffle == nil, let shuffle {
+                decoded = SiriPlaybackRequestPayload(
+                    kind: decoded.kind,
+                    entityID: decoded.entityID,
+                    sourceCompositeKey: decoded.sourceCompositeKey,
+                    displayName: decoded.displayName,
+                    artistHint: decoded.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return decoded
         }
 
-        // Fallback to query if identifier is missing or failed to decode
-        guard let query = siriQueryText(from: intent), !query.isEmpty else {
-            return nil
+        // Fallback to query if identifier is missing or failed to decode.
+        if let query = siriQueryText(from: intent), !query.isEmpty {
+            let sanitizedQuery = normalizedSiriQuery(query)
+
+            let kind = siriMediaKind(from: intent)
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
+            #endif
+
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: sanitizedQuery,
+                sourceCompositeKey: nil,
+                displayName: sanitizedQuery,
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
+            )
         }
-        let sanitizedQuery = normalizedSiriQuery(query)
 
-        let kind = siriMediaKind(from: intent)
-        #if DEBUG
-        AppLogger.debug("📱 AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
-        #endif
+        if let rawIdentifier {
+            let kind = siriMediaKind(from: intent)
+            #if DEBUG
+            AppLogger.debug("📱 AppDelegate: Siri fallback payload using raw identifier kind=\(kind.rawValue)")
+            #endif
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
+            )
+        }
 
-        return SiriPlaybackRequestPayload(
-            kind: kind,
-            entityID: sanitizedQuery,
-            sourceCompositeKey: nil,
-            displayName: sanitizedQuery
-        )
+        return nil
     }
 
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPlaybackRequestPayload? {
@@ -407,6 +619,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             return nil
         }
         return try? SiriPlaybackActivityCodec.decode(from: data)
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func siriQueryText(from intent: INPlayMediaIntent) -> String? {
@@ -446,10 +665,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         case .playlist:
             return .playlist
         default:
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty {
+            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
+            // Only infer .artist/.album when mediaName is absent.
+            // "Play [song] by [artist]" has both → default to .track.
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName {
                 return .artist
             }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty {
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName {
                 return .album
             }
             if intent.mediaContainer?.type == .playlist {
@@ -530,32 +752,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return nil
     }
     
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Stop network monitoring to save battery
-        Task { @MainActor in
-            DependencyContainer.shared.networkMonitor.stopMonitoring()
-            
-            // Stop periodic sync timers
-            DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
-        }
-    }
-    
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Resume network monitoring when app returns to foreground
-        Task { @MainActor in
-            DependencyContainer.shared.networkMonitor.startMonitoring()
-
-            // Route foreground refresh through SyncCoordinator to coalesce
-            // with network state transitions and cooldown/staleness guards.
-            await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-            
-            // Restart periodic sync timers
-            DependencyContainer.shared.syncCoordinator.startPeriodicSync()
-            
-            // Update Siri media user context in case library changed while backgrounded
-            await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
-        }
-    }
+    // NOTE: These methods are NOT called in SwiftUI lifecycle apps using @main App.
+    // Background/foreground handling lives in EnsembleApp.handleScenePhaseChange()
+    // via the scenePhase environment value. Keeping these as no-ops for documentation.
+    func applicationDidEnterBackground(_ application: UIApplication) {}
+    func applicationWillEnterForeground(_ application: UIApplication) {}
 
     func application(
         _ application: UIApplication,
@@ -597,9 +798,15 @@ private struct ExtensionSiriPayloadIdentifier: Codable {
     let entityID: String
     let sourceCompositeKey: String?
     let displayName: String?
+    let artistHint: String?
+    let shuffle: Bool?
 }
 
-func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin: String) {
+func executeSiriPlaybackInBackground(
+    payload: SiriPlaybackRequestPayload,
+    origin: String,
+    intentCompletion: ((INPlayMediaIntentResponse) -> Void)? = nil
+) {
     guard let executionSignature = SiriPlaybackExecutionGate.beginExecution(payload: payload) else {
         os_log(
             .info,
@@ -608,6 +815,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             payload.kind.rawValue,
             payload.entityID
         )
+        intentCompletion?(INPlayMediaIntentResponse(code: .success, userActivity: nil))
         return
     }
 
@@ -623,47 +831,134 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
         }
 
         // Siri can launch us without the normal UI lifecycle warmup.
+        // Load accounts synchronously (already done in didFinishLaunching,
+        // but harmless and safe for the cold-launch race).
         DependencyContainer.shared.accountManager.loadAccounts()
+        DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
 
-        // Give the system a moment to settle after wake-up before we start
-        // demanding audio session priority and network resources.
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        // Await the early health check task from didFinishLaunching instead of
+        // running a separate set of health checks. This avoids redundant work
+        // and means Siri can proceed as soon as the already-in-flight checks finish.
+        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+        let shc = DependencyContainer.shared.serverHealthChecker
+        if let earlyTask = appDelegate?.earlyHealthCheckTask {
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Awaiting early health checks from didFinishLaunching...", origin)
+            await earlyTask.value
+        } else {
+            os_log(.default, "SIRI_APP: [origin=%{public}@] No earlyHealthCheckTask found — running standalone health checks", origin)
+        }
+
+        // Log server states at this point for diagnostics
+        let statesSummary = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
+        os_log(.default, "SIRI_APP: [origin=%{public}@] Post-health serverStates: [%{public}@]", origin, statesSummary)
+
+        // If early checks didn't find any connected servers (edge case: first
+        // launch, network delay, etc.), fall back to running our own checks.
+        let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
+        if !hasConnectedServers {
+            os_log(.default, "SIRI_APP: [origin=%{public}@] No connected servers — running fallback health checks", origin)
+            let nm = DependencyContainer.shared.networkMonitor
+            for _ in 0..<10 {
+                if nm.networkState != .unknown { break }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            }
+            await shc.checkAllServers()
+            let postFallback = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Post-fallback serverStates: [%{public}@]", origin, postFallback)
+        }
+
+        // Build sync providers (needed for stream URL resolution) and update
+        // API client connections from the registry endpoints.
+        let sc = DependencyContainer.shared.syncCoordinator
+        sc.refreshProviders()
+        await sc.refreshAPIClientConnections()
+        os_log(.default, "SIRI_APP: [origin=%{public}@] Server connectivity ready", origin)
 
         do {
-            let hadExternalRouteBeforeExecute = await waitForPotentialExternalRoute(origin: origin)
-            try? AVAudioSession.sharedInstance().setActive(true)
+            // Configure audio session with .playback category and .longFormAudio
+            // policy BEFORE activation. This tells iOS we're a music app eligible
+            // for cross-device routing (HomePod Siri → iPhone AirPlay).
+            //
+            // On iOS 26, setCategory can fail with Code=-50 if the audio system
+            // isn't ready yet. Retry up to 3 times with short delays.
+            let playbackService = DependencyContainer.shared.playbackService
+            var categoryConfigured = playbackService.ensureAudioSessionConfigured()
+            if !categoryConfigured {
+                for attempt in 1...3 {
+                    os_log(.info, "SIRI_APP: [origin=%{public}@] setCategory retry %d/3", origin, attempt)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    categoryConfigured = playbackService.ensureAudioSessionConfigured()
+                    if categoryConfigured { break }
+                }
+                if !categoryConfigured {
+                    os_log(.error, "SIRI_APP: [origin=%{public}@] setCategory failed after retries — proceeding anyway", origin)
+                }
+            }
 
-            let routeBefore = AVAudioSession.sharedInstance().currentRoute.outputs
+            // Ask the system to prepare AirPlay route selection. For Siri
+            // requests from HomePod, this triggers the system to establish an
+            // AirPlay session back to the requesting device. Must be called
+            // after setCategory but before setActive/playback.
+            let session = AVAudioSession.sharedInstance()
+            let shouldStartPlayback = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                session.prepareRouteSelectionForPlayback { shouldActivate, routeSelection in
+                    os_log(
+                        .default,
+                        "SIRI_APP: [origin=%{public}@] prepareRouteSelection: shouldActivate=%d, route=%{public}@",
+                        origin,
+                        shouldActivate ? 1 : 0,
+                        routeSelection == .local ? "local" : "external"
+                    )
+                    continuation.resume(returning: shouldActivate)
+                }
+            }
+
+            if shouldStartPlayback {
+                do {
+                    try session.setActive(true)
+                } catch {
+                    os_log(.error, "SIRI_APP: [origin=%{public}@] setActive failed: %{public}@, retrying", origin, error.localizedDescription)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    try? session.setActive(true)
+                }
+            } else {
+                os_log(.info, "SIRI_APP: [origin=%{public}@] System declined route activation — activating anyway", origin)
+                try? session.setActive(true)
+            }
+
+            let initialRoute = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route BEFORE execute: %{public}@", origin, routeBefore)
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Audio session activated; initial route: %{public}@", origin, initialRoute)
+
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Calling coordinator.execute()", origin)
             try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
-            
+
             let routeAfter = AVAudioSession.sharedInstance().currentRoute.outputs
                 .map { "\($0.portType.rawValue):\($0.portName)" }
                 .joined(separator: ",")
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Audio route AFTER execute: %{public}@", origin, routeAfter)
-            os_log(.info, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS", origin)
+            os_log(.default, "SIRI_APP: [origin=%{public}@] Coordinator execute SUCCESS; route: %{public}@", origin, routeAfter)
 
-            // If the request started locally, give HomePod/AirPlay one more chance
-            // to finalize route transfer after playback setup.
-            if !hadExternalRouteBeforeExecute {
-                let switchedAfterExecute = await waitForPotentialExternalRoute(
-                    origin: origin,
-                    phase: "postExecute",
-                    timeoutNanoseconds: 6_000_000_000
+            // Complete the intent response AFTER playback starts. Keeping
+            // the intent handler alive until now preserves the system's
+            // routing association with the requesting HomePod/AirPlay device.
+            intentCompletion?(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+
+            // After playback starts, give the system time to establish the
+            // AirPlay route to HomePod. Once we see it, nudge the player.
+            let switchedAfterExecute = await waitForPotentialExternalRoute(
+                origin: origin,
+                phase: "postExecute",
+                timeoutNanoseconds: 10_000_000_000
+            )
+            if switchedAfterExecute {
+                os_log(
+                    .info,
+                    "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging playback in 500ms",
+                    origin
                 )
-                if switchedAfterExecute {
-                    os_log(
-                        .info,
-                        "SIRI_APP: [origin=%{public}@] External route appeared post-execute; nudging resume in 500ms",
-                        origin
-                    )
-                    // Wait a tiny bit more for the hardware/buffer to settle
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    DependencyContainer.shared.playbackService.resume()
-                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                DependencyContainer.shared.playbackService.nudgeForAirPlayRoute()
             }
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {
@@ -671,6 +966,7 @@ func executeSiriPlaybackInBackground(payload: SiriPlaybackRequestPayload, origin
             } else {
                 os_log(.error, "SIRI_APP: [origin=%{public}@] Unexpected error: %{public}@", origin, error.localizedDescription)
             }
+            intentCompletion?(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
         }
     }
 }
@@ -771,6 +1067,13 @@ private enum SiriPlaybackExecutionGate {
         inFlightSignatures.remove(signature)
     }
 
+    /// Returns true if any Siri playback execution is currently in-flight.
+    static var isExecuting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !inFlightSignatures.isEmpty
+    }
+
     private static func pruneExpiredEntries(now: Date) {
         lastExecutionDates = lastExecutionDates.filter { now.timeIntervalSince($0.value) <= duplicateWindow }
     }
@@ -796,7 +1099,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     ]
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
+        os_log(.default, "SIRI_APP: InAppPlayMediaIntentHandler.handle() called")
 
         guard let payload = payload(from: intent) else {
             os_log(.error, "SIRI_APP: InAppPlayMediaIntentHandler - failed to decode payload/query from intent")
@@ -811,38 +1114,81 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             payload.entityID
         )
 
-        // Reply immediately so Siri/HomePod does not time out while playback setup performs network work.
+        // Return .success immediately so Siri doesn't time out during cold
+        // launch. On a fresh start the server health checks + playback setup
+        // can take 5-8 seconds, which exceeds Siri's ~8 second timeout.
+        // The extension already established the AirPlay route via .handleInApp,
+        // so we just need to acknowledge the intent quickly and start playback
+        // in the background.
         completion(INPlayMediaIntentResponse(code: .success, userActivity: nil))
-        executePlaybackAsync(payload: payload)
-    }
 
-    private func executePlaybackAsync(payload: SiriPlaybackRequestPayload) {
-        executeSiriPlaybackInBackground(payload: payload, origin: "inAppIntentHandler")
+        executeSiriPlaybackInBackground(
+            payload: payload,
+            origin: "inAppIntentHandler",
+            intentCompletion: nil
+        )
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
+
+        if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
-           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+           var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            // Override shuffle from live intent if not already set in payload
+            if payload.shuffle == nil, let shuffle {
+                payload = SiriPlaybackRequestPayload(
+                    kind: payload.kind,
+                    entityID: payload.entityID,
+                    sourceCompositeKey: payload.sourceCompositeKey,
+                    displayName: payload.displayName,
+                    artistHint: payload.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return payload
         }
 
-        guard let query = queryText(from: intent), !query.isEmpty else {
-            return nil
-        }
-        let sanitizedQuery = normalizedSiriQuery(query)
-        guard !sanitizedQuery.isEmpty else {
-            return nil
+        if let query = queryText(from: intent), !query.isEmpty {
+            let sanitizedQuery = normalizedSiriQuery(query)
+            guard !sanitizedQuery.isEmpty else {
+                return nil
+            }
+
+            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
+            let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: sanitizedQuery,
+                sourceCompositeKey: nil,
+                displayName: sanitizedQuery,
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
+            )
         }
 
-        os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: %{public}@", sanitizedQuery)
-        let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
-        return SiriPlaybackRequestPayload(
-            kind: kind,
-            entityID: sanitizedQuery,
-            sourceCompositeKey: nil,
-            displayName: sanitizedQuery
-        )
+        if let rawIdentifier {
+            os_log(.info, "SIRI_APP: InAppPlayMediaIntentHandler - using raw identifier fallback")
+            let kind = mediaKindFrom(intent: intent, fallbackQuery: nil)
+            return SiriPlaybackRequestPayload(
+                kind: kind,
+                entityID: rawIdentifier,
+                sourceCompositeKey: nil,
+                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
+            )
+        }
+
+        return nil
+    }
+
+    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
+        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
+        guard let identifier else { return nil }
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func queryText(from intent: INPlayMediaIntent) -> String? {
@@ -884,8 +1230,9 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         case .artist: return .artist
         case .playlist: return .playlist
         default:
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty { return .artist }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty { return .album }
+            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
+            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName { return .artist }
+            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName { return .album }
             if intent.mediaContainer?.type == .playlist { return .playlist }
             if let inferred = inferredSiriMediaKind(from: fallbackQuery) { return inferred }
             return .track
@@ -958,6 +1305,149 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return .track
         }
         return nil
+    }
+}
+
+// MARK: - Space Bar → Play/Pause Keyboard Shortcut
+
+/// Intercepts hardware keyboard space-bar presses to toggle play/pause.
+///
+/// Uses two independent mechanisms for reliability:
+/// 1. `UIApplication.sendEvent` swizzle — catches UIPressesEvent before responder chain
+/// 2. `GCKeyboard` (GameController framework) — independent HID-level keyboard monitoring
+///
+/// Text-field safety: tracks UITextField/UITextView begin/end editing notifications
+/// so the space bar is only intercepted when no text input is active.
+enum SpaceBarPlaybackShortcut {
+    private static var installed = false
+
+    /// Tracks how many text inputs are currently editing.
+    private static var activeTextInputCount = 0
+
+    /// Call once from `AppDelegate.didFinishLaunchingWithOptions`.
+    static func install() {
+        guard !installed else { return }
+        installed = true
+
+        installSendEventSwizzle()
+        installGCKeyboardMonitoring()
+        observeTextInputLifecycle()
+    }
+
+    /// Whether a text field or text view is currently being edited.
+    static var isTextInputActive: Bool { activeTextInputCount > 0 }
+
+    /// Toggles playback if in a playing or paused state.
+    static func togglePlayback() {
+        let service = DependencyContainer.shared.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        default:
+            break
+        }
+    }
+
+    // MARK: - Mechanism 1: sendEvent Swizzle
+
+    private static func installSendEventSwizzle() {
+        let originalSelector = #selector(UIApplication.sendEvent(_:))
+        let swizzledSelector = #selector(UIApplication.ensemble_interceptEvent(_:))
+
+        guard let originalMethod = class_getInstanceMethod(UIApplication.self, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(UIApplication.self, swizzledSelector) else {
+            return
+        }
+
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+
+    // MARK: - Mechanism 2: GCKeyboard (GameController)
+
+    private static func installGCKeyboardMonitoring() {
+        // Check for already-connected keyboard
+        if let keyboard = GCKeyboard.coalesced {
+            configureGCKeyboard(keyboard)
+        }
+
+        // Watch for keyboard connect/disconnect
+        NotificationCenter.default.addObserver(
+            forName: .GCKeyboardDidConnect,
+            object: nil, queue: .main
+        ) { notification in
+            if let keyboard = notification.object as? GCKeyboard {
+                configureGCKeyboard(keyboard)
+            }
+        }
+    }
+
+    private static func configureGCKeyboard(_ keyboard: GCKeyboard) {
+        keyboard.keyboardInput?.keyChangedHandler = { _, _, keyCode, pressed in
+            guard pressed, keyCode == .spacebar else { return }
+            DispatchQueue.main.async {
+                guard !isTextInputActive else { return }
+                togglePlayback()
+            }
+        }
+    }
+
+    // MARK: - Text Input Tracking
+
+    private static func observeTextInputLifecycle() {
+        let nc = NotificationCenter.default
+
+        nc.addObserver(
+            forName: UITextField.textDidBeginEditingNotification,
+            object: nil, queue: .main
+        ) { _ in activeTextInputCount += 1 }
+
+        nc.addObserver(
+            forName: UITextField.textDidEndEditingNotification,
+            object: nil, queue: .main
+        ) { _ in activeTextInputCount = max(0, activeTextInputCount - 1) }
+
+        nc.addObserver(
+            forName: UITextView.textDidBeginEditingNotification,
+            object: nil, queue: .main
+        ) { _ in activeTextInputCount += 1 }
+
+        nc.addObserver(
+            forName: UITextView.textDidEndEditingNotification,
+            object: nil, queue: .main
+        ) { _ in activeTextInputCount = max(0, activeTextInputCount - 1) }
+    }
+}
+
+// MARK: - UIApplication Swizzle Target
+
+extension UIApplication {
+    /// After swizzle this replaces `sendEvent(_:)`.
+    /// Intercepts bare space-bar presses when no text input is active.
+    @objc func ensemble_interceptEvent(_ event: UIEvent) {
+        // Fast path: only inspect press events (hardware keyboard)
+        if event.type == .presses, let pressEvent = event as? UIPressesEvent {
+            for press in pressEvent.allPresses {
+                guard let key = press.key,
+                      key.keyCode == .keyboardSpacebar,
+                      // Bare space only — ignore Cmd+Space, Shift+Space, etc.
+                      key.modifierFlags.intersection([.command, .alternate, .control, .shift]).isEmpty,
+                      !SpaceBarPlaybackShortcut.isTextInputActive else {
+                    continue
+                }
+
+                // Toggle on key-down; consume all phases so scroll views
+                // don't also page-scroll.
+                if press.phase == .began {
+                    SpaceBarPlaybackShortcut.togglePlayback()
+                }
+                return
+            }
+        }
+
+        // All other events → original path
+        ensemble_interceptEvent(event)
     }
 }
 #endif

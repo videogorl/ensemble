@@ -15,12 +15,16 @@ public class QueueItemCell: UITableViewCell {
     private let playingIndicator = UIImageView()
     private let autoplayIndicator = UIImageView()
     private let dragHandleView = UIImageView()
-    
+
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
     private var currentItemID: String?
     private var artworkLoadTask: Task<Void, Never>?
     private var autoplayWidthConstraint: NSLayoutConstraint?
+    /// Monotonically increasing counter to guard against stale artwork loads.
+    /// Each configure() increments this; the async artwork task checks its
+    /// captured generation matches before assigning the image.
+    private var configureGeneration: UInt = 0
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -32,6 +36,10 @@ public class QueueItemCell: UITableViewCell {
     }
     
     private func setupViews() {
+        // Make cell background transparent to show blur
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
         artworkImageView.layer.cornerRadius = 4
@@ -77,7 +85,7 @@ public class QueueItemCell: UITableViewCell {
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 40),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: 44),
             artworkImageView.heightAnchor.constraint(equalToConstant: 44),
@@ -103,7 +111,7 @@ public class QueueItemCell: UITableViewCell {
             autoplayIndicator.heightAnchor.constraint(equalToConstant: 14),
             widthConstraint,
             
-            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
             dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             dragHandleView.widthAnchor.constraint(equalToConstant: 20),
             dragHandleView.heightAnchor.constraint(equalToConstant: 20)
@@ -152,15 +160,22 @@ public class QueueItemCell: UITableViewCell {
         // Show/hide drag handle
         dragHandleView.isHidden = !showDragHandle
         
-        // Load artwork if needed
+        // Load artwork — increment generation so stale loads are discarded
+        configureGeneration &+= 1
+        let expectedGeneration = configureGeneration
+
         if currentItemID != item.id {
             currentItemID = item.id
+            artworkImageView.image = nil
             artworkImageView.backgroundColor = UIColor.systemGray5
-            
+
             // Cancel any previous artwork load task
             artworkLoadTask?.cancel()
-            
+
             artworkLoadTask = Task { @MainActor in
+                // Guard: bail if cell was reconfigured since this task started
+                guard self.configureGeneration == expectedGeneration else { return }
+
                 guard let url = await artworkLoader.artworkURLAsync(
                     for: track.thumbPath,
                     sourceKey: track.sourceCompositeKey,
@@ -169,25 +184,27 @@ public class QueueItemCell: UITableViewCell {
                     fallbackRatingKey: track.fallbackRatingKey,
                     size: ArtworkSize.thumbnail.rawValue
                 ) else {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = nil
                     }
                     return
                 }
-                
+
+                guard self.configureGeneration == expectedGeneration else { return }
+
                 let request = ImageRequest(url: url)
-                
+
                 // Check cache first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = cachedImage.image
                     }
                     return
                 }
-                
+
                 // Load asynchronously
                 if let image = try? await ImagePipeline.shared.image(for: request) {
-                    if self.currentItemID == item.id {
+                    if self.configureGeneration == expectedGeneration {
                         self.artworkImageView.image = image
                     }
                 }
@@ -235,6 +252,8 @@ public struct QueueTableView: UIViewRepresentable {
     let onPlayLast: (Track) -> Void
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
+    let onGoToAlbum: ((Track) -> Void)?
+    let onGoToArtist: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     let onRemoveFromQueue: (Int) -> Void
@@ -253,6 +272,8 @@ public struct QueueTableView: UIViewRepresentable {
         onPlayLast: @escaping (Track) -> Void,
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
+        onGoToAlbum: ((Track) -> Void)? = nil,
+        onGoToArtist: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         onRemoveFromQueue: @escaping (Int) -> Void,
@@ -268,6 +289,8 @@ public struct QueueTableView: UIViewRepresentable {
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
+        self.onGoToAlbum = onGoToAlbum
+        self.onGoToArtist = onGoToArtist
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
         self.onRemoveFromQueue = onRemoveFromQueue
@@ -275,19 +298,23 @@ public struct QueueTableView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView = IntrinsicTableView(frame: .zero, style: .grouped)
+        // Use regular UITableView (not IntrinsicTableView) so the table manages its
+        // own scrolling and cell recycling. IntrinsicTableView forced all cells to
+        // render simultaneously via intrinsicContentSize, causing hangs with large queues.
+        let tableView = UITableView(frame: .zero, style: .grouped)
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.dragDelegate = context.coordinator
         tableView.dropDelegate = context.coordinator
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
         tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 68, bottom: 0, right: 0)
-        tableView.backgroundColor = .systemBackground
-        tableView.isScrollEnabled = false
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 40)
+        tableView.backgroundColor = .clear
+        tableView.isScrollEnabled = true // Table manages its own scrolling
         tableView.dragInteractionEnabled = true
-        tableView.setEditing(true, animated: false) // Enable persistent drag handles
-        tableView.allowsSelectionDuringEditing = true // Allow tapping to select rows while dragging is enabled
+        tableView.setEditing(true, animated: false)
+        tableView.allowsSelectionDuringEditing = true
+        tableView.contentInsetAdjustmentBehavior = .never
         context.coordinator.tableView = tableView
         return tableView
     }
@@ -312,6 +339,8 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onPlayLast = onPlayLast
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
+        context.coordinator.onGoToAlbum = onGoToAlbum
+        context.coordinator.onGoToArtist = onGoToArtist
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
@@ -323,7 +352,6 @@ public struct QueueTableView: UIViewRepresentable {
         
         if dataChanged {
             tableView.reloadData()
-            tableView.invalidateIntrinsicContentSize()
         } else if currentIndexChanged {
             // Only update visible cells
             tableView.visibleCells.forEach { cell in
@@ -356,6 +384,8 @@ public struct QueueTableView: UIViewRepresentable {
             onPlayLast: onPlayLast,
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
+            onGoToAlbum: onGoToAlbum,
+            onGoToArtist: onGoToArtist,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
             onRemoveFromQueue: onRemoveFromQueue,
@@ -377,6 +407,8 @@ public struct QueueTableView: UIViewRepresentable {
         var onPlayLast: (Track) -> Void
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
+        var onGoToAlbum: ((Track) -> Void)?
+        var onGoToArtist: ((Track) -> Void)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var onRemoveFromQueue: (Int) -> Void
@@ -418,6 +450,8 @@ public struct QueueTableView: UIViewRepresentable {
             onPlayLast: @escaping (Track) -> Void,
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
+            onGoToAlbum: ((Track) -> Void)?,
+            onGoToArtist: ((Track) -> Void)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
@@ -434,6 +468,8 @@ public struct QueueTableView: UIViewRepresentable {
             self.onPlayLast = onPlayLast
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
+            self.onGoToAlbum = onGoToAlbum
+            self.onGoToArtist = onGoToArtist
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
             self.onRemoveFromQueue = onRemoveFromQueue
@@ -514,7 +550,7 @@ public struct QueueTableView: UIViewRepresentable {
             let sectionData = sections[section]
             
             let headerView = UIView()
-            headerView.backgroundColor = .systemBackground
+            headerView.backgroundColor = .clear // Transparent to show blurred background
             
             let label = UILabel()
             label.text = sectionData.type.title
@@ -532,7 +568,7 @@ public struct QueueTableView: UIViewRepresentable {
                 headerView.addSubview(clockIcon)
                 
                 NSLayoutConstraint.activate([
-                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     clockIcon.widthAnchor.constraint(equalToConstant: 14),
                     clockIcon.heightAnchor.constraint(equalToConstant: 14),
@@ -543,7 +579,7 @@ public struct QueueTableView: UIViewRepresentable {
                 ])
             } else {
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 40),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
                 ])
@@ -597,35 +633,58 @@ public struct QueueTableView: UIViewRepresentable {
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 guard let self = self else { return nil }
                 
-                let playNext = UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
+                var topActions: [UIAction] = []
+                topActions.append(UIAction(title: "Play Next", image: UIImage(systemName: "text.insert")) { _ in
                     self.onPlayNext(item.track)
-                }
-                let playLast = UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
+                })
+                topActions.append(UIAction(title: "Play Last", image: UIImage(systemName: "text.append")) { _ in
                     self.onPlayLast(item.track)
+                })
+
+                var navigationActions: [UIAction] = []
+                if let onGoToAlbum = self.onGoToAlbum, item.track.albumRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in
+                        onGoToAlbum(item.track)
+                    })
                 }
-                var actions: [UIAction] = [playNext, playLast]
+                if let onGoToArtist = self.onGoToArtist, item.track.artistRatingKey != nil {
+                    navigationActions.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "person.circle")) { _ in
+                        onGoToArtist(item.track)
+                    })
+                }
+
+                var bottomActions: [UIAction] = []
                 if let onAddToRecentPlaylist = self.onAddToRecentPlaylist,
                    let canAddToRecentPlaylist = self.canAddToRecentPlaylist,
                    canAddToRecentPlaylist(item.track),
                    let recentPlaylistTitle = self.recentPlaylistTitle {
-                    actions.append(
+                    bottomActions.append(
                         UIAction(title: "Add to \(recentPlaylistTitle)", image: UIImage(systemName: "clock.arrow.circlepath")) { _ in
                             onAddToRecentPlaylist(item.track)
                         }
                     )
                 }
                 if let onAddToPlaylist = self.onAddToPlaylist {
-                    actions.append(
+                    bottomActions.append(
                         UIAction(title: "Add to Playlist...", image: UIImage(systemName: "text.badge.plus")) { _ in
                             onAddToPlaylist(item.track)
                         }
                     )
                 }
+                
                 let remove = UIAction(title: "Remove from Queue", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                     self.onRemoveFromQueue(absoluteIndex)
                 }
-                actions.append(remove)
-                return UIMenu(children: actions)
+                bottomActions.append(remove)
+                
+                var children: [UIMenuElement] = []
+                children.append(UIMenu(title: "", options: .displayInline, children: topActions))
+                if !navigationActions.isEmpty {
+                    children.append(UIMenu(title: "", options: .displayInline, children: navigationActions))
+                }
+                children.append(UIMenu(title: "", options: .displayInline, children: bottomActions))
+                
+                return UIMenu(children: children)
             }
         }
         

@@ -15,7 +15,9 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
     private let playlistRepository: PlaylistRepositoryProtocol
     private let notificationCenter: NotificationCenter
     private var observerToken: NSObjectProtocol?
-    
+    // Track last published count to skip duplicate updates
+    private var lastPublishedItemCount: Int?
+
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
@@ -51,18 +53,27 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
             let albumCount = try await libraryRepository.fetchAlbums().count
             let playlistCount = try await playlistRepository.fetchPlaylists().count
             let totalItems = trackCount + albumCount + playlistCount
-            
+
+            // Skip if the count hasn't changed since last publish
+            guard totalItems != lastPublishedItemCount else {
+                #if DEBUG
+                EnsembleLogger.debug("🎯 INMediaUserContext unchanged (\(totalItems) items) — skipping")
+                #endif
+                return
+            }
+
             // Determine subscription status based on whether user has content
             let subscriptionStatus: INMediaUserContext.SubscriptionStatus = totalItems > 0 ? .subscribed : .notSubscribed
-            
+
             // Create and configure media user context
             let context = INMediaUserContext()
             context.numberOfLibraryItems = totalItems
             context.subscriptionStatus = subscriptionStatus
-            
+
             // Share context with Siri
             context.becomeCurrent()
-            
+            lastPublishedItemCount = totalItems
+
             #if DEBUG
             EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(playlistCount) playlists), status=\(subscriptionStatus.rawValue)")
             #endif

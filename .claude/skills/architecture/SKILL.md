@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
+description: "Load before designing features, adding services, or touching multiple packages. Ensemble app architecture: package structure, key types, architectural patterns, dependency flow, domain model layers, subsystems (artwork caching, waveform, frequency visualizer, hubs, filtering, network resilience, playback tracking, playlist mutations, incremental sync, Siri media intents, pinned content)"
 ---
 
 # Ensemble Architecture
@@ -28,12 +28,18 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `PlexAuthService` (actor) -- PIN-based OAuth authentication
 - `PlexAuthTokenMetadata` -- Parsed auth token metadata (`iat`/`exp`) used for lifecycle enforcement
 - `PlexAPIClient` (actor) -- Thread-safe API requests with automatic failover
+  - Server capabilities: `getServerCapabilities()` (fetches root endpoint for subscription & feature info)
   - Core methods: `fetchLibraries()`, `fetchTracks()`, `fetchAlbums()`, `fetchArtists()`, etc.
+  - Stream routing: `resolveStreamURL()` → `StreamResolution` (.directStream / .downloadedFile)
+  - Decision parsing: `callTranscodeDecision()` → `TranscodeDecisionResult` (directplay/copy/transcode)
   - Playback tracking: `reportTimeline()`, `scrobble()`
   - Waveform data: `getLoudnessTimeline(forStreamId:subsample:)`
 - `PlexConnectionPolicy` types -- Endpoint descriptors, ordering policies, probe classifications, and structured refresh outcomes
+- `PlexErrorClassification` -- Unified error taxonomy (transport vs. semantic) for failover and retry decisions
+- `ServerConnectionRegistry` (actor) -- Single source of truth for per-server active endpoints
+- `PlexWebSocketManager` (actor) -- Per-server WebSocket connections with exponential backoff reconnect
 - `KeychainService` -- Token persistence using KeychainAccess library
-- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, etc.)
+- `PlexModels.swift` -- Response types (`PlexServer`, `PlexLibrary`, `PlexTrack`, `PlexLoudnessTimeline`, `PlexSubscription`, `PlexServerCapabilities`, etc.)
 
 ### EnsemblePersistence (Data Layer)
 - **Location:** `Packages/EnsemblePersistence/`
@@ -42,9 +48,10 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 
 **Key Types:**
 - `CoreDataStack` (singleton) -- Main/background contexts, saves on background queue
-- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`
+- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`
 - `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern
-- `DownloadManager` -- Offline track file management
+- `DownloadManager` -- Offline track file management (source-aware, quality-aware)
+- `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
 ### EnsembleCore (Business Logic Layer)
@@ -62,7 +69,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
   - `visibleTabs: [TabItem]` -- Synced from MainTabView to enable fallback logic
   - `navigateFromNowPlaying()` -- Falls back to first visible tab when navigating from Search
   - `pendingNavigation` -- Deferred navigation executed after sheet dismissal
-- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion)
+- `PlaybackService` -- AVPlayer management, queue, shuffle, repeat, remote controls, timeline reporting (every 10s), and scrobbling (at 90% completion). `frequencyBands` uses `CurrentValueSubject` (not `@Published`) to avoid firing `objectWillChange` at 30Hz. Uses `ProgressiveStreamLoader` for transcode streams and `streamLoaders` dict for lifecycle management
+- `ProgressiveStreamLoader` -- AVAssetResourceLoaderDelegate + URLSessionDataDelegate bridge. Proxies PMS's chunked transcode stream (via custom `ensemble-transcode://` scheme) to AVPlayer progressively, writing to a growing temp file. Post-download callback for XING injection + frequency analysis
 - `HubRepository` -- Repository for hub data persistence (implements `HubRepositoryProtocol`); manages CDHub/CDHubItem entities
 - `HubOrderManager` -- Manages user-customizable hub section ordering per music source
   - Persists custom order to UserDefaults with per-source keys
@@ -79,14 +87,22 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
 - `ToastCenter` (@MainActor) -- App-wide toast notification coordination
 - `PlexRadioProvider` -- Plex Radio support implementing `RadioProvider` protocol
+- `PlexWebSocketCoordinator` (@MainActor) -- Routes WebSocket events from `PlexWebSocketManager` to `SyncCoordinator` and `ServerHealthChecker`
+- `TrackAvailabilityResolver` (@MainActor ObservableObject) -- Reactive per-track availability combining server connection state and download state; publishes `TrackAvailability` enum
 - `SiriMediaIndexStore` -- Builds/persists shared App Group Siri candidate index (track/album/artist/playlist)
 - `SiriPlaybackCoordinator` -- Executes Siri playback payloads in app process using existing playback queue entry points
+- `OfflineDownloadService` (@MainActor) -- Target-based offline orchestration (reconciliation, queue execution, progress, reference-counted cleanup)
+- `OfflineBackgroundExecutionCoordinator` (@MainActor) -- Optional iOS 26+ `BGContinuedProcessingTask` adapter; no-op on unsupported platforms/OS versions
+- `FrequencyAnalysisService` -- Pre-computed audio frequency analysis using Accelerate FFT; produces `FrequencyTimeline` data for visualizer display decoupled from the audio pipeline
+- `PowerStateMonitor` (@MainActor ObservableObject) -- Observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`. Consumers (Aurora visualizer, LyricsCard, download service) read this to reduce GPU passes, frame rates, and network work when the device is in LPM
+- `SongLinkService` (actor) -- Resolves universal song.link URLs for tracks and albums via MusicKit catalog search + song.link API; in-memory cache with positive/negative entries
+- `ShareService` (@MainActor) -- Coordinates share payloads: link (song.link/Apple Music URL), text (fallback), or file (local download or temp download via Plex stream URL)
 
 **Key Models:**
 - Domain models: `Track`, `Album`, `Artist`, `Genre`, `Playlist`, `Hub`, `HubItem` (UI-facing, protocol-conforming)
   - `Track` includes `streamId: Int?` -- Identifies audio stream for fetching loudness timeline data (waveform visualization)
 - `MusicSource` / `MusicSourceIdentifier` -- Multi-account source tracking
-- `PlexAccountConfig` -- Account/server/library hierarchy for configuration
+- `PlexAccountConfig` -- Account/server/library hierarchy for configuration (includes `PlexSubscription` on account, `PlexServerCapabilities` on server, `allowSync` on library)
 - `LibraryVisibilityProfile` -- Named profile of hidden source composite keys (non-destructive visibility filtering)
 - `FilterOptions` -- Comprehensive filtering with search, sort, genre/artist filters, year ranges, downloaded-only toggle
   - Includes `FilterPersistence` utility class for saving/loading filter state per-view to UserDefaults
@@ -118,6 +134,8 @@ Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 - `TrackSwipeActionsSettingsView` -- Settings screen for swipe slot assignment
 - `AddPlexAccountView` -- PIN auth flow with grouped server/library checklist and copy-on-tap PIN
 - `MusicSourceAccountDetailView` -- Account-scoped server/library selection + per-library sync/connection status
+- `DownloadManagerSettingsView` -- Settings-only offline manager screen (`Servers` + target status list)
+- `OfflineServersView` -- Server-grouped, sync-enabled library toggles for library-wide offline targets
 
 ## Key Architectural Patterns
 
@@ -144,20 +162,27 @@ Persistent artwork caching that survives app restarts:
 1. **ArtworkDownloadManager** (`EnsemblePersistence`) -- Downloads and stores artwork files locally
    - Stores in `Library/Application Support/Ensemble/Artwork/`
    - Filename format: `{ratingKey}_album.jpg` or `{ratingKey}_artist.jpg`
-   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`
+   - Methods: `downloadAndCacheArtwork()`, `getLocalArtworkPath()`, `clearArtworkCache()`, `deleteArtwork(ratingKey:type:)`
 
 2. **ArtworkLoader** (`EnsembleCore`) -- Coordinates with local-first strategy
    - `artworkURLAsync()` checks local cache first using `ratingKey`
    - Falls back to network fetch via `SyncCoordinator` if not cached
    - `predownloadArtwork()` methods for batch downloading during sync
    - Configures Nuke's `ImagePipeline` with 100MB disk cache
+   - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + targeted Nuke cache eviction (per ratingKey via `ArtworkURLTracker`) and posts `artworkDidInvalidate` notification
 
 3. **ArtworkView** (`EnsembleUI`) -- SwiftUI component
    - Passes `ratingKey` to enable local cache lookups
    - Convenience initializers for `Track`, `Album`, `Artist`, `Playlist`
+   - Listens for `artworkDidInvalidate` notification and re-triggers load when matching ratingKey is invalidated
 
 4. **CacheManager** (`EnsembleCore`) -- Cache visibility and management
    - Methods: `refreshCacheInfo()`, `clearCache(type:)`, `clearAllCaches()`
+   - Artwork cleanup on de-sync: `SyncCoordinator.cleanupRemovedSource()` and `cleanupServerPlaylists()` collect ratingKeys before CoreData deletion, then call `ArtworkDownloadManager.deleteArtwork(forRatingKeys:)` to remove cached files
+
+5. **WebSocket-Driven Invalidation** -- Server artwork changes trigger cache eviction
+   - `PlexWebSocketCoordinator.onArtworkInvalidation` fires on album (type=9) and artist (type=8) metadata updates (state=5)
+   - `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` so UI refreshes automatically
 
 **Usage:**
 ```swift
@@ -186,9 +211,35 @@ Displays audio waveforms in NowPlayingView:
    - **Fallback:** Deterministic pseudo-random waveform seeded by `ratingKey` (~120 samples)
    - **Normalization:** `pow((value - minValue) / (maxValue - minValue), 1.5) * 0.9 + 0.1`
 
-5. **WaveformView** (`EnsembleUI`) -- Horizontal bars with playback progress
+5. WaveformView (EnsembleUI) -- Horizontal bars with playback progress
+
+## Subsystem: Pre-Computed Frequency Visualizer
+
+Frequency analysis is pre-computed on disk and decoupled from the audio pipeline:
+
+1. **FrequencyAnalysisService** (`EnsembleCore`) -- Analyzes audio files using Accelerate FFT (1024-pt FFT, 24 log-spaced bands 60Hz-16kHz). Produces `FrequencyTimeline` (time-indexed frequency snapshots at 30fps, ~216KB per 5-min song). Manages an in-memory cache of active timelines.
+2. **FrequencyTimeline** -- Model containing an array of `FrequencySnapshot` frames with timestamps and band magnitudes. Supports binary serialization for sidecar persistence.
+3. **FrequencyTimelinePersistence** -- Reads/writes `.freq` binary sidecar files alongside offline downloads for instant visualizer load on cached tracks.
+4. **PlaybackService Integration** -- On track load, requests analysis from `FrequencyAnalysisService`. A 30Hz display timer reads `player.currentTime()` and looks up the matching frame from the active timeline. No `MTAudioProcessingTap`, `audioMix`, fade timers, or simulated bands.
+5. **Scrubber Sync** -- `ControlsCard` scrubber drag calls `NowPlayingViewModel.updateVisualizerPosition()` so the visualizer tracks seek position in real time.
+6. **Offline Sidecar** -- `OfflineDownloadService` generates `.freq` sidecar after downloading a track. `DownloadManager` cleans up sidecars when downloads are removed.
+7. **Extension Probing** -- `FrequencyAnalysisService` probes unrecognized file extensions to determine if they are readable audio formats before attempting analysis.
+
+## Subsystem: Aurora Visualization
+
+Dynamic background effect that reacts to music intensity:
+
+1. **Root Integration** -- Mounted in `RootView` using a `ZStack` at the bottom layer.
+2. **Reactivity** -- Observes `PlaybackService` for playback state, current time, and frequency band data from the pre-computed `FrequencyTimeline`.
+3. **Sampling** -- `AuroraVisualizationView` samples frequency bands using `currentTime / duration` to drive real-time animation intensity.
+4. **Drawing** -- Uses `Canvas` and `TimelineView(.animation(minimumInterval: 1/30))` to draw overlapping fan-shaped sectors with radial gradients at 30fps.
+5. **Blending** -- Overlapping sectors naturally create "denser" areas of light as they intersect. 3 glow passes (blur=18, 12, 8) for depth.
+6. **Transparency Seam** -- Root views of tabs and navigation destinations use `.auroraBackgroundSupport()` to hide system backgrounds and let the aurora show through.
+7. **Policy** -- Only visible when `playbackState` is `.playing` or `.buffering`, with a 1s fade transition. Paused when Now Playing sheet is open (`isPaused` parameter from `MainTabView`).
+8. **Low Power Mode** -- When `PowerStateMonitor.isLowPowerMode` is true, aurora drops to 1 glow pass at 15fps (from 3 passes at 30fps). `LyricsCard` also disables progressive blur in LPM. Downloads are auto-paused/resumed on LPM toggle via `DependencyContainer` wiring.
 
 ## Subsystem: Hub-Based Home Screen
+
 
 Dynamic home screen powered by Plex's hub system:
 
@@ -236,11 +287,32 @@ Dynamic home screen powered by Plex's hub system:
 ## Subsystem: Account-Centric Source Management
 
 - Add-account flow uses `PlexAccountDiscoveryService` to fetch account identity, servers, and music libraries in one pass.
+- Discovery flow also fetches per-server capabilities (`getServerCapabilities`) and populates `PlexSubscription` (account), `PlexServerCapabilities` (server), and `allowSync` (library) for feature gating.
+- `MusicSourceAccountDetailView` displays `ServerFeatureBadges` (Plex Pass, hardware transcoding) and per-library download badges based on discovered capabilities.
 - `SettingsView` shows account-level source rows (title + account identifier subtitle) instead of per-library rows.
 - `MusicSourceAccountDetailViewModel`/`MusicSourceAccountDetailView` own library enablement, reconciliation, and sync status actions.
 - Reconciliation defaults newly discovered libraries to unchecked and auto-disables/cleans removed libraries.
 - Unchecking a library purges that library only; disabling/removing the last enabled library on a server also purges server-level playlists.
 - Legacy standalone Sync Panel routes were removed from `MainTabView`/`MoreView`/sidebar flows.
+
+## Subsystem: Offline Download Manager (Target-Based)
+
+- Persistence adds `CDOfflineDownloadTarget` (target metadata/state/progress) and `CDOfflineDownloadMembership` (target track snapshot).
+- `OfflineDownloadService` is the orchestrator for:
+  - toggling target types (`library`, `album`, `artist`, `playlist`, `favorites`)
+  - resolving target memberships from repositories
+  - enqueuing missing track downloads
+  - reconciling after sync/playlist updates
+  - reference-counted cleanup of shared tracks when targets are removed
+  - publishing `@Published activeDownloadRatingKeys: Set<String>` for UI download spinners in `TrackRow`/`MediaTrackList`
+- `DownloadManager` stores download quality and uses source-aware lookup/delete (`ratingKey + sourceCompositeKey`) to prevent collisions.
+- Queue policy is Wi-Fi/wired only; active downloads pause on cellular/offline and resume when allowed.
+- Sync integration:
+  - `SyncCoordinator` publishes playlist refresh completion via `onPlaylistRefreshCompleted`.
+  - `OfflineDownloadService` also watches source sync timestamps to reconcile library/album/artist targets after incremental/full sync updates.
+- iOS 26+ optional acceleration:
+  - `OfflineBackgroundExecutionCoordinator` submits/handles `BGContinuedProcessingTaskRequest`.
+  - Background path is best-effort only; persistent queue state remains source of truth.
 
 ## Subsystem: Siri Media Intents (In-App-First)
 
@@ -269,6 +341,49 @@ Dynamic home screen powered by Plex's hub system:
 
 ## Subsystem: Network Resilience
 
+Multi-layered network resilience spanning endpoint management, push-based updates, reactive availability, queue resilience, and unified error classification.
+
+### Endpoint Truth -- ServerConnectionRegistry
+- **`ServerConnectionRegistry`** (`EnsembleAPI`, actor) -- Single source of truth for per-server active endpoints.
+- `PlexAPIClient` seeds the registry on init with the first discovered endpoint, and reports failover results back so all consumers share the latest healthy endpoint.
+- `ServerHealthChecker` writes probe results into the registry after health checks.
+- `SyncCoordinator` subscribes to registry changes to trigger downstream refreshes.
+- `AccountManager` owns the registry instance; `DependencyContainer` wires it to all dependents.
+
+### Push-Based Updates -- PlexWebSocketManager & PlexWebSocketCoordinator
+- **`PlexWebSocketManager`** (`EnsembleAPI`, actor) -- Manages one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
+- **`PlexWebSocketCoordinator`** (`EnsembleCore`, @MainActor) -- Routes incoming WebSocket events to sync and health systems.
+  - `onLibraryUpdate` / `onPlaylistUpdate` -- Debounced section/playlist sync triggers (3s / 5s)
+  - `onArtworkInvalidation` -- Fires on album/artist metadata updates for cache eviction
+  - `onServerOffline` / `onServerHealthy` -- Server health signal callbacks
+  - `@Published serverScanProgress: [String: Int]` -- Per-server library scan progress (0-100) from activity events
+- `SyncCoordinator` supports adjustable timer policy and incremental section-level sync triggered by WS events.
+- `SyncCoordinator.rateTrack()` triggers debounced post-rating playlist sync (5s) for smart playlist freshness.
+- `AppDelegate` starts/stops WebSocket connections on foreground/background transitions.
+
+### Reactive Track Availability -- TrackAvailabilityResolver
+- **`TrackAvailabilityResolver`** (`EnsembleCore`, @MainActor ObservableObject) -- Publishes per-track availability by combining per-server connection state with per-track download state.
+- `TrackAvailability` enum: `.available`, `.availableDownloadedOnly`, `.unavailableServerOffline`, `.unavailableNetworkOffline`.
+- `TrackRow`, `CompactSearchRows`, and `MediaTrackList` use the resolver instead of inline offline checks for consistent dimming/blocking behavior.
+- Exposed via `DependencyContainer.trackAvailabilityResolver`.
+
+### Queue Resilience (PlaybackService)
+- Circuit breaker scans for downloaded alternatives when server is unreachable.
+- `retryCurrentTrack()` falls back to local download if available.
+- Cache eviction for newly downloaded queue items so AVPlayer picks up fresh local files.
+- Auto-resume playback when `ServerHealthChecker` completes a successful health check.
+
+### Unified Error Taxonomy -- PlexErrorClassification
+- **`PlexErrorClassification`** (`EnsembleAPI`) -- Classifies errors as transport (retryable/failover-eligible), rate-limited (retryable, no failover), or semantic (not retryable). HTTP 429 is classified as `.rateLimited`.
+- `PlexAPIClient` uses `PlexErrorClassification` for failover gating instead of ad-hoc status code checks.
+- `MutationCoordinator` uses it to decide which failed mutations to queue for retry vs. discard. `drainQueue()` applies exponential backoff (capped at 30s) after 2+ consecutive failures and breaks out after 5.
+
+### Scrobble Queuing
+- `MutationCoordinator` now queues failed scrobble calls as `CDPendingMutation` (`.scrobble` type).
+- `SyncCoordinator` exposes `scrobbleTrackThrowing()` so `PlaybackService` can route scrobbles through the mutation coordinator.
+- `PendingMutationsViewModel` and `PendingMutationsView` display queued scrobbles alongside playlist mutations.
+
+### Foundation Layer (unchanged)
 - **NetworkMonitor** -- `NWPathMonitor` with 1s debouncing, states: `.online`/`.offline`/`.limited`/`.unknown`
   - Lifecycle-safe restart behavior: `stopMonitoring()` cancels/releases the current monitor and `startMonitoring()` creates a new monitor instance.
 - **SyncCoordinator** -- Transition-aware health orchestration for reconnects and interface switches
@@ -283,8 +398,28 @@ Dynamic home screen powered by Plex's hub system:
 - **Resources discovery parity** -- resources requests include HTTPS/relay/IPv6 parameters plus common Plex client headers.
 - **Auth lifecycle enforcement** -- `AccountManager` enforces auth migration cutover and token expiry checks on load/foreground.
 
+### Dependency Flow
+```
+PlexWebSocketManager ──events──> PlexWebSocketCoordinator ──> SyncCoordinator (incremental section sync)
+                                                          ──> ServerHealthChecker (probe triggers)
+PlexAPIClient ──failover──> ServerConnectionRegistry <──writes── ServerHealthChecker
+                                        |
+                                        v
+                               SyncCoordinator (subscribes to endpoint changes)
+                                        |
+                                        v
+                            TrackAvailabilityResolver (server state + download state -> per-track availability)
+                                        |
+                                        v
+                             TrackRow / CompactSearchRows / MediaTrackList (UI dimming/blocking)
+
+PlaybackService ──scrobble──> MutationCoordinator ──(on failure)──> CDPendingMutation (.scrobble)
+PlexAPIClient / MutationCoordinator ── use ──> PlexErrorClassification (transport vs. semantic)
+```
+
 **App Lifecycle:**
 - iOS: Network monitor starts in `AppDelegate` (delayed 500ms)
+- iOS: WebSocket connections start on foreground, stop on background (`AppDelegate`)
 - Foreground network-health recovery routes through `SyncCoordinator.handleAppWillEnterForeground()` to avoid duplicate immediate + monitor-triggered checks
 - macOS: Stops monitoring when backgrounded
 - macOS active transition also routes through `SyncCoordinator.handleAppWillEnterForeground()`
@@ -303,6 +438,9 @@ Dynamic home screen powered by Plex's hub system:
 - `FavoritesViewModel` -- Filters tracks with `userRating >= 8.0` (4+ stars)
 - Implements `MediaDetailViewModelProtocol` for consistency
 - Reuses `MediaDetailView` for unified UI
+- **Sort options:** `FavoritesSortOption` enum (title, artist, album, dateAdded, duration, lastPlayed, rating, playCount) with `defaultDirection` per option. Persisted via `FilterOptions.sortBy`. Tapping the active sort option toggles ascending/descending; tapping a new option uses its default direction.
+- **Download target:** `.favorites` kind in `CDOfflineDownloadTarget.Kind` downloads all favorites across all libraries. `OfflineDownloadService.setFavoritesDownloadEnabled` manages the target; `reconcileFavoritesTargetIfEnabled` is called after source syncs and rating changes.
+- **Post-rating reconciliation:** `SyncCoordinator.onFavoritesRatingChanged` closure fires with a 2s debounce after `rateTrack`, triggering `OfflineDownloadService.reconcileFavoritesTargetIfEnabled` so newly favorited tracks start downloading and unfavorited tracks are cleaned up.
 
 ## App Targets
 
@@ -339,6 +477,21 @@ User-pinnable items (albums, artists, playlists) persisted across sessions:
 - `PinnedViewModel` fetches `CDPinnedItem` records from CoreData and resolves them into full domain objects
 - Persisted in CoreData via `CDPinnedItem` entity
 
+## Subsystem: Sharing (song.link + Audio File)
+
+Universal link and audio file sharing for tracks and albums:
+
+1. **SongLinkService** (`EnsembleCore`, actor) -- Two-step resolution: searches Apple Music catalog via MusicKit `MusicCatalogSearchRequest` (no subscription needed), then passes the Apple Music URL to `song.link/v1-alpha.1/links` for a universal link. In-memory cache stores both positive and negative results.
+2. **ShareService** (`EnsembleCore`, @MainActor) -- Coordinates share payloads:
+   - Link sharing: song.link URL -> Apple Music URL -> plain text fallback
+   - File sharing: local download path (if downloaded) or temp download via Plex universal stream URL
+   - Temp files stored in `NSTemporaryDirectory()/EnsembleShare/`, cleaned after share sheet dismissal
+3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
+4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
+5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `TrackRow`, `MediaTrackList`, and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
+6. **Drag and drop (iPad)** -- `TrackRow.onDrag` and `MediaTrackList` `UITableViewDragDelegate` provide `NSItemProvider` with audio file URL for downloaded tracks.
+7. **MusicKit configuration** -- `com.apple.developer.music-kit` entitlement + `NSAppleMusicUsageDescription` in Info.plist. `#if canImport(MusicKit)` guard for watchOS 8.
+
 ## Subsystem: Mood-Based Browsing
 
 Plex mood/vibe categories for discovery:
@@ -352,12 +505,76 @@ Plex mood/vibe categories for discovery:
 Two sync modes to balance freshness and speed:
 
 - **Full sync:** `SyncCoordinator.syncAll()` -- fetches entire library from Plex
-- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items
+- **Incremental sync:** `SyncCoordinator.syncAllIncremental()` -- uses `addedAt>=` / `updatedAt>=` Plex query params to fetch only new/changed items (with 5s timestamp buffer to avoid missing near-boundary changes)
 - **Startup:** full sync if last sync >24h ago; incremental if >1h; skip if <1h
 - **Periodic (foreground):** incremental library sync every 1h, hub refresh every 10min
 - **Background (iOS):** `BackgroundSyncScheduler` registers `BGAppRefreshTask`; system triggers hub refresh approximately every 15min
 - **Pull-to-refresh:** library views call incremental sync; `HomeView` refreshes hubs only
 - **Key filtered fetch methods** in `PlexAPIClient`: `getArtists(sectionKey:addedAfter:)`, `getAlbums(sectionKey:addedAfter:)`, `getTracks(sectionKey:addedAfter:)`
+
+## Subsystem: Instrumental Mode (Vocal Attenuation)
+
+On-device vocal removal using Apple's AUSoundIsolation AudioUnit (same technology as Apple Music Sing). Uses hybrid engine switching:
+
+1. **InstrumentalModeCapability** (`EnsembleCore`) -- Static probe for AUSoundIsolation AudioComponent availability. Returns true on iOS 16+ / A13+ devices.
+2. **InstrumentalAudioEngine** (`EnsembleCore`) -- Isolated AVAudioEngine wrapper. Audio graph: `AVAudioPlayerNode -> AVAudioUnitEffect(AUSoundIsolation) -> mainMixerNode -> outputNode`. WetDryMix set to 100% for full vocal removal. Handles play/pause/seek/stop with frame-accurate time tracking via `playerNode.playerTime(forNodeTime:)`.
+3. **PlaybackService Integration** -- Hybrid engine switching:
+   - Toggle ON: captures AVQueuePlayer position, pauses it, creates InstrumentalAudioEngine, loads local file, plays from captured position
+   - Toggle OFF: captures engine position, stops engine, seeks AVQueuePlayer to position, resumes
+   - Track skip while active: stops engine, lets AVQueuePlayer load new track, re-engages engine
+   - Queue injection: auto-disables instrumental mode (`play(tracks:)`, `shufflePlay(tracks:)`)
+   - File resolution: uses `track.localFilePath` (downloaded), `streamLoader.localFileURL` (completed transcode), or defers until download completes
+4. **NowPlayingViewModel** -- Published `isInstrumentalModeActive` and static `isInstrumentalModeSupported` for UI binding. `toggleInstrumentalMode()` action.
+5. **LyricsCard** -- Toggle button in header (mic.circle / mic.slash.circle). Hidden on unsupported devices. Active color matches shuffle/repeat toggle pattern.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/InstrumentalModeCapability.swift`
+- `Packages/EnsembleCore/Sources/Services/InstrumentalAudioEngine.swift`
+- `Packages/EnsembleCore/Sources/Services/PlaybackService.swift` (engine switching logic)
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift`
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift`
+
+## Subsystem: Live Lyrics
+
+Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics Card:
+
+1. **LRCParser** (`EnsembleCore`, static) -- Parses LRC-format lyrics files into `LyricsLine` structs (timestamp + text). Also handles plain-text (unsynced) lyrics as a single block. Resides inside `LyricsService.swift`.
+
+2. **LyricsService** (`EnsembleCore`, @MainActor ObservableObject) -- Orchestrates the full fetch pipeline for the current track:
+   - **Cache check:** In-memory cache keyed by `ratingKey:sourceCompositeKey` (max ~20 entries, LRU eviction). Avoids redundant API calls on track revisit.
+   - **Sidecar check:** Reads `.lrc` sidecar file alongside the audio download for offline lyrics (no network required).
+   - **API fetch:** Calls `SyncCoordinator.apiClient(for:)` → `PlexAPIClient.getLyricsContent(streamKey:)` to fetch raw LRC text from `/library/streams/{streamKey}`.
+   - Publishes `@Published lyricsState: LyricsState` (`.loading`, `.notAvailable`, `.available(ParsedLyrics)`).
+
+3. **Models** -- `LyricsLine` (timestamp + text), `ParsedLyrics` (array of lines + synced flag), `LyricsState` (loading/notAvailable/available).
+
+4. **NowPlayingViewModel Integration** -- Subscribes to `LyricsService.lyricsState` and `PlaybackService.currentTimePublisher`. Uses binary search on the lines array to publish `@Published currentLyricsLineIndex: Int?` for the active line.
+
+5. **LyricsCard** (`EnsembleUI`) -- Displays one of three states:
+   - **Loading:** progress spinner
+   - **Not available:** centered "No Lyrics" message
+   - **Available:** scrollable karaoke-style list where the active line is highlighted and auto-scrolled into center; past/future lines are dimmed
+
+6. **Offline Sidecar** -- `OfflineDownloadService` generates a `.lrc` sidecar after downloading a track (if the track has a lyrics stream). `DownloadManager` cleans up `.lrc` sidecars when downloads are removed.
+
+7. **API Accessor** -- `SyncCoordinator.apiClient(for:)` exposes the underlying `PlexAPIClient` for a given source, used by `LyricsService` to make direct lyrics content requests. `PlexMusicSourceSyncProvider.exposedAPIClient` provides the underlying client.
+
+8. **PlexModels Extension** -- `PlexStream` gained lyrics fields (`format`, `key`, `streamKey`). `PlexTrack.lyricsStream` returns the first stream with `streamType == 4`.
+
+**Key files:**
+- `Packages/EnsembleCore/Sources/Services/LyricsService.swift` - LRCParser, models, LyricsService
+- `Packages/EnsembleCore/Tests/LyricsServiceTests.swift` - LRC parser tests
+- `Packages/EnsembleAPI/Sources/Models/PlexModels.swift` - PlexStream lyrics fields, PlexTrack.lyricsStream
+- `Packages/EnsembleAPI/Sources/Client/PlexAPIClient.swift` - getLyricsContent(streamKey:)
+- `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires LyricsService
+- `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - lyricsState, currentLyricsLineIndex
+- `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - apiClient(for:) accessor
+- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - exposedAPIClient
+- `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - .lrc sidecar generation
+- `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
+- `Packages/EnsembleUI/Sources/Components/NowPlaying/LyricsCard.swift` - three-state lyrics display
+
+**Known limitation:** The `/library/streams/` endpoint occasionally returns 404 for tracks that report a valid `lyricsStream`. See Known Issues.
 
 ## Multi-Source Architecture
 

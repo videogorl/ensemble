@@ -45,6 +45,12 @@ struct EnsembleApp: App {
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
                 }
+                .onContinueUserActivity(SiriAffinityActivityCodec.activityType) { userActivity in
+                    handleSiriAffinityActivity(userActivity)
+                }
+                .onContinueUserActivity(SiriAddToPlaylistActivityCodec.activityType) { userActivity in
+                    handleSiriAddToPlaylistActivity(userActivity)
+                }
                 .onContinueUserActivity("INPlayMediaIntent") { userActivity in
                     os_log(.info, "SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
@@ -69,11 +75,46 @@ struct EnsembleApp: App {
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            if phase == .active && !hasScheduledBackgroundRefresh {
-                // Schedule only after SwiftUI has registered the backgroundTask handler.
-                BackgroundSyncScheduler.shared.scheduleAppRefresh()
-                hasScheduledBackgroundRefresh = true
+        Task { @MainActor in
+            switch phase {
+            case .active:
+                // Schedule background refresh on first activation (iOS 16+)
+                if #available(iOS 16.0, *) {
+                    if !hasScheduledBackgroundRefresh {
+                        BackgroundSyncScheduler.shared.scheduleAppRefresh()
+                        hasScheduledBackgroundRefresh = true
+                    }
+                }
+
+                // Resume network monitoring and WebSocket connections
+                DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.start()
+
+                // Route foreground refresh through SyncCoordinator to coalesce
+                // with network state transitions and cooldown/staleness guards.
+                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+
+                // Adjust periodic sync timers based on WebSocket availability.
+                let hasWebSocket = !DependencyContainer.shared.webSocketCoordinator.connectedServerKeys.isEmpty
+                DependencyContainer.shared.syncCoordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasWebSocket)
+
+                // Drain any pending offline mutations now that connectivity may have resumed.
+                await DependencyContainer.shared.mutationCoordinator.drainQueue()
+
+                // Update Siri media user context in case library changed while backgrounded
+                await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
+
+            case .background:
+                // Stop network monitoring and WebSocket connections to save battery.
+                // Without this, WebSocket reconnect loops burn ~30% network while idle.
+                DependencyContainer.shared.networkMonitor.stopMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.stop()
+                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
+
+            case .inactive:
+                break
+            @unknown default:
+                break
             }
         }
         #endif
@@ -148,10 +189,23 @@ struct EnsembleApp: App {
 
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
+        let shuffle = intent.playShuffled
+
         // Try to decode from identifier first
         if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
            let data = Data(base64Encoded: identifier),
-           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+           var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            // Override shuffle from live intent if not already set in payload
+            if payload.shuffle == nil, let shuffle {
+                payload = SiriPlaybackRequestPayload(
+                    kind: payload.kind,
+                    entityID: payload.entityID,
+                    sourceCompositeKey: payload.sourceCompositeKey,
+                    displayName: payload.displayName,
+                    artistHint: payload.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return payload
         }
 
@@ -177,7 +231,7 @@ struct EnsembleApp: App {
         default: kind = .track
         }
 
-        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query)
+        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
     }
     #endif
 
@@ -210,6 +264,20 @@ struct EnsembleApp: App {
         }
         #endif
     }
+
+    private func handleSiriAffinityActivity(_ userActivity: NSUserActivity) {
+        os_log(.info, "SIRI_APP: handleSiriAffinityActivity ENTRY - type=%{public}@", userActivity.activityType)
+        Task { @MainActor in
+            await DependencyContainer.shared.siriAffinityCoordinator.handle(userActivity: userActivity)
+        }
+    }
+
+    private func handleSiriAddToPlaylistActivity(_ userActivity: NSUserActivity) {
+        os_log(.info, "SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=%{public}@", userActivity.activityType)
+        Task { @MainActor in
+            await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
+        }
+    }
 }
 
 // MARK: - Background Refresh Extension
@@ -237,14 +305,22 @@ extension Scene {
 private func performBackgroundRefresh() async {
     AppLogger.debug("🔄 Background refresh triggered")
 
-    // Reschedule next refresh immediately for continuity
-    BackgroundSyncScheduler.shared.scheduleAppRefresh()
+    // Reschedule next refresh immediately for continuity (must be on main thread)
+    await MainActor.run {
+        BackgroundSyncScheduler.shared.scheduleAppRefresh()
+    }
 
-    // Perform lightweight hub refresh
+    // Incremental library + playlist sync so the app is fresh before the user opens it.
+    // This is cheap — only fetches items added/updated since the last sync timestamp.
+    let syncCoordinator = await MainActor.run {
+        DependencyContainer.shared.syncCoordinator
+    }
+    await syncCoordinator.syncAllIncremental()
+
+    // Hub refresh for the home screen
     let homeVM = await MainActor.run {
         DependencyContainer.shared.makeHomeViewModel()
     }
-
     await homeVM.refresh()
 
     AppLogger.debug("✅ Background refresh complete")

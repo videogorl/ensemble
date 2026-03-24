@@ -1,4 +1,5 @@
 import EnsemblePersistence
+import EnsembleAPI
 import Foundation
 
 /// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
@@ -31,8 +32,14 @@ public protocol MusicSourceSyncProvider: Sendable {
         progressHandler: @Sendable (Double) -> Void
     ) async throws
 
-    /// Get a streaming URL for a track
-    func getStreamURL(for trackRatingKey: String, trackStreamKey: String?) async throws -> URL
+    /// Get a streaming resolution for a track — may be a direct URL, downloaded file,
+    /// or progressive transcode config for chunked streaming.
+    func getStreamURL(
+        for trackRatingKey: String,
+        trackStreamKey: String?,
+        quality: StreamingQuality,
+        metadataDurationSeconds: Double?
+    ) async throws -> StreamResolution
 
     /// Get an artwork URL
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
@@ -46,6 +53,15 @@ public protocol MusicSourceSyncProvider: Sendable {
     /// Scrobble a track (mark as played)
     func scrobble(ratingKey: String) async throws
 
+    /// Reset any temporary fallback state for stream URL generation (e.g., universal endpoint cooldown).
+    /// Called after a successful connection refresh so transient failures don't persist.
+    func resetStreamFallbackState()
+
+    /// Disable the universal transcode endpoint for this provider, forcing direct stream fallback.
+    /// Called when AVPlayer reports a resource-unavailable error, indicating the transcode
+    /// pipeline is broken (e.g., non-Plex Pass accounts). Expires after the provider's cooldown period.
+    func disableUniversalEndpoint()
+
     /// Get tracks for an album directly from the source
     func getAlbumTracks(albumKey: String) async throws -> [Track]
 
@@ -54,4 +70,22 @@ public protocol MusicSourceSyncProvider: Sendable {
 
     /// Get all tracks for an artist directly from the source
     func getArtistTracks(artistKey: String) async throws -> [Track]
+
+    /// Get detailed artist metadata (genres, country, similar artists, styles)
+    func getArtistDetail(artistKey: String) async throws -> ArtistDetail?
+
+    /// Get detailed album metadata (genres, styles, studio/label)
+    func getAlbumDetail(albumKey: String) async throws -> AlbumDetail?
+
+    /// Get similar/related albums from Plex's recommendation engine
+    func getSimilarAlbums(albumKey: String) async throws -> [Album]
+}
+
+// Default no-op for providers that don't have fallback state
+extension MusicSourceSyncProvider {
+    public func resetStreamFallbackState() {}
+    public func disableUniversalEndpoint() {}
+    public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? { nil }
+    public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? { nil }
+    public func getSimilarAlbums(albumKey: String) async throws -> [Album] { [] }
 }

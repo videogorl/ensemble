@@ -73,7 +73,6 @@ public struct ArtistGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
 
     private let columns = [
         GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 16, alignment: .top)
@@ -98,7 +97,7 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        artistContextMenu(artist)
+                        ArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 } else {
                     // iOS 15 fallback: using legacy NavigationLink for nested navigation support
@@ -109,14 +108,14 @@ public struct ArtistGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        artistContextMenu(artist)
+                        ArtistContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             }
         }
         .padding(.horizontal)
     }
-    
+
     private func artistCardContent(_ artist: Artist) -> some View {
         VStack(spacing: 8) {
             ArtworkView(artist: artist, size: .thumbnail, cornerRadius: ArtworkSize.thumbnail.cgSize.width / 2)
@@ -130,9 +129,22 @@ public struct ArtistGrid: View {
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
     }
+}
 
-    @ViewBuilder
-    private func artistContextMenu(_ artist: Artist) -> some View {
+// MARK: - Artist Context Menu
+
+/// Dedicated View struct for artist context menus. Scopes @ObservedObject pinManager
+/// to each menu instance rather than the entire ArtistGrid.
+private struct ArtistContextMenu: View {
+    let artist: Artist
+    let nowPlayingVM: NowPlayingViewModel
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
+    var body: some View {
+        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+
         Button {
             withArtistTracks(artist) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -155,6 +167,17 @@ public struct ArtistGrid: View {
             }
         } label: {
             Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+            )
         }
 
         let isPinned = pinManager.isPinned(id: artist.id)

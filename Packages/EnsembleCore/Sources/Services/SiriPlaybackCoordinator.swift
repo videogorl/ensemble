@@ -6,11 +6,15 @@ public struct SiriPlaybackRequest: Sendable, Equatable {
     public let entityID: String
     public let sourceCompositeKey: String?
     public let displayName: String?
+    public let artistHint: String?
+    public let shuffle: Bool
 
-    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil) {
+    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil, artistHint: String? = nil, shuffle: Bool = false) {
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
+        self.artistHint = artistHint
+        self.shuffle = shuffle
     }
 }
 
@@ -111,7 +115,9 @@ public final class SiriPlaybackCoordinator {
         let request = SiriPlaybackRequest(
             entityID: payload.entityID,
             sourceCompositeKey: payload.sourceCompositeKey,
-            displayName: payload.displayName
+            displayName: payload.displayName,
+            artistHint: payload.artistHint,
+            shuffle: payload.shuffle ?? false
         )
 
         switch payload.kind {
@@ -171,7 +177,11 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.album)
         }
 
-        await playbackService.play(tracks: playableTracks, startingAt: 0)
+        if request.shuffle {
+            await playbackService.shufflePlay(tracks: playableTracks)
+        } else {
+            await playbackService.play(tracks: playableTracks, startingAt: 0)
+        }
     }
 
     /// Resolves an artist and queues all playable tracks in shuffled order.
@@ -227,7 +237,11 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.playlist)
         }
 
-        await playbackService.play(tracks: playableTracks, startingAt: 0)
+        if request.shuffle {
+            await playbackService.shufflePlay(tracks: playableTracks)
+        } else {
+            await playbackService.play(tracks: playableTracks, startingAt: 0)
+        }
     }
 
     private func resolveTrack(
@@ -247,8 +261,11 @@ public final class SiriPlaybackCoordinator {
             sourceCompositeKeys: enabledSourceKeys
         )
 
+        // When artistHint is available, prefer tracks by that artist
+        let prioritized = preferByArtist(candidates, hint: request.artistHint)
+
         if let resolved = choosePreferredCandidate(
-            from: candidates,
+            from: prioritized,
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -267,8 +284,9 @@ public final class SiriPlaybackCoordinator {
             name: { $0.title },
             source: { $0.sourceCompositeKey }
         )
+        let prioritizedFuzzy = preferByArtist(fuzzyCandidates, hint: request.artistHint)
         return choosePreferredCandidate(
-            from: fuzzyCandidates,
+            from: prioritizedFuzzy,
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -276,6 +294,20 @@ public final class SiriPlaybackCoordinator {
             lastPlayed: { $0.lastPlayed },
             playCount: { Int($0.playCount) }
         )
+    }
+
+    /// Reorders tracks so those matching the artist hint appear first.
+    private func preferByArtist(_ tracks: [CDTrack], hint: String?) -> [CDTrack] {
+        guard let hint, !hint.isEmpty else { return tracks }
+        let normalizedHint = hint.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let (matching, rest) = tracks.reduce(into: ([CDTrack](), [CDTrack]())) { result, track in
+            if let artist = track.artistName?.lowercased(), artist.contains(normalizedHint) || normalizedHint.contains(artist) {
+                result.0.append(track)
+            } else {
+                result.1.append(track)
+            }
+        }
+        return matching + rest
     }
 
     private func resolveAlbum(

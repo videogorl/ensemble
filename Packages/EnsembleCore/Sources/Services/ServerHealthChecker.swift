@@ -25,42 +25,88 @@ public final class ServerHealthChecker: ObservableObject {
 
     private let accountManager: AccountManager
     private let failoverManager: ConnectionFailoverManager
+    private let connectionRegistry: ServerConnectionRegistry?
     private let cacheTTL: TimeInterval
     private let unavailableCacheTTL: TimeInterval
     private let resourceRefreshCooldown: TimeInterval
     private let nowProvider: () -> Date
+    private let networkContextProvider: () -> NetworkReachabilityContext
 
     private var recentChecks: [String: CachedCheckEntry] = [:]
     private var ongoingServerChecks: [String: Task<ServerCheckResult, Never>] = [:]
     private var lastResourceRefreshAt: [String: Date] = [:]
 
-    public init(accountManager: AccountManager) {
+    public init(
+        accountManager: AccountManager,
+        networkMonitor: NetworkMonitor,
+        connectionRegistry: ServerConnectionRegistry? = nil
+    ) {
         self.accountManager = accountManager
-        // Slightly longer probe timeout avoids false offline on slower remote/relay paths.
-        self.failoverManager = ConnectionFailoverManager(timeout: 6.0)
+        // 4s timeout balances reliability with cold-launch speed. Remote/relay endpoints
+        // that take longer than 4s are likely too slow for real-time streaming anyway.
+        self.failoverManager = ConnectionFailoverManager(timeout: 4.0)
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = 120
         self.unavailableCacheTTL = 10
         self.resourceRefreshCooldown = 60
         self.nowProvider = { Date() }
+        self.networkContextProvider = { Self.mapNetworkStateToContext(networkMonitor.networkState) }
     }
 
     internal init(
         accountManager: AccountManager,
         failoverManager: ConnectionFailoverManager,
+        connectionRegistry: ServerConnectionRegistry? = nil,
         cacheTTL: TimeInterval = 120,
         unavailableCacheTTL: TimeInterval = 10,
         resourceRefreshCooldown: TimeInterval = 60,
-        nowProvider: @escaping () -> Date = { Date() }
+        nowProvider: @escaping () -> Date = { Date() },
+        networkContextProvider: @escaping () -> NetworkReachabilityContext = { .unknown }
     ) {
         self.accountManager = accountManager
         self.failoverManager = failoverManager
+        self.connectionRegistry = connectionRegistry
         self.cacheTTL = cacheTTL
         self.unavailableCacheTTL = unavailableCacheTTL
         self.resourceRefreshCooldown = resourceRefreshCooldown
         self.nowProvider = nowProvider
+        self.networkContextProvider = networkContextProvider
+    }
+
+    /// Map NetworkState to NetworkReachabilityContext for endpoint filtering
+    private static func mapNetworkStateToContext(_ state: NetworkState) -> NetworkReachabilityContext {
+        switch state {
+        case .online(let type):
+            switch type {
+            case .wifi, .wired:
+                return .localNetwork
+            case .cellular, .other:
+                return .remoteNetwork
+            }
+        case .offline, .limited, .unknown:
+            return .unknown
+        }
     }
 
     // MARK: - Public Methods
+
+    /// Pre-populate serverStates with `.unknown` for all configured servers.
+    /// Call this at startup (after accounts are loaded, before UI renders) so that
+    /// TrackAvailabilityResolver treats tracks from unchecked servers as unavailable
+    /// instead of defaulting to available.
+    public func prepopulateUnknownStates() {
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                let serverKey = makeServerKey(accountId: account.id, serverId: server.id)
+                if serverStates[serverKey] == nil {
+                    serverStates[serverKey] = .unknown
+                    #if DEBUG
+                    EnsembleLogger.debug("🏥 ServerHealthChecker: Pre-populated \(serverKey) as .unknown")
+                    #endif
+                }
+            }
+        }
+    }
 
     /// Check all configured servers and update their connection states
     public func checkAllServers() async {
@@ -125,6 +171,18 @@ public final class ServerHealthChecker: ObservableObject {
         await checkServer(accountId: accountId, serverId: serverId, forceRefresh: false)
     }
 
+    /// Invalidate cached connection health data.
+    /// Call this on network interface switches to force full endpoint re-probing.
+    /// Without this, stale "preferred" endpoints from the previous network context
+    /// may be reused even when better local endpoints are now available.
+    public func invalidateConnectionHealth() async {
+        recentChecks.removeAll()
+        await failoverManager.resetHealthTracking()
+        #if DEBUG
+        EnsembleLogger.debug("🔄 ServerHealthChecker: Invalidated connection health caches for network transition")
+        #endif
+    }
+
     func checkServer(
         accountId: String,
         serverId: String,
@@ -175,8 +233,8 @@ public final class ServerHealthChecker: ObservableObject {
             #endif
         }
 
-        // Create a task for this check
-        let checkTask = Task<ServerCheckResult, Never> { @MainActor in
+        // Create a task for this check (off MainActor to avoid blocking during background playback)
+        let checkTask = Task<ServerCheckResult, Never> {
             var serverForCheck = server
             if forceRefresh,
                let refreshedServer = await refreshServerConnectionsFromResources(
@@ -188,13 +246,19 @@ public final class ServerHealthChecker: ObservableObject {
                 serverForCheck = refreshedServer
             }
 
+            // Perform the actual network check off MainActor to avoid blocking
             let state = await performServerCheck(accountId: accountId, serverId: serverId, server: serverForCheck)
-            serverStates[serverKey] = state
-            recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
-            if state.isAvailable {
-                serverFailureReasons.removeValue(forKey: serverKey)
+            
+            // Update state on MainActor since serverStates is @Published
+            await MainActor.run {
+                serverStates[serverKey] = state
+                recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+                if state.isAvailable {
+                    serverFailureReasons.removeValue(forKey: serverKey)
+                }
+                ongoingServerChecks.removeValue(forKey: serverKey)
             }
-            ongoingServerChecks.removeValue(forKey: serverKey)
+            
             return ServerCheckResult(state: state, usedCachedResult: false)
         }
 
@@ -264,11 +328,13 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         // Try to find the best policy-compliant endpoint.
+        let networkContext = networkContextProvider()
         let selection = await failoverManager.findBestConnection(
             endpoints: endpoints,
             token: server.token,
             selectionPolicy: .plexSpecBalanced,
-            allowInsecure: allowInsecurePolicy
+            allowInsecure: allowInsecurePolicy,
+            networkContext: networkContext
         )
         if let workingEndpoint = selection.selected {
             #if DEBUG
@@ -276,7 +342,15 @@ public final class ServerHealthChecker: ObservableObject {
                 "✅ ServerHealthChecker: Server \(server.name) is online at \(workingEndpoint.url) class=\(workingEndpoint.endpointClass.rawValue) probes=\(selection.probes.count) skippedInsecure=\(selection.skippedInsecureCount)"
             )
             #endif
-            serverFailureReasons.removeValue(forKey: serverKey)
+
+            // Write working endpoint to the centralized registry
+            if let registry = connectionRegistry {
+                await registry.updateEndpoint(for: serverKey, endpoint: workingEndpoint, source: .healthCheck)
+            }
+
+            await MainActor.run {
+                serverFailureReasons.removeValue(forKey: serverKey)
+            }
             return .connected(url: workingEndpoint.url)
         } else {
             // Connection metadata can become stale (for example after WAN IP changes).
@@ -304,7 +378,8 @@ public final class ServerHealthChecker: ObservableObject {
                     endpoints: refreshedEndpoints,
                     token: refreshedServer.token,
                     selectionPolicy: .plexSpecBalanced,
-                    allowInsecure: allowInsecurePolicy
+                    allowInsecure: allowInsecurePolicy,
+                    networkContext: networkContext
                 )
                 if let refreshedWorkingEndpoint = refreshedSelection.selected {
                     #if DEBUG
@@ -312,7 +387,15 @@ public final class ServerHealthChecker: ObservableObject {
                         "✅ ServerHealthChecker: Server \(server.name) recovered after resources refresh at \(refreshedWorkingEndpoint.url) probes=\(refreshedSelection.probes.count)"
                     )
                     #endif
-                    serverFailureReasons.removeValue(forKey: serverKey)
+
+                    // Write recovered endpoint to the centralized registry
+                    if let registry = connectionRegistry {
+                        await registry.updateEndpoint(for: serverKey, endpoint: refreshedWorkingEndpoint, source: .healthCheck)
+                    }
+
+                    await MainActor.run {
+                        serverFailureReasons.removeValue(forKey: serverKey)
+                    }
                     return .connected(url: refreshedWorkingEndpoint.url)
                 }
             }
@@ -452,6 +535,7 @@ public final class ServerHealthChecker: ObservableObject {
                 connections: refreshedConnections,
                 token: existingServer.token,
                 platform: existingServer.platform,
+                capabilities: existingServer.capabilities,
                 libraries: existingServer.libraries
             )
 
@@ -465,6 +549,7 @@ public final class ServerHealthChecker: ObservableObject {
                 displayTitle: account.displayTitle,
                 authToken: account.authToken,
                 authTokenMetadata: account.authTokenMetadata,
+                subscription: account.subscription,
                 servers: updatedServers
             )
             accountManager.updatePlexAccount(updatedAccount)

@@ -20,13 +20,38 @@ import Foundation
 ///
 /// All models conform to Sendable for safe async/concurrent usage
 
+// MARK: - Audio File Info
+
+/// Audio format metadata fetched on demand from the Plex API.
+/// Not persisted in CoreData — only displayed on the Now Playing Info card.
+public struct AudioFileInfo: Sendable, Equatable {
+    public let codec: String?       // e.g. "flac", "mp3", "aac"
+    public let bitrate: Int?        // kbps
+    public let sampleRate: Int?     // Hz, e.g. 44100, 96000
+    public let bitDepth: Int?       // e.g. 16, 24 (nil for lossy codecs)
+    public let fileSize: Int?       // bytes
+    public let channels: Int?       // e.g. 2 for stereo
+    public let container: String?   // e.g. "flac", "mp3"
+
+    public init(codec: String?, bitrate: Int?, sampleRate: Int?, bitDepth: Int?, fileSize: Int?, channels: Int?, container: String?) {
+        self.codec = codec
+        self.bitrate = bitrate
+        self.sampleRate = sampleRate
+        self.bitDepth = bitDepth
+        self.fileSize = fileSize
+        self.channels = channels
+        self.container = container
+    }
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let id: String  // ratingKey
     public let key: String
     public let title: String
-    public let artistName: String?
+    public let artistName: String?  // Track artist (originalTitle, falls back to album artist)
+    public let albumArtistName: String?  // Album artist (grandparentTitle)
     public let albumName: String?
     public let albumRatingKey: String?
     public let artistRatingKey: String?
@@ -42,8 +67,10 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
     public let rating: Int
     public let playCount: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -51,6 +78,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         key: String,
         title: String,
         artistName: String? = nil,
+        albumArtistName: String? = nil,
         albumName: String? = nil,
         albumRatingKey: String? = nil,
         artistRatingKey: String? = nil,
@@ -66,8 +94,10 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
+        lastRatedAt: Date? = nil,
         rating: Int = 0,
         playCount: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -78,6 +108,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             streamKey: streamKey
         )
         self.artistName = artistName
+        self.albumArtistName = albumArtistName
         self.albumName = albumName
         self.albumRatingKey = albumRatingKey
         self.artistRatingKey = artistRatingKey
@@ -93,8 +124,10 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.playCount = playCount
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -158,6 +191,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let rating: Int
+    public let genres: [String]
     public let sourceCompositeKey: String?
 
     public init(
@@ -174,6 +208,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         rating: Int = 0,
+        genres: [String] = [],
         sourceCompositeKey: String? = nil
     ) {
         self.id = id
@@ -189,6 +224,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.rating = rating
+        self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
     }
 
@@ -201,6 +237,25 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             title: title,
             artistName: artistName
         )
+    }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
+    public static func == (lhs: Album, rhs: Album) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.artistName == rhs.artistName &&
+        lhs.albumArtist == rhs.albumArtist &&
+        lhs.year == rhs.year &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.thumbPath == rhs.thumbPath &&
+        lhs.rating == rhs.rating &&
+        lhs.genres == rhs.genres
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -262,6 +317,96 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
             key: "/library/metadata/\(id)",
             name: name
         )
+    }
+}
+
+// MARK: - Artist Detail (enriched metadata)
+
+/// Rich artist metadata fetched on-demand from the single-item metadata endpoint.
+/// Contains tag-based fields (genres, country, similar artists, styles) and external
+/// identifiers (MusicBrainz, Last.fm) not available in the lightweight section listing.
+public struct ArtistDetail: Sendable {
+    public let genres: [String]
+    public let country: String?
+    public let similarArtists: [String]
+    public let styles: [String]
+
+    /// Wikipedia URL derived from the artist name
+    public var wikipediaURL: URL? {
+        // URL-encode the artist name for Wikipedia lookup
+        let encoded = artistName
+            .replacingOccurrences(of: " ", with: "_")
+            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        guard let encoded else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)")
+    }
+
+    /// Artist name (needed for Wikipedia URL generation)
+    public let artistName: String
+
+    public init(
+        genres: [String] = [],
+        country: String? = nil,
+        similarArtists: [String] = [],
+        styles: [String] = [],
+        artistName: String = ""
+    ) {
+        self.genres = genres
+        self.country = country
+        self.similarArtists = similarArtists
+        self.styles = styles
+        self.artistName = artistName
+    }
+}
+
+// MARK: - Album Detail (enriched metadata)
+
+/// Rich album metadata fetched on-demand from the single-item metadata endpoint.
+/// Contains tag-based fields (genres, styles, studio/label) not available in
+/// the lightweight section listing.
+public struct AlbumDetail: Sendable {
+    public let genres: [String]
+    public let styles: [String]
+    public let studio: String?       // Record label
+    public let summary: String?
+    public let albumTitle: String
+    public let artistName: String?
+
+    /// Wikipedia URL derived from the album title and artist name.
+    /// Uses "{Album}_({Artist}_album)" format per Wikipedia convention to avoid disambiguation pages.
+    /// Falls back to "{Album}_(album)" for compilations or when artist is unknown.
+    public var wikipediaURL: URL? {
+        let titlePart = albumTitle
+            .replacingOccurrences(of: " ", with: "_")
+
+        // Include artist name in the suffix unless it's a compilation or unknown
+        let suffix: String
+        if let artist = artistName, artist != "Various Artists" {
+            let artistPart = artist.replacingOccurrences(of: " ", with: "_")
+            suffix = "_(\(artistPart)_album)"
+        } else {
+            suffix = "_(album)"
+        }
+
+        let combined = "\(titlePart)\(suffix)"
+        guard let encoded = combined.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "https://en.wikipedia.org/wiki/\(encoded)")
+    }
+
+    public init(
+        genres: [String] = [],
+        styles: [String] = [],
+        studio: String? = nil,
+        summary: String? = nil,
+        albumTitle: String = "",
+        artistName: String? = nil
+    ) {
+        self.genres = genres
+        self.styles = styles
+        self.studio = studio
+        self.summary = summary
+        self.albumTitle = albumTitle
+        self.artistName = artistName
     }
 }
 
@@ -348,6 +493,22 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             return "\(hours) hr \(minutes) min"
         }
         return "\(minutes) min"
+    }
+
+    // Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
+    // Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
+    public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.trackCount == rhs.trackCount &&
+        lhs.duration == rhs.duration &&
+        lhs.compositePath == rhs.compositePath &&
+        lhs.isSmart == rhs.isSmart
+    }
+
+    // Hashable must be consistent with custom Equatable — hash only id.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -525,12 +686,30 @@ public enum TrackSortOption: String, CaseIterable, Sendable {
     case lastPlayed = "Last Played"
     case rating = "Rating"
     case playCount = "Play Count"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .album:
+            return .ascending
+        case .duration, .dateAdded, .dateModified, .lastPlayed, .rating, .playCount:
+            return .descending
+        }
+    }
 }
 
 public enum ArtistSortOption: String, CaseIterable, Sendable {
     case name = "Name"
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .name:
+            return .ascending
+        case .dateAdded, .dateModified:
+            return .descending
+        }
+    }
 }
 
 public enum AlbumSortOption: String, CaseIterable, Sendable {
@@ -541,6 +720,15 @@ public enum AlbumSortOption: String, CaseIterable, Sendable {
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
     case rating = "Rating"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .albumArtist:
+            return .ascending
+        case .year, .dateAdded, .dateModified, .rating:
+            return .descending
+        }
+    }
 }
 
 public enum GenreSortOption: String, CaseIterable, Sendable {
@@ -554,6 +742,36 @@ public enum PlaylistSortOption: String, CaseIterable, Sendable {
     case dateAdded = "Date Added"
     case dateModified = "Date Modified"
     case lastPlayed = "Last Played"
+
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title:
+            return .ascending
+        case .trackCount, .duration, .dateAdded, .dateModified, .lastPlayed:
+            return .descending
+        }
+    }
+}
+
+public enum FavoritesSortOption: String, CaseIterable, Sendable {
+    case title = "Title"
+    case artist = "Artist"
+    case album = "Album"
+    case dateFavorited = "Date Favorited"
+    case duration = "Duration"
+    case lastPlayed = "Last Played"
+    case rating = "Rating"
+    case playCount = "Play Count"
+
+    /// Natural default direction for each sort option
+    public var defaultDirection: SortDirection {
+        switch self {
+        case .title, .artist, .album:
+            return .ascending
+        case .dateFavorited, .lastPlayed, .duration, .rating, .playCount:
+            return .descending
+        }
+    }
 }
 
 // MARK: - Hub (Home Screen Content)
@@ -564,12 +782,36 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let title: String
     public let type: String
     public let items: [HubItem]
-    
-    public init(id: String, title: String, type: String, items: [HubItem]) {
+    public let context: String?  // Plex hub context (e.g. "hub.music.artist" for artist-scoped hubs)
+
+    public init(id: String, title: String, type: String, items: [HubItem], context: String? = nil) {
         self.id = id
         self.title = title
         self.type = type
         self.items = items
+        self.context = context
+    }
+
+    /// Artist ratingKey for artist-scoped hubs (e.g. "More by Dune Moss").
+    /// Uses the Plex `context` field to identify artist hubs, then extracts the
+    /// artist ratingKey from the first album/track item's parentRatingKey.
+    /// Also handles "More from" / "More by" titled hubs where the context field
+    /// may not contain ".artist" but the content is clearly artist-scoped.
+    /// Returns nil for non-artist hubs (genre, label, general, etc.).
+    public var contextArtistId: String? {
+        // Check 1: Plex context field explicitly identifies artist-scoped hubs
+        let isArtistContext = context?.contains(".artist") == true
+
+        // Check 2: Title-based detection for "More from X" / "More by X" hubs
+        // where Plex doesn't set an artist context
+        let lowercasedTitle = title.lowercased()
+        let isMoreFromHub = lowercasedTitle.hasPrefix("more from") || lowercasedTitle.hasPrefix("more by")
+
+        guard isArtistContext || isMoreFromHub else { return nil }
+
+        // Get artist ratingKey from the first item
+        guard let first = items.first else { return nil }
+        return first.album?.artistRatingKey ?? first.track?.artistRatingKey
     }
 }
 

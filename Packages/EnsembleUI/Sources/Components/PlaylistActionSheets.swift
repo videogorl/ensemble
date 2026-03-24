@@ -21,82 +21,92 @@ public struct PlaylistPickerSheet: View {
     }
 
     public var body: some View {
-        NavigationView {
-            List {
-                Section("Playlists") {
-                    if isLoading {
-                        ProgressView("Loading playlists...")
-                    } else if compatibleTrackCountForSelectedServer == 0 {
-                        Text("No compatible tracks are available for playlist updates.")
-                            .foregroundColor(.secondary)
-                    } else if filteredPlaylists.isEmpty {
-                        Text("No playlists found.")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(filteredPlaylists) { playlist in
-                            Button {
-                                Task { await addToPlaylist(playlist) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+        Group {
+            if #available(iOS 16.0, macOS 13.0, *) {
+                NavigationStack { listContent }
+            } else {
+                NavigationView { listContent }
+                    .navigationViewStyle(.stack)
+            }
+        }
+    }
 
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(playlist.title)
-                                        Text("\(playlist.trackCount) songs")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-
-                                    Spacer()
-                                }
-                            }
-                            .disabled(
-                                isSubmitting ||
-                                nowPlayingVM.isPlaylistMutationInProgress ||
-                                nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
-                            )
-                        }
-                    }
-                }
-
-                if shouldShowCreateAction {
-                    Section {
+    // Extracted so both NavigationStack and NavigationView share the same content
+    private var listContent: some View {
+        List {
+            Section("Playlists") {
+                if isLoading {
+                    ProgressView("Loading playlists...")
+                } else if compatibleTrackCountForSelectedServer == 0 {
+                    Text("No compatible tracks are available for playlist updates.")
+                        .foregroundColor(.secondary)
+                } else if filteredPlaylists.isEmpty {
+                    Text("No playlists found.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(filteredPlaylists) { playlist in
                         Button {
-                            Task { await createPlaylist(named: newPlaylistName) }
+                            Task { await addToPlaylist(playlist) }
                         } label: {
-                            Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
+                            HStack(spacing: 12) {
+                                ArtworkView(playlist: playlist, size: .tiny, cornerRadius: 4)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(playlist.title)
+                                    Text("\(playlist.trackCount) songs")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+                            }
                         }
                         .disabled(
                             isSubmitting ||
                             nowPlayingVM.isPlaylistMutationInProgress ||
-                            inferredServerSourceKey == nil ||
-                            compatibleTrackCountForSelectedServer == 0
+                            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
                         )
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Find or create playlist")
-            .navigationTitle(title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
-            .task {
-                if inferredServerSourceKey == nil {
-                    inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
-                }
-                await loadPlaylists()
-            }
-            .overlay {
-                if isSubmitting {
-                    ZStack {
-                        Color.black.opacity(0.12)
-                            .ignoresSafeArea()
-                        ProgressView("Updating playlist...")
-                            .padding(12)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+
+            if shouldShowCreateAction {
+                Section {
+                    Button {
+                        Task { await createPlaylist(named: newPlaylistName) }
+                    } label: {
+                        Label("Add new playlist: \"\(newPlaylistName)\"", systemImage: "plus.circle")
                     }
+                    .disabled(
+                        isSubmitting ||
+                        nowPlayingVM.isPlaylistMutationInProgress ||
+                        inferredServerSourceKey == nil ||
+                        compatibleTrackCountForSelectedServer == 0
+                    )
+                }
+            }
+        }
+        .searchable(text: $searchText, prompt: "Find or create playlist")
+        .navigationTitle(title)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
+        .task {
+            if inferredServerSourceKey == nil {
+                inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
+            }
+            await loadPlaylists()
+        }
+        .overlay {
+            if isSubmitting {
+                ZStack {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                    ProgressView("Updating playlist...")
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }
@@ -120,7 +130,9 @@ public struct PlaylistPickerSheet: View {
     }
 
     private var shouldShowCreateAction: Bool {
-        !newPlaylistName.isEmpty && !hasExactNameMatch
+        // Don't show the create option when offline — playlist creation requires a server round-trip
+        guard !DependencyContainer.shared.syncCoordinator.isOffline else { return false }
+        return !newPlaylistName.isEmpty && !hasExactNameMatch
     }
 
     private var compatibleTrackCountForSelectedServer: Int {

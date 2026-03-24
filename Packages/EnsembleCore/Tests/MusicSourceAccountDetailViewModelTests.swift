@@ -82,9 +82,11 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
+        let mutationCoordinator: MutationCoordinator
         let libraryRepository: LibraryRepository
         let playlistRepository: PlaylistRepository
         let discoveryService: MockDiscoveryService
+        let webSocketCoordinator: PlexWebSocketCoordinator
     }
 
     func testToggleLibraryPurgesOnlyUncheckedLibraryCache() async throws {
@@ -505,7 +507,9 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountId: account.id,
             accountManager: harness.accountManager,
             accountDiscoveryService: gatedDiscovery,
-            syncCoordinator: harness.syncCoordinator
+            syncCoordinator: harness.syncCoordinator,
+            mutationCoordinator: harness.mutationCoordinator,
+            webSocketCoordinator: harness.webSocketCoordinator
         )
 
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
@@ -532,26 +536,42 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.network.monitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
-            networkMonitor: NetworkMonitor(
-                debounceNanoseconds: 1_000,
-                monitorQueue: DispatchQueue(label: "test.network.monitor"),
-                monitorFactory: { SystemNetworkPathMonitor() }
-            ),
-            serverHealthChecker: ServerHealthChecker(accountManager: accountManager)
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         let discoveryService = MockDiscoveryService()
+        let mutationCoordinator = MutationCoordinator(
+            repository: PendingMutationRepository(coreDataStack: stack),
+            networkMonitor: networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
+
+        let shc = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let wsc = PlexWebSocketCoordinator(
+            accountManager: accountManager,
+            connectionRegistry: ServerConnectionRegistry(),
+            serverHealthChecker: shc,
+            clientIdentifier: "test"
+        )
 
         return Harness(
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
+            mutationCoordinator: mutationCoordinator,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            discoveryService: discoveryService
+            discoveryService: discoveryService,
+            webSocketCoordinator: wsc
         )
     }
 
@@ -560,7 +580,9 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountId: accountId,
             accountManager: harness.accountManager,
             accountDiscoveryService: harness.discoveryService,
-            syncCoordinator: harness.syncCoordinator
+            syncCoordinator: harness.syncCoordinator,
+            mutationCoordinator: harness.mutationCoordinator,
+            webSocketCoordinator: harness.webSocketCoordinator
         )
     }
 

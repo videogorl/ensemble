@@ -41,7 +41,7 @@ public struct AlbumCard: View {
 // MARK: - Album Grid
 
 public struct AlbumGrid: View {
-    private struct PlaylistPickerPayload: Identifiable {
+    fileprivate struct PlaylistPickerPayload: Identifiable {
         let id = UUID()
         let tracks: [Track]
         let title: String
@@ -52,7 +52,6 @@ public struct AlbumGrid: View {
     let onAlbumTap: ((Album) -> Void)?
 
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
     @State private var playlistPickerPayload: PlaylistPickerPayload?
 
     private let columns = [
@@ -74,7 +73,11 @@ public struct AlbumGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        albumContextMenu(album)
+                        AlbumContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            playlistPickerPayload: $playlistPickerPayload
+                        )
                     }
                 } else {
                     // iOS 15 fallback
@@ -85,7 +88,11 @@ public struct AlbumGrid: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        albumContextMenu(album)
+                        AlbumContextMenu(
+                            album: album,
+                            nowPlayingVM: nowPlayingVM,
+                            playlistPickerPayload: $playlistPickerPayload
+                        )
                     }
                 }
             }
@@ -96,8 +103,24 @@ public struct AlbumGrid: View {
         }
     }
 
-    @ViewBuilder
-    private func albumContextMenu(_ album: Album) -> some View {
+}
+
+// MARK: - Album Context Menu
+
+/// Dedicated View struct for album context menus. Scopes @ObservedObject pinManager
+/// to each menu instance rather than the entire AlbumGrid, preventing wholesale
+/// grid re-renders when pin state changes.
+private struct AlbumContextMenu: View {
+    let album: Album
+    let nowPlayingVM: NowPlayingViewModel
+    @Binding var playlistPickerPayload: AlbumGrid.PlaylistPickerPayload?
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+
+    var body: some View {
+        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+
         Button {
             withAlbumTracks(album) { tracks in
                 nowPlayingVM.play(tracks: tracks)
@@ -140,10 +163,29 @@ public struct AlbumGrid: View {
 
         Button {
             withAlbumTracks(album) { tracks in
-                playlistPickerPayload = PlaylistPickerPayload(tracks: tracks, title: "Add Album to Playlist")
+                playlistPickerPayload = AlbumGrid.PlaylistPickerPayload(tracks: tracks, title: "Add Album to Playlist")
             }
         } label: {
             Label("Add to Playlist…", systemImage: "text.badge.plus")
+        }
+
+        Button {
+            Task {
+                await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+            }
+        } label: {
+            Label(
+                isDownloaded ? "Remove Download" : "Download",
+                systemImage: isDownloaded ? "xmark.circle" : "arrow.down.circle"
+            )
+        }
+
+        if let artistId = album.artistRatingKey {
+            Button {
+                DependencyContainer.shared.navigationCoordinator.push(.artist(id: artistId), in: DependencyContainer.shared.navigationCoordinator.selectedTab)
+            } label: {
+                Label("Go to Artist", systemImage: "person.circle")
+            }
         }
 
         if let recentTarget = nowPlayingVM.lastPlaylistTarget {
@@ -152,6 +194,12 @@ public struct AlbumGrid: View {
             } label: {
                 Label("Add to \(recentTarget.title)", systemImage: "clock.arrow.circlepath")
             }
+        }
+
+        Button {
+            ShareActions.shareAlbumLink(album, deps: deps)
+        } label: {
+            Label("Share Link…", systemImage: "link")
         }
 
         let isPinned = pinManager.isPinned(id: album.id)

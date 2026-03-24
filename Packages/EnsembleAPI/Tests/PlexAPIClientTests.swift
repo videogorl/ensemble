@@ -158,4 +158,54 @@ final class PlexAPIClientTests: XCTestCase {
             }
         }
     }
+
+    func testBatchTrackFetchDecodesMultipleTracks() throws {
+        // Test batch metadata response with multiple tracks
+        let batchJSON = """
+        {
+            "MediaContainer": {
+                "size": 3,
+                "Metadata": [
+                    {
+                        "ratingKey": "12345",
+                        "key": "/library/metadata/12345",
+                        "title": "Track One",
+                        "parentTitle": "Album",
+                        "grandparentTitle": "Artist",
+                        "duration": 180000
+                    },
+                    {
+                        "ratingKey": "12346",
+                        "key": "/library/metadata/12346",
+                        "title": "Track Two",
+                        "parentTitle": "Album",
+                        "grandparentTitle": "Artist",
+                        "duration": 200000
+                    },
+                    {
+                        "ratingKey": "12347",
+                        "key": "/library/metadata/12347",
+                        "title": "Track Three",
+                        "parentTitle": "Album",
+                        "grandparentTitle": "Artist",
+                        "duration": 220000
+                    }
+                ]
+            }
+        }
+        """
+
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: batchJSON.data(using: .utf8)!
+        )
+        
+        XCTAssertEqual(container.mediaContainer.items.count, 3)
+        XCTAssertEqual(container.mediaContainer.items[0].ratingKey, "12345")
+        XCTAssertEqual(container.mediaContainer.items[0].title, "Track One")
+        XCTAssertEqual(container.mediaContainer.items[1].ratingKey, "12346")
+        XCTAssertEqual(container.mediaContainer.items[1].title, "Track Two")
+        XCTAssertEqual(container.mediaContainer.items[2].ratingKey, "12347")
+        XCTAssertEqual(container.mediaContainer.items[2].title, "Track Three")
+    }
 }

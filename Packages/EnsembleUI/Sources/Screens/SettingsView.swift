@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct SettingsView: View {
-    @State private var showingAddAccount = false
+    @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
     @State private var showingDeleteAlert = false
     @State private var showingClearDataAlert = false
     @State private var accountToDelete: PlexAccountConfig?
@@ -14,6 +14,9 @@ public struct SettingsView: View {
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
+    #if DEBUG
+    @AppStorage("debugSimulateOffline") private var debugSimulateOffline = false
+    #endif
 
     // Hardcoded support URL — safe to force-unwrap as a named constant (literal cannot fail)
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
@@ -43,7 +46,7 @@ public struct SettingsView: View {
                 }
 
                 Button {
-                    showingAddAccount = true
+                    navigationCoordinator.showingAddAccount = true
                 } label: {
                     HStack {
                         Image(systemName: "plus.circle.fill")
@@ -84,6 +87,19 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 .padding(.vertical, 4)
+
+                Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Aurora Visualization")
+                            Text("Animated background that reacts to music")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             } header: {
                 Text("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
                     .foregroundColor(.accentColor)
@@ -91,7 +107,7 @@ public struct SettingsView: View {
             }
 
             // Playback section
-            Section(header: Text("Playback").textCase(nil)) {
+            Section(header: Text("Playback").foregroundColor(.accentColor).textCase(nil)) {
                 Toggle(isOn: $isAutoplayEnabled) {
                     HStack {
                         Image(systemName: "infinity.circle.fill")
@@ -106,6 +122,19 @@ public struct SettingsView: View {
                 }
                 .onChange(of: isAutoplayEnabled) { _ in
                     playbackService.toggleAutoplay()
+                }
+
+                Toggle(isOn: $settingsManager.scrobblingEnabled) {
+                    HStack {
+                        Image(systemName: "checkmark.circle")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Scrobbling")
+                            Text("Report play counts to your Plex server")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 NavigationLink {
@@ -140,17 +169,7 @@ public struct SettingsView: View {
             }
 
             // Storage section
-            Section(header: Text("Storage").textCase(nil)) {
-                NavigationLink {
-                    StorageSettingsView()
-                } label: {
-                    HStack {
-                        Image(systemName: "internaldrive")
-                            .frame(width: 44)
-                        Text("Manage Downloads")
-                    }
-                }
-                
+            Section(header: Text("Storage").foregroundColor(.accentColor).textCase(nil)) {
                 Button(role: .destructive) {
                     showingClearDataAlert = true
                 } label: {
@@ -164,7 +183,7 @@ public struct SettingsView: View {
             }
             
             // Debug section
-            Section(header: Text("Reset").textCase(nil)) {
+            Section(header: Text("Reset").foregroundColor(.accentColor).textCase(nil)) {
                 Button(role: .destructive) {
                     // Clear all accounts from keychain
                     for account in accountManager.plexAccounts {
@@ -180,8 +199,47 @@ public struct SettingsView: View {
                 }
             }
 
+            #if DEBUG
+            // Developer tools section (DEBUG builds only)
+            Section(header: Text("Developer").foregroundColor(.accentColor).textCase(nil)) {
+                Toggle(isOn: $debugSimulateOffline) {
+                    HStack {
+                        Image(systemName: "wifi.slash")
+                            .frame(width: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Simulate No Connection")
+                            Text("Forces app into offline mode for testing")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .onChange(of: debugSimulateOffline) { simulating in
+                    DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
+                }
+
+                // Test toast button
+                Button {
+                    DependencyContainer.shared.toastCenter.show(
+                        ToastPayload(
+                            style: .info,
+                            iconSystemName: "bell.fill",
+                            title: "Test Toast",
+                            message: "This is a test notification"
+                        )
+                    )
+                } label: {
+                    HStack {
+                        Image(systemName: "bell.badge")
+                            .frame(width: 44)
+                        Text("Send Test Toast")
+                    }
+                }
+            }
+            #endif
+
             // About section
-            Section(header: Text("About").textCase(nil)) {
+            Section(header: Text("About").foregroundColor(.accentColor).textCase(nil)) {
                 HStack {
                     Image(systemName: "info.circle")
                         .frame(width: 44)
@@ -211,12 +269,6 @@ public struct SettingsView: View {
         #endif
         .miniPlayerBottomSpacing(140)
         .navigationTitle("Settings")
-        .sheet(isPresented: $showingAddAccount) {
-            AddPlexAccountView()
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
         .alert("Remove Account", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
                 accountToDelete = nil
@@ -315,8 +367,8 @@ struct MusicSourceAccountRow: View {
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
-    @AppStorage("streamingQuality") private var streamingQuality = "original"
-    @AppStorage("downloadQuality") private var downloadQuality = "original"
+    @AppStorage("streamingQuality") private var streamingQuality = "high"
+    @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     var body: some View {
         List {
@@ -340,6 +392,7 @@ struct AudioQualitySettingsView: View {
                     Text("Original").tag("original")
                     Text("High (320 kbps)").tag("high")
                     Text("Medium (192 kbps)").tag("medium")
+                    Text("Low (128 kbps)").tag("low")
                 }
             } header: {
                 Text("Downloads")
