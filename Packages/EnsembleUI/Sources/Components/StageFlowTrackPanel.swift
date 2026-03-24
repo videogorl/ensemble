@@ -91,7 +91,7 @@ struct StageFlowTrackPanel: View {
                     activeDownloadRatingKeys: activeDownloadRatingKeys,
                     managesOwnScrolling: true,
                     bottomContentInset: 4,
-                    rowHeight: 60,
+                    rowHeight: 58,
                     onPlayNext: { track in
                         nowPlayingVM.playNext(track)
                     },
@@ -155,7 +155,8 @@ struct StageFlowTrackPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 8)
+        .padding(.leading, 28)
+        .padding(.trailing, 8)
         .padding(.vertical, 8)
         .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadRatingKeys) { keys in
             if keys != activeDownloadRatingKeys {

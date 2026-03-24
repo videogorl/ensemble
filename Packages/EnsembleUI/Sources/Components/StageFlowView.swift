@@ -146,12 +146,16 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 Color.black
                     .ignoresSafeArea()
 
+                if let centeredItem = centeredItem, isPanelPresented {
+                    detailPanel(for: centeredItem, in: geometry)
+                }
+
                 stageLayer(in: geometry)
 
                 footerLayer
 
-                if let centeredItem = centeredItem, isPanelPresented {
-                    detailPanel(for: centeredItem, in: geometry)
+                if isPanelPresented {
+                    panelDismissLayer(in: geometry)
                 }
 
                 transportButton
@@ -180,10 +184,9 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func stageLayer(in geometry: GeometryProxy) -> some View {
-        let baseItemSize = min(geometry.size.height * 0.62, geometry.size.width * 0.34)
+        let baseItemSize = baseItemSize(for: geometry)
         let currentIndex = scrollIndex + dragIndexDelta
-        let panelWidth = detailPanelWidth(for: geometry)
-        let centerX = geometry.size.width * (isPanelPresented ? 0.415 : 0.5)
+        let centerX = stageCenterX(for: geometry)
 
         return ZStack {
             Color.clear
@@ -213,8 +216,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                             perspective: 0.58
                         )
                         .offset(
-                            x: itemLayout.xOffset - (isPanelPresented ? panelWidth * 0.1 : 0),
-                            y: isPanelPresented ? -6 : 0
+                            x: itemLayout.xOffset,
+                            y: 0
                         )
                         .zIndex(itemLayout.zIndex)
                         .contentShape(Rectangle())
@@ -257,34 +260,51 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
         let panelWidth = detailPanelWidth(for: geometry)
-        let panelTrailingInset: CGFloat = 22
-        let panelCenterX = geometry.size.width - (panelWidth / 2) - panelTrailingInset
+        let centeredItemSize = centeredItemSize(for: geometry)
+        let overlap = centeredItemSize * 0.24
+        let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (panelWidth / 2)
+        let desiredPanelCenterX = stageCenterX(for: geometry) + (centeredItemSize / 2) + (panelWidth / 2) - overlap
+        let panelCenterX = min(desiredPanelCenterX, maxPanelCenterX)
 
-        return ZStack {
-            Color.clear
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    closePanel()
-                }
-
+        return VStack(spacing: 0) {
             VStack(spacing: 0) {
                 detailView(item)
             }
             .frame(width: panelWidth)
-            .frame(maxHeight: geometry.size.height * 0.68)
+            .frame(height: centeredItemSize)
             .background(stagePanelBackground)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.32), radius: 22, x: -10, y: 10)
-            .position(x: panelCenterX, y: stageCenterY(for: geometry) - 6)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+            .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
         }
-        .zIndex(150)
+        .position(x: panelCenterX, y: stageCenterY(for: geometry))
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+        .zIndex(-1)
+        .allowsHitTesting(true)
         .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.86), value: isPanelPresented)
+    }
+
+    private func panelDismissLayer(in geometry: GeometryProxy) -> some View {
+        let panelWidth = detailPanelWidth(for: geometry)
+        let panelInteractionWidth = panelWidth + detailPanelTrailingInset + 12
+        let dismissWidth = max(geometry.size.width - panelInteractionWidth, 0)
+
+        return HStack(spacing: 0) {
+            Color.clear
+                .frame(width: dismissWidth)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    closePanel()
+                }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        .zIndex(150)
     }
 
     private var transportButton: some View {
@@ -345,12 +365,28 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         max(itemSize * 0.78, 1)
     }
 
+    private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
+        min(geometry.size.height * 0.62, geometry.size.width * 0.34)
+    }
+
+    private func centeredItemSize(for geometry: GeometryProxy) -> CGFloat {
+        baseItemSize(for: geometry) * layoutMetrics.centerScale
+    }
+
     private func detailPanelWidth(for geometry: GeometryProxy) -> CGFloat {
         min(max(geometry.size.width * 0.42, 300), 380)
     }
 
+    private var detailPanelTrailingInset: CGFloat {
+        14
+    }
+
+    private func stageCenterX(for geometry: GeometryProxy) -> CGFloat {
+        geometry.size.width * (isPanelPresented ? 0.472 : 0.5)
+    }
+
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.height * 0.44
+        geometry.size.height * 0.468
     }
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
