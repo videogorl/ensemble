@@ -273,7 +273,9 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         itemSize: CGFloat,
         layout: StageFlowItemLayout
     ) -> some View {
-        VStack(spacing: 0) {
+        let reflectionHeight = stageReflectionHeight(for: itemSize)
+
+        return VStack(spacing: 0) {
             itemView(item)
                 .frame(width: itemSize, height: itemSize)
 
@@ -288,36 +290,42 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         )
         .offset(
             x: layout.xOffset,
-            y: 0
+            y: reflectionHeight * 0.5
         )
         .zIndex(layout.zIndex)
         .allowsHitTesting(false)
     }
 
     private func reflectedStageItem(for item: Item, itemSize: CGFloat) -> some View {
-        itemView(item)
+        let reflectionHeight = stageReflectionHeight(for: itemSize)
+
+        return itemView(item)
             .frame(width: itemSize, height: itemSize)
             .scaleEffect(x: 1, y: -1, anchor: .center)
-            .opacity(0.18)
+            .opacity(0.28)
             .mask(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.45),
-                        Color.white.opacity(0.12),
+                        Color.white.opacity(0.62),
+                        Color.white.opacity(0.22),
                         Color.clear
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(width: itemSize, height: itemSize * 0.42)
+                .frame(width: itemSize, height: reflectionHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
             )
-            .blur(radius: 1.6)
-            .offset(y: 10)
-            .padding(.top, -8)
-            .frame(width: itemSize, height: itemSize * 0.34, alignment: .top)
+            .blur(radius: 1.2)
+            .offset(y: 6)
+            .padding(.top, -4)
+            .frame(width: itemSize, height: reflectionHeight, alignment: .top)
             .clipped()
             .allowsHitTesting(false)
+    }
+
+    private func stageReflectionHeight(for itemSize: CGFloat) -> CGFloat {
+        itemSize * 0.48
     }
 
     @ViewBuilder
