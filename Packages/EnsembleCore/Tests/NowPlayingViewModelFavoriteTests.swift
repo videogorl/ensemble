@@ -244,6 +244,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
+        func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
     }
 

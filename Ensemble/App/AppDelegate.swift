@@ -17,6 +17,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// await it instead of running redundant checks. Set in didFinishLaunching.
     fileprivate var earlyHealthCheckTask: Task<Void, Never>?
 
+    /// Set synchronously in `application(_:handlerFor:)` when iOS delivers a Siri
+    /// intent during launch. Used to suppress playback restoration so Siri playback
+    /// isn't overwritten by the previous session's queue.
+    fileprivate var hasPendingSiriIntent = false
+
     private static let siriAppNameSuffixes = [" ensemble music", " ensemble"]
     private static let siriTrailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
     private static let siriLeadingMediaTypePrefixes = [
@@ -33,7 +38,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ]
     private static let appGroupIdentifier = "group.com.videogorl.ensemble"
     private static let pendingPlaybackFilename = "siri-pending-playback.json"
+    private static let pendingAffinityFilename = "siri-pending-affinity.json"
+    private static let pendingAddToPlaylistFilename = "siri-pending-addtoplaylist.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingPlayback"
+    private static let darwinAffinityNotificationName = "com.videogorl.ensemble.siri.pendingAffinity"
+    private static let darwinAddToPlaylistNotificationName = "com.videogorl.ensemble.siri.pendingAddToPlaylist"
 
     func application(
         _ application: UIApplication,
@@ -63,8 +72,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Install space-bar → play/pause hardware keyboard shortcut
         SpaceBarPlaybackShortcut.install()
 
-        // Register for Darwin notification from Siri extension
+        // Register for Darwin notifications from Siri extension
         registerForSiriPendingPlaybackNotification()
+        registerForSiriAffinityNotification()
+        registerForSiriAddToPlaylistNotification()
 
         // Register optional iOS 26+ continued processing handler for offline downloads.
         DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
@@ -110,10 +121,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
         }
 
-        // Restore playback state after health checks complete (needs server connectivity)
+        // Restore playback state after health checks complete (needs server connectivity).
+        // Skip restoration if a Siri playback execution is already in-flight — the Siri
+        // handler's intent arrives before restoration completes, so restoring would
+        // overwrite the Siri-initiated queue with the previous session's track.
         Task.detached(priority: .utility) {
             // Wait for early health checks to finish (they populate server endpoints)
             await self.earlyHealthCheckTask?.value
+
+            let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
+            if hasPending || SiriPlaybackExecutionGate.isExecuting {
+                AppLogger.debug("📱 AppDelegate: Skipping playback restoration — Siri intent pending/in-flight")
+                return
+            }
 
             AppLogger.debug("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
@@ -235,6 +255,117 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinNotificationName)
     }
 
+    private func registerForSiriAffinityNotification() {
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            notifyCenter,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                appDelegate.handleSiriPendingAffinityNotification()
+            },
+            Self.darwinAffinityNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAffinityNotificationName)
+    }
+
+    private func handleSiriPendingAffinityNotification() {
+        os_log(.info, "SIRI_APP: Received trigger for pending affinity")
+
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else { return }
+
+        let fileURL = containerURL.appendingPathComponent(Self.pendingAffinityFilename)
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            os_log(.debug, "SIRI_APP: No pending affinity file found")
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            try FileManager.default.removeItem(at: fileURL)
+
+            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let affinityTypeStr = dict["affinityType"] as? String else {
+                os_log(.error, "SIRI_APP: Failed to decode affinity payload")
+                return
+            }
+
+            let affinityType: SiriAffinityType
+            switch affinityTypeStr {
+            case "love": affinityType = .love
+            case "dislike": affinityType = .dislike
+            case "remove": affinityType = .remove
+            default: affinityType = .love
+            }
+
+            let payload = SiriAffinityRequestPayload(affinityType: affinityType)
+            os_log(.info, "SIRI_APP: Executing affinity request: %{public}@", affinityTypeStr)
+
+            Task { @MainActor in
+                try? await DependencyContainer.shared.siriAffinityCoordinator.execute(payload: payload)
+            }
+        } catch {
+            os_log(.error, "SIRI_APP: Failed to read/process affinity file: %{public}@", error.localizedDescription)
+        }
+    }
+
+    private func registerForSiriAddToPlaylistNotification() {
+        let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            notifyCenter,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                appDelegate.handleSiriPendingAddToPlaylistNotification()
+            },
+            Self.darwinAddToPlaylistNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+        os_log(.info, "SIRI_APP: Registered for Darwin notification: %{public}@", Self.darwinAddToPlaylistNotificationName)
+    }
+
+    private func handleSiriPendingAddToPlaylistNotification() {
+        os_log(.info, "SIRI_APP: Received trigger for pending add-to-playlist")
+
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) else { return }
+
+        let fileURL = containerURL.appendingPathComponent(Self.pendingAddToPlaylistFilename)
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            os_log(.debug, "SIRI_APP: No pending add-to-playlist file found")
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            try FileManager.default.removeItem(at: fileURL)
+
+            let decoder = JSONDecoder()
+            let payload = try decoder.decode(SiriAddToPlaylistRequestPayload.self, from: data)
+            os_log(.info, "SIRI_APP: Executing add-to-playlist: playlist=%{public}@", payload.playlistDisplayName ?? "unknown")
+
+            Task { @MainActor in
+                try? await DependencyContainer.shared.siriAddToPlaylistCoordinator.execute(payload: payload)
+            }
+        } catch {
+            os_log(.error, "SIRI_APP: Failed to read/process add-to-playlist file: %{public}@", error.localizedDescription)
+        }
+    }
+
     private func handleSiriPendingPlaybackNotification() {
         os_log(.info, "SIRI_APP: Received trigger for pending playback")
 
@@ -288,7 +419,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: extensionPayload.entityID,
                 sourceCompositeKey: extensionPayload.sourceCompositeKey,
                 displayName: extensionPayload.displayName,
-                artistHint: extensionPayload.artistHint
+                artistHint: extensionPayload.artistHint,
+                shuffle: extensionPayload.shuffle
             )
         } catch {
             os_log(.error, "SIRI_APP: Failed to read pending payload: %{public}@", error.localizedDescription)
@@ -335,6 +467,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Any? {
         os_log(.info, "SIRI_APP: application(handlerFor:) called with intent type: %{public}@", String(describing: type(of: intent)))
 
+        // Mark that a Siri intent is pending so playback restoration is suppressed.
+        // This is set synchronously before any async work, preventing the restoration
+        // task from overwriting the Siri-initiated queue.
+        hasPendingSiriIntent = true
+
         // INPlayMediaIntent is NOT in the app's Info.plist INIntentsSupported,
         // so iOS routes the initial intent through the Siri extension. The
         // extension returns .handleInApp which triggers AirPlay route setup
@@ -343,6 +480,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         if intent is INPlayMediaIntent {
             os_log(.info, "SIRI_APP: Returning InAppPlayMediaIntentHandler for forwarded INPlayMediaIntent")
             return InAppPlayMediaIntentHandler()
+        }
+
+        if intent is INAddMediaIntent {
+            os_log(.info, "SIRI_APP: Returning handler for INAddMediaIntent")
+            // INAddMediaIntent is handled via NSUserActivity delivery, not in-app handler
+        }
+
+        if intent is INUpdateMediaAffinityIntent {
+            os_log(.info, "SIRI_APP: Returning handler for INUpdateMediaAffinityIntent")
+            // INUpdateMediaAffinityIntent is handled via NSUserActivity delivery
         }
 
         os_log(.info, "SIRI_APP: No handler for intent type, returning nil")
@@ -411,10 +558,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
 
         if let identifier = rawIdentifier,
-           let decoded = decodePayloadIdentifier(identifier),
+           var decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
+            // Override shuffle from the live intent if it wasn't already set in the payload
+            if decoded.shuffle == nil, let shuffle {
+                decoded = SiriPlaybackRequestPayload(
+                    kind: decoded.kind,
+                    entityID: decoded.entityID,
+                    sourceCompositeKey: decoded.sourceCompositeKey,
+                    displayName: decoded.displayName,
+                    artistHint: decoded.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return decoded
         }
 
@@ -432,7 +591,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -446,7 +606,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -638,6 +799,7 @@ private struct ExtensionSiriPayloadIdentifier: Codable {
     let sourceCompositeKey: String?
     let displayName: String?
     let artistHint: String?
+    let shuffle: Bool?
 }
 
 func executeSiriPlaybackInBackground(
@@ -905,6 +1067,13 @@ private enum SiriPlaybackExecutionGate {
         inFlightSignatures.remove(signature)
     }
 
+    /// Returns true if any Siri playback execution is currently in-flight.
+    static var isExecuting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !inFlightSignatures.isEmpty
+    }
+
     private static func pruneExpiredEntries(now: Date) {
         lastExecutionDates = lastExecutionDates.filter { now.timeIntervalSince($0.value) <= duplicateWindow }
     }
@@ -962,10 +1131,22 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
         let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let shuffle = intent.playShuffled
 
         if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
-           let payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+           var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
+            // Override shuffle from live intent if not already set in payload
+            if payload.shuffle == nil, let shuffle {
+                payload = SiriPlaybackRequestPayload(
+                    kind: payload.kind,
+                    entityID: payload.entityID,
+                    sourceCompositeKey: payload.sourceCompositeKey,
+                    displayName: payload.displayName,
+                    artistHint: payload.artistHint,
+                    shuffle: shuffle
+                )
+            }
             return payload
         }
 
@@ -982,7 +1163,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 
@@ -994,7 +1176,8 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName
+                artistHint: intent.mediaSearch?.artistName,
+                shuffle: shuffle
             )
         }
 

@@ -7,12 +7,14 @@ public struct SiriPlaybackRequest: Sendable, Equatable {
     public let sourceCompositeKey: String?
     public let displayName: String?
     public let artistHint: String?
+    public let shuffle: Bool
 
-    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil, artistHint: String? = nil) {
+    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil, artistHint: String? = nil, shuffle: Bool = false) {
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
         self.artistHint = artistHint
+        self.shuffle = shuffle
     }
 }
 
@@ -114,7 +116,8 @@ public final class SiriPlaybackCoordinator {
             entityID: payload.entityID,
             sourceCompositeKey: payload.sourceCompositeKey,
             displayName: payload.displayName,
-            artistHint: payload.artistHint
+            artistHint: payload.artistHint,
+            shuffle: payload.shuffle ?? false
         )
 
         switch payload.kind {
@@ -174,7 +177,11 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.album)
         }
 
-        await playbackService.play(tracks: playableTracks, startingAt: 0)
+        if request.shuffle {
+            await playbackService.shufflePlay(tracks: playableTracks)
+        } else {
+            await playbackService.play(tracks: playableTracks, startingAt: 0)
+        }
     }
 
     /// Resolves an artist and queues all playable tracks in shuffled order.
@@ -230,7 +237,11 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.playlist)
         }
 
-        await playbackService.play(tracks: playableTracks, startingAt: 0)
+        if request.shuffle {
+            await playbackService.shufflePlay(tracks: playableTracks)
+        } else {
+            await playbackService.play(tracks: playableTracks, startingAt: 0)
+        }
     }
 
     private func resolveTrack(

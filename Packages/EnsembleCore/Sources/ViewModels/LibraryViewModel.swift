@@ -694,7 +694,7 @@ public final class LibraryViewModel: ObservableObject {
         }
 
         if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
         }
 
         if options.showDownloadedOnly {
@@ -732,7 +732,7 @@ public final class LibraryViewModel: ObservableObject {
                 artistGenres[artistKey, default: []].formUnion(album.genres)
             }
             filtered = filtered.filter { artist in
-                guard let genres = artistGenres[artist.id] else { return true }
+                guard let genres = artistGenres[artist.id], !genres.isEmpty else { return false }
                 return options.excludedGenres.isDisjoint(with: genres)
             }
         }
@@ -757,7 +757,7 @@ public final class LibraryViewModel: ObservableObject {
         }
 
         if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
         }
 
         if let yearRange = options.yearRange {

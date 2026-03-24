@@ -521,7 +521,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             ) {
                 // Refresh playlist metadata from cache so title/count stays current after edits.
                 playlist = Playlist(from: cachedPlaylist)
-                tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+                let loadedTracks = cachedPlaylist.tracksArray
+                tracks = loadedTracks.map { Track(from: $0) }
+                #if DEBUG
+                let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
+                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
+                #endif
             } else {
                 tracks = []
             }
@@ -600,7 +605,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
         }
         if !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { options.excludedGenres.isDisjoint(with: $0.genres) }
+            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
         }
 
         // Downloaded only filter

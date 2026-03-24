@@ -45,6 +45,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
+    public let siriAffinityCoordinator: SiriAffinityCoordinator
+    public let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
     public let siriMediaUserContextManager: SiriMediaUserContextManager
     public let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
     public let offlineDownloadService: OfflineDownloadService
@@ -363,6 +365,23 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         mutationCoordinator = mutationCoordinatorRef
 
+        siriAffinityCoordinator = MainActor.assumeIsolated {
+            SiriAffinityCoordinator(
+                playbackService: playbackServiceRef,
+                mutationCoordinator: mutationCoordinatorRef,
+                toastCenter: toastCenterRef
+            )
+        }
+
+        siriAddToPlaylistCoordinator = MainActor.assumeIsolated {
+            SiriAddToPlaylistCoordinator(
+                playbackService: playbackServiceRef,
+                mutationCoordinator: mutationCoordinatorRef,
+                playlistRepository: playlistRef,
+                toastCenter: toastCenterRef
+            )
+        }
+
         // Wire mutation coordinator into PlaybackService for offline lock-screen rating support
         MainActor.assumeIsolated {
             playbackServiceRef.setMutationCoordinator(mutationCoordinatorRef)
@@ -395,6 +414,9 @@ public final class DependencyContainer: @unchecked Sendable {
 
             syncRef.onSourceCleanup = { [weak lyricsServiceRef] sourceKey in
                 lyricsServiceRef?.clearCache(forSourceCompositeKey: sourceKey)
+                // Remove download stubs and offline targets for the removed source
+                try? await offlineTargetRepoRef.deleteTargets(forSourceCompositeKey: sourceKey)
+                try? await downloadManagerRef.deleteDownloads(forSourceCompositeKey: sourceKey)
             }
         }
     }

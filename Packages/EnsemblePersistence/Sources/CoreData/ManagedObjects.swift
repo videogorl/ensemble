@@ -193,7 +193,15 @@ extension CDPlaylist {
 
     public var tracksArray: [CDTrack] {
         let set = playlistTracks as? Set<CDPlaylistTrack> ?? []
-        return set.sorted { $0.order < $1.order }.compactMap { $0.track }
+        let sorted = set.sorted { $0.order < $1.order }
+        let result = sorted.compactMap { $0.track }
+        #if DEBUG
+        if result.count != sorted.count {
+            let nilIndices = sorted.enumerated().filter { $0.element.track == nil }.map { $0.offset }
+            EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(sorted.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
+        }
+        #endif
+        return result
     }
 }
 

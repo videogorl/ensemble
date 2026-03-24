@@ -38,6 +38,9 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
 
     func deleteTarget(key: String) async throws
 
+    /// Delete all targets whose sourceCompositeKey matches the given key.
+    func deleteTargets(forSourceCompositeKey sourceKey: String) async throws
+
     /// Delete all targets and their memberships.
     func deleteAllTargets() async throws
 
@@ -186,6 +189,35 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
                     request.fetchLimit = 1
                     if let target = try context.fetch(request).first {
                         context.delete(target)
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteTargets(forSourceCompositeKey sourceKey: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDOfflineDownloadTarget.fetchRequest()
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                    let targets = try context.fetch(request)
+
+                    // Delete memberships then targets
+                    for target in targets {
+                        if let memberships = target.memberships as? Set<CDOfflineDownloadMembership> {
+                            for membership in memberships {
+                                context.delete(membership)
+                            }
+                        }
+                        context.delete(target)
+                    }
+
+                    if context.hasChanges {
                         try context.save()
                     }
                     continuation.resume()
