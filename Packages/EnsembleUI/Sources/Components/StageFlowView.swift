@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// Pure layout inputs for the StageFlow carousel.
 struct StageFlowLayoutMetrics: Equatable {
@@ -411,11 +414,24 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
-        min(geometry.size.height * 0.62, geometry.size.width * 0.34)
+        let viewportHeight = max(geometry.size.height, stageViewportHeightFloor())
+        return min(viewportHeight * 0.62, geometry.size.width * 0.34)
     }
 
     private func centeredItemSize(for geometry: GeometryProxy) -> CGFloat {
         baseItemSize(for: geometry) * layoutMetrics.centerScale
+    }
+
+    /// Cold-launch landscape can report a reduced container height before the
+    /// immersive chrome fully settles. Clamp to the physical screen's short edge
+    /// so StageFlow starts at the same card size it uses after a rotation pass.
+    private func stageViewportHeightFloor() -> CGFloat {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return 0 }
+        return min(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
+        #else
+        return 0
+        #endif
     }
 
     private func detailPanelWidth(for geometry: GeometryProxy) -> CGFloat {
