@@ -7,7 +7,6 @@ public struct AlbumsView: View {
     @Environment(\.dependencies) private var deps
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
-    @State private var showingManageSources = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedAlbumSections: [AlbumSection] = []
     // Cached landscape state — avoids GeometryReader re-evaluating the full body on every geometry change
@@ -174,24 +173,6 @@ public struct AlbumsView: View {
                     showHideSingles: true
                 )
             }
-            .sheet(isPresented: $showingManageSources) {
-                NavigationView {
-                    SettingsView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingManageSources = false
-                                }
-                            }
-                        }
-                }
-                #if os(iOS)
-                .navigationViewStyle(.stack)
-                #endif
-                #if os(macOS)
-                    .frame(width: 720, height: 560)
-                #endif
-            }
     }
 
     private var landscapeStageFlowView: some View {
@@ -252,7 +233,7 @@ public struct AlbumsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

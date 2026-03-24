@@ -6,7 +6,6 @@ import SwiftUI
 public struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @State private var showingManageSources = false
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistPickerTracks: [Track]?
@@ -40,24 +39,6 @@ public struct HomeView: View {
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
             HubOrderingSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
         .sheet(isPresented: Binding(
             get: { playlistPickerTracks != nil },
@@ -146,7 +127,7 @@ public struct HomeView: View {
                             .multilineTextAlignment(.center)
 
                         Button {
-                            showingManageSources = true
+                            DependencyContainer.shared.navigationCoordinator.openSettings()
                         } label: {
                             Label("Manage Sources", systemImage: "slider.horizontal.3")
                                 .padding(.horizontal, 20)

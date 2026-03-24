@@ -24,7 +24,6 @@ public struct FavoritesView: View {
     @State private var hasEnabledLibrariesState = false
     @State private var showFilterSheet = false
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var showingManageSources = false
     // Targeted NVM observation: only re-evaluate when track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -143,24 +142,6 @@ public struct FavoritesView: View {
         .sheet(item: $playlistPickerPayload) { payload in
             PlaylistPickerSheet(nowPlayingVM: nowPlayingVM, tracks: payload.tracks, title: payload.title)
         }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
     }
     
     private var moreMenu: some View {
@@ -250,7 +231,7 @@ public struct FavoritesView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

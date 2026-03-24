@@ -21,7 +21,6 @@ public struct SongsView: View {
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistPickerPayload: PlaylistPickerPayload?
-    @State private var showingManageSources = false
     @State private var isStageFlowActive = false
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     // Targeted observation: only re-evaluate when these specific values change,
@@ -201,24 +200,6 @@ public struct SongsView: View {
                 showGenreFilter: true
             )
         }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-            .frame(width: 720, height: 560)
-            #endif
-        }
     }
 
     private var landscapeAlbumStageFlowView: some View {
@@ -279,7 +260,7 @@ public struct SongsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

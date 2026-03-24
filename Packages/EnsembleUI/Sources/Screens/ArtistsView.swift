@@ -6,7 +6,6 @@ public struct ArtistsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
-    @State private var showingManageSources = false
     // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
     @State private var cachedArtistSections: [ArtistSection] = []
 
@@ -120,24 +119,6 @@ public struct ArtistsView: View {
                 showGenreFilter: true
             )
         }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
-        }
     }
 
     private var loadingView: some View {
@@ -188,7 +169,7 @@ public struct ArtistsView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)

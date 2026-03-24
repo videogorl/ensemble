@@ -71,6 +71,20 @@ struct EnsembleApp: App {
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
+                SettingsPresentationContainer()
+                    .environment(\.dependencies, DependencyContainer.shared)
+                    .frame(minWidth: 720, minHeight: 560)
+            }
+            Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
+                DownloadsPresentationContainer()
+                    .environment(\.dependencies, DependencyContainer.shared)
+                    .frame(minWidth: 900, minHeight: 640)
+            }
+        }
+        #endif
     }
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {

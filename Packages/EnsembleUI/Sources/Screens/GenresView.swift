@@ -4,7 +4,6 @@ import SwiftUI
 public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     @State private var searchText = ""
-    @State private var showingManageSources = false
     @ObservedObject private var navigationCoordinator = DependencyContainer.shared.navigationCoordinator
 
     public init(libraryVM: LibraryViewModel) {
@@ -37,24 +36,6 @@ public struct GenresView: View {
         #endif
         .refreshable {
             await libraryVM.refreshFromServer()
-        }
-        .sheet(isPresented: $showingManageSources) {
-            NavigationView {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                showingManageSources = false
-                            }
-                        }
-                    }
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
-            #if os(macOS)
-                .frame(width: 720, height: 560)
-            #endif
         }
     }
 
@@ -106,7 +87,7 @@ public struct GenresView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showingManageSources = true
+                    DependencyContainer.shared.navigationCoordinator.openSettings()
                 } label: {
                     Label("Manage Sources", systemImage: "slider.horizontal.3")
                         .padding(.horizontal, 20)
