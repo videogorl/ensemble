@@ -44,6 +44,17 @@ enum StageFlowLayoutModel {
         return Int(clamped.rounded())
     }
 
+    static func projectedReleaseIndex(
+        baseIndex: Double,
+        dragDelta: Double,
+        predictedTotalDelta: Double
+    ) -> Double {
+        let releasedIndex = baseIndex + dragDelta
+        let residualMomentum = predictedTotalDelta - dragDelta
+        let momentumProjection = residualMomentum * momentumProjectionFactor(for: abs(residualMomentum))
+        return releasedIndex + momentumProjection
+    }
+
     static func layout(for relativeIndex: Double, metrics: StageFlowLayoutMetrics) -> StageFlowItemLayout {
         let signedDistance = relativeIndex
         let absoluteDistance = abs(relativeIndex)
@@ -94,6 +105,19 @@ enum StageFlowLayoutModel {
 
     private static func interpolate(_ start: Double, _ end: Double, progress: Double) -> Double {
         start + (end - start) * progress
+    }
+
+    private static func momentumProjectionFactor(for residualMomentum: Double) -> Double {
+        switch residualMomentum {
+        case ..<0.2:
+            return 0
+        case ..<0.6:
+            return 0.35
+        case ..<1.2:
+            return 0.72
+        default:
+            return 0.98
+        }
     }
 }
 
@@ -319,9 +343,14 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
         let releasedIndex = scrollIndex + dragIndexDelta
-        let predictedDelta = -Double(value.predictedEndTranslation.width / dragSensitivity(for: itemSize)) * 0.08
+        let predictedTotalDelta = -Double(value.predictedEndTranslation.width / dragSensitivity(for: itemSize))
+        let projectedIndex = StageFlowLayoutModel.projectedReleaseIndex(
+            baseIndex: scrollIndex,
+            dragDelta: dragIndexDelta,
+            predictedTotalDelta: predictedTotalDelta
+        )
         let targetIndex = StageFlowLayoutModel.snappedIndex(
-            for: releasedIndex + predictedDelta,
+            for: projectedIndex,
             itemCount: items.count
         )
 

@@ -38,6 +38,22 @@ final class StageFlowTests: XCTestCase {
         XCTAssertEqual(StageFlowLayoutModel.snappedIndex(for: 99, itemCount: 6), 5)
     }
 
+    func testProjectedReleaseIndexPreservesFastFlickMomentum() {
+        let slowProjection = StageFlowLayoutModel.projectedReleaseIndex(
+            baseIndex: 4,
+            dragDelta: 0.45,
+            predictedTotalDelta: 0.58
+        )
+        let fastProjection = StageFlowLayoutModel.projectedReleaseIndex(
+            baseIndex: 4,
+            dragDelta: 0.45,
+            predictedTotalDelta: 3.2
+        )
+
+        XCTAssertEqual(slowProjection, 4.45, accuracy: 0.05)
+        XCTAssertGreaterThan(fastProjection, 6.8)
+    }
+
     func testSongsStageFlowAlbumsUseFilteredTrackOrderAndCollapseDuplicates() {
         let tracks = [
             Track(
