@@ -52,8 +52,8 @@ public final class SiriAffinityCoordinator {
             return
         }
 
-        // Map affinity type to Plex rating:
-        // love = 10 (loved), dislike = 2 (disliked), remove = nil (unrated)
+        // Map affinity type directly to Plex rating.
+        // love = 10 (loved), dislike = 2 (hated), remove = nil (unrated)
         let rating: Int?
         let toastTitle: String
         let toastIcon: String
@@ -65,8 +65,8 @@ public final class SiriAffinityCoordinator {
             toastIcon = "heart.fill"
         case .dislike:
             rating = 2
-            toastTitle = "Disliked \(currentTrack.title)"
-            toastIcon = "hand.thumbsdown.fill"
+            toastTitle = "Hated \(currentTrack.title)"
+            toastIcon = "heart.slash"
         case .remove:
             rating = nil
             toastTitle = "Removed rating for \(currentTrack.title)"
