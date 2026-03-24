@@ -183,6 +183,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         let baseItemSize = baseItemSize(for: geometry)
         let currentIndex = scrollIndex + dragIndexDelta
         let centerX = stageCenterX(for: geometry)
+        let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
 
         return ZStack {
             if let centeredItem = centeredItem, isPanelPresented {
@@ -199,34 +200,36 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                         .onEnded { value in
                             handleDragEnded(value, itemSize: baseItemSize)
                         }
-                )
+            )
 
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                let relativeIndex = Double(index) - currentIndex
+                if !(isPanelPresented && index == centeredIndex) {
+                    let relativeIndex = Double(index) - currentIndex
 
-                if abs(relativeIndex) < 10 {
-                    let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
-                    itemView(item)
-                        .frame(width: baseItemSize, height: baseItemSize)
-                        .scaleEffect(itemLayout.scale)
-                        .opacity(itemLayout.opacity)
-                        .rotation3DEffect(
-                            .degrees(itemLayout.rotation),
-                            axis: (x: 0, y: 1, z: 0),
-                            perspective: 0.58
-                        )
-                        .offset(
-                            x: itemLayout.xOffset,
-                            y: 0
-                        )
-                        .zIndex(itemLayout.zIndex)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            handleTap(on: item, at: index)
-                        }
-                    #if os(iOS)
-                        .accessibilityIdentifier("stageflow.item.\(index)")
-                    #endif
+                    if abs(relativeIndex) < 10 {
+                        let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
+                        itemView(item)
+                            .frame(width: baseItemSize, height: baseItemSize)
+                            .scaleEffect(itemLayout.scale)
+                            .opacity(itemLayout.opacity)
+                            .rotation3DEffect(
+                                .degrees(itemLayout.rotation),
+                                axis: (x: 0, y: 1, z: 0),
+                                perspective: 0.58
+                            )
+                            .offset(
+                                x: itemLayout.xOffset,
+                                y: 0
+                            )
+                            .zIndex(itemLayout.zIndex)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                handleTap(on: item, at: index)
+                            }
+                        #if os(iOS)
+                            .accessibilityIdentifier("stageflow.item.\(index)")
+                        #endif
+                    }
                 }
             }
         }
@@ -261,29 +264,33 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     private func detailPanel(for item: Item, in geometry: GeometryProxy) -> some View {
         let trackPanelWidth = detailPanelWidth(for: geometry)
         let centeredItemSize = centeredItemSize(for: geometry)
-        let seamOverlap: CGFloat = 10
+        let seamOverlap: CGFloat = 12
         let combinedPanelWidth = centeredItemSize + trackPanelWidth - seamOverlap
         let maxPanelCenterX = geometry.size.width - detailPanelTrailingInset - (combinedPanelWidth / 2)
-        let desiredPanelCenterX = stageCenterX(for: geometry) + (trackPanelWidth / 2) + (seamOverlap / 2)
+        let desiredPanelCenterX = stageCenterX(for: geometry) + (trackPanelWidth / 2) - (seamOverlap / 2)
         let panelCenterX = min(desiredPanelCenterX, maxPanelCenterX)
 
-        return VStack(spacing: 0) {
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(stagePanelBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
+
             HStack(spacing: 0) {
-                Spacer(minLength: centeredItemSize - seamOverlap)
+                itemView(item)
+                    .frame(width: centeredItemSize, height: centeredItemSize)
 
                 VStack(spacing: 0) {
                     detailView(item)
                 }
                 .frame(width: trackPanelWidth)
+                .frame(height: centeredItemSize)
+                .padding(.leading, -seamOverlap)
             }
-            .frame(width: combinedPanelWidth)
-            .frame(height: centeredItemSize)
-            .background(stagePanelBackground)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-            )
             .overlay(alignment: .topTrailing) {
                 Button {
                     closePanel()
@@ -305,8 +312,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 .padding(.top, 10)
                 .padding(.trailing, 10)
             }
-            .shadow(color: .black.opacity(0.26), radius: 18, x: -6, y: 8)
         }
+        .frame(width: combinedPanelWidth, height: centeredItemSize)
         .position(x: panelCenterX, y: stageCenterY(for: geometry))
         .transition(panelRevealTransition)
         .zIndex(150)
