@@ -105,6 +105,18 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Keep desktop sheet sizing consistent with scaffold defaults unless a flow genuinely needs a different footprint.
 - When a desktop flow needs drill-in selection (artists/genres, etc.), prefer a secondary focused sheet over embedding navigation chrome into the primary sheet.
 
+### Large-Screen Sidebar Layout
+- On iPad/macOS sidebar roots, do not treat Search/Settings/Downloads as generic detail tabs by default.
+- Prefer the three-part sidebar pattern: standalone Search action at the top, scrolling middle list for `Library`/`Playlists`/`Pins`, and standalone Settings action at the bottom.
+- Downloads belongs in the `Library` section as an auxiliary presentation action, not its own sidebar section.
+- If Playlists appear in the sidebar, include both `All Playlists` and individual playlist rows, and drive ordering from shared `PlaylistViewModel` sort state rather than a duplicated sidebar-only sort.
+
+### Auxiliary Settings / Downloads Presentation
+- Large-screen Settings and Downloads should route through `NavigationCoordinator.openSettings()` / `openDownloads()` instead of per-screen local sheet booleans.
+- macOS uses dedicated singleton windows declared in `EnsembleApp`.
+- iPadOS uses root-level modal presentation through the shared auxiliary presentation container.
+- If a screen offers “Manage Sources”, it should call the shared coordinator API rather than presenting its own embedded `SettingsView` sheet.
+
 ### Self-Styled Controls on macOS
 - If a playback/action control already draws its own capsule, tile, or circular background, opt out of the default macOS bordered button chrome.
 - Use `chromelessMediaControlButton()` for custom-styled buttons and `chromelessMediaControlMenu()` for custom menu triggers so detail pages and Now Playing keep the same visual language as iOS/iPadOS.
@@ -112,7 +124,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Now Playing on iPad/macOS
 - iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
-- Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`) and change the outer shell first before considering card-specific rewrites.
+- Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`, `InfoCard`) and change the outer shell first before considering card-specific rewrites.
 - For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
 - On macOS, keep the Now Playing header below the window toolbar region and bind Escape to dismiss so close controls never compete with toolbar items.
 - When viewport Now Playing is active, hide the underlying navigation/window chrome so titles, search bars, and toolbar items from the host screen do not show through behind the overlay.
@@ -128,7 +140,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Supported swipe action catalog in v1: `Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle
 - Keep primary tap behavior unchanged (tap still plays/navigates as before)
 - Use `TrackSwipeContainer` for SwiftUI rows and `MediaTrackList` swipe delegates for UIKit-backed track lists
-- macOS keeps existing interaction model (no custom swipe gesture layer in v1)
+- On macOS, keep using the shared `TrackSwipeContainer` / `standardTrailingSwipeActions` entry points so two-finger horizontal swipes reveal the same configured actions on large-screen track rows.
 
 ### Long-Press Menus
 - Prefer `contextMenu` on album/artist/playlist cards/rows to mirror detail-view actions

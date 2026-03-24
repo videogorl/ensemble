@@ -246,13 +246,14 @@ Sources/
 |   +-- ScrollIndex.swift             # A-Z index for fast scrolling
 |   +-- ToastView.swift               # Toast notification overlay component
 |   +-- TrackRow.swift                # Single track row with artwork
-|   +-- TrackSwipeContainer.swift     # iOS/iPadOS swipe gesture container for track row actions
+|   +-- TrackSwipeContainer.swift     # Shared swipe gesture container for track row actions on large-screen + iOS
 |   +-- View+Extensions.swift         # SwiftUI view extensions and helpers
 |   +-- WaveformView.swift            # Audio waveform visualization
 +-- Screens/
 |   +-- AddPlexAccountView.swift      # Account setup flow
 |   +-- AlbumsView.swift              # Album grid
 |   +-- ArtistsView.swift             # Artist grid
+|   +-- AuxiliaryPresentationContainer.swift # Shared Settings/Downloads modal+window root wrappers
 |   +-- DownloadsView.swift           # Offline downloads
 |   +-- FavoritesView.swift           # Tracks rated 4+ stars
 |   +-- GenresView.swift              # Genre browsing

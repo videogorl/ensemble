@@ -134,6 +134,30 @@ public struct AlbumsView: View {
                                     }
                                 }
                             }
+
+                            Menu {
+                                ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        if libraryVM.albumSortOption == option {
+                                            libraryVM.albumsFilterOptions.sortDirection =
+                                                libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.albumSortOption = option
+                                            libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.albumSortOption == option {
+                                                Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
                         }
                     }
                 }

@@ -7,7 +7,7 @@ public extension View {
         allowsFullSwipe: Bool = false,
         @ViewBuilder actions: @escaping () -> Actions
     ) -> some View {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         swipeActions(edge: .trailing, allowsFullSwipe: allowsFullSwipe) {
             actions()
         }

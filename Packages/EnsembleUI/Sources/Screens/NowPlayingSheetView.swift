@@ -138,14 +138,15 @@ public struct NowPlayingSheetView: View {
 
             Spacer()
 
-            if viewModel.lyricsState.isAvailable {
-                Picker("Panel", selection: viewportPanelSelection) {
-                    Text("Queue").tag(0)
+            Picker("Panel", selection: viewportPanelSelection) {
+                Text("Queue").tag(0)
+                Text("Info").tag(3)
+                if viewModel.lyricsState.isAvailable {
                     Text("Lyrics").tag(2)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 220)
             }
+            .pickerStyle(.segmented)
+            .frame(width: viewModel.lyricsState.isAvailable ? 300 : 220)
 
             Button {
                 handleDismiss()
@@ -164,6 +165,9 @@ public struct NowPlayingSheetView: View {
     private var viewportPanelSelection: Binding<Int> {
         Binding(
             get: {
+                if viewModel.currentPage == 3 {
+                    return 3
+                }
                 if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
                     return 2
                 }
@@ -177,7 +181,9 @@ public struct NowPlayingSheetView: View {
 
     @ViewBuilder
     private var viewportDetailPanel: some View {
-        if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
+        if viewModel.currentPage == 3 {
+            InfoCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
+        } else if viewModel.lyricsState.isAvailable && viewModel.currentPage == 2 {
             LyricsCard(
                 viewModel: viewModel,
                 currentPage: $viewModel.currentPage,

@@ -4,6 +4,9 @@ import Intents
 import os
 import OSLog
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 #if os(iOS)
 import BackgroundTasks
 #endif
@@ -71,6 +74,16 @@ struct EnsembleApp: App {
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
         }
+        #if os(macOS)
+        .commands {
+            CommandMenu("Playback") {
+                Button("Play/Pause") {
+                    MacPlaybackShortcut.togglePlaybackIfAllowed()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+            }
+        }
+        #endif
         #if os(macOS)
         if #available(macOS 13.0, *) {
             Window("Settings", id: NavigationCoordinator.AuxiliaryPresentation.settings.windowID) {
@@ -293,6 +306,38 @@ struct EnsembleApp: App {
         }
     }
 }
+
+#if os(macOS)
+private enum MacPlaybackShortcut {
+    static func togglePlaybackIfAllowed() {
+        guard !isTextInputActive else { return }
+
+        let service = DependencyContainer.shared.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        default:
+            break
+        }
+    }
+
+    private static var isTextInputActive: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+
+        if responder is NSTextView {
+            return true
+        }
+
+        if let control = responder as? NSControl {
+            return control.currentEditor() != nil
+        }
+
+        return false
+    }
+}
+#endif
 
 // MARK: - Background Refresh Extension
 

@@ -37,12 +37,12 @@ public struct TrackSwipeContainer<Content: View>: View {
     }
 
     public var body: some View {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         ZStack {
             backgroundActions
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.systemBackground))
+                .background(trackRowBackgroundColor)
                 .contentShape(Rectangle())
                 .offset(x: offset)
         }
@@ -55,7 +55,15 @@ public struct TrackSwipeContainer<Content: View>: View {
         #endif
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
+    private var trackRowBackgroundColor: Color {
+        #if os(macOS)
+        return Color(nsColor: .windowBackgroundColor)
+        #else
+        return Color(.systemBackground)
+        #endif
+    }
+
     private var leadingActions: [TrackSwipeAction] {
         settingsManager.trackSwipeLayout.leading.compactMap { action in
             guard let action else { return nil }

@@ -170,6 +170,48 @@ public struct SongsView: View {
                                 }
                             }
                         }
+
+                        Menu {
+                            Menu {
+                                ForEach(TrackSortOption.allCases, id: \.self) { option in
+                                    Button {
+                                        if libraryVM.trackSortOption == option {
+                                            libraryVM.tracksFilterOptions.sortDirection =
+                                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
+                                        } else {
+                                            libraryVM.trackSortOption = option
+                                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if libraryVM.trackSortOption == option {
+                                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
+                                                      ? "chevron.up" : "chevron.down")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                            }
+
+                            Divider()
+
+                            Button {
+                                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
+                            } label: {
+                                Label("Shuffle All", systemImage: "shuffle")
+                            }
+
+                            Button {
+                                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
+                            } label: {
+                                Label("Play All", systemImage: "play.fill")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
                     }
                 }
             }
