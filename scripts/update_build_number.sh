@@ -20,7 +20,7 @@ else
   # Extract digits only from commit hash (remove hex letters a-f), take first 4
   COMMIT="$(git -C "$SRCROOT" rev-parse HEAD 2>/dev/null | tr -d 'a-f' | cut -c1-4 || echo "0000")"
 
-  BUILD_NUMBER="${DAY}.${HHMM}.${COMMIT}"
+  BUILD_NUMBER="${DAY}${HHMM}.${COMMIT}"
   echo "$BUILD_NUMBER" > "$STAMP_FILE"
 fi
 

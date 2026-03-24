@@ -1,17 +1,11 @@
 #!/bin/sh
 set -eu
 
-# Xcode Cloud: Set build number after clone, before build.
-# Format matches local script: YYYYMMDD.HHMM.CCCC
+# Xcode Cloud: Set build number as a plain integer (no dots).
+# Format: YYYYMMDDHHMM (e.g. 202603240734)
 
 TZ_REGION="America/Los_Angeles"
-DAY="$(TZ="$TZ_REGION" date +"%Y%m%d")"
-HHMM="$(TZ="$TZ_REGION" date +"%H%M")"
-
-# Extract digits only from commit hash (remove hex letters a-f), take first 4
-COMMIT="$(git rev-parse HEAD 2>/dev/null | tr -d 'a-f' | cut -c1-4 || echo "0000")"
-
-BUILD_NUMBER="${DAY}.${HHMM}.${COMMIT}"
+BUILD_NUMBER="$(TZ="$TZ_REGION" date +"%Y%m%d%H%M")"
 
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 xcrun agvtool new-version -all "$BUILD_NUMBER"
