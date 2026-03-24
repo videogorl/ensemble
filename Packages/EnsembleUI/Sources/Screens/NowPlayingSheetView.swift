@@ -140,10 +140,10 @@ public struct NowPlayingSheetView: View {
 
             Picker("Panel", selection: viewportPanelSelection) {
                 Text("Queue").tag(0)
-                Text("Info").tag(3)
                 if viewModel.lyricsState.isAvailable {
                     Text("Lyrics").tag(2)
                 }
+                Text("Info").tag(3)
             }
             .pickerStyle(.segmented)
             .frame(width: viewModel.lyricsState.isAvailable ? 300 : 220)

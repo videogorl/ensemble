@@ -577,6 +577,19 @@ public struct SidebarView: View {
         #endif
     }
 
+    private var sidebarPlaylists: [Playlist] {
+        var seenKeys = Set<String>()
+        return playlistsVM.sortedPlaylists.filter { playlist in
+            let dedupeKey = [
+                playlist.id.isEmpty ? playlist.key : playlist.id,
+                playlist.sourceCompositeKey ?? "",
+                playlist.title
+            ].joined(separator: "|")
+
+            return seenKeys.insert(dedupeKey).inserted
+        }
+    }
+
     public var body: some View {
         ZStack {
             // Main split view
@@ -722,7 +735,7 @@ public struct SidebarView: View {
                 Section(header: Text("Playlists").textCase(nil)) {
                     sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
 
-                    ForEach(playlistsVM.sortedPlaylists) { playlist in
+                    ForEach(sidebarPlaylists, id: \.self) { playlist in
                         sidebarPlaylistButton(playlist)
                     }
                 }
@@ -840,7 +853,7 @@ public struct SidebarView: View {
 
     private var detailContainerView: some View {
         detailView
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 if !showingNowPlaying {
                     MiniPlayer(
                         viewModel: nowPlayingVM,
@@ -855,7 +868,6 @@ public struct SidebarView: View {
                     .frame(maxWidth: 540)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 24)
-                    .padding(.top, 12)
                     .padding(.bottom, 20)
                     .accentColor(deps.settingsManager.accentColor.color)
                     .transition(.identity)
