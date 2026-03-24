@@ -733,7 +733,16 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
     /// Applies a short residual correction after release instead of a second inertial flourish.
     private func snapAnimation(for correctionDistance: Double) -> Animation {
-        let duration = min(max(0.08 + (correctionDistance * 0.045), 0.11), 0.18)
-        return .easeOut(duration: duration)
+        switch correctionDistance {
+        case ..<1.2:
+            let duration = min(max(0.09 + (correctionDistance * 0.04), 0.11), 0.16)
+            return .easeOut(duration: duration)
+        case ..<3.0:
+            let duration = min(0.18 + ((correctionDistance - 1.2) * 0.055), 0.28)
+            return .easeOut(duration: duration)
+        default:
+            let duration = min(0.30 + ((correctionDistance - 3.0) * 0.05), 0.46)
+            return .linear(duration: duration)
+        }
     }
 }
