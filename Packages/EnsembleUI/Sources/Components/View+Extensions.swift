@@ -127,6 +127,27 @@ public extension View {
     func auroraBackgroundSupport() -> some View {
         self.modifier(AuroraBackgroundSupportModifier())
     }
+
+    /// Removes default macOS button bezel chrome when the control already draws
+    /// its own capsule/circle/background styling.
+    @ViewBuilder
+    func chromelessMediaControlButton() -> some View {
+        #if os(macOS)
+        self.buttonStyle(.plain)
+        #else
+        self
+        #endif
+    }
+
+    /// Keeps custom menu labels from picking up bordered macOS pull-down styling.
+    @ViewBuilder
+    func chromelessMediaControlMenu() -> some View {
+        #if os(macOS)
+        self.menuStyle(BorderlessButtonMenuStyle())
+        #else
+        self
+        #endif
+    }
 }
 
 #if os(iOS)

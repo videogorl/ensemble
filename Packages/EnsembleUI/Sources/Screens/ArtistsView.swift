@@ -633,6 +633,7 @@ public struct ArtistDetailView: View {
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif
         }
+        .chromelessMediaControlButton()
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 

@@ -716,6 +716,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
         .disabled(viewModel.filteredTracks.isEmpty)
     }
 

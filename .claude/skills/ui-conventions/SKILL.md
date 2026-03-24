@@ -104,6 +104,11 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Keep desktop sheet sizing consistent with scaffold defaults unless a flow genuinely needs a different footprint.
 - When a desktop flow needs drill-in selection (artists/genres, etc.), prefer a secondary focused sheet over embedding navigation chrome into the primary sheet.
 
+### Self-Styled Controls on macOS
+- If a playback/action control already draws its own capsule, tile, or circular background, opt out of the default macOS bordered button chrome.
+- Use `chromelessMediaControlButton()` for custom-styled buttons and `chromelessMediaControlMenu()` for custom menu triggers so detail pages and Now Playing keep the same visual language as iOS/iPadOS.
+- Limit these helpers to in-content controls; standard toolbar and dialog buttons should keep native platform styling.
+
 ### Now Playing on iPad/macOS
 - iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
 - Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`) and change the outer shell first before considering card-specific rewrites.

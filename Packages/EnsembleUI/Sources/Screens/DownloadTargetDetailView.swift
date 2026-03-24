@@ -185,6 +185,7 @@ public struct DownloadTargetDetailView: View {
         }
         .padding(.horizontal)
         .padding(.bottom)
+        .chromelessMediaControlButton()
         .disabled(viewModel.playableTracks.isEmpty)
     }
 

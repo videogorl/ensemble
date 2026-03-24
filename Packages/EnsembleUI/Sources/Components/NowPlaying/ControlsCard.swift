@@ -186,6 +186,7 @@ public struct ControlsCard: View {
                         color: .primary.opacity(0.9)
                     )
                 }
+                .chromelessMediaControlButton()
             }
             
             MarqueeText(
@@ -205,6 +206,7 @@ public struct ControlsCard: View {
                         color: .primary.opacity(0.7)
                     )
                 }
+                .chromelessMediaControlButton()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -408,6 +410,7 @@ public struct ControlsCard: View {
             }
         }
         .foregroundColor(.primary)
+        .chromelessMediaControlButton()
         // Removed shadow on controls
     }
     
@@ -444,7 +447,7 @@ public struct ControlsCard: View {
             Menu {
                 if let currentTrack = viewModel.currentTrack {
                     Section {
-                        if let albumId = currentTrack.albumRatingKey {
+                        if currentTrack.albumRatingKey != nil {
                             Button {
                                 handleAlbumTap(track: currentTrack)
                             } label: {
@@ -452,7 +455,7 @@ public struct ControlsCard: View {
                             }
                         }
                         
-                        if let artistId = currentTrack.artistRatingKey {
+                        if currentTrack.artistRatingKey != nil {
                             Button {
                                 handleArtistTap(track: currentTrack)
                             } label: {
@@ -500,6 +503,8 @@ public struct ControlsCard: View {
                 transaction.animation = nil
             }
         }
+        .chromelessMediaControlButton()
+        .chromelessMediaControlMenu()
         // Removed shadow on secondary controls
     }
     
