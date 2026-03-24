@@ -21,6 +21,7 @@ These are core design decisions that must be maintained throughout the app.
 - **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
+- **Sidebar consistency:** In `SidebarView`, keep each standard section inside a typed `NavigationStack(path:)` backed by `NavigationCoordinator` rather than mixing typed and untyped stacks; mixed stack shapes can crash SwiftUI when switching sections.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths

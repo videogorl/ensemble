@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Sidebar NavigationStack Consistency Fix (Mar 24, 2026)
+
+`SidebarView` now uses typed `NavigationStack(path:)` containers for all standard sections, including Settings, instead of mixing typed and untyped stacks. This avoids a SwiftUI `AnyNavigationPath.Error.comparisonTypeMismatch` crash that could occur when switching detail sections in the iPad/macOS sidebar.
+
+**Key files:** `MainTabView.swift`, `ui-conventions` skill
+
 ### macOS Media Controls Drop Default Button Chrome (Mar 24, 2026)
 
 Added shared `chromelessMediaControlButton()` and `chromelessMediaControlMenu()` helpers for self-styled playback/action controls on macOS. Now Playing controls, queue/history controls, and common detail-page play/shuffle/radio rows now opt out of the default bordered macOS bezel so they keep the same visual language as the iOS/iPadOS designs without rewriting each view.

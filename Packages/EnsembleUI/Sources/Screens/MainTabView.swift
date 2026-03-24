@@ -770,45 +770,25 @@ public struct SidebarView: View {
         Group {
             switch selection {
             case .home:
-                NavigationStack(path: $navigationCoordinator.homePath) {
-                    sidebarContentView(for: .home)
-                }
+                sidebarNavigationStack(for: .home)
             case .songs:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .songs, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+                sidebarNavigationStack(for: .songs)
             case .artists:
-                NavigationStack(path: $navigationCoordinator.artistsPath) {
-                    sidebarContentView(for: .artists)
-                }
+                sidebarNavigationStack(for: .artists)
             case .albums:
-                NavigationStack(path: $navigationCoordinator.albumsPath) {
-                    sidebarContentView(for: .albums)
-                }
+                sidebarNavigationStack(for: .albums)
             case .genres:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .genres, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+                sidebarNavigationStack(for: .genres)
             case .playlists:
-                NavigationStack(path: $navigationCoordinator.playlistsPath) {
-                    sidebarContentView(for: .playlists)
-                }
+                sidebarNavigationStack(for: .playlists)
             case .favorites:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .favorites, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+                sidebarNavigationStack(for: .favorites)
             case .search:
-                NavigationStack(path: $navigationCoordinator.searchPath) {
-                    sidebarContentView(for: .search)
-                }
+                sidebarNavigationStack(for: .search)
             case .downloads:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .downloads, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+                sidebarNavigationStack(for: .downloads)
             case .settings:
-                NavigationStack {
-                    TabViewFactory.viewContent(for: .settings, libraryVM: libraryVM, nowPlayingVM: nowPlayingVM, searchVM: searchVM)
-                }
+                sidebarNavigationStack(for: .settings)
             case .pin(let id, let type):
                 // Navigate directly to the pinned item's detail view
                 NavigationStack {
@@ -840,6 +820,31 @@ public struct SidebarView: View {
             }
         }
         .miniPlayerBottomSpacing(64)
+    }
+
+    /// Keep the detail column's navigation container shape consistent across sidebar sections.
+    /// Mixing typed and untyped NavigationStacks can trip SwiftUI's AnyNavigationPath
+    /// comparison logic when the selected section changes.
+    @ViewBuilder
+    private func sidebarNavigationStack(for tab: TabItem) -> some View {
+        NavigationStack(path: sidebarPathBinding(for: tab)) {
+            sidebarContentView(for: tab)
+        }
+    }
+
+    private func sidebarPathBinding(for tab: TabItem) -> Binding<[NavigationCoordinator.Destination]> {
+        switch tab {
+        case .home: return $navigationCoordinator.homePath
+        case .songs: return $navigationCoordinator.songsPath
+        case .artists: return $navigationCoordinator.artistsPath
+        case .albums: return $navigationCoordinator.albumsPath
+        case .genres: return $navigationCoordinator.genresPath
+        case .playlists: return $navigationCoordinator.playlistsPath
+        case .favorites: return $navigationCoordinator.favoritesPath
+        case .search: return $navigationCoordinator.searchPath
+        case .downloads: return $navigationCoordinator.downloadsPath
+        case .settings: return $navigationCoordinator.settingsPath
+        }
     }
     
     /// Sidebar section content with navigation destinations registered for path-based push
