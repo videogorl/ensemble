@@ -24,6 +24,14 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
             let result = librariesByServerID[device.clientIdentifier] ?? .success([])
             return try result.get()
         }
+
+        func getServerCapabilities(
+            for device: PlexDevice,
+            token: String,
+            allowInsecurePolicy: AllowInsecureConnectionsPolicy
+        ) async throws -> PlexServerCapabilities {
+            PlexServerCapabilities()
+        }
     }
 
     private enum MockError: LocalizedError {

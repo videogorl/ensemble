@@ -116,6 +116,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var currentTrack: Track? { get }
     var playbackState: PlaybackState { get }
     var currentTime: TimeInterval { get }
+    var presentationTime: TimeInterval { get }
     var duration: TimeInterval { get }
     var queue: [QueueItem] { get }
     var currentQueueIndex: Int { get }
@@ -136,6 +137,8 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var currentTimeValue: TimeInterval { get }
+    var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { get }
+    var presentationTimeValue: TimeInterval { get }
     var bufferedProgressValue: Double { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
@@ -207,6 +210,12 @@ public protocol PlaybackServiceProtocol: AnyObject {
 // MARK: - Playback Service Implementation
 
 public final class PlaybackService: NSObject, PlaybackServiceProtocol {
+    enum PresentationRouteKind: Equatable {
+        case builtInOrWired
+        case bluetooth
+        case airPlay
+    }
+
     struct NetworkTransitionDecision: Equatable {
         let shouldRefreshConnection: Bool
         let shouldAutoHealQueue: Bool
@@ -294,6 +303,51 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let bufferedSeekGateDuration: TimeInterval = 3
     static let prefetchThrottleDuration: TimeInterval = 90
     static let minUnexpectedPauseInterval: TimeInterval = 0.8
+
+    static func inferPresentationRouteKind(
+        hasAirPlay: Bool,
+        hasBluetooth: Bool
+    ) -> PresentationRouteKind {
+        if hasAirPlay { return .airPlay }
+        if hasBluetooth { return .bluetooth }
+        return .builtInOrWired
+    }
+
+    /// Estimates how far audible output trails transport time for presentation-only UI.
+    /// Uses reported latency when available and applies route-specific floors only when
+    /// the platform reports implausibly small values for delayed external routes.
+    static func estimatedPresentationLatency(
+        routeKind: PresentationRouteKind,
+        reportedOutputLatency: TimeInterval,
+        ioBufferDuration: TimeInterval
+    ) -> TimeInterval {
+        let sanitizedOutputLatency = max(0, reportedOutputLatency)
+        let sanitizedIOBufferDuration = max(0, ioBufferDuration)
+        let measuredLatency = sanitizedOutputLatency + sanitizedIOBufferDuration
+
+        switch routeKind {
+        case .builtInOrWired:
+            return 0
+        case .bluetooth:
+            let fallbackBluetoothLatency: TimeInterval = 0.22
+            let compensatedLatency = measuredLatency >= 0.08 ? measuredLatency : fallbackBluetoothLatency
+            return min(max(0, compensatedLatency), 0.75)
+        case .airPlay:
+            let fallbackAirPlayLatency: TimeInterval = 1.75
+            let compensatedLatency = measuredLatency >= 0.35 ? measuredLatency : fallbackAirPlayLatency
+            return min(max(0, compensatedLatency), 2.5)
+        }
+    }
+
+    static func resolvedPresentationTime(
+        rawTime: TimeInterval,
+        playbackState: PlaybackState,
+        effectiveLatency: TimeInterval
+    ) -> TimeInterval {
+        let clampedRawTime = max(0, rawTime)
+        guard playbackState == .playing else { return clampedRawTime }
+        return max(0, clampedRawTime - max(0, effectiveLatency))
+    }
 
     static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
@@ -660,9 +714,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard playbackState != oldValue else { return }
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+            refreshPresentationTime()
         }
     }
     @Published public private(set) var currentTime: TimeInterval = 0
+    @Published public private(set) var presentationTime: TimeInterval = 0
     @Published public private(set) var bufferedProgress: Double = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
@@ -688,6 +744,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { $playbackState.eraseToAnyPublisher() }
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> { $currentTime.eraseToAnyPublisher() }
     public var currentTimeValue: TimeInterval { currentTime }
+    public var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { $presentationTime.eraseToAnyPublisher() }
+    public var presentationTimeValue: TimeInterval { presentationTime }
     public var bufferedProgressValue: Double { bufferedProgress }
     public var queuePublisher: AnyPublisher<[QueueItem], Never> { $queue.eraseToAnyPublisher() }
     public var currentQueueIndexPublisher: AnyPublisher<Int, Never> { $currentQueueIndex.eraseToAnyPublisher() }
@@ -800,6 +858,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var nowPlayingArtworkRequestKey: String?
     private var nowPlayingArtworkTrackID: String?
     private var nowPlayingArtwork: MPMediaItemArtwork?
+    private var presentationRouteKind: PresentationRouteKind = .builtInOrWired
+    private var effectivePresentationLatency: TimeInterval = 0
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
@@ -927,6 +987,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioSession()
         setupRemoteCommands()
         setupPlayer()
+        refreshPresentationLatencyEstimate()
         setupNetworkObservation()
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
@@ -991,9 +1052,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             .sink { [weak self] time in
                 guard let self else { return }
                 guard self.playbackState == .playing else { return }
-                self.currentTime = time
+                self.updatePlaybackTimes(rawTime: time)
                 Task { @MainActor in
-                    self.audioAnalyzer.updatePlaybackPosition(time)
+                    self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
                 }
 
                 // Timeline reporting every 10 seconds
@@ -1059,7 +1120,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let newTrack = queue[index].track
         currentQueueIndex = index
         currentTrack = newTrack
-        currentTime = 0
+        updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 1.0
         waveformHeights = []
         lastTimelineReportTime = 0
@@ -1430,6 +1491,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 options: []
             )
             isAudioSessionConfigured = true
+            refreshPresentationLatencyEstimate()
             #if DEBUG
             EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
             #endif
@@ -1445,6 +1507,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         #else
         return true
+        #endif
+    }
+
+    private func presentationTime(for rawTime: TimeInterval) -> TimeInterval {
+        Self.resolvedPresentationTime(
+            rawTime: rawTime,
+            playbackState: playbackState,
+            effectiveLatency: effectivePresentationLatency
+        )
+    }
+
+    private func updatePlaybackTimes(rawTime: TimeInterval) {
+        let clampedRawTime = max(0, rawTime)
+        currentTime = clampedRawTime
+        presentationTime = presentationTime(for: clampedRawTime)
+    }
+
+    private func refreshPresentationTime() {
+        presentationTime = presentationTime(for: currentTime)
+    }
+
+    private func refreshPresentationLatencyEstimate() {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs
+        let hasAirPlay = outputs.contains { $0.portType == .airPlay }
+        let hasBluetooth = outputs.contains {
+            $0.portType == .bluetoothA2DP
+                || $0.portType == .bluetoothLE
+                || $0.portType == .bluetoothHFP
+        }
+
+        presentationRouteKind = Self.inferPresentationRouteKind(
+            hasAirPlay: hasAirPlay,
+            hasBluetooth: hasBluetooth
+        )
+        isExternalPlaybackActive = presentationRouteKind != .builtInOrWired
+        effectivePresentationLatency = Self.estimatedPresentationLatency(
+            routeKind: presentationRouteKind,
+            reportedOutputLatency: session.outputLatency,
+            ioBufferDuration: session.ioBufferDuration
+        )
+        refreshPresentationTime()
+        #if DEBUG
+        EnsembleLogger.debug(
+            "[Playback] presentation route=\(String(describing: presentationRouteKind)) "
+                + "latency=\(String(format: "%.3f", effectivePresentationLatency))s "
+                + "reported=\(String(format: "%.3f", session.outputLatency))s "
+                + "ioBuffer=\(String(format: "%.3f", session.ioBufferDuration))s"
+        )
+        #endif
+        #else
+        presentationRouteKind = .builtInOrWired
+        effectivePresentationLatency = 0
+        isExternalPlaybackActive = false
+        refreshPresentationTime()
         #endif
     }
 
@@ -1503,6 +1621,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let now = Date()
         lastRouteChangeAt = now
         isRouteChangeInProgress = true
+        refreshPresentationLatencyEstimate()
 
         #if DEBUG
         EnsembleLogger.debug("🎧 Audio route change detected: \(reason.rawValue)")
@@ -1523,6 +1642,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: settleNanoseconds)
                 if self.lastRouteChangeAt == now {
+                    self.refreshPresentationLatencyEstimate()
                     self.isRouteChangeInProgress = false
                     // Reset pause loop counters so that normal AirPlay buffer
                     // negotiation after the settle window doesn't trip the backoff.
@@ -2098,6 +2218,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if self.audioEngine?.currentTrackId != nil {
                         do {
                             try self.audioEngine?.resume()
+                            self.refreshPresentationLatencyEstimate()
                             self.playbackState = .playing
                             self.updateNowPlayingInfo()
                             self.audioAnalyzer.resumeUpdates()
@@ -2143,6 +2264,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } catch {
             EnsembleLogger.playback("ENGINE: resume failed -- \(error.localizedDescription)")
         }
+        refreshPresentationLatencyEstimate()
         playbackState = .playing
         updateNowPlayingInfo()
 
@@ -2216,7 +2338,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isFastSeeking = false
         currentTrack = nil
         playbackState = .stopped
-        currentTime = 0
+        updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         consecutivePlaybackFailures = 0
         queueExhaustedTimestamps.removeAll()
@@ -2267,7 +2389,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.currentQueueIndex = nextIndex
                 let nextTrack = self.queue[nextIndex].track
                 self.currentTrack = nextTrack
-                self.currentTime = 0
+                self.updatePlaybackTimes(rawTime: 0)
                 self.pushNowPlayingForSkipTransition()
 
                 guard !Task.isCancelled else { return }
@@ -2281,7 +2403,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         self.currentQueueIndex = wrappedIndex
                         let wrappedTrack = self.queue[wrappedIndex].track
                         self.currentTrack = wrappedTrack
-                        self.currentTime = 0
+                        self.updatePlaybackTimes(rawTime: 0)
                         self.pushNowPlayingForSkipTransition()
 
                         guard !Task.isCancelled else { return }
@@ -2342,7 +2464,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Push previous track info to lock screen with rate=1.0
         if currentQueueIndex >= 0, currentQueueIndex < queue.count {
             currentTrack = queue[currentQueueIndex].track
-            currentTime = 0
+            updatePlaybackTimes(rawTime: 0)
             pushNowPlayingForSkipTransition()
         }
 
@@ -2359,7 +2481,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func seek(to time: TimeInterval) {
         let effectiveDur = duration
         let clampedTime = effectiveDur > 0 ? max(0, min(time, effectiveDur)) : max(0, time)
-        currentTime = clampedTime
+        updatePlaybackTimes(rawTime: clampedTime)
         do {
             try audioEngine?.seek(to: clampedTime)
         } catch {
@@ -3247,7 +3369,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Set current track info
         await MainActor.run {
             self.currentTrack = track
-            self.currentTime = 0
+            self.updatePlaybackTimes(rawTime: 0)
             self.bufferedProgress = 0
             self.waveformHeights = []
             self.updateNowPlayingInfo()
@@ -3996,6 +4118,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             try engine.load(fileURL: fileURL, trackId: track.id)
             try engine.play()
+            refreshPresentationLatencyEstimate()
             playbackState = .playing
             updateNowPlayingInfo()
             audioAnalyzer.resumeUpdates()
@@ -4191,7 +4314,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Seek to saved position
             if savedTime > 0 {
                 try audioEngine?.seek(to: savedTime)
-                currentTime = savedTime
+                updatePlaybackTimes(rawTime: savedTime)
             }
 
             // Pre-load frequency timeline (throttle during instrumental mode)
@@ -4551,7 +4674,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 pause()
             case .stopped, .failed:
                 currentTrack = queue[currentQueueIndex].track
-                currentTime = 0
+                updatePlaybackTimes(rawTime: 0)
                 bufferedProgress = 0
                 waveformHeights = []  // Clear old waveform immediately
                 playbackState = .stopped
@@ -4560,7 +4683,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         } else {
             currentTrack = queue[currentQueueIndex].track
-            currentTime = 0
+            updatePlaybackTimes(rawTime: 0)
             waveformHeights = []  // Clear old waveform immediately
             await prefetchNextItem()
         }
@@ -4581,7 +4704,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentQueueIndex = -1
         currentTrack = nil
         playbackState = .stopped
-        currentTime = 0
+        updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         lastTimelineReportTime = 0
         hasScrobbled = false
@@ -5041,7 +5164,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             originalQueue = items
             currentQueueIndex = index
             currentTrack = track
-            currentTime = time
+            updatePlaybackTimes(rawTime: time)
             waveformHeights = []  // Clear old waveform immediately
 
             generateWaveform(for: track.id)
@@ -5175,7 +5298,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try engine.load(fileURL: fileURL, trackId: track.id)
             if time > 0 {
                 try engine.seek(to: time)
-                currentTime = time
+                updatePlaybackTimes(rawTime: time)
             }
         } catch {
             EnsembleLogger.playback("ENGINE: loadAndPrepare failed -- \(error.localizedDescription)")

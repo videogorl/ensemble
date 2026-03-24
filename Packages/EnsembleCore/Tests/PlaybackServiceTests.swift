@@ -3,6 +3,47 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackServiceTests: XCTestCase {
+    func testPresentationRouteKindPrefersAirPlayOverBluetooth() {
+        let routeKind = PlaybackService.inferPresentationRouteKind(
+            hasAirPlay: true,
+            hasBluetooth: true
+        )
+
+        XCTAssertEqual(routeKind, .airPlay)
+    }
+
+    func testEstimatedPresentationLatencyUsesBluetoothFallbackWhenReportedLatencyIsTiny() {
+        let latency = PlaybackService.estimatedPresentationLatency(
+            routeKind: .bluetooth,
+            reportedOutputLatency: 0.01,
+            ioBufferDuration: 0.01
+        )
+
+        XCTAssertEqual(latency, 0.22, accuracy: 0.001)
+    }
+
+    func testResolvedPresentationTimeSubtractsLatencyOnlyWhilePlaying() {
+        XCTAssertEqual(
+            PlaybackService.resolvedPresentationTime(
+                rawTime: 20,
+                playbackState: .playing,
+                effectiveLatency: 1.5
+            ),
+            18.5,
+            accuracy: 0.001
+        )
+
+        XCTAssertEqual(
+            PlaybackService.resolvedPresentationTime(
+                rawTime: 20,
+                playbackState: .paused,
+                effectiveLatency: 1.5
+            ),
+            20,
+            accuracy: 0.001
+        )
+    }
+
     func testTrackFormattedDuration() {
         let track = Track(
             id: "1",
