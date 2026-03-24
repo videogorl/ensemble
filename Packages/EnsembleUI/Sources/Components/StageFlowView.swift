@@ -523,7 +523,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {
-        stageCenterY(for: geometry) + 8
+        stageCenterY(for: geometry)
     }
 
     private func stageTapTarget(
