@@ -127,11 +127,15 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Now Playing on iPad/macOS
 - iPad and macOS Now Playing should present as an in-app viewport-filling overlay, not a floating phone-style sheet.
+- Large-screen Now Playing should use a dedicated viewport root (`NowPlayingViewportRoot`) instead of sharing a mixed phone+desktop container with the iPhone sheet path.
+- Keep `NowPlayingSheetView` focused on the iPhone sheet presentation; large-screen viewport semantics and phone-sheet semantics should not be mixed in one outer shell.
 - Reuse the existing Now Playing cards (`ControlsCard`, `QueueCard`, `LyricsCard`, `InfoCard`) and change the outer shell first before considering card-specific rewrites.
 - For side-by-side layouts, prefer a desktop/tablet header with explicit close affordance and simple panel switching over page indicators or dismiss pills.
-- On macOS, keep the Now Playing header below the window toolbar region and bind Escape to dismiss so close controls never compete with toolbar items.
+- On macOS, keep the Now Playing header below the titlebar/toolbar region and bind Escape to dismiss so close controls never compete with window chrome.
 - On macOS, reserve explicit leading clearance for the traffic-light cluster. On iPadOS 26 and later, reserve matching top-left clearance for the new window controls before placing large-screen Now Playing header content.
-- When viewport Now Playing is active, hide the underlying navigation/window chrome so titles, search bars, and toolbar items from the host screen do not show through behind the overlay.
+- On macOS, coordinate toolbar suppression at the window layer via a dedicated bridge/controller; do not try to hide the host toolbar from inside the SwiftUI Now Playing layout with masks or content overlays.
+- Keep the macOS titlebar alive while Now Playing is active so the traffic lights stay stable; only toolbar content should swap.
+- On iPadOS, it is fine to hide the underlying navigation chrome while viewport Now Playing is active, but avoid content-level hacks that try to fake titlebar behavior on macOS.
 
 ### Toast Presentation
 - iOS/iPadOS toasts are mounted once at app root via `installGlobalToastWindow(toastCenter:)` in `EnsembleApp`

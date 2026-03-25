@@ -6,6 +6,14 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Large-Screen Now Playing Root Presentation Refactor (Mar 25, 2026)
+
+Large-screen Now Playing is no longer implemented as a phone sheet or a titlebar-masking workaround. `NowPlayingViewportRoot` now owns the iPad/macOS viewport layout, while `NowPlayingSheetView` is narrowed back down to the iPhone sheet path. Root containers (`MainTabView`, `SidebarView`) present the viewport root directly, and macOS uses a dedicated `WindowChromeBridge` to swap the toolbar into an empty Now Playing configuration while preserving the titlebar and traffic-light geometry.
+
+This replaces the earlier titlebar masking / toolbar hiding experiments with a cleaner split: content layout stays in SwiftUI, but macOS window chrome is coordinated at the window layer instead of from inside the Now Playing layout itself.
+
+**Key files:** `NowPlayingViewportRoot.swift`, `NowPlayingSheetView.swift`, `MainTabView.swift`, `ui-conventions` skill, `project-structure` skill
+
 ### Large-Screen Now Playing Window-Control Clearance (Mar 25, 2026)
 
 Large-screen Now Playing now reserves explicit top-left system-chrome clearance instead of only adding vertical padding. On macOS this keeps the traffic lights visible and unobstructed; on iPadOS 26 and later it mirrors that behavior for the new desktop-style window controls in the top-left corner.

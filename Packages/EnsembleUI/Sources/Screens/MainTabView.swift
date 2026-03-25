@@ -88,6 +88,12 @@ public struct MainTabView: View {
         #endif
     }
 
+    #if os(macOS)
+    private var windowChromeMode: WindowChromeMode {
+        usesViewportNowPlayingPresentation && showingNowPlaying ? .nowPlaying : .normal
+    }
+    #endif
+
     private var isKeyboardVisible: Bool {
         #if os(iOS)
         return keyboard.isVisible
@@ -182,10 +188,8 @@ public struct MainTabView: View {
             }
             .overlay {
                 if usesViewportNowPlayingPresentation && showingNowPlaying {
-                    NowPlayingSheetView(
+                    NowPlayingViewportRoot(
                         viewModel: nowPlayingVM,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
                         dismissAction: {
                             withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
                                 showingNowPlaying = false
@@ -230,6 +234,12 @@ public struct MainTabView: View {
 
             applyChromeVisibilityObservation(
                 to: rootView
+                    #if os(macOS)
+                    .background(
+                        WindowChromeBridge(mode: windowChromeMode)
+                            .allowsHitTesting(false)
+                    )
+                    #endif
                     .overlay(alignment: .top) {
                         if !isImmersiveMode {
                             OfflineIndicatorOverlay(
@@ -606,6 +616,12 @@ public struct SidebarView: View {
         #endif
     }
 
+    #if os(macOS)
+    private var windowChromeMode: WindowChromeMode {
+        usesViewportNowPlayingPresentation && showingNowPlaying ? .nowPlaying : .normal
+    }
+    #endif
+
     private var sidebarPlaylists: [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let sortedPlaylists = sortedSidebarSourcePlaylists()
@@ -748,10 +764,8 @@ public struct SidebarView: View {
                 }
 
                 if usesViewportNowPlayingPresentation && showingNowPlaying {
-                    NowPlayingSheetView(
+                    NowPlayingViewportRoot(
                         viewModel: nowPlayingVM,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
                         dismissAction: {
                             withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
                                 showingNowPlaying = false
@@ -773,6 +787,12 @@ public struct SidebarView: View {
             guard abs(height - miniPlayerHeight) > 1 else { return }
             miniPlayerHeight = height
         }
+        #if os(macOS)
+        .background(
+            WindowChromeBridge(mode: windowChromeMode)
+                .allowsHitTesting(false)
+        )
+        #endif
         .if(usesViewportNowPlayingPresentation && showingNowPlaying) { view in
             applyViewportNowPlayingChromeVisibility(to: view)
         }
