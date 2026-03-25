@@ -559,6 +559,11 @@ public struct SidebarView: View {
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
 
+    // Cached sidebar playlist items driven by .onReceive — avoids computed property
+    // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
+    @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
+    @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
+
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self._nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
@@ -581,7 +586,34 @@ public struct SidebarView: View {
         usesViewportNowPlayingPresentation ? isViewportNowPlayingPresented : showingSheetNowPlaying
     }
 
-    private var sidebarPlaylists: [SidebarPlaylistItem] {
+    /// Rebuild the cached sidebar playlist @State from the VM's current data.
+    /// Uses @State instead of computed properties to survive NavigationSplitView
+    /// re-layouts on macOS that can drop computed property changes.
+    private func rebuildCachedSidebarPlaylists() {
+        let items = buildSidebarPlaylistItems()
+        let newSmart = items.filter(\.isSmart)
+        let newRegular = items.filter { !$0.isSmart }
+        // Guard against replacing populated lists with empty (mid-sync race)
+        if newSmart.isEmpty && !cachedSmartPlaylists.isEmpty && !playlistsVM.playlists.isEmpty {
+            // Playlists exist but none are smart — that's valid, update
+            if !playlistsVM.playlists.contains(where: { $0.isSmart }) {
+                cachedSmartPlaylists = newSmart
+            }
+        } else if newSmart.map(\.id) != cachedSmartPlaylists.map(\.id) {
+            cachedSmartPlaylists = newSmart
+        }
+        if newRegular.isEmpty && !cachedRegularPlaylists.isEmpty && !playlistsVM.playlists.isEmpty {
+            if !playlistsVM.playlists.contains(where: { !$0.isSmart }) {
+                cachedRegularPlaylists = newRegular
+            }
+        } else if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
+            cachedRegularPlaylists = newRegular
+        }
+    }
+
+    /// Build sidebar playlist items from the VM's current playlists.
+    /// Called from rebuildCachedSidebarPlaylists to update @State caches.
+    private func buildSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let sortedPlaylists = sortedSidebarSourcePlaylists()
 
@@ -615,18 +647,6 @@ public struct SidebarView: View {
                 isSmart: playlist.isSmart
             )
         }
-    }
-
-    private var smartSidebarPlaylists: [SidebarPlaylistItem] {
-        sidebarPlaylists.filter(\.isSmart)
-    }
-
-    private var regularSidebarPlaylists: [SidebarPlaylistItem] {
-        sidebarPlaylists.filter { !$0.isSmart }
-    }
-
-    private var sidebarPlaylistAnimationKey: [String] {
-        sidebarPlaylists.map(\.id)
     }
 
     private func sortedSidebarSourcePlaylists() -> [Playlist] {
@@ -840,10 +860,10 @@ public struct SidebarView: View {
                     }
                 }
 
-                if !smartSidebarPlaylists.isEmpty {
+                if !cachedSmartPlaylists.isEmpty {
                     Section(header: collapsibleSidebarHeader(title: "Smart Playlists", isExpanded: $isSmartPlaylistsExpanded)) {
                         if isSmartPlaylistsExpanded {
-                            ForEach(smartSidebarPlaylists) { playlist in
+                            ForEach(cachedSmartPlaylists) { playlist in
                                 sidebarPlaylistButton(playlist)
                             }
                         }
@@ -854,14 +874,25 @@ public struct SidebarView: View {
                     if isPlaylistsExpanded {
                         sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
 
-                        ForEach(regularSidebarPlaylists) { playlist in
+                        ForEach(cachedRegularPlaylists) { playlist in
                             sidebarPlaylistButton(playlist)
                         }
                     }
                 }
             }
             .listStyle(.sidebar)
-            .animation(nil, value: sidebarPlaylistAnimationKey)
+            // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
+            // instead of computed properties ensures updates survive NavigationSplitView
+            // re-layouts on macOS that can swallow computed property changes.
+            .onReceive(playlistsVM.$playlists) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
+            .onReceive(playlistsVM.$playlistSortOption) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
+            .onReceive(playlistsVM.$filterOptions) { _ in
+                rebuildCachedSidebarPlaylists()
+            }
 
             Divider()
 
