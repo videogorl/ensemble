@@ -223,18 +223,47 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
                 self.window = window
             }
 
-            guard previousHiddenStates.isEmpty else { return }
             guard #available(macOS 15.0, *), let toolbar = window.toolbar else { return }
 
-            previousHiddenStates = toolbar.items.compactMap { item in
-                guard item.itemIdentifier == .toggleSidebar else {
-                    return nil
+            let toggleSidebarSelector = #selector(NSSplitViewController.toggleSidebar(_:))
+
+            for item in toolbar.items {
+                guard shouldHideSidebarToggleItem(item, toggleSidebarSelector: toggleSidebarSelector) else {
+                    continue
+                }
+
+                guard !previousHiddenStates.contains(where: { $0.item === item }) else {
+                    continue
                 }
 
                 let previousHidden = item.isHidden
                 item.isHidden = true
-                return (item, previousHidden)
+                previousHiddenStates.append((item, previousHidden))
             }
+        }
+
+        private func shouldHideSidebarToggleItem(
+            _ item: NSToolbarItem,
+            toggleSidebarSelector: Selector
+        ) -> Bool {
+            if item.itemIdentifier == .toggleSidebar {
+                return true
+            }
+
+            let identifier = item.itemIdentifier.rawValue.lowercased()
+            if identifier.contains("sidebar") {
+                return true
+            }
+
+            if item.action == toggleSidebarSelector {
+                return true
+            }
+
+            if let control = item.view as? NSControl, control.action == toggleSidebarSelector {
+                return true
+            }
+
+            return false
         }
 
         func restore() {
@@ -258,6 +287,22 @@ private struct SidebarToggleToolbarSuppressionBridge: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            coordinator?.apply(to: window)
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator?.apply(to: self?.window)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.coordinator?.apply(to: self?.window)
+            }
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            coordinator?.apply(to: window)
+        }
+
+        override func layout() {
+            super.layout()
             coordinator?.apply(to: window)
         }
     }
