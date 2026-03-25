@@ -514,8 +514,8 @@ struct NestedNavigationLink<DestinationView: View>: View {
 // MARK: - iPad Sidebar View
 
 @available(iOS 16.0, macOS 13.0, *)
-private struct DetailColumnWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+private struct SidebarColumnWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 260
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
@@ -554,7 +554,7 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSelection = .library(.home)
     @State private var showingSheetNowPlaying = false
-    @State private var detailColumnWidth: CGFloat = 0
+    @State private var sidebarColumnWidth: CGFloat = 260
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -708,14 +708,23 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
-            sidebarColumn
-        } detail: {
-            detailContainerView
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                NavigationSplitView {
+                    sidebarColumn
+                } detail: {
+                    detailContainerView
+                }
+
+                if !isShowingNowPlaying {
+                    detailColumnMiniPlayer(totalSize: proxy.size)
+                        .zIndex(2)
+                }
+            }
         }
-        .onPreferenceChange(DetailColumnWidthPreferenceKey.self) { width in
-            guard abs(width - detailColumnWidth) > 1 else { return }
-            detailColumnWidth = width
+        .onPreferenceChange(SidebarColumnWidthPreferenceKey.self) { width in
+            guard abs(width - sidebarColumnWidth) > 1 else { return }
+            sidebarColumnWidth = width
         }
         #if os(iOS)
         .sheet(item: $navigationCoordinator.activeAuxiliaryPresentation, onDismiss: {
@@ -866,6 +875,14 @@ public struct SidebarView: View {
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarColumnWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
     }
 
     /// SF Symbol for each pinned item type
@@ -950,20 +967,6 @@ public struct SidebarView: View {
     private var detailContainerView: some View {
         detailView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: DetailColumnWidthPreferenceKey.self,
-                        value: proxy.size.width
-                    )
-                }
-            )
-            .overlay(alignment: .bottom) {
-                if !isShowingNowPlaying {
-                    detailColumnMiniPlayer
-                        .padding(.bottom, 20)
-                }
-            }
     }
 
     @ViewBuilder
@@ -1006,27 +1009,47 @@ public struct SidebarView: View {
         }
     }
 
-    private var detailColumnMiniPlayer: some View {
+    private func detailColumnMiniPlayer(totalSize: CGSize) -> some View {
         let horizontalPadding: CGFloat = 24
-        let availableWidth = max(detailColumnWidth - (horizontalPadding * 2), 0)
+        let bottomPadding: CGFloat = 20
+        let clampedSidebarWidth = min(max(sidebarColumnWidth, 0), totalSize.width)
+        let detailWidth = max(totalSize.width - clampedSidebarWidth, 0)
+        let availableWidth = max(detailWidth - (horizontalPadding * 2), 0)
         let miniPlayerWidth = min(540, availableWidth)
 
-        return MiniPlayer(
-            viewModel: nowPlayingVM,
-            isFloating: true,
-            namespace: playerNamespace,
-            animationID: artworkAnimationID
-        ) {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                if usesViewportNowPlayingPresentation {
-                    presentViewportNowPlaying(nowPlayingVM)
-                } else {
-                    showingSheetNowPlaying = true
+        return VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: clampedSidebarWidth)
+
+                HStack {
+                    Spacer(minLength: 0)
+                    MiniPlayer(
+                        viewModel: nowPlayingVM,
+                        isFloating: true,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID
+                    ) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            if usesViewportNowPlayingPresentation {
+                                presentViewportNowPlaying(nowPlayingVM)
+                            } else {
+                                showingSheetNowPlaying = true
+                            }
+                        }
+                    }
+                    .frame(width: miniPlayerWidth)
+                    .accentColor(deps.settingsManager.accentColor.color)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, horizontalPadding)
+                .frame(width: detailWidth, alignment: .center)
             }
+            .frame(width: totalSize.width, alignment: .leading)
+            .padding(.bottom, bottomPadding)
         }
-        .frame(width: miniPlayerWidth)
-        .accentColor(deps.settingsManager.accentColor.color)
+        .frame(width: totalSize.width, height: totalSize.height, alignment: .bottomLeading)
         .transition(.identity)
     }
     
