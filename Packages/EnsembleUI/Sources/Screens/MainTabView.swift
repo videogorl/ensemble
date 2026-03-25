@@ -776,9 +776,12 @@ public struct SidebarView: View {
             #endif
         }
         .task {
-            await libraryVM.refresh()
-            await pinnedVM.loadPinnedItems()
-            await playlistsVM.loadPlaylists()
+            // Load all sidebar data concurrently so playlists appear
+            // immediately rather than waiting for library refresh to finish.
+            async let libRefresh: () = libraryVM.refresh()
+            async let pinsLoad: () = pinnedVM.loadPinnedItems()
+            async let playlistsLoad: () = playlistsVM.loadPlaylists()
+            _ = await (libRefresh, pinsLoad, playlistsLoad)
         }
         // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
         // so navigate(to:) pushes onto the correct section's NavigationStack
