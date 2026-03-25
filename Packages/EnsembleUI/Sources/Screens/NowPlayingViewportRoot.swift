@@ -35,14 +35,14 @@ struct NowPlayingViewportRoot: View {
                 VStack(spacing: 20) {
                     header(for: geometry)
 
-                    HStack(spacing: 20) {
+                    HStack(alignment: .top, spacing: 20) {
                         ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
                             .frame(width: panelWidth(for: geometry))
-                            .frame(maxHeight: .infinity)
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
 
                         detailPanel
                             .frame(width: panelWidth(for: geometry))
-                            .frame(maxHeight: .infinity)
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
                     }
                 }
                 .padding(.horizontal, 24)
