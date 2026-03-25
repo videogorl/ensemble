@@ -880,6 +880,7 @@ public struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .environment(\.defaultMinListRowHeight, 10)
             // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
             // instead of computed properties ensures updates survive NavigationSplitView
             // re-layouts on macOS that can swallow computed property changes.
@@ -1177,6 +1178,8 @@ public struct SidebarView: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     @ViewBuilder
