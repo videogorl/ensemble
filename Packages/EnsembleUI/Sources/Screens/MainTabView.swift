@@ -1164,12 +1164,18 @@ public struct SidebarView: View {
     }
 
     private func sidebarSelectableRow(title: String, systemImage: String, isSelected: Bool = false) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.callout)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .foregroundColor(isSelected ? .white : .primary)
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.callout)
+                .frame(width: 20, alignment: .center)
+            Text(title)
+                .font(.callout)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .foregroundColor(isSelected ? .white : .primary)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? Color.accentColor : Color.clear)
