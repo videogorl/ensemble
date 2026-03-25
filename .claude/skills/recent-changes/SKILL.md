@@ -18,6 +18,8 @@ Large-screen Settings and Downloads no longer live as inline sidebar detail dest
 
 The same pass also moved the sidebar mini player into the detail column so it centers against content with a 540pt max width, removed one-off per-screen Manage Sources sheets in favor of the shared presentation path, restored toolbar sort controls on non-phone Songs/Albums/Artists, disabled collapsing-toolbar principal-title pills on non-iPhone layouts, restored the Info panel to viewport Now Playing, and enabled large-screen space-bar/swipe interaction improvements.
 
+Follow-up correction: the large-screen mini player host must live on a dedicated detail-column container sized by the split-view detail pane itself. Mounting it on individual `NavigationStack` safe-area insets can make it inherit pushed-screen widths and disappear or clip on detail routes.
+
 **Key files:** `EnsembleApp.swift`, `NavigationCoordinator.swift`, `PlaylistViewModel.swift`, `MainTabView.swift`, `AuxiliaryPresentationContainer.swift`, `PlaylistsView.swift`, `CollapsingToolbar.swift`, `NowPlayingSheetView.swift`, `SongsView.swift`, `AlbumsView.swift`, `ArtistsView.swift`, `TrackSwipeContainer.swift`, `StandardSwipeActions.swift`, `ui-conventions` skill, `architecture` skill, `project-structure` skill
 
 ### Sidebar NavigationStack Consistency Fix (Mar 24, 2026)
