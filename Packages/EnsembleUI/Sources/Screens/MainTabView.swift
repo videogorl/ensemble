@@ -547,6 +547,7 @@ public struct SidebarView: View {
         let playlistID: String
         let sourceKey: String?
         let title: String
+        let isSmart: Bool
     }
 
     @StateObject private var libraryVM: LibraryViewModel
@@ -567,6 +568,9 @@ public struct SidebarView: View {
 
     @State private var selection: SidebarSelection = .library(.home)
     @State private var showingNowPlaying = false
+    @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
+    @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
+    @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
 
     public init() {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
@@ -616,9 +620,22 @@ public struct SidebarView: View {
                 id: stableID,
                 playlistID: playlist.id,
                 sourceKey: playlist.sourceCompositeKey,
-                title: resolvedTitle
+                title: resolvedTitle,
+                isSmart: playlist.isSmart
             )
         }
+    }
+
+    private var smartSidebarPlaylists: [SidebarPlaylistItem] {
+        sidebarPlaylists.filter(\.isSmart)
+    }
+
+    private var regularSidebarPlaylists: [SidebarPlaylistItem] {
+        sidebarPlaylists.filter { !$0.isSmart }
+    }
+
+    private var sidebarPlaylistAnimationKey: [String] {
+        sidebarPlaylists.map(\.id)
     }
 
     private func sortedSidebarSourcePlaylists() -> [Playlist] {
@@ -828,34 +845,49 @@ public struct SidebarView: View {
                 }
 
                 if !pinnedVM.resolvedPins.isEmpty {
-                    Section(header: Text("Pins").textCase(nil)) {
-                        ForEach(pinnedVM.resolvedPins) { pin in
-                            Button {
-                                selection = .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
-                            } label: {
-                                sidebarSelectableRow(
-                                    title: pin.pinnedItem.title,
-                                    systemImage: iconForPinType(pin.pinnedItem.type),
-                                    isSelected: selection == .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
-                                )
+                    Section(header: collapsibleSidebarHeader(title: "Pins", isExpanded: $isPinsExpanded)) {
+                        if isPinsExpanded {
+                            ForEach(pinnedVM.resolvedPins) { pin in
+                                Button {
+                                    selection = .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                } label: {
+                                    sidebarSelectableRow(
+                                        title: pin.pinnedItem.title,
+                                        systemImage: iconForPinType(pin.pinnedItem.type),
+                                        isSelected: selection == .pin(id: pin.pinnedItem.id, type: pin.pinnedItem.type)
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
-                        }
-                        .onMove { source, destination in
-                            pinnedVM.move(fromOffsets: source, toOffset: destination)
+                            .onMove { source, destination in
+                                pinnedVM.move(fromOffsets: source, toOffset: destination)
+                            }
                         }
                     }
                 }
 
-                Section(header: Text("Playlists").textCase(nil)) {
-                    sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
+                if !smartSidebarPlaylists.isEmpty {
+                    Section(header: collapsibleSidebarHeader(title: "Smart Playlists", isExpanded: $isSmartPlaylistsExpanded)) {
+                        if isSmartPlaylistsExpanded {
+                            ForEach(smartSidebarPlaylists) { playlist in
+                                sidebarPlaylistButton(playlist)
+                            }
+                        }
+                    }
+                }
 
-                    ForEach(sidebarPlaylists) { playlist in
-                        sidebarPlaylistButton(playlist)
+                Section(header: collapsibleSidebarHeader(title: "Playlists", isExpanded: $isPlaylistsExpanded)) {
+                    if isPlaylistsExpanded {
+                        sidebarLibrarySelectionButton("All Playlists", systemImage: "music.note.list", tab: .playlists)
+
+                        ForEach(regularSidebarPlaylists) { playlist in
+                            sidebarPlaylistButton(playlist)
+                        }
                     }
                 }
             }
             .listStyle(.sidebar)
+            .animation(nil, value: sidebarPlaylistAnimationKey)
 
             Divider()
 
@@ -1055,6 +1087,23 @@ public struct SidebarView: View {
                 systemImage: systemImage,
                 isSelected: selection == .library(tab)
             )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func collapsibleSidebarHeader(title: String, isExpanded: Binding<Bool>) -> some View {
+        Button {
+            isExpanded.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                    .textCase(nil)
+                Spacer(minLength: 0)
+                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

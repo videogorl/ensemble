@@ -110,6 +110,8 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Prefer the three-part sidebar pattern: standalone Search action at the top, scrolling middle list for `Library`/`Playlists`/`Pins`, and standalone Settings action at the bottom.
 - Downloads belongs in the `Library` section as an auxiliary presentation action, not its own sidebar section.
 - If Playlists appear in the sidebar, include both `All Playlists` and individual playlist rows, and drive ordering from shared `PlaylistViewModel` sort state rather than a duplicated sidebar-only sort.
+- Keep `Library` as the always-expanded anchor section. `Pins`, `Smart Playlists`, and `Playlists` may be collapsible on large screens, and their expanded state should persist across redraws.
+- Separate smart playlists into their own section above regular playlists instead of mixing them into the main playlist list.
 
 ### Auxiliary Settings / Downloads Presentation
 - Large-screen Settings and Downloads should route through `NavigationCoordinator.openSettings()` / `openDownloads()` instead of per-screen local sheet booleans.
