@@ -549,13 +549,25 @@ public final class AudioPlaybackEngine {
                              &bypass, UInt32(MemoryLayout<UInt32>.size))
 
         // Sound to Isolate: 0.0 = background/instruments, 1.0 = vocals
-        // With the v0 model loaded, 0.0 isolates the instrumental track.
+        // With the v0 model loaded, 0.0 isolates the instrumental track on iOS.
+        // macOS AU interprets the same parameters with inverted polarity, so we
+        // use negative wetDryMix to get the complementary (instrumental) signal.
         AudioUnitSetParameter(au, 1, kAudioUnitScope_Global, 0, 0.0, 0)
 
-        // Wet/Dry Mix: 100 = fully isolated, 0 = original (passthrough).
-        // Use 95 instead of 100 to blend a small amount of original back in,
-        // which smooths out separation artifacts in the vocal removal.
-        let wetDryValue: AudioUnitParameterValue = isIsolationActive ? 92.5 : 0.0
+        // Wet/Dry Mix: 100 = fully isolated, 0 = original (passthrough), -100 = complementary.
+        // iOS: positive wetDryMix gives instrumentals directly.
+        // macOS: the AU isolates vocals instead, so use negative wetDryMix
+        // to subtract them and get the instrumental complement.
+        let wetDryValue: AudioUnitParameterValue
+        if isIsolationActive {
+            #if os(macOS)
+            wetDryValue = -92.5
+            #else
+            wetDryValue = 92.5
+            #endif
+        } else {
+            wetDryValue = 0.0
+        }
         AudioUnitSetParameter(au, 0, kAudioUnitScope_Global, 0, wetDryValue, 0)
 
         #if DEBUG
