@@ -6,6 +6,12 @@ user-invocable: true
 
 # Recent Major Changes
 
+### Offline Download Orphaned Target Self-Healing (Mar 25, 2026)
+
+When CDOfflineDownloadMembership records are lost (e.g., after iOS update or data corruption), download targets could show "0 tracks" even though the target itself survived. Recovery previously required waiting for sync-triggered reconciliation (~15 min). Now: (1) `refreshTargetProgress` preserves stale total counts and sets status to `.pending` so the UI shows useful info while healing. (2) `refreshAllTargetProgresses` calls `reconcileOrphanedTargets()` to rebuild memberships from existing library data immediately. (3) Startup and pull-to-refresh both run download file self-healing before computing progress. Pull-to-refresh on the Downloads view now also triggers the healing path.
+
+**Key files:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+
 ### Large-Screen Mini Player Hit-Testing Simplification (Mar 25, 2026)
 
 The large-screen mini player no longer uses a split-view-root geometry host on macOS. `SidebarView` now mounts the floating mini player directly on the detail-column container, while `miniPlayerBottomSpacing` is a no-op on macOS so detail content scrolls behind the player instead of reserving a dead gutter. This removes the oversized hit-blocking band that could sit above the floating pill and keeps the mini player centered relative to the detail pane without reintroducing detail-route disappearance.

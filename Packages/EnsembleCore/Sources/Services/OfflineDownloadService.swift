@@ -158,6 +158,11 @@ public final class OfflineDownloadService: ObservableObject {
         observeSyncCompletions()
 
         Task {
+            // Self-heal download metadata first: verify files on disk,
+            // mark missing/invalid downloads as failed so progress counts
+            // are accurate before we compute target state.
+            _ = try? await downloadManager.fetchDownloads()
+
             await refreshState()
             // Reset stale .downloading status from previous app session.
             // At init time, no download can be actively in-progress.
@@ -180,6 +185,14 @@ public final class OfflineDownloadService: ObservableObject {
     public func refreshState() async {
         await refreshTargetSnapshots()
         await refreshAllTargetProgresses()
+    }
+
+    /// Extended refresh that also runs download file self-healing.
+    /// Use for pull-to-refresh to detect missing files and orphaned targets.
+    public func refreshStateWithHealing() async {
+        // Verify files on disk, mark missing/invalid downloads as failed
+        _ = try? await downloadManager.fetchDownloads()
+        await refreshState()
     }
 
     public func isLibraryDownloadEnabled(sourceCompositeKey: String) -> Bool {
@@ -1648,9 +1661,43 @@ public final class OfflineDownloadService: ObservableObject {
             }
             await refreshTargetSnapshots()
             await refreshActiveDownloadRatingKeys()
+
+            // Self-heal orphaned targets: rebuild memberships for targets that
+            // lost their track references (e.g., after iOS update or data issue).
+            // This runs after the initial snapshot publish so the UI shows stale-
+            // but-useful counts while reconciliation proceeds in the background.
+            await reconcileOrphanedTargets()
         } catch {
             #if DEBUG
             EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Detects targets with 0 memberships but non-zero stale total track counts
+    /// (orphaned) and rebuilds their memberships from existing library/playlist data.
+    private func reconcileOrphanedTargets() async {
+        do {
+            let allTargets = try await targetRepository.fetchTargets()
+            var reconciledAny = false
+
+            for target in allTargets {
+                let memberships = try await targetRepository.fetchTrackReferences(targetKey: target.key)
+                guard memberships.isEmpty && target.totalTrackCount > 0 else { continue }
+
+                #if DEBUG
+                EnsembleLogger.debug("🔧 Reconciling orphaned target \(target.key) (stale count: \(target.totalTrackCount))")
+                #endif
+                try? await reconcileTarget(key: target.key)
+                reconciledAny = true
+            }
+
+            if reconciledAny {
+                await refreshTargetSnapshots()
+            }
+        } catch {
+            #if DEBUG
+            EnsembleLogger.debug("❌ Failed reconciling orphaned targets: \(error.localizedDescription)")
             #endif
         }
     }
@@ -1674,17 +1721,40 @@ public final class OfflineDownloadService: ObservableObject {
         do {
             let references = try await targetRepository.fetchTrackReferences(targetKey: targetKey)
             guard !references.isEmpty else {
-                downloadedBytesByTargetKey[targetKey] = 0
-                qualityMismatchByTargetKey[targetKey] = 0
-                failedTracksByTargetKey[targetKey] = 0
-                try await targetRepository.updateTarget(
-                    key: targetKey,
-                    status: .completed,
-                    totalTrackCount: 0,
-                    completedTrackCount: 0,
-                    progress: 1,
-                    lastError: nil
-                )
+                // Check if this is an orphaned target: previously had tracks but
+                // memberships were lost (e.g., after iOS update or data corruption).
+                // Preserve stale total count so UI shows "37 tracks • Queued" instead
+                // of "0 tracks • Downloaded" while reconciliation rebuilds memberships.
+                let existingTarget = try? await targetRepository.fetchTarget(key: targetKey)
+                if let existing = existingTarget, existing.totalTrackCount > 0 {
+                    downloadedBytesByTargetKey[targetKey] = 0
+                    qualityMismatchByTargetKey[targetKey] = 0
+                    failedTracksByTargetKey[targetKey] = 0
+                    try await targetRepository.updateTarget(
+                        key: targetKey,
+                        status: .pending,
+                        totalTrackCount: Int(existing.totalTrackCount),
+                        completedTrackCount: 0,
+                        progress: 0,
+                        lastError: nil
+                    )
+                    #if DEBUG
+                    EnsembleLogger.debug("⚠️ Orphaned download target \(targetKey): preserved stale count of \(existing.totalTrackCount) tracks")
+                    #endif
+                } else {
+                    // Genuinely empty target (newly created or all tracks removed)
+                    downloadedBytesByTargetKey[targetKey] = 0
+                    qualityMismatchByTargetKey[targetKey] = 0
+                    failedTracksByTargetKey[targetKey] = 0
+                    try await targetRepository.updateTarget(
+                        key: targetKey,
+                        status: .completed,
+                        totalTrackCount: 0,
+                        completedTrackCount: 0,
+                        progress: 1,
+                        lastError: nil
+                    )
+                }
                 return
             }
 

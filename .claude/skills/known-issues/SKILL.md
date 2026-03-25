@@ -181,6 +181,12 @@ description: "Ensemble known issues and technical debt: critical bugs, feature g
 - **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
 - **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
 
+### Download Target Shows "0 Tracks" After Data Loss
+- **Resolved (March 25, 2026)**
+- **Previous:** When CDOfflineDownloadMembership records were lost (e.g., after iOS update or data corruption), `refreshTargetProgress()` found 0 memberships and aggressively wrote `totalTrackCount: 0, completedTrackCount: 0` to the CDOfflineDownloadTarget. The UI showed "0 tracks" even though the target itself survived. Recovery only happened after sync completed and triggered reconciliation (~15 min delay).
+- **Fix:** Three-part self-healing: (1) `refreshTargetProgress` now preserves stale total count and sets status to `.pending` when memberships are empty but the target previously had tracks, so UI shows "37 tracks - Queued" instead of "0 tracks". (2) `refreshAllTargetProgresses` calls `reconcileOrphanedTargets()` which immediately rebuilds memberships from existing library data. (3) Startup and pull-to-refresh both run download metadata self-healing (`fetchDownloads()` file-existence check) before computing progress.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+
 ### Downloads Stuck in "Downloading" After App Kill
 - **Resolved (March 18, 2026)**
 - **Previous:** When the app was killed mid-download, CoreData status stayed `.downloading`. On next launch, `fetchPendingDownloads()` counted them (includes `.downloading`) so workers spawned, but `fetchNextPendingDownload()` found 0 (only `.pending`) so workers immediately exited — endlessly.
