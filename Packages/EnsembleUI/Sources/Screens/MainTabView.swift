@@ -999,27 +999,31 @@ public struct SidebarView: View {
     }
 
     private var detailContainerView: some View {
-        detailView
-            .overlay(alignment: .bottom) {
-                if !showingNowPlaying {
-                    MiniPlayer(
-                        viewModel: nowPlayingVM,
-                        isFloating: true,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID
-                    ) {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            showingNowPlaying = true
-                        }
+        ZStack(alignment: .bottom) {
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if !showingNowPlaying {
+                MiniPlayer(
+                    viewModel: nowPlayingVM,
+                    isFloating: true,
+                    namespace: playerNamespace,
+                    animationID: artworkAnimationID
+                ) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        showingNowPlaying = true
                     }
-                    .frame(maxWidth: 540)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 20)
-                    .accentColor(deps.settingsManager.accentColor.color)
-                    .transition(.identity)
                 }
+                .frame(maxWidth: 540)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 20)
+                .accentColor(deps.settingsManager.accentColor.color)
+                .transition(.identity)
+                .zIndex(2)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
